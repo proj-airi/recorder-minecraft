@@ -173,26 +173,36 @@ class CaptureCoordinator(
     }
 
     override fun close() {
-        synchronized(this) {
-            if (!active) return
-            emit("session_end", associatedEventTick()) {
-                addProperty("clean_shutdown", true)
-                addProperty("apply_sequence_at_end", applySequence)
+        try {
+            synchronized(this) {
+                if (!active) return
+                emit("session_end", associatedEventTick()) {
+                    addProperty("clean_shutdown", true)
+                    addProperty("apply_sequence_at_end", applySequence)
+                }
+                active = false
             }
-            active = false
+            writer.close()
+            logger.info("Sealed dataset recording session {} at tick {}", session.sessionId, serverTick)
+        } catch (throwable: Throwable) {
+            // If publishing the final record failed before the coordinator became inactive,
+            // abandon the active epoch and publish an incomplete session marker.
+            abort(throwable)
+            throw throwable
         }
-        writer.close()
-        logger.info("Sealed dataset recording session {} at tick {}", session.sessionId, serverTick)
     }
 
     fun abort(failure: Throwable) {
-        synchronized(this) {
-            if (!active) return
+        val wasActive = synchronized(this) {
+            val previous = active
             active = false
+            previous
         }
         val reason = "${failure::class.java.simpleName}: ${failure.message ?: "capture failure"}"
         writer.abort(reason)
-        logger.error("Marked dataset recording session {} incomplete at tick {}", session.sessionId, serverTick)
+        if (wasActive) {
+            logger.error("Marked dataset recording session {} incomplete at tick {}", session.sessionId, serverTick)
+        }
     }
 
     private fun emit(recordType: String, recordTick: Long = serverTick, payload: JsonObject.() -> Unit) {

@@ -8,6 +8,7 @@ import java.nio.file.Path
 import java.security.MessageDigest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -60,6 +61,31 @@ class AsyncEpochWriterTest {
         assertFalse(end.get("clean_shutdown").asBoolean)
         assertEquals("incomplete", end.get("status").asString)
         assertEquals("synthetic failure", end.get("failure_reason").asString)
+    }
+
+    @Test
+    fun `failed close publishes an incomplete session marker with the last durable record`() {
+        val session = directory.resolve("session-close-failed")
+        Files.createDirectories(session.resolve("epochs/epoch-000001"))
+        // Force opening epoch 1 to fail after epoch 0 has been written and sealed.
+        Files.writeString(session.resolve("epochs/epoch-000001/events.jsonl"), "collision\n")
+        val writer = AsyncEpochWriter("session-close-failed", session, 1_024, LoggerFactory.getLogger("test"))
+
+        writer.submit(record(0, 1, 1, "tick_end"))
+        runCatching { writer.submit(record(1, 2, 2, "tick_end")) }
+
+        assertFailsWith<IllegalStateException> { writer.close() }
+
+        val end = JsonLineEncoder.gson.fromJson(
+            Files.readString(session.resolve("session_end.json")),
+            JsonObject::class.java
+        )
+        assertFalse(end.get("clean_shutdown").asBoolean)
+        assertEquals("incomplete", end.get("status").asString)
+        assertEquals(0, end.get("last_epoch_index").asInt)
+        assertEquals(1, end.get("last_server_tick").asInt)
+        assertEquals(1, end.get("last_sequence").asInt)
+        assertTrue(end.get("failure_reason").asString.contains("epoch output already exists"))
     }
 
     private fun record(epoch: Long, tick: Long, sequence: Long, type: String): AsyncEpochWriter.QueuedRecord {

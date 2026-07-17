@@ -12,6 +12,7 @@ import java.security.DigestOutputStream
 import java.security.MessageDigest
 import java.time.Instant
 import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
@@ -24,6 +25,7 @@ class AsyncEpochWriter(
     private val queue = ArrayBlockingQueue<QueueItem>(queueCapacity)
     private val closing = AtomicBoolean(false)
     private val failure = AtomicReference<Throwable?>()
+    private val lastWrittenRecord = AtomicReference<QueuedRecord?>()
     private val worker = Thread(::writeLoop, "mc-recorder-writer").apply {
         isDaemon = true
         start()
@@ -31,25 +33,54 @@ class AsyncEpochWriter(
 
     fun submit(record: QueuedRecord) {
         check(!closing.get()) { "recorder writer is closing" }
-        failure.get()?.let { throw IllegalStateException("recorder writer failed", it) }
-        queue.put(QueueItem.Record(record))
+        offerWhileHealthy(QueueItem.Record(record), "record")
         failure.get()?.let { throw IllegalStateException("recorder writer failed", it) }
     }
 
     override fun close() {
         if (!closing.compareAndSet(false, true)) return
-        queue.put(QueueItem.Stop)
-        joinWorker()
+        try {
+            offerWhileHealthy(QueueItem.Stop, "clean shutdown marker")
+            joinWorker()
+        } catch (throwable: Throwable) {
+            worker.interrupt()
+            val writerFailure = failure.get() ?: throwable
+            runCatching {
+                publishIncompleteIfMissing(
+                    "${writerFailure::class.java.simpleName}: ${writerFailure.message ?: "writer close failure"}"
+                )
+            }.onFailure(throwable::addSuppressed)
+            throw throwable
+        }
     }
 
     fun abort(reason: String) {
-        if (!closing.compareAndSet(false, true)) return
-        if (worker.isAlive) {
-            queue.put(QueueItem.Abort(reason))
-            joinWorker(throwOnWorkerFailure = false)
+        val initiated = closing.compareAndSet(false, true)
+        if (initiated && worker.isAlive) {
+            runCatching {
+                offerWhileHealthy(QueueItem.Abort(reason), "abort marker")
+                joinWorker(throwOnWorkerFailure = false)
+            }.onFailure {
+                worker.interrupt()
+                logger.error("Could not stop dataset writer cleanly while aborting", it)
+            }
         }
-        if (!Files.exists(sessionDirectory.resolve("session_end.json"))) {
-            writeSessionEnd(null, clean = false, failureReason = reason)
+        publishIncompleteIfMissing(reason)
+    }
+
+    private fun offerWhileHealthy(item: QueueItem, description: String) {
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(QUEUE_OPERATION_TIMEOUT_SECONDS)
+        while (true) {
+            failure.get()?.let { throw IllegalStateException("recorder writer failed", it) }
+            check(worker.isAlive) { "recorder writer stopped before accepting $description" }
+            val remaining = deadline - System.nanoTime()
+            check(remaining > 0) { "recorder writer queue timed out while accepting $description" }
+            if (queue.offer(item, minOf(remaining, TimeUnit.MILLISECONDS.toNanos(250)), TimeUnit.NANOSECONDS)) {
+                return
+            }
+            if (item is QueueItem.Record) {
+                check(!closing.get()) { "recorder writer is closing" }
+            }
         }
     }
 
@@ -63,7 +94,6 @@ class AsyncEpochWriter(
 
     private fun writeLoop() {
         var segment: EpochSegment? = null
-        var lastRecord: QueuedRecord? = null
         try {
             while (true) {
                 when (val item = queue.take()) {
@@ -77,16 +107,16 @@ class AsyncEpochWriter(
                             segment = EpochSegment.open(sessionId, sessionDirectory, record.epochIndex)
                         }
                         segment.write(record)
-                        lastRecord = record
+                        lastWrittenRecord.set(record)
                     }
                     QueueItem.Stop -> {
                         segment?.seal()
-                        writeSessionEnd(lastRecord, clean = true)
+                        writeSessionEnd(lastWrittenRecord.get(), clean = true)
                         return
                     }
                     is QueueItem.Abort -> {
                         segment?.abandon()
-                        writeSessionEnd(lastRecord, clean = false, failureReason = item.reason)
+                        writeSessionEnd(lastWrittenRecord.get(), clean = false, failureReason = item.reason)
                         return
                     }
                 }
@@ -98,7 +128,17 @@ class AsyncEpochWriter(
         }
     }
 
+    @Synchronized
+    private fun publishIncompleteIfMissing(reason: String) {
+        if (!Files.exists(sessionDirectory.resolve("session_end.json"))) {
+            writeSessionEnd(lastWrittenRecord.get(), clean = false, failureReason = reason)
+        }
+    }
+
+    @Synchronized
     private fun writeSessionEnd(lastRecord: QueuedRecord?, clean: Boolean, failureReason: String? = null) {
+        val destination = sessionDirectory.resolve("session_end.json")
+        if (Files.exists(destination)) return
         val data = JsonObject().apply {
             addProperty("schema_version", 1)
             addProperty("session_id", sessionId)
@@ -110,7 +150,7 @@ class AsyncEpochWriter(
             addProperty("last_server_tick", lastRecord?.serverTick ?: 0)
             addProperty("last_sequence", lastRecord?.sequence ?: 0)
         }
-        atomicWrite(sessionDirectory.resolve("session_end.json"), prettyJson(data))
+        atomicWrite(destination, prettyJson(data))
     }
 
     data class QueuedRecord(
@@ -160,10 +200,16 @@ class AsyncEpochWriter(
 
         fun seal() {
             if (closed) return
+            try {
+                output.flush()
+                fileOutput.fd.sync()
+                output.close()
+            } catch (throwable: Throwable) {
+                runCatching { output.close() }.onFailure(throwable::addSuppressed)
+                closed = true
+                throw throwable
+            }
             closed = true
-            output.flush()
-            fileOutput.fd.sync()
-            output.close()
 
             val finalPath = epochDirectory.resolve("events.jsonl")
             atomicMove(partialPath, finalPath)
@@ -189,10 +235,10 @@ class AsyncEpochWriter(
 
         fun abandon() {
             if (closed) return
-            closed = true
             runCatching { output.flush() }
             runCatching { fileOutput.fd.sync() }
             runCatching { output.close() }
+            closed = true
         }
 
         companion object {
@@ -212,6 +258,8 @@ class AsyncEpochWriter(
     }
 
     companion object {
+        private const val QUEUE_OPERATION_TIMEOUT_SECONDS = 30L
+
         private fun prettyJson(data: JsonObject): ByteArray =
             (com.google.gson.GsonBuilder().setPrettyPrinting().create().toJson(data) + "\n")
                 .toByteArray(Charsets.UTF_8)
