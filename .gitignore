@@ -1,18 +1,22 @@
 /ServerReplay/
 /.gradle/
+/.gradle-recorder/
+/.mc-recorder/
 /.idea/
 /.vscode/
 /.DS_Store
 
 **/build/
 **/.gradle/
+**/run/
 **/__pycache__/
 **/.pytest_cache/
 **/*.py[cod]
 
 /runtime/
+/artifacts/
 /recordings/
 /datasets/
 /server/
 /mods/
-
+/recorder.toml

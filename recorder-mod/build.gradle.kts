@@ -1,0 +1,52 @@
+plugins {
+    kotlin("jvm") version "2.2.10"
+    id("fabric-loom") version "1.11-SNAPSHOT"
+}
+
+group = "dev.mcdata"
+version = "0.1.0+1.21.8"
+
+repositories {
+    maven("https://maven.supersanta.me/snapshots")
+    mavenCentral()
+}
+
+dependencies {
+    minecraft("com.mojang:minecraft:1.21.8")
+    mappings(loom.officialMojangMappings())
+
+    modImplementation("net.fabricmc:fabric-loader:0.17.2")
+    modImplementation("net.fabricmc.fabric-api:fabric-api:0.132.0+1.21.8")
+    modImplementation("net.fabricmc:fabric-language-kotlin:1.13.5+kotlin.2.2.10")
+
+    // ServerReplay 3.0.1 bundles these modules at runtime. They stay external here.
+    modImplementation("net.casualchampionships:arcade-event-registry:0.6.2-beta.49+1.21.8")
+    modImplementation("net.casualchampionships:arcade-events-server:0.6.2-beta.49+1.21.8")
+
+    testImplementation(kotlin("test"))
+    testImplementation("org.junit.jupiter:junit-jupiter:5.11.4")
+}
+
+base {
+    archivesName.set("mc-recorder-mod")
+}
+
+java {
+    toolchain.languageVersion.set(JavaLanguageVersion.of(21))
+    withSourcesJar()
+}
+
+kotlin {
+    jvmToolchain(21)
+}
+
+tasks.processResources {
+    inputs.property("version", project.version)
+    filesMatching("fabric.mod.json") {
+        expand("version" to project.version)
+    }
+}
+
+tasks.test {
+    useJUnitPlatform()
+}

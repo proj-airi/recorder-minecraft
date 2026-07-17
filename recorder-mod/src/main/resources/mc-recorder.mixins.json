@@ -1,0 +1,12 @@
+{
+  "required": true,
+  "package": "dev.mcdata.recorder.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": [
+    "PacketUtilsMixin",
+    "ServerboundInteractPacketAccessor"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}
