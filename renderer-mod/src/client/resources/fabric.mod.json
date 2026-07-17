@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "mc-recorder-renderer",
+  "version": "${version}",
+  "name": "MC Recorder Renderer",
+  "description": "Automates tick-aligned first-person exports from ServerReplay Flashback recordings.",
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      "dev.mcdata.renderer.McRecorderRenderer"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.17.2",
+    "fabric-api": "*",
+    "minecraft": "1.21.8",
+    "flashback": ">=0.39.5"
+  }
+}
