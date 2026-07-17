@@ -33,6 +33,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
+import java.security.DigestInputStream;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -115,6 +118,7 @@ public final class McRecorderRenderer implements ClientModInitializer {
         if (Files.isSymbolicLink(this.job.replay()) || !Files.isRegularFile(this.job.replay())) {
             throw new IOException("Replay does not exist: " + this.job.replay());
         }
+        this.validateReplayIntegrity();
         if (Files.isSymbolicLink(this.job.output())) {
             throw new IOException("Renderer output cannot be a symlink: " + this.job.output());
         }
@@ -387,6 +391,8 @@ public final class McRecorderRenderer implements ClientModInitializer {
             throw new IOException("Expected " + expectedFrames + " frames, found " + actualFrames);
         }
 
+        this.validateReplayIntegrity();
+
         this.writeStatus("complete", null);
         this.phase = Phase.COMPLETE;
         LOGGER.info("Completed render job with {} frames in {}", actualFrames, this.job.output());
@@ -433,6 +439,8 @@ public final class McRecorderRenderer implements ClientModInitializer {
         JsonObject result = new JsonObject();
         result.addProperty("status", status);
         result.addProperty("replay", this.job.replay().toString());
+        result.addProperty("replay_sha256", this.job.replaySha256());
+        result.addProperty("replay_bytes", this.job.replayBytes());
         result.addProperty("output", this.job.output().toString());
         result.addProperty("session_id", this.job.sessionId());
         result.addProperty("connection_id", this.job.connectionId());
@@ -443,6 +451,8 @@ public final class McRecorderRenderer implements ClientModInitializer {
         result.addProperty("replay_end_tick", this.resolvedEndTick);
         result.addProperty("global_tick_offset", this.globalTickOffset);
         result.addProperty("fps", this.job.framesPerSecond());
+        result.addProperty("width", this.job.width());
+        result.addProperty("height", this.job.height());
         result.addProperty("voxel_snapshots", this.voxelIndexRows.size());
         if (this.job.capturesVoxels()) {
             result.addProperty("voxel_index", this.job.output().resolve("voxels.jsonl").toString());
@@ -459,6 +469,25 @@ public final class McRecorderRenderer implements ClientModInitializer {
         this.waitTicks++;
         if (this.waitTicks > LOAD_TIMEOUT_TICKS) {
             throw new IllegalStateException("Timed out waiting for " + waitingFor);
+        }
+    }
+
+    private void validateReplayIntegrity() throws IOException {
+        if (Files.size(this.job.replay()) != this.job.replayBytes()) {
+            throw new IOException("Replay size changed after render job preparation");
+        }
+        MessageDigest digest;
+        try {
+            digest = MessageDigest.getInstance("SHA-256");
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IOException("SHA-256 is unavailable", exception);
+        }
+        try (DigestInputStream input = new DigestInputStream(Files.newInputStream(this.job.replay()), digest)) {
+            input.transferTo(java.io.OutputStream.nullOutputStream());
+        }
+        String actual = java.util.HexFormat.of().formatHex(digest.digest());
+        if (!actual.equals(this.job.replaySha256())) {
+            throw new IOException("Replay SHA-256 changed after render job preparation");
         }
     }
 

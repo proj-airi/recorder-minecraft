@@ -11,6 +11,8 @@ import java.util.UUID;
 record RenderJobSpec(
     Path jobPath,
     Path replay,
+    String replaySha256,
+    long replayBytes,
     Path output,
     String sessionId,
     String connectionId,
@@ -37,6 +39,18 @@ record RenderJobSpec(
         }
 
         Path replay = resolve(base, requiredString(json, "replay"));
+        if (!json.has("source_replay") || !json.get("source_replay").isJsonObject()) {
+            throw new IllegalArgumentException("Missing required object: source_replay");
+        }
+        JsonObject sourceReplay = json.getAsJsonObject("source_replay");
+        Path sourceReplayPath = resolve(base, requiredString(sourceReplay, "path"));
+        String replaySha256 = requiredString(sourceReplay, "sha256").toLowerCase();
+        long replayBytes = requiredLong(sourceReplay, "size_bytes");
+        if (!sourceReplayPath.equals(replay)
+            || !replaySha256.matches("[0-9a-f]{64}")
+            || replayBytes < 0) {
+            throw new IllegalArgumentException("Invalid source_replay integrity envelope");
+        }
         Path output = resolve(base, requiredString(json, "output"));
         String sessionId = requiredString(json, "session_id");
         String connectionId = requiredString(json, "connection_id");
@@ -87,7 +101,8 @@ record RenderJobSpec(
         if (voxelHorizontalRadius > 0 && voxelCount > 2_000_000L) {
             throw new IllegalArgumentException("Voxel crop is too large; maximum is 2,000,000 cells per tick");
         }
-        return new RenderJobSpec(normalizedJob, replay, output, sessionId, connectionId, playerId,
+        return new RenderJobSpec(normalizedJob, replay, replaySha256, replayBytes,
+            output, sessionId, connectionId, playerId,
             globalStartTick, globalEndTick,
             width, height, fps, voxelHorizontalRadius, voxelVerticalRadius, noGui, stop, result);
     }
