@@ -23,6 +23,7 @@ class AsyncEpochWriter(
     private val logger: Logger
 ) : AutoCloseable {
     private val queue = ArrayBlockingQueue<QueueItem>(queueCapacity)
+    private val enqueueTransition = Any()
     private val closing = AtomicBoolean(false)
     private val failure = AtomicReference<Throwable?>()
     private val lastWrittenRecord = AtomicReference<QueuedRecord?>()
@@ -32,13 +33,18 @@ class AsyncEpochWriter(
     }
 
     fun submit(record: QueuedRecord) {
-        check(!closing.get()) { "recorder writer is closing" }
-        offerWhileHealthy(QueueItem.Record(record), "record")
-        failure.get()?.let { throw IllegalStateException("recorder writer failed", it) }
+        synchronized(enqueueTransition) {
+            check(!closing.get()) { "recorder writer is closing" }
+            offerWhileHealthy(QueueItem.Record(record), "record")
+            failure.get()?.let { throw IllegalStateException("recorder writer failed", it) }
+        }
     }
 
     override fun close() {
-        if (!closing.compareAndSet(false, true)) return
+        val initiated = synchronized(enqueueTransition) {
+            closing.compareAndSet(false, true)
+        }
+        if (!initiated) return
         try {
             offerWhileHealthy(QueueItem.Stop, "clean shutdown marker")
             joinWorker()
@@ -55,7 +61,9 @@ class AsyncEpochWriter(
     }
 
     fun abort(reason: String) {
-        val initiated = closing.compareAndSet(false, true)
+        val initiated = synchronized(enqueueTransition) {
+            closing.compareAndSet(false, true)
+        }
         if (initiated && worker.isAlive) {
             runCatching {
                 offerWhileHealthy(QueueItem.Abort(reason), "abort marker")
