@@ -347,7 +347,7 @@ def prepare_render_job(
             },
             "renderer_contract": {
                 "minecraft_version": "1.21.8",
-                "flashback_version": "0.39.5",
+                "flashback_version": "0.39.1",
                 "implementation": "renderer-mod",
                 "job_property": "mc.recorder.renderJob",
                 "job_environment": "MC_RECORDER_RENDER_JOB",

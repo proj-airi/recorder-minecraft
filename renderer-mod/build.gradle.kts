@@ -24,8 +24,23 @@ dependencies {
     modImplementation("net.fabricmc:fabric-loader:${property("loader_version")}")
     modImplementation("net.fabricmc.fabric-api:fabric-api:${property("fabric_version")}")
 
-    modCompileOnly("maven.modrinth:flashback:${property("flashback_version")}")
-    modLocalRuntime("maven.modrinth:flashback:${property("flashback_version")}")
+    val localFlashbackJar = providers.environmentVariable("MC_RECORDER_FLASHBACK_JAR").orNull
+    if (localFlashbackJar.isNullOrBlank()) {
+        modCompileOnly("maven.modrinth:flashback:${property("flashback_version")}")
+        modLocalRuntime("maven.modrinth:flashback:${property("flashback_version")}")
+    } else {
+        val nestedJarDirectory = layout.buildDirectory.dir("local-flashback-nested").get().asFile
+        project.sync {
+            from(zipTree(localFlashbackJar))
+            include("META-INF/jars/*.jar")
+            eachFile { path = name }
+            includeEmptyDirs = false
+            into(nestedJarDirectory)
+        }
+        modCompileOnly(files(localFlashbackJar))
+        modLocalRuntime(files(localFlashbackJar))
+        modLocalRuntime(fileTree(nestedJarDirectory) { include("*.jar") })
+    }
 }
 
 loom {

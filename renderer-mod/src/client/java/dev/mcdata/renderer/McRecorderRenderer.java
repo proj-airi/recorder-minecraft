@@ -100,7 +100,7 @@ public final class McRecorderRenderer implements ClientModInitializer {
         try {
             switch (this.phase) {
                 case STARTUP_FAILED -> this.fail(minecraft, this.startupFailure);
-                case OPEN_REPLAY -> this.openReplay();
+                case OPEN_REPLAY -> this.scheduleOpenReplay(minecraft);
                 case WAIT_REPLAY -> this.waitForReplay(minecraft);
                 case FIND_ANCHOR -> this.findTimelineAnchor();
                 case CAPTURE_VOXELS -> this.captureVoxelTick(minecraft);
@@ -138,10 +138,26 @@ public final class McRecorderRenderer implements ClientModInitializer {
         }
     }
 
-    private void openReplay() {
+    private void scheduleOpenReplay(Minecraft minecraft) {
+        if (minecraft.screen == null || minecraft.getOverlay() != null) {
+            this.checkTimeout("Minecraft startup screen");
+            return;
+        }
+        if (++this.waitTicks < 20) {
+            return;
+        }
         this.phase = Phase.WAIT_REPLAY;
-        Flashback.openReplayWorld(this.job.replay());
-        LOGGER.info("Opening Flashback replay {}", this.job.replay());
+        this.waitTicks = 0;
+        LOGGER.info("Minecraft startup settled on {}; scheduling replay open", minecraft.screen.getClass().getSimpleName());
+        Thread.startVirtualThread(() -> minecraft.submit(() -> {
+            try {
+                Flashback.openReplayWorld(this.job.replay());
+                LOGGER.info("Opening Flashback replay {}", this.job.replay());
+            } catch (Throwable throwable) {
+                this.startupFailure = throwable;
+                this.phase = Phase.STARTUP_FAILED;
+            }
+        }));
     }
 
     private void waitForReplay(Minecraft minecraft) {
@@ -368,6 +384,7 @@ public final class McRecorderRenderer implements ClientModInitializer {
         try {
             EditorScene scene = editorState.getCurrentScene(stamp);
             scene.keyframeTracks.add(track);
+            editorState.hideDuringExport.add(this.job.playerId());
             editorState.markDirty();
         } finally {
             editorState.release(stamp);
@@ -450,7 +467,7 @@ public final class McRecorderRenderer implements ClientModInitializer {
         result.addProperty("replay_start_tick", this.resolvedStartTick);
         result.addProperty("replay_end_tick", this.resolvedEndTick);
         result.addProperty("global_tick_offset", this.globalTickOffset);
-        result.addProperty("fps", this.job.framesPerSecond());
+        result.addProperty("fps", (int) Math.round(this.job.framesPerSecond()));
         result.addProperty("width", this.job.width());
         result.addProperty("height", this.job.height());
         result.addProperty("voxel_snapshots", this.voxelIndexRows.size());
