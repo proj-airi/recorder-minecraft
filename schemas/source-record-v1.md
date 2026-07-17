@@ -1,79 +1,161 @@
 # Source record v1
 
-An epoch is the smallest immutable, validated, and evictable capture unit. All
-records use one server-owned timeline; file write time is never used to join
-modalities.
+Source record v1 is the loss-minimizing, server-side capture contract for
+Minecraft 1.21.8. The recorder writes one combined JSONL event stream and
+ServerReplay writes independent Flashback archives. Both use the Minecraft
+server tick as their common clock.
 
-## Identity and ordering
-
-Every record contains:
-
-- `schema_version`: currently `1`.
-- `session_id`: stable for one server process.
-- `epoch_id`: stable for one epoch.
-- `server_tick`: the logical Minecraft server tick.
-- `event_seq`: a process-wide sequence assigned on the server main thread.
-
-Inbound packets additionally carry a network-thread `arrival_seq` and
-`arrival_monotonic_ns`. These fields are diagnostic only. `apply_tick` and
-`apply_seq`, stamped immediately before authoritative packet application on the
-server thread, determine the training transition and multiplayer order.
-
-## Epoch layout
+## Session and epoch layout
 
 ```text
-source/<session-id>/<epoch-id>/
+artifacts/captures/<session-id>/
   manifest.json
-  events.jsonl
-  states.jsonl
-  coverage.jsonl
-  replays/
-    <player-uuid>.<format>
+  session_end.json                    # written on close; status may be incomplete
+  epochs/
+    epoch-000000/
+      events.jsonl                    # present only after sealing
+      manifest.json
+
+artifacts/replays/
+  players/<player-uuid>/...           # independent ServerReplay archives
+  chunks/...                          # only for explicitly configured fixed areas
 ```
 
-Writers first create an active epoch outside the published namespace. The
-epoch becomes visible only after all streams reach the same final barrier,
-flush successfully, and the manifest contains their sizes and SHA-256 hashes.
-An interrupted active epoch may be recovered, but it is never silently treated
-as complete.
+The default sidecar epoch is 6,000 ticks, nominally five minutes at 20 Hz.
+While it is active, its stream is named `events.jsonl.inprogress`. Sealing
+flushes and syncs the stream, atomically publishes it as `events.jsonl`, and
+then publishes a manifest containing:
 
-## Events
+- `session_id` and `epoch_index`;
+- `sealed: true`;
+- record and byte counts;
+- first/last server tick and global sequence;
+- per-record-type counts; and
+- SHA-256 of `events.jsonl`.
 
-`events.jsonl` contains serverbound arrival/application records and lifecycle
-events. A gameplay packet may have two records joined by `packet_seq`:
+Readers, exporters, and retention code accept an epoch as immutable only when
+the final file and all three integrity checks (record count, byte count, and
+SHA-256) match its manifest. Active or incomplete epochs are never silently
+promoted.
 
-```json
-{"type":"packet_arrival","packet_seq":42,"player_id":"...","packet_type":"...","arrival_seq":91,"arrival_monotonic_ns":1234}
-{"type":"packet_apply","packet_seq":42,"player_id":"...","apply_tick":100,"apply_seq":883,"action":{"kind":"move","forward":true}}
-```
+V1 leaves fixed-area chunk recorders disabled: the default source is the moving
+client-visible corridor inside each player's archive. ServerReplay archives
+rotate on their own five-minute schedule. A sidecar
+epoch and a replay archive are deliberately **not** assumed to be one-to-one or
+to start on the same tick. They are retained and selected independently, then
+aligned from timeline markers recorded inside the replay.
 
-Multiple discrete actions in one tick remain ordered events; they are not
-collapsed into one lossy categorical label. Persistent controls are carried
-forward by the dataset converter.
+## Common event envelope
 
-## Player state
+Every line in `events.jsonl` is one JSON object with these fields:
 
-`states.jsonl` contains one authoritative post-tick snapshot per connected
-player. It includes dimension, transform, velocity, pose/control flags,
-health/food/air/experience, game mode, selected slot, inventory, effects,
-vehicle relationship, and a state barrier sequence.
+| Field | Meaning |
+| --- | --- |
+| `schema_version` | `1` for this contract. |
+| `record_type` | The event kind. |
+| `session_id` | Stable generated identifier for one server-process capture session. |
+| `epoch_index` | Sidecar epoch containing the event. |
+| `server_tick` | Logical server tick; events between ticks belong to the upcoming tick. |
+| `sequence` | Strictly increasing, session-global event order assigned by the recorder. |
+| `recorded_at_ns` | Process-monotonic diagnostic timestamp; not a cross-process join key. |
+| `recorded_at_unix_ms` | Wall-clock diagnostic timestamp; not a training-order key. |
 
-The canonical transition is:
+Player-scoped records also carry `player_uuid`, `player_name`, and `entity_id`.
+After join they carry `connection_id` and `connection_start_server_tick`. A new
+random `connection_id` is allocated for every join, so reconnects by the same
+player remain distinct. V1 always records every connected player; end-of-tick
+players are emitted in UUID order for deterministic multiplayer capture.
+
+The session manifest declares the exact loaded mods, capture scope, tick/apply
+phase, privacy policy, and record types. `session_end.json` distinguishes clean
+and incomplete shutdowns.
+
+## Packet observation and authoritative order
+
+`packet_arrival` records the server's network-thread observation. It includes
+`arrival_sequence`, `tick_phase`, `network_thread`, player/connection identity,
+and a normalized `packet` object. `packet_apply` is stamped on the main server
+thread immediately before the packet handler body continues. It includes:
+
+- a session-global `apply_sequence`;
+- `phase: "main_thread_before_handler_body"`;
+- the matching `arrival_sequence` and `arrival_server_tick`, when available;
+- the player and connection identity; and
+- the normalized `packet` object, enriched with apply-time data when possible.
+
+`sequence` orders every source record. `apply_sequence` orders only
+authoritative serverbound applications and is the action/state barrier used by
+the converter. Arrival fields are diagnostic and must not replace apply order.
+
+Packet payloads are decoded, server-observed semantic actions, not physical
+keyboard events, raw mouse samples, or canonical packet bytes. Normalization
+covers movement-control flags, accepted position/rotation, block/entity
+interaction, use/swing, inventory, stance, and related gameplay fields. Unknown
+packets retain class, type, action kind, and order metadata. Chat, commands, and
+custom payload contents are redacted; `raw_bytes_available` is `false`.
+
+## Tick records and canonical transition
+
+The combined stream includes:
+
+- `tick_start` and `tick_end`, each with `apply_sequence_at_barrier`;
+- `player_join` and `player_leave`;
+- `packet_arrival` and `packet_apply`;
+- `player_state`, `control_state`, and `replay_timeline`; and
+- `session_start` and `session_end` events.
+
+At the end of each tick the recorder snapshots every connected player.
+`player_state` includes dimension, transform, velocity, pose, movement state,
+health/food/air/experience, game mode, abilities, effects, vehicle/passenger
+references, selected slot, and non-empty inventory stacks. Its
+`state_barrier_apply_sequence` is the last applied packet included in that
+post-tick state.
+
+`control_state` is a 20 Hz reconstruction of the latest server-observed
+persistent controls (`forward`, `backward`, `left`, `right`, `jump`, `sneak`,
+and `sprint`), selected slot, accepted yaw/pitch, and their per-tick deltas. It
+is useful for behavioral cloning, but it is not the original input-device
+telemetry.
+
+For two consecutive snapshots, the canonical transition is:
 
 ```text
-post_state[t] + actions with barrier[t] < apply_seq <= barrier[t+1]
-    -> post_state[t+1]
+post_state[t]
+  + control_state[t+1]
+  + packet_apply where
+      state_barrier_apply_sequence[t] < apply_sequence
+      <= state_barrier_apply_sequence[t+1]
+  -> post_state[t+1]
 ```
 
-## World and visual coverage
+Multiple discrete actions inside that interval remain ordered by `sequence`;
+they are not collapsed into a single categorical action.
 
-`coverage.jsonl` describes which dimensions/chunks and replay ticks are
-available without forcing chunk generation. Dataset crops are chosen later.
-An exporter emits a coverage mask whenever the requested crop extends beyond
-captured data.
+## Replay alignment and coverage
 
-For v1, ServerReplay/Flashback is the canonical client-visible chunk packet
-journal used for voxel reconstruction and rendering. The source schema leaves
-room for an authoritative chunk-checkpoint/delta stream without changing the
-training sample identity.
+Once per connected player per tick, the server sends a custom payload using
+`mc_recorder:timeline/v1`. ServerReplay captures that payload inside the
+player's Flashback archive. Its values are:
 
+- `session_id`;
+- `connection_id`;
+- global `server_tick`; and
+- event sequence, exposed as `marker_event_sequence` by the matching sidecar
+  `replay_timeline` record.
+
+The renderer finds a marker for the requested session and connection and
+computes the exact offset from replay ticks to global server ticks. Joins must
+therefore use both player UUID and connection ID, never filename or archive
+mtime. Independent archive rotation does not change the sample timeline.
+
+Open-world data is intentionally best effort. Each `player_state` contains a
+`replay_coverage` hint with `kind: "client_visible_best_effort"`, the player's
+center chunk, server view distance, and `complete: false`. It does not force
+chunk generation and does not claim that a requested voxel crop is complete.
+Missing world data must remain unknown rather than being encoded as air.
+
+Current implementation status: the structured sidecar, replay markers, RGB
+renderer, and optional coverage-aware replay-to-voxel crop converter are
+implemented. Voxel crops are a local replay-client derivative, not an
+authoritative world stream in the sidecar. Block entities are not materialized
+in voxel V1; the immutable replay remains their source when client-visible.
