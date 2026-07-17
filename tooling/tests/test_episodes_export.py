@@ -103,7 +103,11 @@ def _records(*, current_connection: str = CONNECTION, invalid_barrier: bool = Fa
             player_uuid=PLAYER,
             connection_id=current_connection,
             apply_sequence=1,
-            packet={"action_kind": "movement_controls", "input": {"forward": True}},
+            packet={
+                "action_kind": "other",
+                "packet_type": "serverbound/minecraft:player_input",
+                "input": {"forward": True},
+            },
         ),
         _event(
             "packet_apply",
@@ -361,6 +365,7 @@ class EpisodeExportTest(unittest.TestCase):
             self.assertEqual("control_state", sample["action"]["reconstructed_control"]["action_type"])
             packets = sample["action"]["ordered_packets"]
             self.assertEqual([1], [packet["apply_sequence"] for packet in packets])
+            self.assertEqual("movement_controls", packets[0]["action_type"])
             self.assertTrue(sample["transition_valid"], sample["transition_invalid_reasons"])
             self.assertEqual(PEER, sample["peers"]["state"][0]["player_uuid"])
             self.assertEqual(PEER, sample["peers"]["next_state"][0]["player_uuid"])

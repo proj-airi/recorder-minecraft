@@ -6,10 +6,12 @@ import dev.mcdata.recorder.model.InputFlags
 import net.minecraft.core.registries.BuiltInRegistries
 import net.minecraft.network.protocol.Packet
 import net.minecraft.network.protocol.game.ServerboundInteractPacket
+import net.minecraft.network.protocol.game.ServerboundMovePlayerPacket
+import net.minecraft.network.protocol.game.ServerboundPlayerInputPacket
 import net.minecraft.server.level.ServerPlayer
 import net.minecraft.world.InteractionHand
+import net.minecraft.world.entity.player.Input
 import net.minecraft.world.phys.Vec3
-import java.lang.reflect.Method
 import java.util.Locale
 
 object PacketNormalizer {
@@ -17,20 +19,21 @@ object PacketNormalizer {
 
     fun normalize(packet: Packet<*>): Result {
         val simpleName = packet.javaClass.simpleName
+        val packetType = runCatching { packet.type().toString() }.getOrDefault(simpleName)
         val data = JsonObject().apply {
             addProperty("packet_class", packet.javaClass.name)
-            addProperty("packet_type", runCatching { packet.type().toString() }.getOrDefault(simpleName))
-            addProperty("action_kind", actionKind(packet.javaClass))
+            addProperty("packet_type", packetType)
+            addProperty("action_kind", actionKind(packetType, packet.javaClass))
             addProperty("raw_bytes_available", false)
         }
 
-        if (isPrivatePayload(simpleName)) {
+        if (isPrivatePayload(packetType, simpleName)) {
             data.addProperty("payload_redacted", true)
             return Result(data)
         }
 
-        val input = if (simpleName == "ServerboundPlayerInputPacket") {
-            readInput(packet)?.also { flags ->
+        val input = if (packet is ServerboundPlayerInputPacket) {
+            readInput(packet.input()).also { flags ->
                 data.add("input", JsonObject().apply {
                     addProperty("forward", flags.forward)
                     addProperty("backward", flags.backward)
@@ -43,7 +46,7 @@ object PacketNormalizer {
             }
         } else null
 
-        if (hasSuperclass(packet.javaClass, "ServerboundMovePlayerPacket")) {
+        if (packet is ServerboundMovePlayerPacket) {
             addMoveFields(packet, data)
         }
         if (packet is ServerboundInteractPacket) {
@@ -98,38 +101,50 @@ object PacketNormalizer {
         })
     }
 
-    private fun readInput(packet: Any): InputFlags? {
-        val input = invoke(packet, "input") ?: return null
-        return InputFlags(
-            forward = boolean(input, "forward"),
-            backward = boolean(input, "backward"),
-            left = boolean(input, "left"),
-            right = boolean(input, "right"),
-            jump = boolean(input, "jump"),
-            sneak = boolean(input, "shift") || boolean(input, "sneak"),
-            sprint = boolean(input, "sprint")
-        )
-    }
+    private fun readInput(input: Input): InputFlags = InputFlags(
+        forward = input.forward(),
+        backward = input.backward(),
+        left = input.left(),
+        right = input.right(),
+        jump = input.jump(),
+        sneak = input.shift(),
+        sprint = input.sprint()
+    )
 
-    private fun addMoveFields(packet: Any, data: JsonObject) {
-        val hasPosition = invoke(packet, "hasPosition") as? Boolean ?: false
-        val hasRotation = invoke(packet, "hasRotation") as? Boolean ?: false
+    private fun addMoveFields(packet: ServerboundMovePlayerPacket, data: JsonObject) {
+        val hasPosition = packet.hasPosition()
+        val hasRotation = packet.hasRotation()
         data.addProperty("has_position", hasPosition)
         data.addProperty("has_rotation", hasRotation)
-        addZeroArg(packet, "isOnGround", "on_ground", data)
-        addZeroArg(packet, "horizontalCollision", "horizontal_collision", data)
+        data.addProperty("on_ground", packet.isOnGround)
+        data.addProperty("horizontal_collision", packet.horizontalCollision())
         if (hasPosition) {
-            invokeWithFallback(packet, "getX", Double.NaN)?.let { data.addProperty("x", it as Number) }
-            invokeWithFallback(packet, "getY", Double.NaN)?.let { data.addProperty("y", it as Number) }
-            invokeWithFallback(packet, "getZ", Double.NaN)?.let { data.addProperty("z", it as Number) }
+            data.addProperty("x", packet.getX(Double.NaN))
+            data.addProperty("y", packet.getY(Double.NaN))
+            data.addProperty("z", packet.getZ(Double.NaN))
         }
         if (hasRotation) {
-            invokeWithFallback(packet, "getYRot", Float.NaN)?.let { data.addProperty("yaw", it as Number) }
-            invokeWithFallback(packet, "getXRot", Float.NaN)?.let { data.addProperty("pitch", it as Number) }
+            data.addProperty("yaw", packet.getYRot(Float.NaN))
+            data.addProperty("pitch", packet.getXRot(Float.NaN))
         }
     }
 
-    private fun actionKind(type: Class<*>): String {
+    private fun actionKind(packetType: String, type: Class<*>): String {
+        val stableName = packetType.substringAfter(':', packetType).lowercase(Locale.ROOT)
+        when {
+            stableName == "player_input" -> return "movement_controls"
+            stableName.startsWith("move_player") -> return "camera_or_position"
+            stableName == "player_action" -> return "player_action"
+            stableName.contains("interact") -> return "interact"
+            stableName.startsWith("use_item") -> return "use"
+            stableName == "swing" -> return "swing"
+            stableName.startsWith("container_") || stableName == "set_carried_item" -> return "inventory"
+            stableName == "player_command" -> return "stance"
+            stableName.contains("chat") || stableName.contains("command") -> return "text_redacted"
+            stableName.contains("custom_payload") -> return "custom_payload_redacted"
+            stableName == "client_tick_end" -> return "tick_boundary"
+            stableName in setOf("chunk_batch_received", "accept_teleportation", "player_loaded") -> return "protocol_ack"
+        }
         val name = generateSequence(type as Class<*>?) { it.superclass }.joinToString(" ") { it.simpleName }
         return when {
             "PlayerInput" in name -> "movement_controls"
@@ -146,8 +161,11 @@ object PacketNormalizer {
         }
     }
 
-    private fun isPrivatePayload(name: String): Boolean =
-        name.contains("Chat", ignoreCase = true) ||
+    private fun isPrivatePayload(packetType: String, name: String): Boolean =
+        packetType.contains("chat", ignoreCase = true) ||
+            packetType.contains("command", ignoreCase = true) ||
+            packetType.contains("custom_payload", ignoreCase = true) ||
+            name.contains("Chat", ignoreCase = true) ||
             name == "ServerboundCommandPacket" ||
             name.contains("ChatCommand", ignoreCase = true) ||
             name.contains("CustomPayload", ignoreCase = true)
@@ -198,17 +216,8 @@ object PacketNormalizer {
         return result
     }
 
-    private fun boolean(target: Any, method: String): Boolean = invoke(target, method) as? Boolean ?: false
-
     private fun invoke(target: Any, name: String): Any? = runCatching {
         target.javaClass.methods.firstOrNull { it.name == name && it.parameterCount == 0 }?.invoke(target)
     }.getOrNull()
 
-    private fun invokeWithFallback(target: Any, name: String, fallback: Any): Any? = runCatching {
-        val method: Method = target.javaClass.methods.first { it.name == name && it.parameterCount == 1 }
-        method.invoke(target, fallback)
-    }.getOrNull()
-
-    private fun hasSuperclass(type: Class<*>, simpleName: String): Boolean =
-        generateSequence(type as Class<*>?) { it.superclass }.any { it.simpleName == simpleName }
 }

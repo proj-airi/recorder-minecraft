@@ -221,6 +221,35 @@ def _source_ref(record: dict[str, Any], epoch_hashes: dict[int, VerifiedEpoch]) 
     }
 
 
+def _stable_packet_action_type(packet_type: str) -> str | None:
+    name = packet_type.rsplit(":", 1)[-1].lower()
+    if name == "player_input":
+        return "movement_controls"
+    if name.startswith("move_player"):
+        return "camera_or_position"
+    if name == "player_action":
+        return "player_action"
+    if "interact" in name:
+        return "interact"
+    if name.startswith("use_item"):
+        return "use"
+    if name == "swing":
+        return "swing"
+    if name.startswith("container_") or name == "set_carried_item":
+        return "inventory"
+    if name == "player_command":
+        return "stance"
+    if "chat" in name or "command" in name:
+        return "text_redacted"
+    if "custom_payload" in name:
+        return "custom_payload_redacted"
+    if name == "client_tick_end":
+        return "tick_boundary"
+    if name in {"chunk_batch_received", "accept_teleportation", "player_loaded"}:
+        return "protocol_ack"
+    return None
+
+
 def _action_row(
     record: dict[str, Any], epoch_hashes: dict[int, VerifiedEpoch]
 ) -> dict[str, Any]:
@@ -249,6 +278,12 @@ def _action_row(
                 break
     if not isinstance(action_type, str):
         action_type = "unknown_serverbound_packet"
+    if action_type == "other":
+        packet_type = payload.get("packet_type")
+        if not isinstance(packet_type, str):
+            packet_type = record.get("packet_type")
+        if isinstance(packet_type, str):
+            action_type = _stable_packet_action_type(packet_type) or action_type
 
     return {
         "schema_version": EXPORT_SCHEMA_VERSION,
