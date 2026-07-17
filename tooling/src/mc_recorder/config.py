@@ -207,8 +207,6 @@ def _validate(
         raise RecorderError("storage.check_interval_seconds must be between 10 and 3600")
     if capture.epoch_ticks < 20:
         raise RecorderError("capture.epoch_ticks must be at least 20")
-    if not mods.server_replay_project.strip():
-        raise RecorderError("mods.server_replay_project cannot be empty")
     managed_paths = (
         ("server data", paths.server_data),
         ("capture", paths.captures),
@@ -268,6 +266,7 @@ renderer_project = "renderer-mod"
 recorder_jar = ""
 build_on_start = true
 # Immutable Modrinth version ID for ServerReplay 3.0.1+1.21.8.
+# Set empty only when ServerReplay and its required dependencies are staged in runtime/mods.
 server_replay_project = "server-replay:TbWIikrT"
 extra_modrinth_projects = []
 

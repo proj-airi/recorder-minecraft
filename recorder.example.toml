@@ -35,6 +35,7 @@ renderer_project = "renderer-mod"
 recorder_jar = ""
 build_on_start = true
 # Immutable Modrinth version ID for ServerReplay 3.0.1+1.21.8.
+# Set empty only when ServerReplay and its required dependencies are staged in runtime/mods.
 server_replay_project = "server-replay:TbWIikrT"
 extra_modrinth_projects = []
 

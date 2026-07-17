@@ -228,7 +228,9 @@ def write_compose_env(config: RecorderConfig) -> Path:
         "MC_LEVEL_NAME": config.server.level_name,
         "MC_MOTD": config.server.motd,
         "MC_MODRINTH_PROJECTS": ",".join(
-            (config.mods.server_replay_project, *config.mods.extra_modrinth_projects)
+            project
+            for project in (config.mods.server_replay_project, *config.mods.extra_modrinth_projects)
+            if project.strip()
         ),
         "MC_DATA_DIR": config.paths.server_data,
         "MC_LOCAL_MODS_DIR": config.paths.runtime / "mods",

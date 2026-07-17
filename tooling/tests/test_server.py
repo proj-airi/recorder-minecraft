@@ -54,6 +54,22 @@ class ServerProvisioningTest(unittest.TestCase):
             self.assertIn('MC_MODRINTH_PROJECTS="server-replay:TbWIikrT"', env)
             self.assertIn(str(root / "artifacts" / "captures"), env)
 
+    def test_empty_server_replay_project_uses_only_local_mods(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = initialize(root / "recorder.toml", accept_eula=True)
+            source.write_text(
+                source.read_text(encoding="utf-8").replace(
+                    'server_replay_project = "server-replay:TbWIikrT"',
+                    'server_replay_project = ""',
+                ),
+                encoding="utf-8",
+            )
+            (root / "tooling" / "src").mkdir(parents=True)
+
+            env = write_compose_env(load_config(source)).read_text(encoding="utf-8")
+            self.assertIn('MC_MODRINTH_PROJECTS=""', env)
+
 
 if __name__ == "__main__":
     unittest.main()

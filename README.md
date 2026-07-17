@@ -181,6 +181,11 @@ mc-recorder storage enforce
 documents every V1 option with EULA acceptance disabled. Relative paths resolve
 from the configuration file's directory.
 
+For an API-independent local deployment, stage ServerReplay, Fabric API, and
+Fabric Language Kotlin in `.mc-recorder/mods/`, then set
+`mods.server_replay_project = ""`. The default remains the immutable Modrinth
+version selector.
+
 - [`schemas/source-record-v1.md`](schemas/source-record-v1.md) defines the
   combined capture stream, barriers, identity, replay alignment, and coverage.
 - [`schemas/dataset-v1.md`](schemas/dataset-v1.md) defines canonical samples and
