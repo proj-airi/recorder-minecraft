@@ -48,8 +48,14 @@ def _json_object(value: object, label: str) -> tuple[str, dict[str, Any]]:
     if not isinstance(value, dict):
         raise RecorderError(f"{label} must be a JSON object")
     try:
-        encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-    except (TypeError, ValueError) as exc:
+        encoded = json.dumps(
+            value,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        )
+    except (TypeError, ValueError, RecursionError) as exc:
         raise RecorderError(f"{label} is not JSON serializable") from exc
     if len(encoded.encode("utf-8")) > MAX_STORED_JSON_BYTES:
         raise RecorderError(f"{label} is too large")

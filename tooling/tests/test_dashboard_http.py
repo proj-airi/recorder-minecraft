@@ -277,6 +277,17 @@ class DashboardHTTPTest(unittest.TestCase):
         self.assertIn("unsupported render setting", raised.exception.read().decode())
         raised.exception.close()
 
+        deeply_nested = b'{"width":' + b"[" * 2000 + b"0" + b"]" * 2000 + b"}"
+        with self.assertRaises(urllib.error.HTTPError) as raised:
+            self._request(
+                f"/api/v1/recordings/{recording_id}/render",
+                method="POST",
+                body=deeply_nested,
+                headers=headers,
+            )
+        self.assertEqual(400, raised.exception.code)
+        raised.exception.close()
+
         payload = {"recording_id": recording_id, "render": {"width": 640, "height": 360, "fps": 20}}
         job = self.application.service.render_queue.create(payload)
         worker = self.application.service.render_queue.register_worker("Ephemeral Mac")

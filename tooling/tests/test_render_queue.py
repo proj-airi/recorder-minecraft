@@ -183,6 +183,11 @@ class RenderQueueStoreTest(unittest.TestCase):
                 {"upload_id": "ignored"},
             )
 
+        invalid_payload = _payload()
+        invalid_payload["non_finite"] = float("nan")
+        with self.assertRaisesRegex(RecorderError, "not JSON serializable"):
+            self.store.create(invalid_payload)
+
     def test_worker_failure_does_not_block_lifecycle_queue(self) -> None:
         job = self.store.create(_payload())
         self.store.register_worker("worker", worker_id=WORKER_ONE)

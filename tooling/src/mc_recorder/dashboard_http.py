@@ -214,7 +214,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._json(HTTPStatus.ACCEPTED, job)
         except RecorderError as exc:
             self._error(HTTPStatus.CONFLICT, str(exc))
-        except (ValueError, json.JSONDecodeError) as exc:
+        except (ValueError, json.JSONDecodeError, RecursionError) as exc:
             self._error(HTTPStatus.BAD_REQUEST, str(exc))
 
     def do_OPTIONS(self) -> None:  # noqa: N802 - explicitly no cross-origin API
