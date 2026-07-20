@@ -134,6 +134,35 @@ class RenderQueueStoreTest(unittest.TestCase):
                     phase="rendering",
                 )
 
+    def test_not_ready_input_defers_without_failing_the_job(self) -> None:
+        job = self.store.create(_payload())
+        self.store.register_worker("first", worker_id=WORKER_ONE)
+        claimed = self.store.claim(WORKER_ONE, job_id=job["id"])
+        assert claimed is not None
+        attempt = claimed["attempt"]
+
+        deferred = self.store.defer_attempt(
+            WORKER_ONE,
+            attempt["id"],
+            attempt["lease_token"],
+            "replay is still being saved",
+        )
+
+        self.assertEqual("queued", deferred["state"])
+        self.assertIsNone(deferred["error"])
+        self.assertIsNone(deferred["active_attempt"])
+        self.assertEqual("online", self.store.workers()[0]["state"])
+        reclaimed = self.store.claim(WORKER_ONE, job_id=job["id"])
+        assert reclaimed is not None
+        self.assertEqual(2, reclaimed["attempt"]["generation"])
+        with self.assertRaisesRegex(RecorderError, "not owned"):
+            self.store.heartbeat(
+                WORKER_ONE,
+                attempt["id"],
+                attempt["lease_token"],
+                phase="downloading",
+            )
+
     def test_cancel_and_retry_create_a_new_provenance_row(self) -> None:
         original = self.store.create(_payload())
         canceled = self.store.cancel(original["id"])

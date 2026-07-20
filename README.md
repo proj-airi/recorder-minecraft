@@ -163,6 +163,10 @@ success or failure; `--keep-workspace` retains one for diagnosis, and
 expires and the job returns to the queue for a later one-shot worker without
 trusting the abandoned attempt.
 
+If ServerReplay is still finalizing the disconnected player's archive, the
+attempt is deferred without failing the job. The worker reports that no job is
+ready and exits; running it again later claims the same queued job.
+
 For connections spanning several ServerReplay archives, the worker processes
 segments newest-to-oldest. Newer coverage owns overlapping ticks; older segments
 are cut off before that coverage. A segment with no matching timeline is

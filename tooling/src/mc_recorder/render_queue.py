@@ -566,6 +566,52 @@ class RenderQueueStore:
             assert updated is not None
             return self._job(connection, updated)
 
+    def defer_attempt(
+        self,
+        worker_id: str,
+        attempt_id: str,
+        lease_token: str,
+        reason: str,
+    ) -> dict[str, Any]:
+        """Return a leased job to the queue when an immutable input is not ready yet."""
+
+        worker = _uuid(worker_id, "render worker ID")
+        attempt = _uuid(attempt_id, "render attempt ID")
+        message = str(reason)[:MAX_ERROR_CHARS] or "render input is not ready"
+        now = time.time()
+        with self._lock, self._session(immediate=True) as connection:
+            _, job = self._leased_attempt(connection, worker, attempt, lease_token, now)
+            connection.execute(
+                """
+                UPDATE render_attempts
+                   SET state = 'deferred', error = ?, heartbeat_at = ?, completed_at = ?,
+                       lease_token = NULL, lease_expires_at = NULL
+                 WHERE id = ?
+                """,
+                (message, now, now, attempt),
+            )
+            connection.execute(
+                """
+                UPDATE render_jobs
+                   SET state = 'queued', progress_json = NULL, error = NULL,
+                       updated_at = ?, active_attempt_id = NULL
+                 WHERE id = ? AND active_attempt_id = ?
+                """,
+                (now, job["id"], attempt),
+            )
+            connection.execute(
+                """
+                UPDATE render_workers SET current_job_id = NULL, heartbeat_at = ?
+                 WHERE id = ?
+                """,
+                (now, worker),
+            )
+            updated = connection.execute(
+                "SELECT * FROM render_jobs WHERE id = ?", (job["id"],)
+            ).fetchone()
+            assert updated is not None
+            return self._job(connection, updated)
+
     def set_server_phase(
         self,
         job_id: str,

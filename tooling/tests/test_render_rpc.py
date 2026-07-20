@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
 from mc_recorder.errors import RecorderError
 from mc_recorder.render_rpc import RenderRpcService
-from mc_recorder.render_sources import ReplaySegmentSource
+from mc_recorder.render_sources import ReplayNotReadyError, ReplaySegmentSource
 from mc_recorder.render_transfer import ImportedRenderResult
 
 
@@ -181,6 +181,28 @@ class RenderRpcServiceTest(unittest.TestCase):
             self.assertEqual(authoritative.path.stat().st_ino, pinned.stat().st_ino)
             self.assertEqual(authoritative.sha256, _digest(pinned)[0])
         self.assertEqual(0o600, (plan_root / "plan.json").stat().st_mode & 0o777)
+
+    def test_claim_defers_while_server_replay_is_still_saving(self) -> None:
+        with mock.patch(
+            "mc_recorder.render_rpc.resolve_replay_segments",
+            side_effect=ReplayNotReadyError("the exact replay segment is still being saved"),
+        ):
+            result = self.service.dispatch(
+                "claim",
+                {
+                    "worker_id": WORKER_ID,
+                    "job_id": self.job["id"],
+                    "lease_seconds": 120,
+                },
+            )
+
+        self.assertIsNone(result["claim"])
+        self.assertEqual("replay_pending", result["reason"])
+        self.assertEqual(self.job["id"], result["pending_job"]["id"])
+        queued = self.service.queue.get(self.job["id"])
+        self.assertEqual("queued", queued["state"])
+        self.assertEqual(1, queued["attempt_count"])
+        self.assertIsNone(queued["active_attempt"])
 
     def test_requests_are_idempotent_newest_first_and_bound_older_range(self) -> None:
         old = self._source(OLD_SEGMENT, 2, b"old replay")

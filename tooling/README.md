@@ -180,6 +180,11 @@ set. A heartbeat renews a fenced lease while the GUI is active; a killed worker
 cannot finalize after its lease is reclaimed. Its job returns to `queued`, and
 a later one-shot worker creates a new attempt.
 
+An exact replay archive may still be saving after the player disconnects. In
+that case the server immediately defers the attempt back to `queued`, the
+one-shot worker exits successfully with no ready job, and a later invocation
+can claim it without using partial replay bytes.
+
 The server pins every saved replay archive for the exact player connection and
 authors path-free requests. The worker downloads the pinned archives, verifies
 them, renders segments newest-to-oldest, and uploads hash-indexed portable

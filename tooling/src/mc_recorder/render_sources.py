@@ -15,6 +15,10 @@ MAX_LEDGER_BYTES = 8 * 1024 * 1024
 MAX_ARCHIVE_METADATA_BYTES = 1024 * 1024
 
 
+class ReplayNotReadyError(RecorderError):
+    """The exact replay exists but ServerReplay has not published immutable bytes yet."""
+
+
 @dataclass(frozen=True)
 class ReplaySegmentSource:
     segment_id: str
@@ -243,6 +247,6 @@ def resolve_replay_segments(
             for raw in raw_segments
         )
         if pending:
-            raise RecorderError("the exact replay segment is still being saved")
+            raise ReplayNotReadyError("the exact replay segment is still being saved")
         raise RecorderError("no exact saved replay segments exist for this connection")
     return sorted(sources, key=lambda source: source.segment_ordinal)

@@ -14,7 +14,11 @@ from typing import Any, Mapping
 from .config import RecorderConfig
 from .errors import RecorderError
 from .render_queue import MAX_LEASE_SECONDS, MIN_LEASE_SECONDS, RenderQueueStore
-from .render_sources import ReplaySegmentSource, resolve_replay_segments
+from .render_sources import (
+    ReplayNotReadyError,
+    ReplaySegmentSource,
+    resolve_replay_segments,
+)
 from .render_transfer import (
     ImportedRenderResult,
     create_portable_render_request,
@@ -438,6 +442,20 @@ class RenderRpcService:
         attempt = claim["attempt"]
         try:
             plan, plan_root = self._create_plan(claim, worker_id)
+        except ReplayNotReadyError as exc:
+            queued = self.queue.defer_attempt(
+                worker_id,
+                attempt["id"],
+                attempt["lease_token"],
+                str(exc),
+            )
+            return {
+                "claim": None,
+                "sources": [],
+                "upload_directory": None,
+                "pending_job": queued,
+                "reason": "replay_pending",
+            }
         except Exception as exc:
             try:
                 self.queue.fail_attempt(
