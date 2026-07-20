@@ -124,7 +124,9 @@ interface.
 RGB and voxel outputs inherit a replay integrity envelope. Job preparation
 records the stable replay byte size and SHA-256; the renderer verifies both
 before opening and after materialization, and the launcher rehashes the replay
-before accepting the completed result.
+before accepting the completed result. Remote GUI rendering additionally uses
+the path-free request, hash-indexed bundle, and canonical server import defined
+by [portable render transfer v1](render-transfer-v1.md).
 
 ### Structured state and actions
 
@@ -191,3 +193,9 @@ matching attached frame remain explicitly unavailable. Referenced paths and
 every image are containment-checked and hashed. PNG chunk ordering, CRCs,
 IHDR/IDAT/IEND presence, and dimensions are validated against `result.json`;
 absolute, escaping, missing, or symlinked references are rejected.
+
+Legacy local renderer results identify their replay and output with absolute
+local paths. An imported `mc-recorder-render-result-v2` instead uses contained
+relative artifact references and an opaque replay segment identity. The
+exporter supports both forms, preserves request/segment/cutoff provenance for
+v2, and never resolves a worker-produced path during server-side attachment.

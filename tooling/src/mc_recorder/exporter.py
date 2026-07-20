@@ -24,6 +24,7 @@ from .errors import RecorderError
 
 EXPORT_SCHEMA_VERSION = 1
 EXPORT_FORMAT = "mc-recorder-jsonl-v1"
+CANONICAL_RENDER_RESULT_TYPE = "mc-recorder-render-result-v2"
 OWNER = "mc-recorder"
 TICK_RATE_HZ = 20
 MAX_PNG_BYTES_PER_PIXEL = 8
@@ -141,6 +142,65 @@ def _read_object(path: Path, description: str) -> dict[str, Any]:
 def _renderer_replay_integrity(
     result: dict[str, Any], result_path: Path
 ) -> tuple[str, int, str]:
+    if result.get("result_type") == CANONICAL_RENDER_RESULT_TYPE:
+        if result.get("schema_version") != 2:
+            raise RecorderError(f"canonical renderer result has an invalid schema: {result_path}")
+        if result.get("artifact_root") != ".":
+            raise RecorderError(
+                f"canonical renderer result has an invalid artifact root: {result_path}"
+            )
+        portable = result.get("portable_request")
+        if not isinstance(portable, dict):
+            raise RecorderError(
+                f"canonical renderer result lacks portable_request provenance: {result_path}"
+            )
+        try:
+            request_id = str(uuid.UUID(portable.get("request_id")))
+        except (ValueError, TypeError, AttributeError) as exc:
+            raise RecorderError(
+                f"canonical renderer result has an invalid request_id: {result_path}"
+            ) from exc
+        if portable.get("request_id") != request_id or re.fullmatch(
+            r"[0-9a-f]{64}", str(portable.get("sha256", ""))
+        ) is None:
+            raise RecorderError(
+                f"canonical renderer result has invalid request provenance: {result_path}"
+            )
+        source = result.get("source_replay")
+        if not isinstance(source, dict):
+            raise RecorderError(f"canonical renderer result lacks source_replay: {result_path}")
+        segment_id = source.get("segment_id")
+        segment_ordinal = source.get("segment_ordinal")
+        replay_sha = source.get("sha256")
+        replay_bytes = source.get("size_bytes")
+        if (
+            not isinstance(segment_id, str)
+            or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,159}", segment_id) is None
+        ):
+            raise RecorderError(f"canonical renderer result lacks segment_id: {result_path}")
+        if (
+            not isinstance(segment_ordinal, int)
+            or isinstance(segment_ordinal, bool)
+            or not 0 <= segment_ordinal <= 2**31 - 1
+            or source.get("format") != "flashback"
+        ):
+            raise RecorderError(
+                f"canonical renderer result has invalid segment provenance: {result_path}"
+            )
+        if not isinstance(replay_sha, str) or re.fullmatch(r"[0-9a-f]{64}", replay_sha) is None:
+            raise RecorderError(
+                f"canonical renderer result lacks a valid replay SHA-256: {result_path}"
+            )
+        if (
+            not isinstance(replay_bytes, int)
+            or isinstance(replay_bytes, bool)
+            or replay_bytes <= 0
+            or replay_bytes > 2**63 - 1
+        ):
+            raise RecorderError(
+                f"canonical renderer result lacks a positive replay size: {result_path}"
+            )
+        return replay_sha, replay_bytes, f"segment:{segment_id}"
     replay = result.get("replay")
     replay_sha = result.get("replay_sha256")
     replay_bytes = result.get("replay_bytes")
@@ -159,6 +219,48 @@ def _renderer_replay_integrity(
     ):
         raise RecorderError(f"renderer result lacks a positive replay_bytes: {result_path}")
     return replay_sha.lower(), replay_bytes, replay
+
+
+def _canonical_result_reference(
+    result: dict[str, Any], result_path: Path, key: str, description: str
+) -> Path | None:
+    """Resolve a v2 result reference without accepting a browser/worker path."""
+    if result.get("result_type") != CANONICAL_RENDER_RESULT_TYPE:
+        return None
+    # Validate the non-path provenance envelope before resolving any reference.
+    _renderer_replay_integrity(result, result_path)
+    value = result.get(key)
+    if not isinstance(value, str) or not value:
+        raise RecorderError(f"canonical renderer result lacks {description}: {result_path}")
+    if "\\" in value:
+        raise RecorderError(
+            f"canonical renderer result {description} must use a contained POSIX path"
+        )
+    relative = Path(value)
+    if relative.is_absolute() or any(part in {"", ".", ".."} for part in relative.parts):
+        raise RecorderError(
+            f"canonical renderer result {description} must be a contained relative path"
+        )
+    root = result_path.parent.resolve()
+    candidate = root / relative
+    cursor = candidate
+    while cursor != root:
+        if cursor.is_symlink():
+            raise RecorderError(
+                f"canonical renderer result {description} contains a symlink"
+            )
+        parent = cursor.parent
+        if parent == cursor:
+            break
+        cursor = parent
+    resolved = candidate.resolve()
+    try:
+        resolved.relative_to(root)
+    except ValueError as exc:
+        raise RecorderError(
+            f"canonical renderer result {description} escapes its import directory"
+        ) from exc
+    return resolved
 
 
 def _player_uuid(record: dict[str, Any]) -> str | None:
@@ -997,15 +1099,28 @@ def _resolve_frame_artifacts(path: Path) -> tuple[Path, Path]:
         index = next((candidate for candidate in index_candidates if candidate.is_file()), None)
         if index is None:
             result_data = _read_object(result, "renderer result")
-            output = result_data.get("output")
-            if not isinstance(output, str):
-                raise RecorderError(f"renderer result does not identify its frame output: {result}")
-            index = Path(output).expanduser().resolve() / "frames.jsonl"
+            canonical_output = _canonical_result_reference(
+                result_data, result.resolve(), "output", "frame output"
+            )
+            if canonical_output is not None:
+                index = canonical_output / "frames.jsonl"
+            else:
+                output = result_data.get("output")
+                if not isinstance(output, str):
+                    raise RecorderError(
+                        f"renderer result does not identify its frame output: {result}"
+                    )
+                index = Path(output).expanduser().resolve() / "frames.jsonl"
         return result, index
     if not source.is_file() or source.is_symlink():
         raise RecorderError(f"frame attachment does not exist or is symlinked: {source}")
     if source.name == "result.json":
         result_data = _read_object(source, "renderer result")
+        canonical_output = _canonical_result_reference(
+            result_data, source.resolve(), "output", "frame output"
+        )
+        if canonical_output is not None:
+            return source, canonical_output / "frames.jsonl"
         output = result_data.get("output")
         if not isinstance(output, str):
             raise RecorderError(f"renderer result does not identify its frame output: {source}")
@@ -1069,13 +1184,19 @@ def _load_frame_attachments(
             raise RecorderError(f"renderer result replay/global ranges have different lengths: {result_path}")
         if global_offset + replay_start != first_tick or global_offset + replay_end != last_tick:
             raise RecorderError(f"renderer result global tick offset is inconsistent: {result_path}")
+        canonical_frames = _canonical_result_reference(
+            result, result_path, "output", "frame output"
+        )
         output_value = result.get("output")
-        if not isinstance(output_value, str):
-            raise RecorderError(f"renderer result lacks output directory: {result_path}")
-        unresolved_frames_directory = Path(output_value).expanduser()
-        if unresolved_frames_directory.is_symlink():
-            raise RecorderError(f"renderer frame output may not be a symlink: {output_value}")
-        frames_directory = unresolved_frames_directory.resolve()
+        if canonical_frames is not None:
+            frames_directory = canonical_frames
+        else:
+            if not isinstance(output_value, str):
+                raise RecorderError(f"renderer result lacks output directory: {result_path}")
+            unresolved_frames_directory = Path(output_value).expanduser()
+            if unresolved_frames_directory.is_symlink():
+                raise RecorderError(f"renderer frame output may not be a symlink: {output_value}")
+            frames_directory = unresolved_frames_directory.resolve()
         expected_index = frames_directory / "frames.jsonl"
         if index_path != expected_index:
             raise RecorderError(
@@ -1198,6 +1319,16 @@ def _load_frame_attachments(
                 "replay": replay_path,
                 "replay_sha256": replay_sha,
                 "replay_bytes": replay_bytes,
+                **(
+                    {
+                        "portable_request": result.get("portable_request"),
+                        "source_replay": result.get("source_replay"),
+                        "range_policy": result.get("range_policy"),
+                        "newer_cutoff": result.get("newer_cutoff"),
+                    }
+                    if result.get("result_type") == CANONICAL_RENDER_RESULT_TYPE
+                    else {}
+                ),
             }
         )
     return attachments, sources
@@ -1313,9 +1444,16 @@ def _load_voxel_attachments(
             expected_ticks = set(range(first_tick, last_tick + 1))
             result_identity = (session, player, connection)
             result_index = result.get("voxel_index")
-            if not isinstance(result_index, str):
-                raise RecorderError(f"renderer result lacks voxel_index: {result_path}")
-            if Path(result_index).expanduser().resolve() != index_path:
+            canonical_index = _canonical_result_reference(
+                result, result_path, "voxel_index", "voxel index"
+            )
+            if canonical_index is not None:
+                resolved_result_index = canonical_index
+            else:
+                if not isinstance(result_index, str):
+                    raise RecorderError(f"renderer result lacks voxel_index: {result_path}")
+                resolved_result_index = Path(result_index).expanduser().resolve()
+            if resolved_result_index != index_path:
                 raise RecorderError(
                     f"voxel index {index_path} does not match renderer result {result_index}"
                 )
@@ -1478,6 +1616,11 @@ def _load_voxel_attachments(
             source["replay"] = replay_path
             source["replay_sha256"] = replay_sha
             source["replay_bytes"] = replay_bytes
+            if result is not None and result.get("result_type") == CANONICAL_RENDER_RESULT_TYPE:
+                source["portable_request"] = result.get("portable_request")
+                source["source_replay"] = result.get("source_replay")
+                source["range_policy"] = result.get("range_policy")
+                source["newer_cutoff"] = result.get("newer_cutoff")
         sources.append(source)
     return attachments, sources
 
