@@ -12,6 +12,7 @@ from typing import Sequence
 
 from .config import RecorderConfig
 from .errors import RecorderError
+from .operations import operation_lock
 from .storage import StorageReport, enforce_quota
 
 
@@ -187,6 +188,7 @@ def write_mod_configs(config: RecorderConfig) -> None:
 
     capture = {
         "capture_root": "/captures",
+        "control_root": "/control",
         "epoch_ticks": config.capture.epoch_ticks,
         "writer_queue_capacity": 65536,
         "include_inventory_components": True,
@@ -237,6 +239,7 @@ def write_compose_env(config: RecorderConfig) -> Path:
         "MC_CONFIG_SOURCE_DIR": config.paths.runtime / "config",
         "MC_CAPTURE_DIR": config.paths.captures,
         "MC_REPLAY_DIR": config.paths.replays,
+        "MC_CONTROL_DIR": config.paths.runtime / "control",
         "MC_TOOLING_SOURCE_DIR": tooling_source,
         "MC_CAPTURE_QUOTA_BYTES": config.storage.quota_bytes,
         "MC_CAPTURE_WARN_PERCENT": config.storage.warn_percent,
@@ -263,6 +266,9 @@ def prepare_runtime(config: RecorderConfig, *, build_mod: bool) -> Path | None:
         config.paths.runtime,
         config.paths.runtime / "mods",
         config.paths.runtime / "config",
+        config.paths.runtime / "control",
+        config.paths.runtime / "control" / "requests",
+        config.paths.runtime / "control" / "responses",
     ):
         directory.mkdir(parents=True, exist_ok=True)
     jar = provision_local_mod(config, build=build_mod) if build_mod else None
@@ -311,29 +317,105 @@ def verify_docker() -> None:
 
 
 def start_server(config: RecorderConfig, *, wait: bool = False) -> tuple[Path, StorageReport]:
-    if not config.server.eula:
-        raise RecorderError(
-            "Minecraft EULA has not been accepted; review https://aka.ms/MinecraftEULA "
-            "and set server.eula=true or rerun init with --accept-eula"
-        )
-    storage_report = check_storage(config)
-    jar = prepare_runtime(config, build_mod=True)
-    assert jar is not None
-    verify_docker()
-    arguments = ["up", "--detach", "--remove-orphans"]
-    if wait:
-        arguments.extend(("--wait", "--wait-timeout", "180"))
-    result = _run(compose_command(config, *arguments))
-    _ensure_success(result, "server start")
-    return jar, storage_report
+    with operation_lock(config.paths.runtime, "server_start"):
+        if not config.server.eula:
+            raise RecorderError(
+                "Minecraft EULA has not been accepted; review https://aka.ms/MinecraftEULA "
+                "and set server.eula=true or rerun init with --accept-eula"
+            )
+        storage_report = check_storage(config)
+        jar = prepare_runtime(config, build_mod=True)
+        assert jar is not None
+        verify_docker()
+        arguments = ["up", "--detach", "--remove-orphans"]
+        if wait:
+            arguments.extend(("--wait", "--wait-timeout", "180"))
+        result = _run(compose_command(config, *arguments))
+        _ensure_success(result, "server start")
+        return jar, storage_report
 
 
 def stop_server(config: RecorderConfig, *, timeout_seconds: int = 120) -> StorageReport:
-    _require_prepared_runtime(config)
-    verify_docker()
-    result = _run(compose_command(config, "stop", "--timeout", str(timeout_seconds)))
-    _ensure_success(result, "server stop")
-    return check_storage(config)
+    with operation_lock(config.paths.runtime, "server_stop"):
+        _require_prepared_runtime(config)
+        verify_docker()
+        result = _run(compose_command(config, "stop", "--timeout", str(timeout_seconds)))
+        _ensure_success(result, "server stop")
+        return check_storage(config)
+
+
+def compose_status(config: RecorderConfig) -> dict[str, object]:
+    """Return a stable dashboard status without printing or mutating runtime."""
+
+    if not (config.paths.runtime / "compose.env").is_file():
+        return {"state": "not_prepared", "services": [], "message": None}
+    if not config.paths.compose_file.is_file():
+        return {
+            "state": "not_prepared",
+            "services": [],
+            "message": f"Docker Compose file not found: {config.paths.compose_file}",
+        }
+    try:
+        version = _run(["docker", "compose", "version"], capture=True)
+        if version.returncode != 0:
+            return {
+                "state": "docker_unavailable",
+                "services": [],
+                "message": (version.stderr or version.stdout or "Docker Compose check failed").strip(),
+            }
+        result = _run(compose_command(config, "ps", "--all", "--format", "json"), capture=True)
+    except RecorderError as exc:
+        return {"state": "docker_unavailable", "services": [], "message": str(exc)}
+    if result.returncode != 0:
+        return {
+            "state": "docker_unavailable",
+            "services": [],
+            "message": (result.stderr or result.stdout or "Docker Compose status failed").strip(),
+        }
+
+    raw = (result.stdout or "").strip()
+    try:
+        if not raw:
+            rows: list[dict[str, object]] = []
+        elif raw.startswith("["):
+            value = json.loads(raw)
+            rows = [row for row in value if isinstance(row, dict)] if isinstance(value, list) else []
+        else:
+            rows = [value for line in raw.splitlines() if isinstance((value := json.loads(line)), dict)]
+    except json.JSONDecodeError as exc:
+        return {"state": "docker_unavailable", "services": [], "message": f"invalid Compose status: {exc.msg}"}
+
+    services = []
+    for row in rows:
+        services.append(
+            {
+                "service": row.get("Service") or row.get("Name"),
+                "state": str(row.get("State") or "unknown").lower(),
+                "health": str(row.get("Health") or "").lower() or None,
+                "status": row.get("Status"),
+                "exit_code": row.get("ExitCode"),
+            }
+        )
+    minecraft = next((item for item in services if item["service"] == "minecraft"), None)
+    if minecraft is None:
+        state = "stopped"
+    elif minecraft["state"] in {"removing", "stopping", "paused"}:
+        state = "stopping"
+    elif minecraft["state"] in {"created", "restarting"}:
+        state = "starting"
+    elif minecraft["state"] == "running":
+        if minecraft["health"] == "unhealthy":
+            state = "unhealthy"
+        elif minecraft["health"] in {"starting", None}:
+            state = "starting" if minecraft["health"] == "starting" else "running"
+        else:
+            state = "running"
+    elif minecraft["state"] in {"exited", "dead"}:
+        exit_code = minecraft["exit_code"]
+        state = "stopped" if exit_code in {None, 0, "0"} else "unhealthy"
+    else:
+        state = "unhealthy"
+    return {"state": state, "services": services, "message": None}
 
 
 def show_status(config: RecorderConfig) -> int:

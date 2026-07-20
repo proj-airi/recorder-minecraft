@@ -23,6 +23,8 @@ class ConfigTest(unittest.TestCase):
             self.assertEqual((workspace / "artifacts" / "captures").resolve(), config.paths.captures)
             self.assertTrue(config.paths.server_data.is_dir())
             self.assertTrue(config.paths.runtime.is_dir())
+            self.assertEqual("0.0.0.0", config.dashboard.bind)
+            self.assertEqual(8765, config.dashboard.port)
 
     def test_init_does_not_silently_accept_eula_or_overwrite(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -93,6 +95,18 @@ class ConfigTest(unittest.TestCase):
                     source.write_text(original.replace(old, new), encoding="utf-8")
                     with self.assertRaisesRegex(RecorderError, "separate and non-nested"):
                         load_config(source)
+
+    def test_dashboard_listener_is_validated(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            source = initialize(Path(temporary) / "recorder.toml")
+            original = source.read_text(encoding="utf-8")
+            source.write_text(original.replace('port = 8765', 'port = 0'), encoding="utf-8")
+            with self.assertRaisesRegex(RecorderError, "dashboard.port"):
+                load_config(source)
+
+            source.write_text(original.replace('bind = "0.0.0.0"', 'bind = ""'), encoding="utf-8")
+            with self.assertRaisesRegex(RecorderError, "dashboard.bind"):
+                load_config(source)
 
 if __name__ == "__main__":
     unittest.main()

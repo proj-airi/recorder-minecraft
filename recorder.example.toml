@@ -49,3 +49,9 @@ quota_gib = 100.0
 warn_percent = 80
 evict_oldest = true
 check_interval_seconds = 60
+
+[dashboard]
+# Trusted-LAN listener. Basic authentication over plain HTTP does not encrypt
+# credentials; use only on a network you trust.
+bind = "0.0.0.0"
+port = 8765

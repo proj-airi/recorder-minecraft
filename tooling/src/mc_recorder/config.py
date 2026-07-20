@@ -95,6 +95,12 @@ class CaptureConfig:
 
 
 @dataclass(frozen=True)
+class DashboardConfig:
+    bind: str
+    port: int
+
+
+@dataclass(frozen=True)
 class RecorderConfig:
     source: Path
     server: ServerConfig
@@ -102,6 +108,7 @@ class RecorderConfig:
     mods: ModConfig
     storage: StorageConfig
     capture: CaptureConfig
+    dashboard: DashboardConfig
 
 
 def load_config(path: str | Path = DEFAULT_CONFIG_NAME) -> RecorderConfig:
@@ -124,6 +131,7 @@ def load_config(path: str | Path = DEFAULT_CONFIG_NAME) -> RecorderConfig:
     mods_raw = _table(raw, "mods")
     storage_raw = _table(raw, "storage")
     capture_raw = _table(raw, "capture")
+    dashboard_raw = _table(raw, "dashboard")
 
     server = ServerConfig(
         eula=_value(server_raw, "eula", False, bool),
@@ -173,9 +181,21 @@ def load_config(path: str | Path = DEFAULT_CONFIG_NAME) -> RecorderConfig:
         check_interval_seconds=_value(storage_raw, "check_interval_seconds", 60, int),
     )
     capture = CaptureConfig(epoch_ticks=_value(capture_raw, "epoch_ticks", 6000, int))
+    dashboard = DashboardConfig(
+        bind=_value(dashboard_raw, "bind", "0.0.0.0", str),
+        port=_value(dashboard_raw, "port", 8765, int),
+    )
 
-    _validate(server, paths, mods, storage, capture)
-    return RecorderConfig(source=source, server=server, paths=paths, mods=mods, storage=storage, capture=capture)
+    _validate(server, paths, mods, storage, capture, dashboard)
+    return RecorderConfig(
+        source=source,
+        server=server,
+        paths=paths,
+        mods=mods,
+        storage=storage,
+        capture=capture,
+        dashboard=dashboard,
+    )
 
 
 def _validate(
@@ -184,6 +204,7 @@ def _validate(
     mods: ModConfig,
     storage: StorageConfig,
     capture: CaptureConfig,
+    dashboard: DashboardConfig,
 ) -> None:
     if server.minecraft_version != "1.21.8":
         raise RecorderError("v1 supports exactly Minecraft 1.21.8")
@@ -207,6 +228,10 @@ def _validate(
         raise RecorderError("storage.check_interval_seconds must be between 10 and 3600")
     if capture.epoch_ticks < 20:
         raise RecorderError("capture.epoch_ticks must be at least 20")
+    if not dashboard.bind.strip():
+        raise RecorderError("dashboard.bind must not be empty")
+    if not 1 <= dashboard.port <= 65535:
+        raise RecorderError("dashboard.port must be between 1 and 65535")
     managed_paths = (
         ("server data", paths.server_data),
         ("capture", paths.captures),
@@ -280,6 +305,12 @@ quota_gib = 100.0
 warn_percent = 80
 evict_oldest = true
 check_interval_seconds = 60
+
+[dashboard]
+# Bind to all interfaces for the trusted-LAN dashboard. HTTP Basic credentials
+# come from MC_RECORDER_DASHBOARD_USERNAME and MC_RECORDER_DASHBOARD_PASSWORD.
+bind = "0.0.0.0"
+port = 8765
 '''
 
 
