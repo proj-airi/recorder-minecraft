@@ -212,6 +212,22 @@ class RecorderControlPlane(
     }
 
     @Synchronized
+    fun publishReplaySegments(segments: List<ReplaySegmentSnapshot>) {
+        val now = nowMillis()
+        val json = JsonObject().apply {
+            addProperty("schema_version", CONTROL_SCHEMA_VERSION)
+            addProperty("session_id", sessionId)
+            addProperty("updated_at", Instant.ofEpochMilli(now).toString())
+            addProperty("updated_at_unix_ms", now)
+            add("segments", JsonArray().also { array ->
+                segments.sortedBy { it.segmentOrdinal }.forEach { array.add(it.toJson()) }
+            })
+        }
+        atomicWrite(sessions.resolve("$sessionId.replay-segments.json"), json)
+        atomicWrite(root.resolve("replay-segments.json"), json)
+    }
+
+    @Synchronized
     fun snapshotConnections(): List<ConnectionSnapshot> = connections.values.map {
         ConnectionSnapshot(
             playerUuid = it.playerUuid,
@@ -407,6 +423,46 @@ class RecorderControlPlane(
         val endSequence: Long?,
         val terminalReason: String?
     )
+
+    data class ReplaySegmentSnapshot(
+        val segmentId: String,
+        val segmentOrdinal: Long,
+        val playerUuid: String,
+        val playerName: String,
+        val connectionId: String?,
+        val connectionJoinServerTick: Long?,
+        val connectionJoinSequence: Long?,
+        val connectionEndServerTick: Long?,
+        val connectionEndSequence: Long?,
+        val terminalReason: String?,
+        val replayFormat: String,
+        val sourceLocation: String,
+        val state: String,
+        val startedAtUnixMs: Long,
+        val savedAtUnixMs: Long?,
+        val output: String?,
+        val outputSizeBytes: Long?
+    ) {
+        fun toJson(): JsonObject = JsonObject().apply {
+            addProperty("segment_id", segmentId)
+            addProperty("segment_ordinal", segmentOrdinal)
+            addProperty("player_uuid", playerUuid)
+            addProperty("player_name", playerName)
+            connectionId?.let { addProperty("connection_id", it) }
+            connectionJoinServerTick?.let { addProperty("connection_join_server_tick", it) }
+            connectionJoinSequence?.let { addProperty("connection_join_sequence", it) }
+            connectionEndServerTick?.let { addProperty("connection_end_server_tick", it) }
+            connectionEndSequence?.let { addProperty("connection_end_sequence", it) }
+            terminalReason?.let { addProperty("terminal_reason", it) }
+            addProperty("replay_format", replayFormat)
+            addProperty("source_location", sourceLocation)
+            addProperty("state", state)
+            addProperty("started_at_unix_ms", startedAtUnixMs)
+            savedAtUnixMs?.let { addProperty("saved_at_unix_ms", it) }
+            output?.let { addProperty("output", it) }
+            outputSizeBytes?.let { addProperty("output_size_bytes", it) }
+        }
+    }
 
     private data class ConnectionRecord(
         val playerUuid: String,

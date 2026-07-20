@@ -36,6 +36,7 @@ import java.nio.file.StandardOpenOption;
 import java.security.DigestInputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -52,13 +53,20 @@ public final class McRecorderRenderer implements ClientModInitializer {
     private Phase phase = Phase.DISABLED;
     private Throwable startupFailure;
     private int waitTicks;
-    private int resolvedStartTick;
-    private int resolvedEndTick;
+    private int resolvedStartTick = -1;
+    private int resolvedEndTick = -1;
     private long globalTickOffset;
+    private long resolvedGlobalStartTick;
+    private long resolvedGlobalEndTick;
+    private long segmentCoverageStartTick;
+    private long segmentCoverageEndTick;
     private int anchorScanTick;
     private boolean anchorScanRequested;
     private int anchorSettleTicks;
     private volatile TimelineObservation timelineObservation;
+    private TimelineObservation firstTimelineObservation;
+    private TimelineObservation lastTimelineObservation;
+    private int progressTicks;
     private int voxelReplayTick;
     private int voxelSettleTicks;
     private boolean voxelsComplete;
@@ -87,6 +95,7 @@ public final class McRecorderRenderer implements ClientModInitializer {
         try {
             this.job = RenderJobSpec.read(Path.of(jobValue));
             this.validateInputs();
+            this.writeProgress("prepared", 0, 0);
             this.phase = Phase.OPEN_REPLAY;
             LOGGER.info("Loaded render job {}", this.job.jobPath());
         } catch (Exception exception) {
@@ -102,7 +111,8 @@ public final class McRecorderRenderer implements ClientModInitializer {
                 case STARTUP_FAILED -> this.fail(minecraft, this.startupFailure);
                 case OPEN_REPLAY -> this.scheduleOpenReplay(minecraft);
                 case WAIT_REPLAY -> this.waitForReplay(minecraft);
-                case FIND_ANCHOR -> this.findTimelineAnchor();
+                case FIND_FIRST_ANCHOR -> this.findFirstTimelineAnchor();
+                case FIND_LAST_ANCHOR -> this.findLastTimelineAnchor(minecraft);
                 case CAPTURE_VOXELS -> this.captureVoxelTick(minecraft);
                 case WAIT_TARGET -> this.waitForTargetAndExport(minecraft);
                 case EXPORTING -> this.finishWhenExportCompletes(minecraft);
@@ -148,6 +158,7 @@ public final class McRecorderRenderer implements ClientModInitializer {
         }
         this.phase = Phase.WAIT_REPLAY;
         this.waitTicks = 0;
+        this.writeProgressUnchecked("opening_replay", 0, 0);
         LOGGER.info("Minecraft startup settled on {}; scheduling replay open", minecraft.screen.getClass().getSimpleName());
         Thread.startVirtualThread(() -> minecraft.submit(() -> {
             try {
@@ -160,7 +171,7 @@ public final class McRecorderRenderer implements ClientModInitializer {
         }));
     }
 
-    private void waitForReplay(Minecraft minecraft) {
+    private void waitForReplay(Minecraft minecraft) throws IOException {
         ReplayServer replayServer = Flashback.getReplayServer();
         if (replayServer == null || minecraft.level == null || minecraft.player == null) {
             this.checkTimeout("replay server");
@@ -172,11 +183,14 @@ public final class McRecorderRenderer implements ClientModInitializer {
         this.anchorScanRequested = false;
         this.anchorSettleTicks = 0;
         this.timelineObservation = null;
-        this.phase = Phase.FIND_ANCHOR;
+        this.firstTimelineObservation = null;
+        this.lastTimelineObservation = null;
+        this.phase = Phase.FIND_FIRST_ANCHOR;
         this.waitTicks = 0;
+        this.writeProgress("finding_coverage", 0, 0);
     }
 
-    private void findTimelineAnchor() {
+    private void findFirstTimelineAnchor() {
         ReplayServer replayServer = Flashback.getReplayServer();
         if (replayServer == null) {
             this.checkTimeout("replay server while finding timeline marker");
@@ -185,41 +199,66 @@ public final class McRecorderRenderer implements ClientModInitializer {
 
         TimelineObservation observation = this.timelineObservation;
         if (observation != null && this.matchesJob(observation.payload())) {
-            this.globalTickOffset = observation.payload().serverTick() - observation.replayTick();
-            long start = this.job.globalStartTick() - this.globalTickOffset;
-            long end = this.job.globalEndTick() - this.globalTickOffset;
-            if (start < 0 || end < start || end > replayServer.getTotalReplayTicks() || end > Integer.MAX_VALUE) {
-                throw new IllegalArgumentException(
-                    "Requested global ticks do not fall inside this replay segment after exact marker alignment"
-                );
+            this.firstTimelineObservation = observation;
+            if (this.job.rangePolicy() == RenderJobSpec.RangePolicy.LEGACY_STRICT) {
+                this.resolveTimelineRange(replayServer, observation, null);
+                return;
             }
-            this.resolvedStartTick = (int) start;
-            this.resolvedEndTick = (int) end;
-            replayServer.goToReplayTick(this.resolvedStartTick);
-            replayServer.replayPaused = true;
-            this.phase = Phase.WAIT_TARGET;
-            this.waitTicks = 0;
-            LOGGER.info(
-                "Aligned replay tick {} to global server tick {} for connection {}",
-                observation.replayTick(), observation.payload().serverTick(), this.job.connectionId()
-            );
+            this.anchorScanTick = replayServer.getTotalReplayTicks();
+            this.anchorScanRequested = false;
+            this.anchorSettleTicks = 0;
+            this.timelineObservation = null;
+            this.phase = Phase.FIND_LAST_ANCHOR;
             return;
         }
 
-        if (this.anchorScanRequested) {
-            this.anchorSettleTicks++;
-            if (this.anchorSettleTicks < ANCHOR_SETTLE_CLIENT_TICKS) {
-                return;
-            }
-            this.anchorScanTick++;
-            this.anchorScanRequested = false;
-        }
-
         int scanLimit = Math.min(MAX_ANCHOR_SCAN_TICKS, replayServer.getTotalReplayTicks());
-        if (this.anchorScanTick > scanLimit) {
+        if (!this.advanceAnchorScan(replayServer, 1, scanLimit)) {
             throw new IllegalStateException(
                 "No matching mc_recorder:timeline marker found in the first " + scanLimit + " replay ticks"
             );
+        }
+    }
+
+    private void findLastTimelineAnchor(Minecraft minecraft) throws IOException {
+        ReplayServer replayServer = Flashback.getReplayServer();
+        if (replayServer == null) {
+            this.checkTimeout("replay server while finding final timeline marker");
+            return;
+        }
+
+        TimelineObservation observation = this.timelineObservation;
+        if (observation != null && this.matchesJob(observation.payload())) {
+            this.lastTimelineObservation = observation;
+            this.resolveTimelineRange(replayServer, this.firstTimelineObservation, observation);
+            if (this.phase == Phase.NO_COVERAGE) {
+                this.completeNoCoverage(minecraft);
+            }
+            return;
+        }
+
+        int scanLimit = Math.max(0, replayServer.getTotalReplayTicks() - MAX_ANCHOR_SCAN_TICKS);
+        if (!this.advanceAnchorScan(replayServer, -1, scanLimit)) {
+            throw new IllegalStateException(
+                "No matching mc_recorder:timeline marker found in the last "
+                    + MAX_ANCHOR_SCAN_TICKS + " replay ticks"
+            );
+        }
+    }
+
+    private boolean advanceAnchorScan(ReplayServer replayServer, int step, int inclusiveLimit) {
+        if (this.anchorScanRequested) {
+            this.anchorSettleTicks++;
+            if (this.anchorSettleTicks < ANCHOR_SETTLE_CLIENT_TICKS) {
+                return true;
+            }
+            this.anchorScanTick += step;
+            this.anchorScanRequested = false;
+        }
+
+        if ((step > 0 && this.anchorScanTick > inclusiveLimit)
+            || (step < 0 && this.anchorScanTick < inclusiveLimit)) {
+            return false;
         }
 
         this.timelineObservation = null;
@@ -227,6 +266,59 @@ public final class McRecorderRenderer implements ClientModInitializer {
         replayServer.replayPaused = true;
         this.anchorScanRequested = true;
         this.anchorSettleTicks = 0;
+        return true;
+    }
+
+    private void resolveTimelineRange(
+        ReplayServer replayServer,
+        TimelineObservation first,
+        TimelineObservation last
+    ) {
+        TimelineRangeResolver.Resolution resolution = TimelineRangeResolver.resolve(
+            this.job.rangePolicy(),
+            this.job.globalStartTick(), this.job.effectiveGlobalEndTick(), replayServer.getTotalReplayTicks(),
+            marker(first), last == null ? null : marker(last)
+        );
+        this.globalTickOffset = resolution.globalTickOffset();
+        this.resolvedGlobalStartTick = resolution.globalStartTick();
+        this.resolvedGlobalEndTick = resolution.globalEndTick();
+        this.segmentCoverageStartTick = resolution.coverageStartTick();
+        this.segmentCoverageEndTick = resolution.coverageEndTick();
+        if (resolution.status() == TimelineRangeResolver.Status.NO_COVERAGE) {
+            this.resolvedStartTick = -1;
+            this.resolvedEndTick = -1;
+            this.phase = Phase.NO_COVERAGE;
+            return;
+        }
+        this.resolvedStartTick = resolution.replayStartTick();
+        this.resolvedEndTick = resolution.replayEndTick();
+        replayServer.goToReplayTick(this.resolvedStartTick);
+        replayServer.replayPaused = true;
+        this.phase = Phase.WAIT_TARGET;
+        this.waitTicks = 0;
+        LOGGER.info(
+            "Aligned segment coverage {}..{} to requested {}..{}; rendering global ticks {}..{} for connection {}",
+            this.segmentCoverageStartTick, this.segmentCoverageEndTick,
+            this.job.globalStartTick(), this.job.globalEndTick(),
+            this.resolvedGlobalStartTick, this.resolvedGlobalEndTick, this.job.connectionId()
+        );
+    }
+
+    private static TimelineRangeResolver.Marker marker(TimelineObservation observation) {
+        return new TimelineRangeResolver.Marker(observation.payload().serverTick(), observation.replayTick());
+    }
+
+    private void completeNoCoverage(Minecraft minecraft) throws IOException {
+        this.writeStatus("no_coverage", null);
+        this.writeProgress("no_coverage", 0, 0);
+        this.phase = Phase.COMPLETE;
+        LOGGER.info(
+            "Replay segment {} has no coverage for requested global ticks {}..{}",
+            this.job.segmentId(), this.job.globalStartTick(), this.job.globalEndTick()
+        );
+        if (this.job.stopWhenDone()) {
+            minecraft.stop();
+        }
     }
 
     private boolean matchesJob(ReplayTimelinePayload payload) {
@@ -269,13 +361,14 @@ public final class McRecorderRenderer implements ClientModInitializer {
         );
 
         this.writeStatus("running", null);
+        this.writeProgress("rendering", 0, this.resolvedEndTick - this.resolvedStartTick + 1);
         Flashback.EXPORT_JOB = new ExportJob(settings);
         this.phase = Phase.EXPORTING;
         LOGGER.info(
             "Starting {}x{} export for player {} from replay ticks {}..{} / global ticks {}..{}",
             this.job.width(), this.job.height(), this.job.playerId(),
             this.resolvedStartTick, this.resolvedEndTick,
-            this.job.globalStartTick(), this.job.globalEndTick()
+            this.resolvedGlobalStartTick, this.resolvedGlobalEndTick
         );
     }
 
@@ -288,6 +381,7 @@ public final class McRecorderRenderer implements ClientModInitializer {
         this.voxelSettleTicks = 0;
         this.voxelIndexRows.clear();
         this.writeStatus("running", null);
+        this.writeProgress("capturing_voxels", 0, this.resolvedEndTick - this.resolvedStartTick + 1);
         replayServer.goToReplayTick(this.voxelReplayTick);
         replayServer.replayPaused = true;
         this.phase = Phase.CAPTURE_VOXELS;
@@ -323,6 +417,13 @@ public final class McRecorderRenderer implements ClientModInitializer {
         this.voxelIndexRows.add(
             VoxelSnapshotWriter.write(minecraft.level, target, this.job, this.voxelReplayTick, serverTick)
         );
+        if (this.voxelIndexRows.size() % 20 == 0 || this.voxelReplayTick >= this.resolvedEndTick) {
+            this.writeProgress(
+                "capturing_voxels",
+                this.voxelIndexRows.size(),
+                this.resolvedEndTick - this.resolvedStartTick + 1
+            );
+        }
         this.waitTicks = 0;
 
         if (this.voxelReplayTick >= this.resolvedEndTick) {
@@ -394,6 +495,14 @@ public final class McRecorderRenderer implements ClientModInitializer {
 
     private void finishWhenExportCompletes(Minecraft minecraft) throws IOException {
         if (Flashback.EXPORT_JOB != null) {
+            if (++this.progressTicks >= 20) {
+                this.progressTicks = 0;
+                this.writeProgress(
+                    "rendering",
+                    this.countRenderedFrames(),
+                    this.resolvedEndTick - this.resolvedStartTick + 1
+                );
+            }
             return;
         }
 
@@ -411,6 +520,7 @@ public final class McRecorderRenderer implements ClientModInitializer {
         this.validateReplayIntegrity();
 
         this.writeStatus("complete", null);
+        this.writeProgress("complete", actualFrames, expectedFrames);
         this.phase = Phase.COMPLETE;
         LOGGER.info("Completed render job with {} frames in {}", actualFrames, this.job.output());
         if (this.job.stopWhenDone()) {
@@ -441,6 +551,10 @@ public final class McRecorderRenderer implements ClientModInitializer {
                 row.addProperty("session_id", this.job.sessionId());
                 row.addProperty("connection_id", this.job.connectionId());
                 row.addProperty("player_uuid", this.job.playerId().toString());
+                if (this.job.segmentId() != null) {
+                    row.addProperty("segment_id", this.job.segmentId());
+                    row.addProperty("segment_ordinal", this.job.segmentOrdinal());
+                }
                 row.addProperty("path", image.getFileName().toString());
                 writer.write(row.toString());
                 writer.newLine();
@@ -462,24 +576,77 @@ public final class McRecorderRenderer implements ClientModInitializer {
         result.addProperty("session_id", this.job.sessionId());
         result.addProperty("connection_id", this.job.connectionId());
         result.addProperty("player_uuid", this.job.playerId().toString());
-        result.addProperty("global_start_tick", this.job.globalStartTick());
-        result.addProperty("global_end_tick", this.job.globalEndTick());
+        if (this.job.segmentId() != null) {
+            result.addProperty("segment_id", this.job.segmentId());
+            result.addProperty("segment_ordinal", this.job.segmentOrdinal());
+        }
+        result.addProperty("range_policy", this.job.rangePolicy().serialized());
+        result.addProperty("requested_global_start_tick", this.job.globalStartTick());
+        result.addProperty("requested_global_end_tick", this.job.globalEndTick());
+        if (this.job.newerCutoff() != null) {
+            result.addProperty("newer_cutoff", this.job.newerCutoff());
+        }
+        result.addProperty(
+            "global_start_tick",
+            this.resolvedStartTick >= 0 ? this.resolvedGlobalStartTick : this.job.globalStartTick()
+        );
+        result.addProperty(
+            "global_end_tick",
+            this.resolvedEndTick >= 0 ? this.resolvedGlobalEndTick : this.job.globalEndTick()
+        );
         result.addProperty("replay_start_tick", this.resolvedStartTick);
         result.addProperty("replay_end_tick", this.resolvedEndTick);
         result.addProperty("global_tick_offset", this.globalTickOffset);
+        if (this.firstTimelineObservation != null) {
+            result.addProperty("segment_coverage_start_tick", this.segmentCoverageStartTick);
+            result.addProperty("segment_coverage_end_tick", this.segmentCoverageEndTick);
+        }
         result.addProperty("fps", (int) Math.round(this.job.framesPerSecond()));
         result.addProperty("width", this.job.width());
         result.addProperty("height", this.job.height());
         result.addProperty("voxel_snapshots", this.voxelIndexRows.size());
+        result.addProperty("voxel_horizontal_radius", this.job.voxelHorizontalRadius());
+        result.addProperty("voxel_vertical_radius", this.job.voxelVerticalRadius());
         if (this.job.capturesVoxels()) {
             result.addProperty("voxel_index", this.job.output().resolve("voxels.jsonl").toString());
-            result.addProperty("voxel_horizontal_radius", this.job.voxelHorizontalRadius());
-            result.addProperty("voxel_vertical_radius", this.job.voxelVerticalRadius());
         }
         if (failure != null) {
             result.addProperty("error", failure.getClass().getSimpleName() + ": " + failure.getMessage());
         }
         atomicWriteString(this.job.result(), result.toString() + System.lineSeparator());
+    }
+
+    private int countRenderedFrames() throws IOException {
+        int count = 0;
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(this.job.output(), "frame_*.png")) {
+            for (Path ignored : stream) count++;
+        }
+        return count;
+    }
+
+    private void writeProgress(String status, int completedUnits, int totalUnits) throws IOException {
+        JsonObject progress = new JsonObject();
+        progress.addProperty("schema_version", 1);
+        progress.addProperty("status", status);
+        progress.addProperty("session_id", this.job.sessionId());
+        progress.addProperty("connection_id", this.job.connectionId());
+        progress.addProperty("player_uuid", this.job.playerId().toString());
+        if (this.job.segmentId() != null) {
+            progress.addProperty("segment_id", this.job.segmentId());
+            progress.addProperty("segment_ordinal", this.job.segmentOrdinal());
+        }
+        progress.addProperty("completed_units", completedUnits);
+        progress.addProperty("total_units", totalUnits);
+        progress.addProperty("updated_at", Instant.now().toString());
+        atomicWriteString(this.job.progress(), progress.toString() + System.lineSeparator());
+    }
+
+    private void writeProgressUnchecked(String status, int completedUnits, int totalUnits) {
+        try {
+            this.writeProgress(status, completedUnits, totalUnits);
+        } catch (IOException exception) {
+            LOGGER.warn("Unable to update render progress", exception);
+        }
     }
 
     private void checkTimeout(String waitingFor) {
@@ -514,6 +681,7 @@ public final class McRecorderRenderer implements ClientModInitializer {
         try {
             if (this.job != null) {
                 this.writeStatus("failed", throwable);
+                this.writeProgress("failed", 0, 0);
             }
         } catch (IOException statusFailure) {
             LOGGER.error("Unable to write render failure status", statusFailure);
@@ -554,7 +722,9 @@ public final class McRecorderRenderer implements ClientModInitializer {
         STARTUP_FAILED,
         OPEN_REPLAY,
         WAIT_REPLAY,
-        FIND_ANCHOR,
+        FIND_FIRST_ANCHOR,
+        FIND_LAST_ANCHOR,
+        NO_COVERAGE,
         CAPTURE_VOXELS,
         WAIT_TARGET,
         EXPORTING,

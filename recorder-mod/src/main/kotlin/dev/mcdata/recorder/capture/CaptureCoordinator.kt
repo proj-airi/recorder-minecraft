@@ -21,7 +21,8 @@ class CaptureCoordinator(
     private val session: SessionFiles,
     private val writer: AsyncEpochWriter,
     private val controlPlane: RecorderControlPlane?,
-    private val logger: Logger
+    private val logger: Logger,
+    private val replaySegments: ReplaySegmentTracker? = null
 ) : AutoCloseable {
     private var serverTick = 0L
     private var sequence = 0L
@@ -127,6 +128,12 @@ class CaptureCoordinator(
                 joinSequence = connection.startSequence
             )
         }
+        replaySegments?.connectionStarted(
+            playerUuid = connection.playerUuid,
+            connectionId = connection.id,
+            joinServerTick = connection.startServerTick,
+            joinSequence = connection.startSequence
+        )
     }
 
     @Synchronized
@@ -141,6 +148,7 @@ class CaptureCoordinator(
         controlSafely("publish player disconnect") {
             it.connectionEnded(connection.id, leaveTick, sequence, "disconnect")
         }
+        replaySegments?.connectionEnded(connection.id, leaveTick, sequence, "disconnect")
         controls.remove(player.uuid)
         connections.remove(player.uuid)
     }
@@ -238,6 +246,12 @@ class CaptureCoordinator(
                         "server_shutdown"
                     )
                 }
+                replaySegments?.connectionEnded(
+                    connection.connectionId,
+                    connection.endServerTick,
+                    connection.endSequence,
+                    "server_shutdown"
+                )
             }
             writer.metrics().lastSealedEpoch?.let { sealed ->
                 completeRequests(pendingRequests, sealed, reused = false, coalesced = pendingRequests.size > 1)

@@ -88,7 +88,9 @@ runtime-only files for the host dashboard:
 <control_root>/
   status.json
   connections.json
+  replay-segments.json
   sessions/<session-id>.connections.json
+  sessions/<session-id>.replay-segments.json
   requests/<request-uuid>.json
   responses/<request-uuid>.json
 ```
@@ -115,6 +117,25 @@ that covers the end sequence. A success response names the epoch, its terminal
 sequence, manifest, and event hash and is written only after the epoch stream is
 fsynced and its integrity manifest exists. Existing responses make request IDs
 idempotent.
+
+`replay-segments.json` binds ServerReplay's independently rotated player
+archives to capture identity. The recorder allocates a UUID `segment_id` and a
+monotonic per-session/player `segment_ordinal` at each ServerReplay recorder
+start. Because ServerReplay starts during login, before Fabric publishes the
+player join, the recorder retains recorder-object identity and fills the exact
+`connection_id` when the connection ledger starts. Reconnects therefore cannot
+claim a still-saving archive from an earlier connection. Each segment row
+contains player identity, optional connection join/end boundaries, replay
+format, `recording` or `saved` state, timestamps, and host-local source/output
+locations. A saved row also includes the observed output size; host tooling
+must still enforce replay-root containment and compute a stable SHA-256 before
+using the archive.
+
+Every saved replay embeds an `mc_recorder` metadata object with schema version,
+session ID, segment ID/ordinal, player UUID, and the connection ID when binding
+completed. The current and session-history segment ledgers are atomic runtime
+indexes, not substitutes for that archive metadata, timeline markers, or host
+integrity verification.
 
 These files coordinate the dashboard; they are never source truth. Exporters
 must still validate the immutable source events and sealed epoch manifests.
@@ -192,10 +213,15 @@ player's Flashback archive. Its values are:
 - event sequence, exposed as `marker_event_sequence` by the matching sidecar
   `replay_timeline` record.
 
-The renderer finds a marker for the requested session and connection and
-computes the exact offset from replay ticks to global server ticks. Joins must
-therefore use both player UUID and connection ID, never filename or archive
-mtime. Independent archive rotation does not change the sample timeline.
+The renderer finds the first and last markers for the requested session and
+connection and requires a constant exact offset from replay ticks to global
+server ticks. Segment-aware jobs use `range_policy: "intersection"` to render
+only the overlap between marker coverage and the requested connection range; a
+disjoint archive completes with `status: "no_coverage"` and no synthetic
+frames. Jobs without `range_policy` retain the legacy single-anchor behavior.
+Joins must therefore use both player UUID and connection ID, never filename or
+archive mtime. Independent archive rotation does not change the sample
+timeline.
 
 Open-world data is intentionally best effort. Each `player_state` contains a
 `replay_coverage` hint with `kind: "client_visible_best_effort"`, the player's

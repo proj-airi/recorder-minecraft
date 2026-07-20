@@ -17,6 +17,10 @@ record RenderJobSpec(
     String sessionId,
     String connectionId,
     UUID playerId,
+    String segmentId,
+    Long segmentOrdinal,
+    RangePolicy rangePolicy,
+    Long newerCutoff,
     long globalStartTick,
     long globalEndTick,
     int width,
@@ -55,8 +59,36 @@ record RenderJobSpec(
         String sessionId = requiredString(json, "session_id");
         String connectionId = requiredString(json, "connection_id");
         UUID playerId = UUID.fromString(requiredString(json, "player_uuid"));
+        String segmentId = json.has("segment_id")
+            ? requiredString(json, "segment_id")
+            : optionalString(sourceReplay, "segment_id");
+        Long segmentOrdinal = json.has("segment_ordinal")
+            ? Long.valueOf(requiredLong(json, "segment_ordinal"))
+            : optionalLong(sourceReplay, "segment_ordinal");
+        if ((segmentId == null) != (segmentOrdinal == null)) {
+            throw new IllegalArgumentException("segment_id and segment_ordinal must be provided together");
+        }
+        if (segmentId != null) {
+            if (!segmentId.matches("[A-Za-z0-9][A-Za-z0-9._-]{0,159}")) {
+                throw new IllegalArgumentException("segment_id must be an opaque path-free identifier");
+            }
+            if (segmentOrdinal < 0) {
+                throw new IllegalArgumentException("segment_ordinal must not be negative");
+            }
+        }
+        JsonObject timeline = json.has("timeline") && json.get("timeline").isJsonObject()
+            ? json.getAsJsonObject("timeline") : null;
+        String serializedRangePolicy = json.has("range_policy")
+            ? requiredString(json, "range_policy")
+            : optionalString(timeline, "range_policy");
+        RangePolicy rangePolicy = RangePolicy.parse(
+            serializedRangePolicy
+        );
         long globalStartTick = requiredLong(json, "global_start_tick");
         long globalEndTick = requiredLong(json, "global_end_tick");
+        Long newerCutoff = json.has("newer_cutoff")
+            ? Long.valueOf(requiredLong(json, "newer_cutoff"))
+            : optionalLong(timeline, "newer_cutoff");
         int width = integer(json, "width", 640);
         int height = integer(json, "height", 360);
         double fps = decimal(json, "fps", 20.0);
@@ -80,6 +112,16 @@ record RenderJobSpec(
         if (globalStartTick < 0 || globalEndTick < globalStartTick) {
             throw new IllegalArgumentException("Invalid global_start_tick/global_end_tick interval");
         }
+        if (newerCutoff != null) {
+            boolean atEndExclusive = globalEndTick < Long.MAX_VALUE && newerCutoff == globalEndTick + 1;
+            if (rangePolicy != RangePolicy.INTERSECTION
+                || newerCutoff < globalStartTick
+                || (newerCutoff > globalEndTick && !atEndExclusive)) {
+                throw new IllegalArgumentException(
+                    "newer_cutoff is valid only inside an intersection range"
+                );
+            }
+        }
         if (width <= 0 || height <= 0 || width > 16384 || height > 16384) {
             throw new IllegalArgumentException("Invalid render resolution");
         }
@@ -102,13 +144,49 @@ record RenderJobSpec(
             throw new IllegalArgumentException("Voxel crop is too large; maximum is 2,000,000 cells per tick");
         }
         return new RenderJobSpec(normalizedJob, replay, replaySha256, replayBytes,
-            output, sessionId, connectionId, playerId,
+            output, sessionId, connectionId, playerId, segmentId, segmentOrdinal, rangePolicy, newerCutoff,
             globalStartTick, globalEndTick,
             width, height, fps, voxelHorizontalRadius, voxelVerticalRadius, noGui, stop, result);
     }
 
     boolean capturesVoxels() {
         return this.voxelHorizontalRadius > 0;
+    }
+
+    Path progress() {
+        return this.jobPath.getParent().resolve("progress.json");
+    }
+
+    long effectiveGlobalEndTick() {
+        return this.newerCutoff == null
+            ? this.globalEndTick
+            : Math.min(this.globalEndTick, this.newerCutoff - 1);
+    }
+
+    enum RangePolicy {
+        LEGACY_STRICT,
+        STRICT,
+        INTERSECTION;
+
+        static RangePolicy parse(String serialized) {
+            if (serialized == null) {
+                return LEGACY_STRICT;
+            }
+            return switch (serialized) {
+                case "strict" -> STRICT;
+                case "exact" -> STRICT;
+                case "intersection" -> INTERSECTION;
+                default -> throw new IllegalArgumentException("Unsupported range_policy: " + serialized);
+            };
+        }
+
+        String serialized() {
+            return switch (this) {
+                case LEGACY_STRICT -> "legacy_strict";
+                case STRICT -> "exact";
+                case INTERSECTION -> "intersection";
+            };
+        }
     }
 
     private static Path resolve(Path base, String value) {
@@ -123,6 +201,11 @@ record RenderJobSpec(
         return json.get(key).getAsString();
     }
 
+    private static String optionalString(JsonObject json, String key) {
+        return json != null && json.has(key) && !json.get(key).isJsonNull()
+            ? requiredString(json, key) : null;
+    }
+
     private static int integer(JsonObject json, String key, int fallback) {
         return json.has(key) ? json.get(key).getAsInt() : fallback;
     }
@@ -132,6 +215,11 @@ record RenderJobSpec(
             throw new IllegalArgumentException("Missing required field: " + key);
         }
         return json.get(key).getAsLong();
+    }
+
+    private static Long optionalLong(JsonObject json, String key) {
+        return json != null && json.has(key) && !json.get(key).isJsonNull()
+            ? requiredLong(json, key) : null;
     }
 
     private static double decimal(JsonObject json, String key, double fallback) {

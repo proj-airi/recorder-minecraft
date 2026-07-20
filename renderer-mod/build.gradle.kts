@@ -41,6 +41,9 @@ dependencies {
         modLocalRuntime(files(localFlashbackJar))
         modLocalRuntime(fileTree(nestedJarDirectory) { include("*.jar") })
     }
+
+    testImplementation("org.junit.jupiter:junit-jupiter:5.11.4")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
 loom {
@@ -74,4 +77,8 @@ tasks.processResources {
     filesMatching("fabric.mod.json") {
         expand("version" to project.version)
     }
+}
+
+tasks.test {
+    useJUnitPlatform()
 }

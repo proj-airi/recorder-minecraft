@@ -14,6 +14,8 @@ object CaptureRuntime {
     private var coordinator: CaptureCoordinator? = null
     @Volatile
     private var failed = false
+    @Volatile
+    private var replaySegments: ReplaySegmentTracker? = null
     private lateinit var logger: Logger
 
     fun initialize(logger: Logger) {
@@ -34,7 +36,13 @@ object CaptureRuntime {
                 it
             )
         }.getOrNull()
-        coordinator = CaptureCoordinator(config, session, writer, controlPlane, logger)
+        val segmentTracker = ReplaySegmentTracker(
+            session.sessionId,
+            { segments -> controlPlane?.publishReplaySegments(segments) },
+            logger
+        )
+        replaySegments = segmentTracker
+        coordinator = CaptureCoordinator(config, session, writer, controlPlane, logger, segmentTracker)
         failed = false
         logger.info("Started dataset recording session {} in {}", session.sessionId, session.directory)
 
@@ -48,6 +56,18 @@ object CaptureRuntime {
     fun playerJoin(player: ServerPlayer) = safely { it.playerJoin(player) }
     fun playerLeave(player: ServerPlayer) = safely { it.playerLeave(player) }
     fun packetArrival(player: ServerPlayer, packet: Packet<*>) = safely { it.packetArrival(player, packet) }
+
+    fun replayRecorderStarted(recorder: net.casual.arcade.replay.recorder.ReplayRecorder) {
+        runCatching { replaySegments?.recorderStarted(recorder) }.onFailure {
+            logger.error("Could not register ServerReplay segment identity", it)
+        }
+    }
+
+    fun replayRecorderSaved(recorder: net.casual.arcade.replay.recorder.ReplayRecorder, output: java.nio.file.Path) {
+        runCatching { replaySegments?.recorderSaved(recorder, output) }.onFailure {
+            logger.error("Could not publish saved ServerReplay segment", it)
+        }
+    }
 
     @JvmStatic
     fun packetApply(player: ServerPlayer, packet: Packet<*>) = safely { it.packetApply(player, packet) }

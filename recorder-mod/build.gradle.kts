@@ -8,6 +8,7 @@ version = "0.1.0+1.21.8"
 
 repositories {
     maven("https://maven.supersanta.me/snapshots")
+    maven("https://jitpack.io")
     mavenCentral()
 }
 
@@ -22,6 +23,9 @@ dependencies {
     // ServerReplay 3.0.1 bundles these modules at runtime. They stay external here.
     modImplementation("net.casualchampionships:arcade-event-registry:0.6.2-beta.49+1.21.8")
     modImplementation("net.casualchampionships:arcade-events-server:0.6.2-beta.49+1.21.8")
+    // Runtime classes are nested in the required ServerReplay jar; this is compile-only so the
+    // recorder does not publish a second copy of the replay framework.
+    modCompileOnly("net.casualchampionships:arcade-replay:0.6.2-beta.49+1.21.8")
 
     testImplementation(kotlin("test"))
     testImplementation("org.junit.jupiter:junit-jupiter:5.11.4")
