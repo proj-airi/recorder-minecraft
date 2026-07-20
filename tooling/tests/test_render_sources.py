@@ -21,8 +21,7 @@ SEGMENT = "00000000-0000-4000-8000-000000000003"
 
 
 def _write_archive(path: Path, *, segment: str = SEGMENT) -> None:
-    metadata = {
-        "uuid": str(uuid.uuid4()),
+    arcade_metadata = {
         "mc_recorder": {
             "schema_version": 1,
             "session_id": SESSION,
@@ -34,7 +33,8 @@ def _write_archive(path: Path, *, segment: str = SEGMENT) -> None:
     }
     path.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(path, "w") as archive:
-        archive.writestr("metadata.json", json.dumps(metadata))
+        archive.writestr("metadata.json", json.dumps({"uuid": str(uuid.uuid4())}))
+        archive.writestr("arcade_replay_meta.json", json.dumps(arcade_metadata))
         archive.writestr("c0.flashback", b"replay")
 
 

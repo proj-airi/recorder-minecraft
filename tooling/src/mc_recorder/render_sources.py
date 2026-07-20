@@ -134,19 +134,29 @@ def _stable_digest(path: Path) -> tuple[str, int]:
 def _archive_identity(path: Path) -> dict[str, Any]:
     try:
         with zipfile.ZipFile(path) as archive:
-            matching = [item for item in archive.infolist() if item.filename == "metadata.json"]
+            entries = archive.infolist()
+            flashback_metadata = [item for item in entries if item.filename == "metadata.json"]
+            matching = [
+                item for item in entries if item.filename == "arcade_replay_meta.json"
+            ]
+            if len(flashback_metadata) != 1 or not any(
+                item.filename.endswith(".flashback") for item in entries
+            ):
+                raise RecorderError(f"replay is not a complete Flashback archive: {path}")
             if len(matching) != 1:
-                raise RecorderError(f"Flashback archive must contain one metadata.json: {path}")
+                raise RecorderError(
+                    f"ServerReplay archive must contain one arcade_replay_meta.json: {path}"
+                )
             item = matching[0]
             if item.file_size > MAX_ARCHIVE_METADATA_BYTES:
-                raise RecorderError(f"Flashback metadata is too large: {path}")
+                raise RecorderError(f"ServerReplay metadata is too large: {path}")
             raw = archive.read(item)
     except (OSError, zipfile.BadZipFile, RuntimeError) as exc:
         raise RecorderError(f"replay is not a readable Flashback archive: {path}") from exc
     try:
         metadata = json.loads(raw)
     except (json.JSONDecodeError, UnicodeDecodeError, RecursionError) as exc:
-        raise RecorderError(f"Flashback metadata is invalid JSON: {path}") from exc
+        raise RecorderError(f"ServerReplay metadata is invalid JSON: {path}") from exc
     if not isinstance(metadata, dict) or not isinstance(metadata.get("mc_recorder"), dict):
         raise RecorderError(f"replay lacks exact mc_recorder segment identity: {path}")
     return metadata["mc_recorder"]

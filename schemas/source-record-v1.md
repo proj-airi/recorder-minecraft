@@ -131,11 +131,12 @@ locations. A saved row also includes the observed output size; host tooling
 must still enforce replay-root containment and compute a stable SHA-256 before
 using the archive.
 
-Every saved replay embeds an `mc_recorder` metadata object with schema version,
-session ID, segment ID/ordinal, player UUID, and the connection ID when binding
-completed. The current and session-history segment ledgers are atomic runtime
-indexes, not substitutes for that archive metadata, timeline markers, or host
-integrity verification.
+Every saved replay embeds an `mc_recorder` metadata object in ServerReplay's
+`arcade_replay_meta.json` ZIP entry, with schema version, session ID, segment
+ID/ordinal, player UUID, and the connection ID when binding completed. This is
+distinct from Flashback's base `metadata.json`. The current and session-history
+segment ledgers are atomic runtime indexes, not substitutes for that archive
+metadata, timeline markers, or host integrity verification.
 
 These files coordinate the dashboard; they are never source truth. Exporters
 must still validate the immutable source events and sealed epoch manifests.
