@@ -97,6 +97,28 @@ modalities are explicit objects with
 chunks are never encoded as known air and missing images are never encoded as
 black frames.
 
+A structured-only export is therefore a complete, valid dataset even when all
+RGB and voxel entries are unavailable. Rendering and re-export may attach those
+optional modalities later, but consumers must continue to decide availability
+per sample from the modality objects rather than from the dataset directory
+name or the presence of another sample's artifact.
+
+## Large-export viewer contract
+
+`samples.jsonl` is a streaming JSONL contract and may be hundreds of megabytes;
+consumers must not assume it can be loaded into browser memory as one document.
+The V1 dashboard builds a server-side SQLite byte-offset index keyed by the
+verified export manifest and its declared file hashes, then exposes paginated
+summaries and on-demand sample details through opaque IDs. A changed manifest or
+declared hash invalidates that index.
+
+RGB and voxel bytes are served only after their references remain contained
+within the configured export root and their declared size/hash still match.
+Symlinks, missing artifacts, and escaping paths are invalid. Voxel viewers must
+honor the coverage bitset: uncovered slice cells are unknown, not air. The V1
+dashboard renders axis-selectable 2D slices and does not define a full 3D voxel
+interface.
+
 ## Modality status
 
 RGB and voxel outputs inherit a replay integrity envelope. Job preparation
