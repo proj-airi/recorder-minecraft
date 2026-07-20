@@ -17,6 +17,12 @@ from .storage import StorageReport, enforce_quota
 
 
 _IGNORED_JAR_SUFFIXES = ("-sources.jar", "-javadoc.jar", "-dev.jar", "-all-dev.jar")
+_MAX_STATUS_MESSAGE_CHARS = 2048
+
+
+def _bounded_status_message(value: object, fallback: str) -> str:
+    message = str(value or fallback).strip() or fallback
+    return message[:_MAX_STATUS_MESSAGE_CHARS]
 
 
 def _run(
@@ -303,6 +309,14 @@ def compose_command(config: RecorderConfig, *arguments: str) -> list[str]:
     ]
 
 
+def _compose_environment(config: RecorderConfig) -> dict[str, str]:
+    """Supply additive Compose variables missing from an older prepared runtime."""
+
+    environment = dict(os.environ)
+    environment["MC_CONTROL_DIR"] = str(config.paths.runtime / "control")
+    return environment
+
+
 def _require_prepared_runtime(config: RecorderConfig) -> None:
     env_path = config.paths.runtime / "compose.env"
     if not env_path.is_file():
@@ -316,7 +330,12 @@ def verify_docker() -> None:
     _ensure_success(result, "Docker Compose check")
 
 
-def start_server(config: RecorderConfig, *, wait: bool = False) -> tuple[Path, StorageReport]:
+def start_server(
+    config: RecorderConfig,
+    *,
+    wait: bool = False,
+    capture_output: bool = False,
+) -> tuple[Path, StorageReport]:
     with operation_lock(config.paths.runtime, "server_start"):
         if not config.server.eula:
             raise RecorderError(
@@ -330,16 +349,26 @@ def start_server(config: RecorderConfig, *, wait: bool = False) -> tuple[Path, S
         arguments = ["up", "--detach", "--remove-orphans"]
         if wait:
             arguments.extend(("--wait", "--wait-timeout", "180"))
-        result = _run(compose_command(config, *arguments))
+        result = _run(compose_command(config, *arguments), capture=capture_output)
         _ensure_success(result, "server start")
         return jar, storage_report
 
 
-def stop_server(config: RecorderConfig, *, timeout_seconds: int = 120) -> StorageReport:
+def stop_server(
+    config: RecorderConfig,
+    *,
+    timeout_seconds: int = 120,
+    capture_output: bool = False,
+) -> StorageReport:
     with operation_lock(config.paths.runtime, "server_stop"):
         _require_prepared_runtime(config)
+        (config.paths.runtime / "control").mkdir(parents=True, exist_ok=True)
+        write_compose_env(config)
         verify_docker()
-        result = _run(compose_command(config, "stop", "--timeout", str(timeout_seconds)))
+        result = _run(
+            compose_command(config, "stop", "--timeout", str(timeout_seconds)),
+            capture=capture_output,
+        )
         _ensure_success(result, "server stop")
         return check_storage(config)
 
@@ -348,12 +377,15 @@ def compose_status(config: RecorderConfig) -> dict[str, object]:
     """Return a stable dashboard status without printing or mutating runtime."""
 
     if not (config.paths.runtime / "compose.env").is_file():
-        return {"state": "not_prepared", "services": [], "message": None}
+        return {"state": "unprepared", "services": [], "message": None}
     if not config.paths.compose_file.is_file():
         return {
-            "state": "not_prepared",
+            "state": "unprepared",
             "services": [],
-            "message": f"Docker Compose file not found: {config.paths.compose_file}",
+            "message": _bounded_status_message(
+                f"Docker Compose file not found: {config.paths.compose_file}",
+                "Docker Compose file not found",
+            ),
         }
     try:
         version = _run(["docker", "compose", "version"], capture=True)
@@ -361,16 +393,30 @@ def compose_status(config: RecorderConfig) -> dict[str, object]:
             return {
                 "state": "docker_unavailable",
                 "services": [],
-                "message": (version.stderr or version.stdout or "Docker Compose check failed").strip(),
+                "message": _bounded_status_message(
+                    version.stderr or version.stdout,
+                    "Docker Compose check failed",
+                ),
             }
-        result = _run(compose_command(config, "ps", "--all", "--format", "json"), capture=True)
+        result = _run(
+            compose_command(config, "ps", "--all", "--format", "json"),
+            capture=True,
+            env=_compose_environment(config),
+        )
     except RecorderError as exc:
-        return {"state": "docker_unavailable", "services": [], "message": str(exc)}
+        return {
+            "state": "docker_unavailable",
+            "services": [],
+            "message": _bounded_status_message(exc, "Docker Compose status failed"),
+        }
     if result.returncode != 0:
         return {
             "state": "docker_unavailable",
             "services": [],
-            "message": (result.stderr or result.stdout or "Docker Compose status failed").strip(),
+            "message": _bounded_status_message(
+                result.stderr or result.stdout,
+                "Docker Compose status failed",
+            ),
         }
 
     raw = (result.stdout or "").strip()
@@ -383,7 +429,14 @@ def compose_status(config: RecorderConfig) -> dict[str, object]:
         else:
             rows = [value for line in raw.splitlines() if isinstance((value := json.loads(line)), dict)]
     except json.JSONDecodeError as exc:
-        return {"state": "docker_unavailable", "services": [], "message": f"invalid Compose status: {exc.msg}"}
+        return {
+            "state": "docker_unavailable",
+            "services": [],
+            "message": _bounded_status_message(
+                f"invalid Compose status: {exc.msg}",
+                "invalid Compose status",
+            ),
+        }
 
     services = []
     for row in rows:
@@ -421,7 +474,7 @@ def compose_status(config: RecorderConfig) -> dict[str, object]:
 def show_status(config: RecorderConfig) -> int:
     _require_prepared_runtime(config)
     verify_docker()
-    return _run(compose_command(config, "ps")).returncode
+    return _run(compose_command(config, "ps"), env=_compose_environment(config)).returncode
 
 
 def show_logs(config: RecorderConfig, *, follow: bool, tail: int, service: str) -> int:
@@ -433,7 +486,7 @@ def show_logs(config: RecorderConfig, *, follow: bool, tail: int, service: str) 
     if service != "all":
         arguments.append(service)
     try:
-        return _run(compose_command(config, *arguments)).returncode
+        return _run(compose_command(config, *arguments), env=_compose_environment(config)).returncode
     except KeyboardInterrupt:
         print("", file=sys.stderr)
         return 130

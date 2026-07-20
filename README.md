@@ -95,6 +95,55 @@ mc-recorder episodes list
 mc-recorder episodes validate SESSION_ID
 ```
 
+### LAN dashboard
+
+The dashboard is a host process, not a Compose container. It remains available
+while Minecraft is stopped and starts or stops the Compose-managed server by
+calling the same lifecycle code as `mc-recorder server start` and
+`mc-recorder server stop`. Run it as a user that can run Docker Compose, and use
+launchd, systemd, or another host service manager when it should survive logouts
+or reboots.
+
+Set both required HTTP Basic credentials, then start the service:
+
+```sh
+export MC_RECORDER_DASHBOARD_USERNAME=recorder
+export MC_RECORDER_DASHBOARD_PASSWORD='replace-with-a-long-password'
+mc-recorder dashboard serve
+```
+
+The default `[dashboard]` listener is `0.0.0.0:8765`, so another trusted-LAN
+machine can open `http://SERVER_ADDRESS:8765/`. Basic authentication over plain
+HTTP does **not** encrypt the username or password. Use this deployment only on
+a LAN you trust, or place an HTTPS reverse proxy in front of it. Every route is
+authenticated; mutating requests additionally require same-origin and CSRF
+checks.
+
+The recordings view groups rows by player but keeps every join/reconnect as a
+separate `connection_id`. Active rows cannot be exported. After a player
+disconnects, **Seal & Generate Dataset** requests a global sidecar epoch rotation
+at an end-of-tick boundary, waits for its verified manifest, and exports only
+that player UUID, connection ID, and observed tick range. Other connected
+players continue recording in the next epoch. Repeated generation reuses a
+matching verified deterministic export and does not overwrite a conflicting
+dataset.
+
+Generation is structured-first: it writes JSONL immediately and treats missing
+RGB/voxel modalities as explicit, non-fatal metadata. The dashboard does not
+launch Minecraft rendering on a headless server. Instead, use the row's local
+render command on a GUI-capable machine, make the completed render job available
+on the server by copying or mounting it beneath `paths.exports`, then re-export
+the same exact player/connection with `--frames` and, when requested,
+`--voxels`. The dataset catalog detects the changed manifest and declared hashes
+and rebuilds its local index automatically.
+
+The viewer pages through a SQLite byte-offset index rather than loading a large
+`samples.jsonl` into the browser. It provides a 20 Hz synchronized timeline and
+RGB playback when attached, player/connection filters, state-to-next-state
+differences, reconstructed controls, ordered packet actions, peers, transition
+validity, and provenance. Validated voxel artifacts are shown as axis-selectable
+2D slices; uncovered cells remain unknown. Interactive 3D voxels are outside V1.
+
 Export all recorded subjects, or add repeatable player and connection UUID filters:
 
 ```sh

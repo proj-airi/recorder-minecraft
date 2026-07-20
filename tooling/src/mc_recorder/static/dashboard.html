@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>MC Recorder</title>
+    <link rel="stylesheet" href="/styles.css">
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <header>
+      <div>
+        <p class="eyebrow">MINECRAFT DATA COLLECTION</p>
+        <h1>Recorder control room</h1>
+      </div>
+      <div id="server-pill" class="pill neutral">Loading</div>
+    </header>
+    <nav aria-label="Dashboard sections">
+      <button class="tab active" data-view="operations">Live operations</button>
+      <button class="tab" data-view="datasets">Dataset viewer</button>
+    </nav>
+    <main>
+      <section id="operations" class="view active">
+        <div class="summary-grid">
+          <article class="card server-card">
+            <div class="card-heading"><h2>Server</h2><span id="server-state">—</span></div>
+            <p id="server-detail" class="muted">Checking Docker Compose…</p>
+            <div class="actions">
+              <button id="start-server" class="primary">Start server</button>
+              <button id="stop-server" class="danger">Stop and seal</button>
+            </div>
+          </article>
+          <article class="card">
+            <div class="card-heading"><h2>Capture</h2><span id="capture-state">—</span></div>
+            <dl id="capture-metrics" class="metrics"></dl>
+          </article>
+          <article class="card">
+            <div class="card-heading"><h2>Storage</h2><span id="storage-state">—</span></div>
+            <div class="meter"><span id="storage-meter"></span></div>
+            <p id="storage-detail" class="muted">—</p>
+          </article>
+        </div>
+        <section class="panel">
+          <div class="panel-heading">
+            <div><p class="eyebrow">CONNECTION-SCOPED</p><h2>Player recordings</h2></div>
+            <button id="refresh-recordings" class="quiet">Refresh</button>
+          </div>
+          <div id="recordings" class="recordings"><p class="empty">No connection ledger yet.</p></div>
+        </section>
+        <section class="panel">
+          <div class="panel-heading"><h2>Recent operations</h2></div>
+          <div id="jobs" class="jobs"></div>
+        </section>
+      </section>
+      <section id="datasets" class="view">
+        <div class="dataset-layout">
+          <aside class="panel dataset-list-panel">
+            <div class="panel-heading"><h2>Exports</h2><button id="refresh-datasets" class="quiet">Refresh</button></div>
+            <div id="dataset-list" class="dataset-list"><p class="empty">Loading exports…</p></div>
+            <p id="dataset-issues" class="dataset-issues"></p>
+          </aside>
+          <section class="panel inspector">
+            <div id="dataset-overview" class="empty-state">
+              <p class="eyebrow">SAMPLE INSPECTOR</p>
+              <h2>Select a verified dataset</h2>
+              <p>Samples are indexed by byte offset; large JSONL files stay on the server.</p>
+            </div>
+            <div id="sample-viewer" hidden>
+              <div class="viewer-filters">
+                <label>Player<select id="filter-player"><option value="">All players</option></select></label>
+                <label>Connection<select id="filter-connection"><option value="">All connections</option></select></label>
+                <label>Validity<select id="filter-validity"><option value="">Any</option><option value="valid">Valid</option><option value="invalid">Invalid</option></select></label>
+                <label>Modality<select id="filter-modality"><option value="">Any</option><option value="rgb">RGB attached</option><option value="voxels">Voxels attached</option></select></label>
+                <label>From tick<input id="filter-from-tick" type="number" min="0"></label>
+                <label>To tick<input id="filter-to-tick" type="number" min="0"></label>
+                <button id="apply-filters" class="quiet">Apply filters</button>
+              </div>
+              <div class="page-toolbar">
+                <button id="page-prev" class="quiet" disabled>Previous page</button>
+                <span id="page-position">0 of 0</span>
+                <button id="page-next" class="quiet" disabled>Next page</button>
+              </div>
+              <div class="viewer-toolbar">
+                <button id="sample-prev" class="quiet">←</button>
+                <button id="sample-play" class="primary">Play</button>
+                <button id="sample-next" class="quiet">→</button>
+                <input id="sample-slider" type="range" min="0" max="0" value="0">
+                <span id="sample-position">0 / 0</span>
+              </div>
+              <div class="sample-grid">
+                <div class="frame-wrap"><img id="sample-frame" alt="Rendered Minecraft frame"><div id="frame-missing">RGB unavailable</div></div>
+                <div id="sample-summary" class="sample-summary"></div>
+              </div>
+              <details open><summary>State → next state</summary><pre id="state-diff"></pre></details>
+              <details><summary>Controls and ordered actions</summary><pre id="sample-actions"></pre></details>
+              <details><summary>Peers, validity, and provenance</summary><pre id="sample-provenance"></pre></details>
+              <details id="voxel-details"><summary>Voxel slice</summary><div class="voxel-tools"><select id="voxel-axis"><option>x</option><option selected>y</option><option>z</option></select><input id="voxel-index" type="number" value="-1"><button id="load-voxel" class="quiet">Load slice</button></div><canvas id="voxel-canvas"></canvas><p id="voxel-note" class="muted"></p></details>
+            </div>
+          </section>
+        </div>
+      </section>
+    </main>
+    <div id="toast" role="status" aria-live="polite"></div>
+  </body>
+</html>

@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Sequence
 
 from .config import DEFAULT_CONFIG_NAME, initialize, load_config
+from .dashboard_http import serve_dashboard
 from .episodes import (
     EpisodeInfo,
     directory_size,
@@ -17,9 +18,10 @@ from .episodes import (
 )
 from .errors import RecorderError
 from .exporter import export_episode
+from .operations import operation_lock
 from .render_job import launch_render_job, prepare_render_job, resolve_replay
-from .server import check_storage, show_logs, show_status, start_server, stop_server
-from .storage import enforce_quota, human_bytes
+from .server import show_logs, show_status, start_server, stop_server
+from .storage import StorageReport, enforce_quota, human_bytes
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -113,6 +115,10 @@ def _parser() -> argparse.ArgumentParser:
     storage_commands = storage.add_subparsers(dest="storage_command", required=True)
     storage_commands.add_parser("status", help="show capture plus replay quota without deleting data")
     storage_commands.add_parser("enforce", help="evict oldest verified immutable source units when over quota")
+
+    dashboard = commands.add_parser("dashboard", help="serve the authenticated LAN dashboard")
+    dashboard_commands = dashboard.add_subparsers(dest="dashboard_command", required=True)
+    dashboard_commands.add_parser("serve", help="run the host dashboard until interrupted")
     return parser
 
 
@@ -190,13 +196,20 @@ def _validate(config_path: str, episode_id: str | None, as_json: bool) -> int:
 
 def _storage(config_path: str, enforce: bool) -> int:
     config = load_config(config_path)
-    report = enforce_quota(
-        config.paths.captures,
-        quota_bytes=config.storage.quota_bytes,
-        warn_percent=config.storage.warn_percent,
-        evict_oldest=config.storage.evict_oldest if enforce else False,
-        replays_root=config.paths.replays,
-    )
+    def inspect_or_enforce() -> StorageReport:
+        return enforce_quota(
+            config.paths.captures,
+            quota_bytes=config.storage.quota_bytes,
+            warn_percent=config.storage.warn_percent,
+            evict_oldest=config.storage.evict_oldest if enforce else False,
+            replays_root=config.paths.replays,
+        )
+
+    if enforce:
+        with operation_lock(config.paths.runtime, "storage_enforce"):
+            report = inspect_or_enforce()
+    else:
+        report = inspect_or_enforce()
     if not enforce and report.status == "full" and config.storage.evict_oldest:
         print(
             "storage full: run 'mc-recorder storage enforce' or start the server to evict sealed epochs",
@@ -225,17 +238,18 @@ def run(argv: Sequence[str] | None = None) -> int:
         config = load_config(args.config)
         episode = resolve_episode(config.paths.captures, args.episode)
         output = args.output or (config.paths.exports / f"{args.episode}.dataset")
-        result = export_episode(
-            episode,
-            output,
-            players=args.player,
-            connections=args.connection,
-            first_tick=args.from_tick,
-            last_tick=args.to_tick,
-            frames=args.frames,
-            voxels=args.voxels,
-            force=args.force,
-        )
+        with operation_lock(config.paths.runtime, "export"):
+            result = export_episode(
+                episode,
+                output,
+                players=args.player,
+                connections=args.connection,
+                first_tick=args.from_tick,
+                last_tick=args.to_tick,
+                frames=args.frames,
+                voxels=args.voxels,
+                force=args.force,
+            )
         print(
             f"Exported {result.sample_count} samples, {result.state_count} states, and "
             f"{result.action_count} actions to {result.output}"
@@ -250,26 +264,27 @@ def run(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "render":
         config = load_config(args.config)
-        episode = resolve_episode(config.paths.captures, args.episode)
-        replay = resolve_replay(config.paths.replays, args.player, args.replay)
-        output = args.output or (
-            config.paths.exports / "render-jobs" / f"{args.episode}-{args.player}"
-        )
-        result = prepare_render_job(
-            episode,
-            replay,
-            output,
-            player_uuid=args.player,
-            connection_id=args.connection,
-            width=args.width,
-            height=args.height,
-            fps=args.fps,
-            first_tick=args.from_tick,
-            last_tick=args.to_tick,
-            force=args.force,
-            voxel_horizontal_radius=args.voxel_horizontal_radius,
-            voxel_vertical_radius=args.voxel_vertical_radius,
-        )
+        with operation_lock(config.paths.runtime, "render_prepare"):
+            episode = resolve_episode(config.paths.captures, args.episode)
+            replay = resolve_replay(config.paths.replays, args.player, args.replay)
+            output = args.output or (
+                config.paths.exports / "render-jobs" / f"{args.episode}-{args.player}"
+            )
+            result = prepare_render_job(
+                episode,
+                replay,
+                output,
+                player_uuid=args.player,
+                connection_id=args.connection,
+                width=args.width,
+                height=args.height,
+                fps=args.fps,
+                first_tick=args.from_tick,
+                last_tick=args.to_tick,
+                force=args.force,
+                voxel_horizontal_radius=args.voxel_horizontal_radius,
+                voxel_vertical_radius=args.voxel_vertical_radius,
+            )
         print(f"Prepared render job {result.manifest}")
         if args.prepare_only:
             print(
@@ -286,6 +301,11 @@ def run(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "storage":
         return _storage(args.config, args.storage_command == "enforce")
+
+    if args.command == "dashboard":
+        config = load_config(args.config)
+        serve_dashboard(config)
+        return 0
 
     config = load_config(args.config)
     if args.server_command == "start":

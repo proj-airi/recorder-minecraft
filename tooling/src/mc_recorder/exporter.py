@@ -857,14 +857,18 @@ def _validate_voxel_artifact(
         raise RecorderError(f"{context}: unsupported voxel schema_version")
     if snapshot.get("format") != "mc-recorder-voxel-palette-v1":
         raise RecorderError(f"{context}: unsupported voxel format")
-    for field in ("session_id", "connection_id", "player_uuid"):
-        if not isinstance(snapshot.get(field), str):
-            raise RecorderError(f"{context}: voxel snapshot {field} must be a string")
-        if snapshot.get(field) != index_row.get(field):
-            raise RecorderError(f"{context}: voxel snapshot {field} does not match its index row")
-    for field in ("server_tick", "replay_tick"):
-        if _required_int(snapshot, field, context) != index_row.get(field):
-            raise RecorderError(f"{context}: voxel snapshot {field} does not match its index row")
+    for field_name in ("session_id", "connection_id", "player_uuid"):
+        if not isinstance(snapshot.get(field_name), str):
+            raise RecorderError(f"{context}: voxel snapshot {field_name} must be a string")
+        if snapshot.get(field_name) != index_row.get(field_name):
+            raise RecorderError(
+                f"{context}: voxel snapshot {field_name} does not match its index row"
+            )
+    for field_name in ("server_tick", "replay_tick"):
+        if _required_int(snapshot, field_name, context) != index_row.get(field_name):
+            raise RecorderError(
+                f"{context}: voxel snapshot {field_name} does not match its index row"
+            )
 
     dimension = snapshot.get("dimension")
     if not isinstance(dimension, str) or _RESOURCE_LOCATION.fullmatch(dimension) is None:
