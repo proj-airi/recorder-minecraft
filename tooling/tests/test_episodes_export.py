@@ -27,6 +27,7 @@ CONNECTION = "00000000-0000-4000-8000-000000000002"
 PEER = "00000000-0000-4000-8000-000000000003"
 PEER_CONNECTION = "00000000-0000-4000-8000-000000000004"
 UNKNOWN_PLAYER = "00000000-0000-4000-8000-000000000005"
+RECONNECTED_CONNECTION = "00000000-0000-4000-8000-000000000006"
 RENDER_WIDTH = 64
 RENDER_HEIGHT = 64
 
@@ -174,6 +175,7 @@ def _records(*, current_connection: str = CONNECTION, invalid_barrier: bool = Fa
 
 def _seal_epoch(epoch: Path, records: list[dict[str, object]], *, active: bool = False) -> None:
     data = "".join(json.dumps(record, sort_keys=True) + "\n" for record in records)
+    ticks = [record["server_tick"] for record in records]
     name = "events.jsonl.inprogress" if active else "events.jsonl"
     (epoch / name).write_text(data, encoding="utf-8")
     manifest: dict[str, object] = {
@@ -184,8 +186,8 @@ def _seal_epoch(epoch: Path, records: list[dict[str, object]], *, active: bool =
         "record_count": len(records),
         "events_bytes": len(data.encode("utf-8")),
         "events_sha256": hashlib.sha256(data.encode("utf-8")).hexdigest(),
-        "first_server_tick": 10,
-        "last_server_tick": 11,
+        "first_server_tick": min(ticks),
+        "last_server_tick": max(ticks),
     }
     (epoch / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
 
@@ -209,6 +211,68 @@ def _episode(
         _records(current_connection=current_connection, invalid_barrier=invalid_barrier),
         active=active,
     )
+    return episode
+
+
+def _reconnected_episode(root: Path) -> Path:
+    episode = _episode(root)
+    records = _records()
+    sequence = len(records) + 1
+    for tick in (12, 13):
+        records.extend(
+            [
+                _event("tick_start", tick, sequence, apply_sequence_at_barrier=2),
+                _event(
+                    "player_state",
+                    tick,
+                    sequence + 1,
+                    player_uuid=PLAYER,
+                    connection_id=RECONNECTED_CONNECTION,
+                    state_barrier_apply_sequence=2,
+                    dimension="minecraft:overworld",
+                    position={"x": 1.2, "y": 64.0, "z": 2.0},
+                    health=19.0,
+                    inventory=[],
+                ),
+                _event(
+                    "control_state",
+                    tick,
+                    sequence + 2,
+                    player_uuid=PLAYER,
+                    connection_id=RECONNECTED_CONNECTION,
+                    forward=False,
+                    jump=False,
+                    camera_yaw=90.0,
+                    camera_pitch=0.0,
+                ),
+                _event(
+                    "player_state",
+                    tick,
+                    sequence + 3,
+                    player_uuid=PEER,
+                    connection_id=PEER_CONNECTION,
+                    state_barrier_apply_sequence=2,
+                    dimension="minecraft:overworld",
+                    position={"x": 2.0, "y": 64.0, "z": 2.0},
+                    health=20.0,
+                    inventory=[],
+                ),
+                _event(
+                    "control_state",
+                    tick,
+                    sequence + 4,
+                    player_uuid=PEER,
+                    connection_id=PEER_CONNECTION,
+                    forward=False,
+                    jump=False,
+                    camera_yaw=270.0,
+                    camera_pitch=0.0,
+                ),
+                _event("tick_end", tick, sequence + 5, apply_sequence_at_barrier=2, player_count=2),
+            ]
+        )
+        sequence += 6
+    _seal_epoch(episode / "epochs" / "epoch-000000", records)
     return episode
 
 
@@ -374,6 +438,117 @@ class EpisodeExportTest(unittest.TestCase):
             manifest = json.loads((output / "manifest.json").read_text())
             self.assertEqual(20, manifest["timeline"]["sample_rate_hz"])
             self.assertEqual(64, len(manifest["source"]["epochs"][0]["events_sha256"]))
+
+    def test_connection_filter_intersects_player_and_tick_filters(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            episode = _episode(root)
+            output = root / "dataset"
+            result = export_episode(
+                episode,
+                output,
+                players=[PLAYER],
+                connections=[CONNECTION],
+                first_tick=10,
+                last_tick=11,
+            )
+
+            self.assertEqual(1, result.sample_count)
+            self.assertEqual(2, result.state_count)
+            self.assertEqual(3, result.action_count)
+            for filename in ("states.jsonl", "actions.jsonl", "modalities.jsonl"):
+                rows = [
+                    json.loads(line)
+                    for line in (output / filename).read_text(encoding="utf-8").splitlines()
+                ]
+                self.assertTrue(rows)
+                self.assertEqual({PLAYER}, {row["player_uuid"] for row in rows})
+                self.assertEqual({CONNECTION}, {row["connection_id"] for row in rows})
+
+            sample = json.loads((output / "samples.jsonl").read_text(encoding="utf-8"))
+            self.assertEqual(CONNECTION, sample["connection_id"])
+            self.assertEqual(PEER, sample["peers"]["state"][0]["player_uuid"])
+            manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual([PLAYER], manifest["selection"]["players"])
+            self.assertEqual([CONNECTION], manifest["selection"]["connections"])
+            self.assertEqual(10, manifest["selection"]["from_tick"])
+            self.assertEqual(11, manifest["selection"]["to_tick"])
+
+    def test_connection_filter_does_not_select_another_players_connection(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            output = root / "dataset"
+            result = export_episode(
+                _episode(root),
+                output,
+                players=[PLAYER],
+                connections=[PEER_CONNECTION],
+            )
+
+            self.assertEqual(0, result.sample_count)
+            self.assertEqual(0, result.state_count)
+            self.assertEqual(0, result.action_count)
+            for filename in (
+                "samples.jsonl",
+                "states.jsonl",
+                "actions.jsonl",
+                "modalities.jsonl",
+            ):
+                self.assertEqual("", (output / filename).read_text(encoding="utf-8"))
+
+    def test_connection_filter_isolates_same_player_reconnections(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            episode = _reconnected_episode(root)
+            first_output = root / "first.dataset"
+            second_output = root / "second.dataset"
+
+            first = export_episode(
+                episode,
+                first_output,
+                players=[PLAYER],
+                connections=[CONNECTION],
+            )
+            second = export_episode(
+                episode,
+                second_output,
+                players=[PLAYER],
+                connections=[RECONNECTED_CONNECTION],
+            )
+
+            self.assertEqual(1, first.sample_count)
+            self.assertEqual(1, second.sample_count)
+            first_sample = json.loads((first_output / "samples.jsonl").read_text(encoding="utf-8"))
+            second_sample = json.loads(
+                (second_output / "samples.jsonl").read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                (10, CONNECTION),
+                (first_sample["server_tick"], first_sample["connection_id"]),
+            )
+            self.assertEqual(
+                (12, RECONNECTED_CONNECTION),
+                (second_sample["server_tick"], second_sample["connection_id"]),
+            )
+            self.assertEqual(PEER, second_sample["peers"]["state"][0]["player_uuid"])
+            second_states = [
+                json.loads(line)
+                for line in (second_output / "states.jsonl").read_text(encoding="utf-8").splitlines()
+            ]
+            self.assertEqual(
+                {RECONNECTED_CONNECTION},
+                {row["connection_id"] for row in second_states},
+            )
+
+    def test_rejects_invalid_connection_uuid_filter(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with self.assertRaisesRegex(RecorderError, "invalid connection UUID filter"):
+                export_episode(
+                    _episode(root),
+                    root / "dataset",
+                    connections=["not-a-connection-uuid"],
+                )
 
     def test_attaches_completed_rgb_and_voxels_by_exact_sample_key(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -582,8 +757,22 @@ class EpisodeExportTest(unittest.TestCase):
 
     def test_cli_accepts_repeatable_frame_and_voxel_attachments(self) -> None:
         args = _parser().parse_args(
-            ["export", "session-a", "--frames", "one", "--frames", "two", "--voxels", "three"]
+            [
+                "export",
+                "session-a",
+                "--connection",
+                CONNECTION,
+                "--connection",
+                PEER_CONNECTION,
+                "--frames",
+                "one",
+                "--frames",
+                "two",
+                "--voxels",
+                "three",
+            ]
         )
+        self.assertEqual([CONNECTION, PEER_CONNECTION], args.connection)
         self.assertEqual([Path("one"), Path("two")], args.frames)
         self.assertEqual([Path("three")], args.voxels)
         render = _parser().parse_args(

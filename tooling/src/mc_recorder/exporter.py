@@ -183,7 +183,11 @@ def _subject_key(record: dict[str, Any]) -> SubjectKey | None:
 
 
 def _selected(
-    record: dict[str, Any], players: set[str], first_tick: int | None, last_tick: int | None
+    record: dict[str, Any],
+    players: set[str],
+    connections: set[str],
+    first_tick: int | None,
+    last_tick: int | None,
 ) -> bool:
     tick = record.get("server_tick")
     if not isinstance(tick, int) or isinstance(tick, bool):
@@ -193,7 +197,10 @@ def _selected(
     if last_tick is not None and tick > last_tick:
         return False
     player = _player_uuid(record)
-    return not players or player in players
+    if players and player not in players:
+        return False
+    connection = record.get("connection_id")
+    return not connections or connection in connections
 
 
 def _normalize_players(players: Iterable[str]) -> set[str]:
@@ -203,6 +210,16 @@ def _normalize_players(players: Iterable[str]) -> set[str]:
             normalized.add(str(uuid.UUID(player)))
         except (ValueError, AttributeError) as exc:
             raise RecorderError(f"invalid player UUID filter: {player!r}") from exc
+    return normalized
+
+
+def _normalize_connections(connections: Iterable[str]) -> set[str]:
+    normalized: set[str] = set()
+    for connection in connections:
+        try:
+            normalized.add(str(uuid.UUID(connection)))
+        except (ValueError, AttributeError) as exc:
+            raise RecorderError(f"invalid connection UUID filter: {connection!r}") from exc
     return normalized
 
 
@@ -1491,6 +1508,7 @@ def export_episode(
     output: Path,
     *,
     players: Iterable[str] = (),
+    connections: Iterable[str] = (),
     first_tick: int | None = None,
     last_tick: int | None = None,
     frames: Iterable[Path] = (),
@@ -1514,6 +1532,7 @@ def export_episode(
     frame_attachments, frame_sources = _load_frame_attachments(frames, validation.session_id)
     voxel_attachments, voxel_sources = _load_voxel_attachments(voxels, validation.session_id)
     selected_players = _normalize_players(players)
+    selected_connections = _normalize_connections(connections)
     requested_output = output.expanduser()
     if requested_output.is_symlink():
         raise RecorderError(f"refusing symlinked export output: {requested_output}")
@@ -1547,7 +1566,11 @@ def export_episode(
                     for subject in sorted(set(previous.states) & set(bundle.states)):
                         previous_state = previous.states[subject]
                         if not _selected(
-                            previous_state, selected_players, first_tick, last_tick
+                            previous_state,
+                            selected_players,
+                            selected_connections,
+                            first_tick,
+                            last_tick,
                         ):
                             continue
                         samples_file.write(
@@ -1589,7 +1612,13 @@ def export_episode(
                         if state_key is not None:
                             observed_state_keys.add(state_key)
                             observed_states[state_key] = record
-                        if _selected(record, selected_players, first_tick, last_tick):
+                        if _selected(
+                            record,
+                            selected_players,
+                            selected_connections,
+                            first_tick,
+                            last_tick,
+                        ):
                             modality = _modality_entry(
                                 record, frame_attachments, voxel_attachments, epoch_hashes
                             )
@@ -1607,16 +1636,34 @@ def export_episode(
                                 f"duplicate control_state for {key[0]}/{key[1]} at server tick {tick}"
                             )
                         current.controls[key] = record
-                        if _selected(record, selected_players, first_tick, last_tick):
+                        if _selected(
+                            record,
+                            selected_players,
+                            selected_connections,
+                            first_tick,
+                            last_tick,
+                        ):
                             actions_file.write(_json_line(_action_row(record, epoch_hashes)))
                             action_count += 1
                     elif record_type == "packet_apply" and key is not None:
                         current.packets.setdefault(key, []).append(record)
-                        if _selected(record, selected_players, first_tick, last_tick):
+                        if _selected(
+                            record,
+                            selected_players,
+                            selected_connections,
+                            first_tick,
+                            last_tick,
+                        ):
                             actions_file.write(_json_line(_action_row(record, epoch_hashes)))
                             action_count += 1
                     elif record_type == "action" and key is not None:
-                        if _selected(record, selected_players, first_tick, last_tick):
+                        if _selected(
+                            record,
+                            selected_players,
+                            selected_connections,
+                            first_tick,
+                            last_tick,
+                        ):
                             actions_file.write(_json_line(_action_row(record, epoch_hashes)))
                             action_count += 1
                     elif record_type == "tick_end":
@@ -1680,6 +1727,7 @@ def export_episode(
             },
             "selection": {
                 "players": sorted(selected_players),
+                "connections": sorted(selected_connections),
                 "from_tick": first_tick,
                 "to_tick": last_tick,
                 "frame_attachments": frame_sources,

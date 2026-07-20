@@ -95,15 +95,22 @@ mc-recorder episodes list
 mc-recorder episodes validate SESSION_ID
 ```
 
-Export all players, or add repeatable `--player UUID` filters:
+Export all recorded subjects, or add repeatable player and connection UUID filters:
 
 ```sh
-mc-recorder export SESSION_ID
+mc-recorder export SESSION_ID \
+  --player PLAYER_UUID \
+  --connection CONNECTION_ID
 ```
 
 The export contains `samples.jsonl`, `states.jsonl`, `actions.jsonl`,
 `modalities.jsonl`, and a provenance manifest under
 `artifacts/exports/SESSION_ID.dataset/`.
+
+Both subject filters are repeatable. Player, connection, and tick-range
+filters are intersected, so a reconnect can be exported without mixing its
+states or actions with another connection. Selected samples still include
+other recorded players as peer context.
 
 Render one recorded connection from a completed Flashback archive:
 

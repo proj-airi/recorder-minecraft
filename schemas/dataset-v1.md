@@ -20,6 +20,13 @@ are read. Active epochs are reported and skipped. `manifest.json` hashes every
 output file and records the session-manifest hash, all source epoch hashes,
 selection filters, tick semantics, and modality status.
 
+The repeatable `--player` and `--connection` filters select exact UUIDs. When
+both are present, they are conjunctive with the inclusive `--from-tick` and
+`--to-tick` bounds: a subject row must match every configured filter. This
+keeps reconnects isolated while retaining other players as peer context inside
+each selected transition. The normalized connection UUIDs are recorded in
+`manifest.json` under `selection.connections`.
+
 ## Canonical sample
 
 The logical sample key is:

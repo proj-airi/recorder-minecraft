@@ -57,6 +57,12 @@ def _parser() -> argparse.ArgumentParser:
     export.add_argument("episode", help="session id")
     export.add_argument("--output", "-o", type=Path)
     export.add_argument("--player", action="append", default=[], help="player UUID filter; repeatable")
+    export.add_argument(
+        "--connection",
+        action="append",
+        default=[],
+        help="player connection UUID filter; repeatable",
+    )
     export.add_argument("--from-tick", type=int)
     export.add_argument("--to-tick", type=int)
     export.add_argument(
@@ -223,6 +229,7 @@ def run(argv: Sequence[str] | None = None) -> int:
             episode,
             output,
             players=args.player,
+            connections=args.connection,
             first_tick=args.from_tick,
             last_tick=args.to_tick,
             frames=args.frames,
