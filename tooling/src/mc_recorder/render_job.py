@@ -415,9 +415,13 @@ def launch_render_job(config: RecorderConfig, job: RenderJobResult) -> dict[str,
     if process.returncode != 0:
         detail = f": {result.get('error')}" if result and result.get("error") else ""
         raise RecorderError(f"renderer client exited with code {process.returncode}{detail}")
-    if result is None or result.get("status") != "complete":
-        raise RecorderError(f"renderer exited without an atomic complete result at {result_path}")
+    if result is None or result.get("status") not in {"complete", "no_coverage"}:
+        raise RecorderError(f"renderer exited without an atomic terminal result at {result_path}")
     job_manifest = _read_job_manifest(job.manifest)
+    if result.get("status") == "no_coverage":
+        timeline = job_manifest.get("timeline")
+        if not isinstance(timeline, dict) or timeline.get("range_policy") != "intersection":
+            raise RecorderError("renderer reported no coverage for a non-intersection render job")
     source_replay = job_manifest.get("source_replay")
     if not isinstance(source_replay, dict):
         raise RecorderError(f"render job lost its replay integrity envelope: {job.manifest}")

@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
@@ -11,7 +15,9 @@ from mc_recorder.errors import RecorderError
 from mc_recorder.render_job import (
     OWNER,
     RENDER_JOB_TYPE,
+    RenderJobResult,
     _owned_render_directory,
+    launch_render_job,
     resolve_replay,
 )
 
@@ -59,6 +65,53 @@ class ReplayResolutionTest(unittest.TestCase):
 
             (frames / "personal-notes.txt").write_text("do not delete", encoding="utf-8")
             self.assertFalse(_owned_render_directory(job))
+
+    @mock.patch("mc_recorder.render_job.subprocess.run")
+    def test_launcher_accepts_atomic_no_coverage_only_for_intersection_jobs(
+        self, run: mock.Mock
+    ) -> None:
+        run.return_value = SimpleNamespace(returncode=0)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            project = root / "renderer-mod"
+            project.mkdir()
+            (root / "gradlew").write_text("wrapper", encoding="utf-8")
+            replay = root / "replay.zip"
+            replay.write_bytes(b"replay")
+            digest = hashlib.sha256(b"replay").hexdigest()
+            directory = root / "job"
+            directory.mkdir()
+            manifest = directory / "render-job.json"
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "timeline": {"range_policy": "intersection"},
+                        "source_replay": {"sha256": digest, "size_bytes": 6},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (directory / "result.json").write_text(
+                json.dumps(
+                    {
+                        "status": "no_coverage",
+                        "replay_sha256": digest,
+                        "replay_bytes": 6,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            config = SimpleNamespace(
+                mods=SimpleNamespace(renderer_project=project),
+                paths=SimpleNamespace(base=root, runtime=root / "runtime"),
+            )
+
+            result = launch_render_job(
+                config,
+                RenderJobResult(directory, manifest, replay, "connection"),
+            )
+
+            self.assertEqual("no_coverage", result["status"])
 
 
 if __name__ == "__main__":

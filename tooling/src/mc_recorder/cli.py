@@ -19,7 +19,11 @@ from .episodes import (
 from .errors import RecorderError
 from .exporter import export_episode
 from .operations import operation_lock
+from .render_attach import attach_imported_renders
 from .render_job import launch_render_job, prepare_render_job, resolve_replay
+from .render_queue import RenderQueueStore
+from .render_rpc import dispatch_render_rpc
+from .render_worker import RemoteRecorder, run_ephemeral_worker
 from .server import show_logs, show_status, start_server, stop_server
 from .storage import StorageReport, enforce_quota, human_bytes
 
@@ -119,6 +123,30 @@ def _parser() -> argparse.ArgumentParser:
     dashboard = commands.add_parser("dashboard", help="serve the authenticated LAN dashboard")
     dashboard_commands = dashboard.add_subparsers(dest="dashboard_command", required=True)
     dashboard_commands.add_parser("serve", help="run the host dashboard until interrupted")
+
+    worker = commands.add_parser(
+        "render-worker",
+        help="run one ephemeral local GUI renderer job and exit",
+    )
+    worker.add_argument("--host", required=True, help="SSH host or alias of the recorder server")
+    worker.add_argument(
+        "--remote-root",
+        default="/srv/mc-play-recorder",
+        help="absolute mc-recorder workspace on the SSH host",
+    )
+    worker.add_argument("--job", help="claim one exact queued render job UUID")
+    worker.add_argument("--cache", type=Path, help="local replay cache and temporary workspace")
+    worker.add_argument(
+        "--keep-workspace",
+        action="store_true",
+        help="retain the local per-job render workspace after completion or failure",
+    )
+
+    rpc = commands.add_parser("render-rpc", help=argparse.SUPPRESS)
+    rpc.add_argument(
+        "render_rpc_action",
+        choices=("register", "claim", "request", "heartbeat", "finalize", "fail"),
+    )
     return parser
 
 
@@ -307,6 +335,35 @@ def run(argv: Sequence[str] | None = None) -> int:
         serve_dashboard(config)
         return 0
 
+    if args.command == "render-rpc":
+        config = load_config(args.config)
+        body = _read_render_rpc_body()
+        result = dispatch_render_rpc(config, args.render_rpc_action, body)
+        if args.render_rpc_action == "finalize":
+            result = _attach_finalized_render(config, result)
+        print(json.dumps(result, sort_keys=True, separators=(",", ":"), allow_nan=False))
+        return 0
+
+    if args.command == "render-worker":
+        config = load_config(args.config)
+        remote = RemoteRecorder.parse(args.host, args.remote_root)
+        result = run_ephemeral_worker(
+            config,
+            remote,
+            job_id=args.job,
+            cache_root=args.cache,
+            keep_workspace=args.keep_workspace,
+        )
+        if result is None:
+            print("No queued RGB render job is ready on the server.")
+            return 0
+        job = result.get("job") if isinstance(result.get("job"), dict) else {}
+        state = job.get("state", "processed")
+        print(f"RGB render job {job.get('id', args.job or '')} is {state}.")
+        if result.get("local_workspace"):
+            print(f"Retained local render workspace: {result['local_workspace']}")
+        return 0
+
     config = load_config(args.config)
     if args.server_command == "start":
         jar, report = start_server(config, wait=args.wait)
@@ -334,6 +391,63 @@ def run(argv: Sequence[str] | None = None) -> int:
     if args.tail < 0:
         raise RecorderError("--tail cannot be negative")
     return show_logs(config, follow=args.follow, tail=args.tail, service=args.service)
+
+
+def _read_render_rpc_body() -> dict[str, object]:
+    maximum = 64 * 1024
+    raw = sys.stdin.buffer.read(maximum + 1)
+    if len(raw) > maximum:
+        raise RecorderError("render RPC request exceeds the size limit")
+    try:
+        value = json.loads(
+            raw or b"{}",
+            parse_constant=lambda token: (_ for _ in ()).throw(
+                ValueError(f"non-finite JSON constant {token}")
+            ),
+        )
+    except (ValueError, UnicodeDecodeError, RecursionError) as exc:
+        raise RecorderError("render RPC request is invalid JSON") from exc
+    if not isinstance(value, dict):
+        raise RecorderError("render RPC request must be a JSON object")
+    return value
+
+
+def _attach_finalized_render(
+    config: RecorderConfig, finalized: dict[str, object]
+) -> dict[str, object]:
+    job = finalized.get("job")
+    imports = finalized.get("imports")
+    if not isinstance(job, dict) or not isinstance(imports, list):
+        raise RecorderError("render finalization lacks its queue job or canonical imports")
+    state = job.get("state")
+    if state in {"complete", "partial"}:
+        return finalized
+    if state not in {"verifying", "attaching"}:
+        raise RecorderError(f"render finalization cannot attach while job is {state!r}")
+    job_id = job.get("id")
+    if not isinstance(job_id, str):
+        raise RecorderError("render finalization lacks its queue job ID")
+
+    queue = RenderQueueStore(config.paths.runtime / "render-queue.sqlite3")
+    if state == "verifying":
+        job = queue.set_server_phase(
+            job_id,
+            "attaching",
+            progress={"message": "Attaching verified RGB to the dataset"},
+        )
+    try:
+        attachment = attach_imported_renders(config, job, imports)
+        attachment_json = attachment.as_json()
+        completed = queue.complete(job_id, attachment_json, partial=attachment.partial)
+    except Exception as exc:
+        try:
+            queue.fail(job_id, str(exc))
+        except Exception:
+            pass
+        if isinstance(exc, RecorderError):
+            raise
+        raise RecorderError(f"could not attach the imported RGB dataset: {exc}") from exc
+    return {**finalized, "job": completed, "attachment": attachment_json}
 
 
 def main(argv: Sequence[str] | None = None) -> int:
