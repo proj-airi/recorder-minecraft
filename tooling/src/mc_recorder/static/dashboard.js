@@ -58,9 +58,9 @@ function toast(message) {
 }
 
 function badgeClass(value) {
-  if (["running", "recording", "complete", "ok", "disconnected", "stopped"].includes(value)) return "ok";
-  if (["starting", "stopping", "waiting_for_seal", "sealing", "generating", "warning", "stale"].includes(value)) return "warning";
-  if (["unhealthy", "failed", "interrupted", "full", "docker_unavailable"].includes(value)) return "error";
+  if (["running", "recording", "complete", "ok", "online", "disconnected", "stopped"].includes(value)) return "ok";
+  if (["starting", "stopping", "waiting_for_seal", "sealing", "generating", "queued", "downloading", "rendering", "uploading", "verifying", "attaching", "busy", "partial", "warning", "stale"].includes(value)) return "warning";
+  if (["unhealthy", "failed", "interrupted", "offline", "full", "docker_unavailable"].includes(value)) return "error";
   return "neutral";
 }
 
@@ -137,16 +137,29 @@ async function refreshRecordings() {
       ? [...groups.entries()].map(([player, rows]) => `<div class="player-group">
           <div class="player-heading"><strong>${escapeHtml(rows[0].player_name || "Unknown player")}</strong><code>${escapeHtml(player)}</code></div>
           ${rows.map((recording) => {
-            const action = recording.state === "complete"
+            const generationAction = recording.state === "complete"
               ? `<button class="primary" data-view-dataset="${recording.dataset_id}">View dataset</button>`
               : `<button class="${recording.can_generate ? "primary" : "quiet"}" data-generate="${recording.id}" ${recording.can_generate ? "" : "disabled"}>${recording.state === "failed" ? (recording.can_generate ? "Retry generate" : "Resolve conflict") : "Seal & generate"}</button>`;
+            const renderJob = recording.render_job;
+            let renderAction = "";
+            if (renderJob && ["failed", "partial", "canceled"].includes(renderJob.state)) {
+              renderAction = `<button class="quiet" data-render-retry="${renderJob.id}">Retry RGB</button>`;
+            } else if (renderJob && ["queued", "downloading", "rendering", "uploading", "verifying", "attaching"].includes(renderJob.state)) {
+              renderAction = `<span class="status ${badgeClass(renderJob.state)}">RGB ${escapeHtml(renderJob.state)}</span><button class="quiet" data-render-cancel="${renderJob.id}">Cancel</button>`;
+            } else if (renderJob?.state === "complete" || recording.rgb_complete) {
+              renderAction = '<span class="status ok">RGB complete</span>';
+            } else if (recording.can_render) {
+              renderAction = `<select class="render-resolution" data-render-resolution="${recording.id}" aria-label="RGB render resolution"><option value="640x360">640×360</option><option value="1280x720">1280×720</option></select><button class="quiet" data-render-recording="${recording.id}">Render RGB</button>`;
+            }
+            const coverage = recording.sample_count == null
+              ? ""
+              : `<small>RGB ${escapeHtml(recording.rgb_samples ?? 0)} / ${escapeHtml(recording.sample_count)} samples</small>`;
             return `<div class="recording-row">
               <div><strong>Connection</strong><code>${escapeHtml(recording.connection_id)}</code></div>
-              <div><small>Ticks</small>${escapeHtml(recording.start_tick ?? "—")} → ${escapeHtml(recording.end_tick ?? "live")}</div>
+              <div><small>Ticks</small>${escapeHtml(recording.start_tick ?? "—")} → ${escapeHtml(recording.end_tick ?? "live")}${coverage}</div>
               <span class="status ${badgeClass(recording.state)}">${escapeHtml(recording.state)}</span>
-              ${action}
+              <div class="recording-actions">${generationAction}${renderAction}</div>
               ${recording.error ? `<p class="recording-error">${escapeHtml(recording.error)}</p>` : ""}
-              <details><summary>Local render</summary><code>${escapeHtml(recording.local_render_command)}</code></details>
             </div>`;
           }).join("")}
         </div>`).join("")
@@ -157,6 +170,71 @@ async function refreshRecordings() {
     document.querySelectorAll("[data-view-dataset]").forEach((button) => {
       button.addEventListener("click", () => openDataset(button.dataset.viewDataset));
     });
+    document.querySelectorAll("[data-render-recording]").forEach((button) => {
+      button.addEventListener("click", () => queueRender(button.dataset.renderRecording));
+    });
+    document.querySelectorAll("[data-render-cancel]").forEach((button) => {
+      button.addEventListener("click", () => renderJobAction(button.dataset.renderCancel, "cancel"));
+    });
+    document.querySelectorAll("[data-render-retry]").forEach((button) => {
+      button.addEventListener("click", () => renderJobAction(button.dataset.renderRetry, "retry"));
+    });
+  } catch (error) {
+    toast(error.message);
+  }
+}
+
+async function queueRender(recordingId) {
+  const resolution = document.querySelector(`[data-render-resolution="${recordingId}"]`)?.value || "640x360";
+  const [width, height] = resolution.split("x").map(Number);
+  try {
+    const job = await api(`/api/v1/recordings/${recordingId}/render`, {
+      method: "POST",
+      body: JSON.stringify({ width, height, fps: 20 }),
+    });
+    toast(`RGB render ${job.state}; run the ephemeral GUI worker to claim it.`);
+    await Promise.all([refreshRecordings(), refreshRenders()]);
+  } catch (error) {
+    toast(error.message);
+  }
+}
+
+async function renderJobAction(jobId, action) {
+  if (action === "cancel" && !confirm("Cancel this RGB render job?")) return;
+  try {
+    const job = await api(`/api/v1/render-jobs/${jobId}/${action}`, {
+      method: "POST",
+      body: "{}",
+    });
+    toast(`RGB render ${job.state}`);
+    await Promise.all([refreshRecordings(), refreshRenders()]);
+  } catch (error) {
+    toast(error.message);
+  }
+}
+
+function renderProgress(job) {
+  const progress = job.progress || {};
+  if (Number.isInteger(progress.current) && Number.isInteger(progress.total)) {
+    return `${progress.current} / ${progress.total}${progress.message ? ` · ${progress.message}` : ""}`;
+  }
+  return progress.message || job.error || job.updated_at;
+}
+
+async function refreshRenders() {
+  try {
+    const [jobData, workerData] = await Promise.all([
+      api("/api/v1/render-jobs"),
+      api("/api/v1/render-workers"),
+    ]);
+    const workers = workerData.workers || [];
+    $("#render-workers").innerHTML = workers.length
+      ? workers.map((worker) => `<div class="worker"><span class="status ${badgeClass(worker.state)}">${escapeHtml(worker.state)}</span><strong>${escapeHtml(worker.name)}</strong><small>${worker.state === "offline" ? `last seen ${escapeHtml(worker.heartbeat_at)}` : escapeHtml(worker.current_job_id || "ready")}</small></div>`).join("")
+      : '<p class="empty">No GUI renderer registered. Queued jobs remain safe until an ephemeral worker runs.</p>';
+    const jobs = jobData.jobs || [];
+    $("#render-jobs").innerHTML = jobs.length
+      ? jobs.map((job) => `<div class="job render-job"><div><strong>${escapeHtml(job.payload?.session_id || job.recording_id)}</strong><small>${escapeHtml(job.payload?.render?.width)}×${escapeHtml(job.payload?.render?.height)} @ ${escapeHtml(job.payload?.render?.fps)} fps · ${escapeHtml(renderProgress(job) || "waiting for worker")}</small></div><span class="status ${badgeClass(job.state)}">${escapeHtml(job.state)}</span></div>`).join("")
+      : '<p class="empty">No RGB jobs queued.</p>';
   } catch (error) {
     toast(error.message);
   }
@@ -415,6 +493,7 @@ document.querySelectorAll(".tab").forEach((tab) => {
 $("#start-server").addEventListener("click", () => mutate("/api/v1/server/start"));
 $("#stop-server").addEventListener("click", () => mutate("/api/v1/server/stop", "Stop Minecraft and seal all active recordings?"));
 $("#refresh-recordings").addEventListener("click", refreshRecordings);
+$("#refresh-renders").addEventListener("click", refreshRenders);
 $("#refresh-datasets").addEventListener("click", refreshDatasets);
 $("#apply-filters").addEventListener("click", () => {
   stopPlayback();
@@ -434,7 +513,9 @@ $("#load-voxel").addEventListener("click", loadVoxel);
 
 refreshStatus();
 refreshRecordings();
+refreshRenders();
 setInterval(() => {
   refreshStatus();
   refreshRecordings();
+  refreshRenders();
 }, 2000);

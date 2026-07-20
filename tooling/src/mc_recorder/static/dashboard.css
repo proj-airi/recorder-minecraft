@@ -50,6 +50,12 @@ main { padding: 1.4rem clamp(1.2rem, 4vw, 4rem) 4rem; }
 .recording-row { display: grid; grid-template-columns: minmax(12rem, 1fr) 8rem 10rem auto; gap: .8rem; align-items: center; background: var(--panel-2); border-radius: .65rem; padding: .8rem; margin-top: .55rem; }
 .recording-row small { color: var(--muted); display: block; }.recording-row code { font-size: .72rem; }
 .recording-row details, .recording-error { grid-column: 1 / -1; margin: 0; }.recording-error { color: var(--red); font-size: .8rem; }
+.recording-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .4rem; align-items: center; }
+.render-resolution { border: 1px solid var(--line); border-radius: .45rem; background: var(--panel); color: var(--text); padding: .55rem; }
+.worker-strip { display: flex; flex-wrap: wrap; gap: .55rem; margin: .8rem 0 1rem; }
+.worker { display: grid; grid-template-columns: auto auto; align-items: center; gap: .35rem .55rem; border: 1px solid var(--line); border-radius: .65rem; background: var(--panel-2); padding: .55rem .7rem; }
+.worker small { grid-column: 1 / -1; color: var(--muted); }
+.render-job small { display: block; color: var(--muted); margin-top: .25rem; }
 .jobs { display: grid; gap: .55rem; }.job { display: grid; grid-template-columns: 1fr auto; border-top: 1px solid var(--line); padding-top: .7rem; }.job:first-child { border: 0; }
 .dataset-layout { display: grid; grid-template-columns: minmax(16rem, 24rem) 1fr; gap: 1rem; }.dataset-list-panel, .inspector { margin-top: 0; }
 .dataset-item { width: 100%; text-align: left; background: transparent; margin-top: .5rem; }.dataset-item.active { border-color: var(--green); background: #183020; }.dataset-item small { display: block; color: var(--muted); margin-top: .3rem; }

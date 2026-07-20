@@ -237,6 +237,76 @@ class DashboardHTTPTest(unittest.TestCase):
         self.assertEqual("no-store", raised.exception.headers["Cache-Control"])
         raised.exception.close()
 
+    def test_render_queue_routes_are_authenticated_scoped_and_bounded(self) -> None:
+        status = json.load(self._request("/api/v1/status"))
+        headers = {
+            "X-MC-Recorder-CSRF": status["csrf_token"],
+            "Content-Type": "application/json",
+            "Origin": self.base,
+        }
+        recording_id = "a" * 24
+        queued = {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "recording_id": recording_id,
+            "kind": "render_rgb",
+            "state": "queued",
+        }
+        with mock.patch.object(
+            self.application.service,
+            "create_render_job",
+            return_value=queued,
+        ) as create:
+            response = self._request(
+                f"/api/v1/recordings/{recording_id}/render",
+                method="POST",
+                body=json.dumps({"width": 1280, "height": 720, "fps": 20}).encode(),
+                headers=headers,
+            )
+            self.assertEqual(202, response.status)
+            self.assertEqual("queued", json.load(response)["state"])
+            create.assert_called_once_with(recording_id, width=1280, height=720, fps=20)
+
+        with self.assertRaises(urllib.error.HTTPError) as raised:
+            self._request(
+                f"/api/v1/recordings/{recording_id}/render",
+                method="POST",
+                body=json.dumps({"width": 640, "replay_path": "/etc/passwd"}).encode(),
+                headers=headers,
+            )
+        self.assertEqual(400, raised.exception.code)
+        self.assertIn("unsupported render setting", raised.exception.read().decode())
+        raised.exception.close()
+
+        payload = {"recording_id": recording_id, "render": {"width": 640, "height": 360, "fps": 20}}
+        job = self.application.service.render_queue.create(payload)
+        worker = self.application.service.render_queue.register_worker("Ephemeral Mac")
+        jobs = json.load(self._request("/api/v1/render-jobs"))
+        workers = json.load(self._request("/api/v1/render-workers"))
+        self.assertEqual(job["id"], jobs["jobs"][0]["id"])
+        self.assertEqual(worker["id"], workers["workers"][0]["id"])
+        self.assertNotIn("lease_token", json.dumps(jobs))
+
+        cancel = self._request(
+            f"/api/v1/render-jobs/{job['id']}/cancel",
+            method="POST",
+            body=b"{}",
+            headers=headers,
+        )
+        self.assertEqual("canceled", json.load(cancel)["state"])
+        with mock.patch.object(
+            self.application.service,
+            "retry_render_job",
+            return_value={**job, "id": "22222222-2222-4222-8222-222222222222"},
+        ) as retry_render:
+            retry = self._request(
+                f"/api/v1/render-jobs/{job['id']}/retry",
+                method="POST",
+                body=b"{}",
+                headers=headers,
+            )
+            self.assertEqual("queued", json.load(retry)["state"])
+            retry_render.assert_called_once_with(job["id"])
+
     def _request(
         self,
         path: str,

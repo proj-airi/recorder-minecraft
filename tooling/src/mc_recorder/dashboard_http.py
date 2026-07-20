@@ -31,6 +31,12 @@ from .errors import RecorderError
 MAX_REQUEST_BYTES = 64 * 1024
 JOB_PATH = re.compile(r"^/api/v1/jobs/([0-9a-f-]{36})$")
 GENERATE_PATH = re.compile(r"^/api/v1/recordings/([0-9a-f]{24})/generate$")
+RENDER_PATH = re.compile(r"^/api/v1/recordings/([0-9a-f]{24})/render$")
+ROUTE_UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+RENDER_JOB_PATH = re.compile(rf"^/api/v1/render-jobs/({ROUTE_UUID})$")
+RENDER_JOB_ACTION_PATH = re.compile(
+    rf"^/api/v1/render-jobs/({ROUTE_UUID})/(cancel|retry)$"
+)
 OPAQUE_DATASET_ID = re.compile(r"^[0-9a-f]{32}$")
 OPAQUE_SAMPLE_ID = re.compile(r"^[0-9a-f]{32}$")
 
@@ -108,6 +114,26 @@ class DashboardHandler(BaseHTTPRequestHandler):
             if path == "/api/v1/recordings":
                 self._json(HTTPStatus.OK, {"recordings": self.application.service.recordings()})
                 return
+            if path == "/api/v1/render-jobs":
+                self._json(
+                    HTTPStatus.OK,
+                    {"jobs": self.application.service.render_jobs()},
+                )
+                return
+            if match := RENDER_JOB_PATH.fullmatch(path):
+                try:
+                    job = self.application.service.render_queue.get(match.group(1))
+                except KeyError:
+                    self._error(HTTPStatus.NOT_FOUND, "render job not found")
+                else:
+                    self._json(HTTPStatus.OK, job)
+                return
+            if path == "/api/v1/render-workers":
+                self._json(
+                    HTTPStatus.OK,
+                    {"workers": self.application.service.render_workers()},
+                )
+                return
             if match := JOB_PATH.fullmatch(path):
                 try:
                     job = self.application.service.jobs.store.get(match.group(1))
@@ -150,13 +176,38 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
         path = urlsplit(self.path).path
         try:
-            self._read_json_body()
+            body = self._read_json_body()
             if path == "/api/v1/server/start":
                 job = self.application.service.start_server_job()
             elif path == "/api/v1/server/stop":
                 job = self.application.service.stop_server_job()
             elif match := GENERATE_PATH.fullmatch(path):
                 job = self.application.service.generate_job(match.group(1))
+            elif match := RENDER_PATH.fullmatch(path):
+                unexpected = set(body) - {"width", "height", "fps"}
+                if unexpected:
+                    raise ValueError(
+                        f"unsupported render setting: {sorted(unexpected)[0]}"
+                    )
+                job = self.application.service.create_render_job(
+                    match.group(1),
+                    width=body.get("width", 640),
+                    height=body.get("height", 360),
+                    fps=body.get("fps", 20),
+                )
+            elif match := RENDER_JOB_ACTION_PATH.fullmatch(path):
+                if body:
+                    raise ValueError("render job actions do not accept request fields")
+                job_id, action = match.groups()
+                try:
+                    job = (
+                        self.application.service.cancel_render_job(job_id)
+                        if action == "cancel"
+                        else self.application.service.retry_render_job(job_id)
+                    )
+                except KeyError:
+                    self._error(HTTPStatus.NOT_FOUND, "render job not found")
+                    return
             else:
                 self._error(HTTPStatus.NOT_FOUND, "not found")
                 return

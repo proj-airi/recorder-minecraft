@@ -453,6 +453,55 @@ class DashboardServiceTest(unittest.TestCase):
             finally:
                 service.close()
 
+    def test_render_jobs_are_connection_scoped_bounded_and_lifecycle_independent(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            config = load_config(initialize(root / "recorder.toml", accept_eula=True))
+            service = DashboardService(config)
+            recording_id = "a" * 24
+            row = {
+                "id": recording_id,
+                "state": "complete",
+                "session_id": "20260721T000000.000Z-deadbeef",
+                "player_uuid": PLAYER,
+                "connection_id": ENDED,
+                "dataset_id": "b" * 32,
+                "start_tick": 5,
+                "end_tick": 10,
+                "rgb_complete": False,
+            }
+            try:
+                # A render can wait offline without consuming the serialized
+                # host lifecycle/generation operation slot.
+                service.jobs.store.create("server_start", {})
+                with mock.patch.object(service, "recordings", return_value=[row]):
+                    job = service.create_render_job(
+                        recording_id, width=1280, height=720, fps=20
+                    )
+                    self.assertEqual("queued", job["state"])
+                    self.assertEqual(ENDED, job["payload"]["connection_id"])
+                    self.assertEqual(
+                        {"width": 1280, "height": 720, "fps": 20},
+                        job["payload"]["render"],
+                    )
+                    with self.assertRaisesRegex(RecorderError, "width"):
+                        service.create_render_job(recording_id, width=100)
+                    with self.assertRaisesRegex(RecorderError, "fps must be 20"):
+                        service.create_render_job(recording_id, fps=30)
+                    with self.assertRaisesRegex(RecorderError, "width"):
+                        service.create_render_job(recording_id, width=True)
+                    service.cancel_render_job(job["id"])
+                    retry = service.retry_render_job(job["id"])
+                    self.assertEqual(job["id"], retry["retry_of"])
+                    self.assertNotEqual(job["id"], retry["id"])
+                missing_row = {**row, "dataset_id": "c" * 32}
+                service.cancel_render_job(retry["id"])
+                with mock.patch.object(service, "recordings", return_value=[missing_row]):
+                    with self.assertRaisesRegex(RecorderError, "no longer available"):
+                        service.retry_render_job(retry["id"])
+            finally:
+                service.close()
+
     def _wait_for_recording_state(
         self,
         service: DashboardService,

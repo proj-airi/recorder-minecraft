@@ -19,12 +19,19 @@ from .episodes import directory_size, inspect_epoch, resolve_episode
 from .errors import RecorderError
 from .exporter import export_episode
 from .operations import operation_lock
+from .render_queue import RenderQueueStore
 from .server import compose_status, start_server, stop_server
 
 
 MAX_CONTROL_JSON_BYTES = 8 * 1024 * 1024
 HEARTBEAT_STALE_SECONDS = 5.0
 SEAL_RESPONSE_TIMEOUT_SECONDS = 90.0
+MIN_RENDER_WIDTH = 160
+MAX_RENDER_WIDTH = 3840
+MIN_RENDER_HEIGHT = 90
+MAX_RENDER_HEIGHT = 2160
+MAX_RENDER_PIXELS = 3840 * 2160
+RENDER_FPS = 20
 
 
 def _read_json_object(path: Path, *, maximum: int = MAX_CONTROL_JSON_BYTES) -> dict[str, Any] | None:
@@ -56,7 +63,11 @@ class DashboardService:
             self.dataset_viewer = DatasetViewer(config.paths.exports, config.paths.runtime)
             self.dataset_index = DatasetIndex(self.dataset_viewer)
             self.jobs = JobManager(JobStore(config.paths.runtime / "dashboard.sqlite3"))
+            self.render_queue = RenderQueueStore(config.paths.runtime / "render-queue.sqlite3")
         except Exception:
+            jobs = getattr(self, "jobs", None)
+            if jobs is not None:
+                jobs.close()
             index = getattr(self, "dataset_index", None)
             if index is not None:
                 index.close()
@@ -297,6 +308,18 @@ class DashboardService:
                 end_tick=end_tick,
             )
             dataset_ready = dataset_status == "matching"
+            render_job = self.render_queue.latest_for_recording(recording_id)
+            sample_count = rgb_samples = None
+            if dataset_ready:
+                metadata = self.dataset_viewer.get_dataset_metadata(self._dataset_id(output))
+                sample_count = metadata.sample_count
+                rgb_samples = metadata.rgb_samples
+            rgb_complete = (
+                sample_count is not None
+                and rgb_samples is not None
+                and sample_count > 0
+                and rgb_samples >= sample_count
+            )
             sealed_sequence = sealed_by_session.get(session_id, -1)
             current_capture = session_id == current_session
             capture_recording = fresh and current_capture and capture_state == "recording"
@@ -346,6 +369,16 @@ class DashboardService:
                     and dataset_status != "conflicting"
                     and (sealed_sequence >= end_sequence or capture_recording),
                     "dataset_id": self._dataset_id(output) if dataset_ready else None,
+                    "sample_count": sample_count,
+                    "rgb_samples": rgb_samples,
+                    "rgb_complete": rgb_complete,
+                    "can_render": dataset_ready
+                    and not rgb_complete
+                    and (
+                        render_job is None
+                        or render_job["state"] in {"failed", "partial", "canceled"}
+                    ),
+                    "render_job": render_job,
                     "error": (
                         dataset_error
                         or latest_jobs.get(recording_id, {}).get("error")
@@ -366,6 +399,147 @@ class DashboardService:
                 int(item.get("start_tick") or 0),
             ),
         )
+
+    def create_render_job(
+        self,
+        recording_id: str,
+        *,
+        width: int = 640,
+        height: int = 360,
+        fps: int = RENDER_FPS,
+    ) -> dict[str, Any]:
+        self._validate_render_settings(width, height, fps)
+        row = next((item for item in self.recordings() if item["id"] == recording_id), None)
+        if row is None:
+            raise RecorderError("recording not found")
+        if row["state"] != "complete" or not row.get("dataset_id"):
+            raise RecorderError("a structured dataset must be complete before RGB rendering")
+        if row.get("rgb_complete"):
+            raise RecorderError("the dataset already has complete RGB coverage")
+        payload = {
+            "recording_id": recording_id,
+            "session_id": row["session_id"],
+            "player_uuid": _required_uuid(row["player_uuid"], "player UUID"),
+            "connection_id": _required_uuid(row["connection_id"], "connection UUID"),
+            "dataset_id": row["dataset_id"],
+            "start_tick": row.get("start_tick"),
+            "end_tick": row.get("end_tick"),
+            "render": {"width": width, "height": height, "fps": fps},
+        }
+        return self.render_queue.create(payload)
+
+    def render_jobs(self, limit: int = 50) -> list[dict[str, Any]]:
+        return self.render_queue.recent(limit)
+
+    def render_workers(self) -> list[dict[str, Any]]:
+        return self.render_queue.workers()
+
+    def cancel_render_job(self, job_id: str) -> dict[str, Any]:
+        return self.render_queue.cancel(job_id)
+
+    def retry_render_job(self, job_id: str) -> dict[str, Any]:
+        original = self.render_queue.get(job_id)
+        recording_id = original["recording_id"]
+        row = next((item for item in self.recordings() if item["id"] == recording_id), None)
+        if (
+            row is None
+            or row["state"] != "complete"
+            or row.get("dataset_id") != original["payload"].get("dataset_id")
+        ):
+            raise RecorderError("the source dataset is no longer available for this render job")
+        if row.get("rgb_complete"):
+            raise RecorderError("the dataset already has complete RGB coverage")
+        return self.render_queue.retry(job_id)
+
+    def register_render_worker(
+        self,
+        name: str,
+        *,
+        worker_id: str | None = None,
+        capabilities: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return self.render_queue.register_worker(
+            name,
+            worker_id=worker_id,
+            capabilities=capabilities,
+        )
+
+    def claim_render_job(
+        self,
+        worker_id: str,
+        *,
+        job_id: str | None = None,
+        lease_seconds: int = 60,
+    ) -> dict[str, Any] | None:
+        return self.render_queue.claim(
+            worker_id,
+            job_id=job_id,
+            lease_seconds=lease_seconds,
+        )
+
+    def heartbeat_render_job(
+        self,
+        worker_id: str,
+        attempt_id: str,
+        lease_token: str,
+        *,
+        phase: str,
+        current: int | None = None,
+        total: int | None = None,
+        message: str | None = None,
+        lease_seconds: int = 60,
+    ) -> dict[str, Any]:
+        return self.render_queue.heartbeat(
+            worker_id,
+            attempt_id,
+            lease_token,
+            phase=phase,
+            current=current,
+            total=total,
+            message=message,
+            lease_seconds=lease_seconds,
+        )
+
+    def mark_render_uploaded(
+        self,
+        worker_id: str,
+        attempt_id: str,
+        lease_token: str,
+        result: dict[str, Any],
+    ) -> dict[str, Any]:
+        return self.render_queue.mark_uploaded(worker_id, attempt_id, lease_token, result)
+
+    def fail_render_attempt(
+        self,
+        worker_id: str,
+        attempt_id: str,
+        lease_token: str,
+        error: str,
+    ) -> dict[str, Any]:
+        return self.render_queue.fail_attempt(worker_id, attempt_id, lease_token, error)
+
+    @staticmethod
+    def _validate_render_settings(width: object, height: object, fps: object) -> None:
+        if (
+            not isinstance(width, int)
+            or isinstance(width, bool)
+            or not MIN_RENDER_WIDTH <= width <= MAX_RENDER_WIDTH
+        ):
+            raise RecorderError(
+                f"render width must be between {MIN_RENDER_WIDTH} and {MAX_RENDER_WIDTH}"
+            )
+        if (
+            not isinstance(height, int)
+            or isinstance(height, bool)
+            or not MIN_RENDER_HEIGHT <= height <= MAX_RENDER_HEIGHT
+        ):
+            raise RecorderError(
+                f"render height must be between {MIN_RENDER_HEIGHT} and {MAX_RENDER_HEIGHT}"
+            )
+        if width * height > MAX_RENDER_PIXELS:
+            raise RecorderError("render resolution exceeds the maximum pixel count")
+        if not isinstance(fps, int) or isinstance(fps, bool) or fps != RENDER_FPS:
+            raise RecorderError(f"render fps must be {RENDER_FPS}")
 
     def generate_job(self, recording_id: str) -> dict[str, Any]:
         row = next((item for item in self.recordings() if item["id"] == recording_id), None)
