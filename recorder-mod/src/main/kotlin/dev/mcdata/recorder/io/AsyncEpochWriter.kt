@@ -12,8 +12,11 @@ import java.security.DigestOutputStream
 import java.security.MessageDigest
 import java.time.Instant
 import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
 class AsyncEpochWriter(
@@ -23,10 +26,13 @@ class AsyncEpochWriter(
     private val logger: Logger
 ) : AutoCloseable {
     private val queue = ArrayBlockingQueue<QueueItem>(queueCapacity)
+    private val queueCapacity = queueCapacity
     private val enqueueTransition = Any()
     private val closing = AtomicBoolean(false)
     private val failure = AtomicReference<Throwable?>()
     private val lastWrittenRecord = AtomicReference<QueuedRecord?>()
+    private val lastWrittenAtUnixMs = AtomicLong(0)
+    private val lastSealedEpoch = AtomicReference<SealedEpoch?>()
     private val worker = Thread(::writeLoop, "mc-recorder-writer").apply {
         isDaemon = true
         start()
@@ -38,6 +44,47 @@ class AsyncEpochWriter(
             offerWhileHealthy(QueueItem.Record(record), "record")
             failure.get()?.let { throw IllegalStateException("recorder writer failed", it) }
         }
+    }
+
+    /**
+     * Places a durable epoch boundary after every record accepted before this call. The returned
+     * value is published only after the stream has been flushed, fsynced, renamed, size-checked,
+     * and its manifest has been atomically written.
+     */
+    fun sealEpoch(reason: String, forced: Boolean): SealedEpoch {
+        require(reason in ROTATION_REASONS) { "unsupported epoch rotation reason: $reason" }
+        val completion = CompletableFuture<SealedEpoch>()
+        synchronized(enqueueTransition) {
+            check(!closing.get()) { "recorder writer is closing" }
+            offerWhileHealthy(QueueItem.Seal(reason, forced, completion), "epoch seal marker")
+            failure.get()?.let { throw IllegalStateException("recorder writer failed", it) }
+        }
+        return try {
+            completion.get(QUEUE_OPERATION_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        } catch (exception: TimeoutException) {
+            throw IllegalStateException("recorder writer did not seal the epoch within 30 seconds", exception)
+        } catch (exception: java.util.concurrent.ExecutionException) {
+            throw IllegalStateException("recorder writer failed while sealing the epoch", exception.cause)
+        }
+    }
+
+    fun metrics(): WriterMetrics {
+        val last = lastWrittenRecord.get()
+        val writerFailure = failure.get()
+        return WriterMetrics(
+            queueSize = queue.size,
+            queueCapacity = queueCapacity,
+            closing = closing.get(),
+            failed = writerFailure != null,
+            failureReason = writerFailure?.let {
+                "${it::class.java.simpleName}: ${it.message ?: "writer failure"}".take(2_048)
+            },
+            lastWrittenEpochIndex = last?.epochIndex,
+            lastWrittenServerTick = last?.serverTick,
+            lastWrittenSequence = last?.sequence,
+            lastWrittenAtUnixMs = lastWrittenAtUnixMs.get().takeIf { it > 0 },
+            lastSealedEpoch = lastSealedEpoch.get()
+        )
     }
 
     override fun close() {
@@ -111,14 +158,31 @@ class AsyncEpochWriter(
                             check(segment == null || record.epochIndex > segment.epochIndex) {
                                 "records arrived out of epoch order: ${record.epochIndex} after ${segment?.epochIndex}"
                             }
-                            segment?.seal()
+                            segment?.let {
+                                lastSealedEpoch.set(it.seal("automatic", forced = false))
+                            }
                             segment = EpochSegment.open(sessionId, sessionDirectory, record.epochIndex)
                         }
                         segment.write(record)
                         lastWrittenRecord.set(record)
+                        lastWrittenAtUnixMs.set(System.currentTimeMillis())
+                    }
+                    is QueueItem.Seal -> {
+                        try {
+                            val sealed = checkNotNull(segment) { "cannot seal an epoch before its first record" }
+                                .seal(item.reason, item.forced)
+                            segment = null
+                            lastSealedEpoch.set(sealed)
+                            item.completion.complete(sealed)
+                        } catch (throwable: Throwable) {
+                            item.completion.completeExceptionally(throwable)
+                            throw throwable
+                        }
                     }
                     QueueItem.Stop -> {
-                        segment?.seal()
+                        segment?.let {
+                            lastSealedEpoch.set(it.seal("session_shutdown", forced = false))
+                        }
                         writeSessionEnd(lastWrittenRecord.get(), clean = true)
                         return
                     }
@@ -131,6 +195,9 @@ class AsyncEpochWriter(
             }
         } catch (throwable: Throwable) {
             failure.set(throwable)
+            queue.forEach { pending ->
+                if (pending is QueueItem.Seal) pending.completion.completeExceptionally(throwable)
+            }
             logger.error("Dataset recorder writer failed; active epoch remains unsealed", throwable)
             runCatching { segment?.abandon() }
         }
@@ -169,8 +236,40 @@ class AsyncEpochWriter(
         val json: JsonObject
     )
 
+    data class SealedEpoch(
+        val epochIndex: Long,
+        val firstServerTick: Long,
+        val lastServerTick: Long,
+        val firstSequence: Long,
+        val lastSequence: Long,
+        val recordCount: Long,
+        val eventsBytes: Long,
+        val eventsSha256: String,
+        val rotationReason: String,
+        val forced: Boolean,
+        val manifestPath: Path
+    )
+
+    data class WriterMetrics(
+        val queueSize: Int,
+        val queueCapacity: Int,
+        val closing: Boolean,
+        val failed: Boolean,
+        val failureReason: String?,
+        val lastWrittenEpochIndex: Long?,
+        val lastWrittenServerTick: Long?,
+        val lastWrittenSequence: Long?,
+        val lastWrittenAtUnixMs: Long?,
+        val lastSealedEpoch: SealedEpoch?
+    )
+
     private sealed interface QueueItem {
         data class Record(val value: QueuedRecord) : QueueItem
+        data class Seal(
+            val reason: String,
+            val forced: Boolean,
+            val completion: CompletableFuture<SealedEpoch>
+        ) : QueueItem
         data class Abort(val reason: String) : QueueItem
         data object Stop : QueueItem
     }
@@ -206,8 +305,8 @@ class AsyncEpochWriter(
             typeCounts.compute(record.recordType) { _, count -> (count ?: 0L) + 1L }
         }
 
-        fun seal() {
-            if (closed) return
+        fun seal(rotationReason: String, forced: Boolean): SealedEpoch {
+            check(!closed) { "epoch $epochIndex is already closed" }
             try {
                 output.flush()
                 fileOutput.fd.sync()
@@ -221,15 +320,24 @@ class AsyncEpochWriter(
 
             val finalPath = epochDirectory.resolve("events.jsonl")
             atomicMove(partialPath, finalPath)
+            check(Files.size(finalPath) == byteCount) {
+                "sealed epoch byte count mismatch for $finalPath"
+            }
+
+            val sha256 = digest.digest().toHex()
+            val sealedAt = Instant.now().toString()
 
             val manifest = JsonObject().apply {
                 addProperty("schema_version", 1)
                 addProperty("session_id", sessionId)
                 addProperty("epoch_index", epochIndex)
                 addProperty("sealed", true)
+                addProperty("sealed_at", sealedAt)
+                addProperty("rotation_reason", rotationReason)
+                addProperty("forced_seal", forced)
                 addProperty("record_count", recordCount)
                 addProperty("events_bytes", byteCount)
-                addProperty("events_sha256", digest.digest().toHex())
+                addProperty("events_sha256", sha256)
                 addProperty("first_server_tick", if (recordCount == 0L) 0 else firstTick)
                 addProperty("last_server_tick", if (recordCount == 0L) 0 else lastTick)
                 addProperty("first_sequence", if (recordCount == 0L) 0 else firstSequence)
@@ -238,7 +346,24 @@ class AsyncEpochWriter(
                     typeCounts.forEach { (type, count) -> counts.addProperty(type, count) }
                 })
             }
-            atomicWrite(epochDirectory.resolve("manifest.json"), prettyJson(manifest))
+            val manifestPath = epochDirectory.resolve("manifest.json")
+            atomicWrite(manifestPath, prettyJson(manifest))
+            check(Files.isRegularFile(finalPath) && Files.isRegularFile(manifestPath)) {
+                "sealed epoch files were not published for epoch $epochIndex"
+            }
+            return SealedEpoch(
+                epochIndex = epochIndex,
+                firstServerTick = if (recordCount == 0L) 0 else firstTick,
+                lastServerTick = if (recordCount == 0L) 0 else lastTick,
+                firstSequence = if (recordCount == 0L) 0 else firstSequence,
+                lastSequence = if (recordCount == 0L) 0 else lastSequence,
+                recordCount = recordCount,
+                eventsBytes = byteCount,
+                eventsSha256 = sha256,
+                rotationReason = rotationReason,
+                forced = forced,
+                manifestPath = manifestPath
+            )
         }
 
         fun abandon() {
@@ -267,6 +392,7 @@ class AsyncEpochWriter(
 
     companion object {
         private const val QUEUE_OPERATION_TIMEOUT_SECONDS = 30L
+        private val ROTATION_REASONS = setOf("automatic", "manual", "manual_and_automatic", "session_shutdown")
 
         private fun prettyJson(data: JsonObject): ByteArray =
             (com.google.gson.GsonBuilder().setPrettyPrinting().create().toJson(data) + "\n")

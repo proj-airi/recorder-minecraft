@@ -1,6 +1,7 @@
 package dev.mcdata.recorder.capture
 
 import dev.mcdata.recorder.config.RecorderConfig
+import dev.mcdata.recorder.control.RecorderControlPlane
 import dev.mcdata.recorder.io.AsyncEpochWriter
 import dev.mcdata.recorder.io.SessionFiles
 import net.minecraft.network.protocol.Packet
@@ -24,7 +25,16 @@ object CaptureRuntime {
         check(coordinator == null) { "a capture session is already active" }
         val session = SessionFiles.create(config)
         val writer = AsyncEpochWriter(session.sessionId, session.directory, config.writerQueueCapacity, logger)
-        coordinator = CaptureCoordinator(config, session, writer, logger)
+        val controlPlane = runCatching {
+            RecorderControlPlane(session.sessionId, session.directory, config.controlPath(), logger)
+        }.onFailure {
+            logger.error(
+                "Recorder control plane is unavailable at {}; source capture will continue without dashboard control",
+                config.controlPath(),
+                it
+            )
+        }.getOrNull()
+        coordinator = CaptureCoordinator(config, session, writer, controlPlane, logger)
         failed = false
         logger.info("Started dataset recording session {} in {}", session.sessionId, session.directory)
 

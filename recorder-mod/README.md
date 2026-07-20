@@ -9,6 +9,7 @@ The mod creates `config/mc-recorder.json` on first launch:
 ```json
 {
   "capture_root": "/captures",
+  "control_root": "/control",
   "epoch_ticks": 6000,
   "record_all_players": true,
   "writer_queue_capacity": 65536,
@@ -17,7 +18,9 @@ The mod creates `config/mc-recorder.json` on first launch:
 ```
 
 V1 always records all players. `/captures` is the container default and should be mounted to durable
-host storage. Native launches should set it to an absolute writable path.
+host storage. Native launches should set it to an absolute writable path. `/control` should be a
+separate host runtime directory bind-mounted read/write for dashboard status, the current-session
+connection ledger, and seal request/response spools.
 
 ## Source layout
 
@@ -33,6 +36,19 @@ host storage. Native launches should set it to an absolute writable path.
 The active epoch is named `events.jsonl.inprogress`; converters must ignore it. Rotation closes,
 syncs, and atomically renames the event stream before publishing its manifest. A crash may leave an
 in-progress epoch, but it does not mutate earlier sealed epochs.
+
+Epoch numbers advance at explicit end-of-tick boundaries. Automatic rotation still limits an epoch
+to `epoch_ticks`; a validated manual request for a disconnected connection seals the current epoch
+after `tick_end` and continues the same session in the next epoch. Requests that coincide with an
+automatic boundary share one seal.
+
+The recorder atomically refreshes `<control_root>/status.json` and
+`<control_root>/connections.json`. The latter contains one row per connection, including reconnects,
+and terminal tick/sequence fields after disconnect or clean server shutdown. Matching snapshots in
+`<control_root>/sessions/` preserve completed rows across later server starts. The dashboard writes
+`requests/<uuid>.json` and waits for `responses/<uuid>.json`; a success response is published only
+after the covering epoch manifest exists. These runtime files are not a substitute for source and
+manifest integrity validation.
 
 Every JSONL record carries `session_id`, `epoch_index`, `server_tick`, and a global `sequence`.
 `packet_arrival` records network observation order. `packet_apply` is stamped when

@@ -42,6 +42,36 @@ class AsyncEpochWriterTest {
     }
 
     @Test
+    fun `manual seal is a durable complete tick boundary and writing continues in the next epoch`() {
+        val session = directory.resolve("session-rotated")
+        Files.createDirectories(session.resolve("epochs"))
+        val writer = AsyncEpochWriter("session-rotated", session, 1_024, LoggerFactory.getLogger("test"))
+
+        writer.submit(record(0, 12, 1, "tick_start"))
+        writer.submit(record(0, 12, 2, "player_state"))
+        writer.submit(record(0, 12, 3, "tick_end"))
+        val sealed = writer.sealEpoch("manual", forced = true)
+        writer.submit(record(1, 13, 4, "tick_start"))
+        writer.close()
+
+        assertEquals(0, sealed.epochIndex)
+        assertEquals(3, sealed.lastSequence)
+        assertEquals(12, sealed.lastServerTick)
+        assertEquals("manual", sealed.rotationReason)
+        assertTrue(sealed.forced)
+        val firstManifest = JsonLineEncoder.gson.fromJson(
+            Files.readString(sealed.manifestPath),
+            JsonObject::class.java
+        )
+        assertEquals(3, firstManifest.get("record_count").asInt)
+        assertEquals("tick_end", Files.readAllLines(session.resolve("epochs/epoch-000000/events.jsonl"))
+            .last().let { JsonLineEncoder.gson.fromJson(it, JsonObject::class.java).get("record_type").asString })
+        assertEquals("manual", firstManifest.get("rotation_reason").asString)
+        assertTrue(firstManifest.get("forced_seal").asBoolean)
+        assertTrue(Files.isRegularFile(session.resolve("epochs/epoch-000001/manifest.json")))
+    }
+
+    @Test
     fun `abort leaves the active epoch unsealed and marks the session incomplete`() {
         val session = directory.resolve("session-aborted")
         Files.createDirectories(session.resolve("epochs"))
@@ -86,6 +116,7 @@ class AsyncEpochWriterTest {
         assertEquals(1, end.get("last_server_tick").asInt)
         assertEquals(1, end.get("last_sequence").asInt)
         assertTrue(end.get("failure_reason").asString.contains("epoch output already exists"))
+        assertTrue(writer.metrics().failed)
     }
 
     private fun record(epoch: Long, tick: Long, sequence: Long, type: String): AsyncEpochWriter.QueuedRecord {

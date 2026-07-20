@@ -47,6 +47,9 @@ data class SessionFiles(val sessionId: String, val directory: Path) {
                 }
                 add("loaded_mods", loadedMods)
                 addProperty("epoch_ticks", config.epochTicks)
+                addProperty("epoch_numbering", "monotonic_rotation_boundaries")
+                addProperty("manual_epoch_rotation", true)
+                addProperty("control_protocol", "mc-recorder-control-v1")
                 addProperty("capture_scope", "all_connected_players")
                 addProperty("record_all_players", config.recordAllPlayers)
                 addProperty("timeline", "server_tick_with_global_sequence")

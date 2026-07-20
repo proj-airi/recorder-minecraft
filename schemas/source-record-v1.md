@@ -30,8 +30,17 @@ then publishes a manifest containing:
 - `sealed: true`;
 - record and byte counts;
 - first/last server tick and global sequence;
-- per-record-type counts; and
-- SHA-256 of `events.jsonl`.
+- per-record-type counts;
+- SHA-256 of `events.jsonl`; and
+- `sealed_at`, `rotation_reason`, and `forced_seal` boundary metadata.
+
+Epoch indices are session-local, contiguous, and monotonically increasing.
+Automatic rotation occurs after the configured number of complete ticks. A
+manual rotation is processed only after `tick_end`, seals all records through
+that tick, and starts the automatic interval again with the next tick. If a
+manual request arrives at an already-due automatic boundary, one
+`manual_and_automatic` rotation satisfies both. Manual rotation never changes
+the session ID or ServerReplay's independent archive schedule.
 
 Readers, exporters, and retention code accept an epoch as immutable only when
 the final file and all three integrity checks (record count, byte count, and
@@ -69,6 +78,46 @@ players are emitted in UUID order for deterministic multiplayer capture.
 The session manifest declares the exact loaded mods, capture scope, tick/apply
 phase, privacy policy, and record types. `session_end.json` distinguishes clean
 and incomplete shutdowns.
+
+## Runtime control and connection ledger
+
+When `control_root` is configured, the recorder atomically maintains these
+runtime-only files for the host dashboard:
+
+```text
+<control_root>/
+  status.json
+  connections.json
+  sessions/<session-id>.connections.json
+  requests/<request-uuid>.json
+  responses/<request-uuid>.json
+```
+
+`status.json` is refreshed at most once per second while ticks are running. It
+reports the active session/tick/sequence/epoch, writer queue and failure state,
+last writer progress, storage availability, and active connections.
+`connections.json` is bounded to the current session, while the same atomic
+snapshot is retained under `sessions/` so completed rows survive later server
+starts. Each row contains player UUID/name, a unique `connection_id`, join
+tick/sequence, and, after termination, end tick/sequence and `terminal_reason`
+(`disconnect` or `server_shutdown`). A clean server shutdown queues terminal
+source events before the final session seal, then publishes terminal ledger
+fields only after that seal succeeds. If sealing fails, the ledger stays
+unterminated so the stale heartbeat is classified as interrupted rather than
+cleanly disconnected.
+
+A seal request uses control schema v1 and operation `seal_connection`, with a
+UUID request ID, `expected_session_id`, exact player UUID/connection ID, and the
+ledger's `connection_end_sequence`. Active, unknown, stale-session, or
+mismatched requests receive atomic failure responses. Valid requests are
+coalesced at the next end-of-tick boundary, or reuse an already-published seal
+that covers the end sequence. A success response names the epoch, its terminal
+sequence, manifest, and event hash and is written only after the epoch stream is
+fsynced and its integrity manifest exists. Existing responses make request IDs
+idempotent.
+
+These files coordinate the dashboard; they are never source truth. Exporters
+must still validate the immutable source events and sealed epoch manifests.
 
 ## Packet observation and authoritative order
 
