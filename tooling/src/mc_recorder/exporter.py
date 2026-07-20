@@ -725,15 +725,67 @@ def _owned_export_directory(path: Path) -> bool:
 
 
 def _safe_replace_directory(staging: Path, output: Path, force: bool) -> None:
-    if output.exists() or output.is_symlink():
-        if not force:
-            raise RecorderError(f"export output already exists: {output}; pass --force to replace it")
-        if output.is_symlink() or not output.is_dir() or not _owned_export_directory(output):
-            raise RecorderError(
-                f"refusing to replace non-owned export directory: {output}; choose an empty output path"
-            )
-        shutil.rmtree(output)
-    staging.rename(output)
+    if not output.exists() and not output.is_symlink():
+        staging.rename(output)
+        _fsync_directory(output.parent)
+        return
+    if not force:
+        raise RecorderError(f"export output already exists: {output}; pass --force to replace it")
+    if output.is_symlink() or not output.is_dir() or not _owned_export_directory(output):
+        raise RecorderError(
+            f"refusing to replace non-owned export directory: {output}; choose an empty output path"
+        )
+
+    try:
+        original = output.lstat()
+    except OSError as exc:
+        raise RecorderError(f"cannot inspect existing export output: {output}") from exc
+    backup = output.parent / f".{output.name}.backup-{uuid.uuid4().hex}"
+    output.rename(backup)
+    promoted = False
+    try:
+        moved = backup.lstat()
+        if (
+            backup.is_symlink()
+            or not backup.is_dir()
+            or (original.st_dev, original.st_ino) != (moved.st_dev, moved.st_ino)
+            or not _owned_export_directory(backup)
+        ):
+            raise RecorderError("existing export changed while preparing its atomic replacement")
+        staging.rename(output)
+        promoted = True
+        _fsync_directory(output.parent)
+    except Exception:
+        if (
+            not promoted
+            and not output.exists()
+            and not output.is_symlink()
+            and (backup.exists() or backup.is_symlink())
+        ):
+            backup.rename(output)
+            _fsync_directory(output.parent)
+        raise
+    try:
+        shutil.rmtree(backup)
+    except OSError:
+        # The new export is already durable and valid. Leaving the verified,
+        # hidden backup is safer than reporting a failed publication that a
+        # retry might try to repeat.
+        return
+    _fsync_directory(output.parent)
+
+
+def _fsync_directory(path: Path) -> None:
+    try:
+        descriptor = os.open(path, os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(descriptor)
+    except OSError:
+        pass
+    finally:
+        os.close(descriptor)
 
 
 def _verified_sealed_epochs(episode: Path, session_id: str) -> list[VerifiedEpoch]:

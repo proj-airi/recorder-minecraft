@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
 from mc_recorder.episodes import inspect_episode, validate_episode
 from mc_recorder.errors import RecorderError
-from mc_recorder.exporter import export_episode
+from mc_recorder.exporter import _safe_replace_directory, export_episode
 from mc_recorder.cli import _parser
 from mc_recorder.render_job import prepare_render_job
 
@@ -858,6 +858,29 @@ class EpisodeExportTest(unittest.TestCase):
             with self.assertRaisesRegex(RecorderError, "non-owned"):
                 export_episode(episode, output, force=True)
             self.assertEqual("keep", (output / "unexpected.txt").read_text())
+
+    def test_force_restores_the_verified_export_when_candidate_promotion_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            episode = _episode(root)
+            output = root / "dataset"
+            export_episode(episode, output)
+            original_manifest = (output / "manifest.json").read_bytes()
+            staging = root / ".candidate"
+            staging.mkdir()
+            original_rename = Path.rename
+
+            def rename(path: Path, target: Path) -> Path:
+                if path == staging:
+                    raise OSError("simulated promotion failure")
+                return original_rename(path, target)
+
+            with mock.patch.object(Path, "rename", autospec=True, side_effect=rename):
+                with self.assertRaisesRegex(OSError, "simulated promotion failure"):
+                    _safe_replace_directory(staging, output, True)
+
+            self.assertEqual(original_manifest, (output / "manifest.json").read_bytes())
+            self.assertEqual([], list(root.glob(".dataset.backup-*")))
 
     def test_active_epoch_is_visible_but_not_valid_source_by_itself(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
