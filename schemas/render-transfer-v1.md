@@ -5,6 +5,33 @@ worker and moves verified derivative artifacts back to the recorder host. The
 server-authored request is immutable and path-free. A worker's filesystem paths
 are provenance only and are never authoritative after import.
 
+## Dashboard queue and ephemeral worker
+
+The dashboard creates one durable RGB queue job only after the deterministic
+structured dataset for a disconnected connection is verified. The job fixes the
+recording, session, player, connection, observed tick range, dataset identity,
+resolution, and 20 Hz output rate. A worker receives none of those values from
+browser-controlled paths or command strings.
+
+`mc-recorder render-worker` registers a fresh worker identity, claims at most one
+job under a fenced lease, and exits after finalization or failure. It is not a
+daemon and does not claim another job in the same invocation. The worker
+heartbeats while downloading, rendering, and uploading. A reclaimed or canceled
+lease cannot publish a result, even if an older client later resumes.
+
+The SSH connection is the worker's authority boundary. RPC calls invoke only the
+deployed `mc-recorder render-rpc` actions beneath the configured remote recorder
+root; request bodies have bounded, action-specific schemas. Replay downloads and
+bundle uploads are limited to server-returned descendants of that root. HTTP
+Basic-auth credentials, arbitrary commands, browser paths, JVM flags, and
+environment values are not queue fields.
+
+The worker cache stores replay archives by declared SHA-256 and verifies stable
+size and digest before every reuse. Per-attempt render workspaces carry an owner
+marker and are deleted after success or failure unless the operator explicitly
+retains one. Removing a workspace never removes the content-addressed replay
+cache.
+
 ## Portable request
 
 The exact bytes of a persisted request are bound by SHA-256. Its top-level
@@ -30,6 +57,22 @@ or filesystem inputs through an otherwise valid request.
 no matching timeline coverage, the worker may return `status: "no_coverage"`
 with no frame payload. If `newer_cutoff` is present, the cutoff tick and all
 later ticks belong to the newer segment.
+
+## Multi-segment composition
+
+The server resolves only `saved` replay-ledger entries whose embedded
+`arcade_replay_meta.json` identity matches the selected session, player, and
+connection, then pins and hashes those archives before returning transfer
+locations. A worker processes their monotonic segment ordinals newest-first.
+After a complete segment reports its effective first tick, that tick becomes
+the `newer_cutoff` for older segments. An older segment may therefore render
+only ticks strictly before newer coverage; overlap never creates two candidate
+frames for one sample. A `no_coverage` result does not advance the cutoff.
+
+The imported complete ranges must be ordered and non-overlapping. They are not
+required to be contiguous: missing replay timeline coverage remains an explicit
+RGB gap. No frames are interpolated, duplicated, or synthesized to make a range
+look complete.
 
 ## Local materialization
 
@@ -84,3 +127,21 @@ An `import-manifest.json` inventories all imported bytes. Promotion is an
 atomic directory rename. Reimporting the same request and bundle reuses a fully
 rehash-verified destination; an invalid or conflicting destination is never
 overwritten automatically.
+
+## Dataset attachment
+
+Canonical imports are durable children of
+`paths.exports/render-jobs/<queue-job-id>/`. Finalization accepts only imports
+bound to the queue job's exact session, player, connection, requested tick
+range, replay segment, and portable request hash. It first validates the
+existing deterministic structured dataset and its opaque viewer identity. A
+missing, tampered, or differently selected dataset is a hard failure rather
+than permission to replace it.
+
+Complete imports are attached through the normal exact-key exporter. The
+resulting dataset directory is promoted atomically, preserving the prior
+verified export if promotion fails. A job is `complete` only when every selected
+sample has an attached RGB frame; otherwise a successfully verified attachment
+is `partial`, and uncovered samples retain explicit unavailable RGB modality
+objects. The changed manifest and declared hashes invalidate the dashboard's
+SQLite byte-offset index on its next catalog refresh.

@@ -52,7 +52,8 @@ V1; the immutable replay remains their source when they were client-visible.
 
 - Python 3.11 or newer;
 - Docker with Docker Compose;
-- Java 21 for building the Fabric mods and running the local renderer; and
+- Java 21 for building the Fabric mods and running the local renderer;
+- OpenSSH and `rsync` on both the recorder host and any remote GUI renderer; and
 - a normal Minecraft client account for joining the capture server.
 
 ## Quickstart
@@ -129,13 +130,48 @@ matching verified deterministic export and does not overwrite a conflicting
 dataset.
 
 Generation is structured-first: it writes JSONL immediately and treats missing
-RGB/voxel modalities as explicit, non-fatal metadata. The dashboard does not
-launch Minecraft rendering on a headless server. Instead, use the row's local
-render command on a GUI-capable machine, make the completed render job available
-on the server by copying or mounting it beneath `paths.exports`, then re-export
-the same exact player/connection with `--frames` and, when requested,
-`--voxels`. The dataset catalog detects the changed manifest and declared hashes
-and rebuilds its local index automatically.
+RGB/voxel modalities as explicit, non-fatal metadata. Once the structured
+dataset is complete, choose a resolution and click **Render RGB**. This queues a
+leased job on the recorder host; it does not attempt to start a graphics client
+on the headless server.
+
+On a GUI-capable machine, use the same project revision as the recorder host,
+install the Python tooling, initialize a local `recorder.toml`, and make Java 21
+the active JVM. The machine must have `ssh` and `rsync`, while the recorder host
+must have an SSH server and `rsync`. The SSH alias must authenticate
+non-interactively to the account that owns the remote recorder workspace. Run
+one queued job with:
+
+```sh
+mc-recorder render-worker \
+  --host mcdatacol \
+  --remote-root /srv/mc-play-recorder
+```
+
+The worker registers, claims at most one job, downloads its exact replay
+segments, launches the local Java GUI renderer, uploads integrity-bound bundles,
+asks the server to verify/import/re-export the dataset, and exits. It is not a
+daemon or persistent poller; running the command with no ready job is also a
+successful no-op. Use `--job JOB_UUID` to select a particular queued job.
+
+Downloaded replays persist in a content-addressed cache under
+`$XDG_CACHE_HOME/mc-recorder/replays/` when that variable is set, or
+`~/.cache/mc-recorder/replays/` otherwise. They are reused only after size and
+SHA-256 verification. Per-attempt workspaces under the cache are removed after
+success or failure; `--keep-workspace` retains one for diagnosis, and
+`--cache PATH` moves both areas. If the worker disappears, its fenced lease
+expires and the job returns to the queue for a later one-shot worker without
+trusting the abandoned attempt.
+
+For connections spanning several ServerReplay archives, the worker processes
+segments newest-to-oldest. Newer coverage owns overlapping ticks; older segments
+are cut off before that coverage. A segment with no matching timeline is
+accepted as no coverage, and genuine gaps remain explicit missing RGB rather
+than being synthesized. The dashboard reports such a valid but incomplete
+attachment as **partial**. Imported files use server-owned relative paths, are
+rehash-verified, and replace only the matching verified structured export. The
+dataset catalog detects the new manifest and hashes and rebuilds its local index
+automatically.
 
 The viewer pages through a SQLite byte-offset index rather than loading a large
 `samples.jsonl` into the browser. It provides a 20 Hz synchronized timeline and
@@ -161,7 +197,8 @@ filters are intersected, so a reconnect can be exported without mixing its
 states or actions with another connection. Selected samples still include
 other recorded players as peer context.
 
-Render one recorded connection from a completed Flashback archive:
+For a standalone manual render outside the dashboard queue, render one recorded
+connection from a completed Flashback archive:
 
 ```sh
 mc-recorder render SESSION_ID \
@@ -183,8 +220,9 @@ verifies both before opening the archive and again after RGB/voxel generation;
 after the client exits, the CLI rehashes the archive and accepts the atomic
 complete result only when all three checks match the prepared envelope.
 
-Attach the completed render artifacts while exporting. Both options are
-repeatable for multiple players, connections, or replay segments:
+Attach a manually completed render while exporting. Dashboard RGB jobs perform
+this verified re-export automatically. Both options remain repeatable for
+manual jobs spanning multiple players, connections, or replay segments:
 
 ```sh
 mc-recorder export SESSION_ID \

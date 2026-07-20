@@ -3,7 +3,9 @@
 The Python 3.11+ CLI provisions the pinned Minecraft 1.21.8 Fabric server,
 inspects verified sidecar epochs, exports state/action JSONL, enforces combined
 capture/replay retention, and launches the local Flashback RGB/voxel renderer.
-Docker Compose and Java 21 are required for the complete workflow.
+Docker Compose is required on the recorder host. Java 21, a graphical desktop,
+OpenSSH, and `rsync` are required on a remote renderer; the recorder host also
+needs an SSH server and `rsync` for that workflow.
 
 V1 defaults to the exact `itzg/minecraft-server:2026.7.0-java21` image and the
 immutable ServerReplay Modrinth selector `server-replay:TbWIikrT`. The companion
@@ -123,40 +125,77 @@ automatically overwrites an invalid or conflicting output. Initial generation
 is intentionally structured-only; explicit unavailable RGB/voxel entries do
 not make the dataset invalid.
 
-### Local rendering and viewer refresh
+### Queued RGB rendering and viewer refresh
 
-Rendering stays outside the dashboard in V1 because the recorder server may be
-headless. The recording row shows the exact local command. On a GUI-capable
-machine with access to the capture and completed replay, run its equivalent:
+Rendering stays outside the dashboard process because the recorder server may
+be headless. After **Seal & Generate Dataset** completes, choose a resolution in
+the recording row and click **Render RGB**. The resulting job remains queued on
+the server until a GUI-capable machine runs the one-shot worker.
 
-```sh
-mc-recorder render SESSION_ID \
-  --player PLAYER_UUID \
-  --connection CONNECTION_ID \
-  --replay /path/to/completed-replay.zip \
-  --voxel-horizontal-radius 16 \
-  --voxel-vertical-radius 8
-```
-
-Copy or mount the completed render-job directory beneath the server's configured
-`paths.exports`, then explicitly re-export the same connection into its
-deterministic dashboard path with the attachments:
+Prepare that machine from the same project revision deployed on the server:
 
 ```sh
-mc-recorder export SESSION_ID \
-  --player PLAYER_UUID \
-  --connection CONNECTION_ID \
-  --frames artifacts/exports/render-jobs/JOB \
-  --voxels artifacts/exports/render-jobs/JOB \
-  --output artifacts/exports/SESSION_ID-PLAYER_UUID-CONNECTION_ID.dataset \
-  --force
+python3 -m pip install -e tooling
+mc-recorder init
+ssh -o BatchMode=yes mcdatacol true
+mc-recorder render-worker \
+  --host mcdatacol \
+  --remote-root /srv/mc-play-recorder
 ```
 
-Omit `--voxels` when the job contains RGB only. `--force` is an explicit CLI
-replacement of the earlier structured-only export; the dashboard itself never
-performs that overwrite. Once the manifest and declared hashes change on the
-server filesystem, the viewer invalidates and rebuilds its background SQLite
-byte-offset index under `.mc-recorder`.
+The local `recorder.toml` anchors `renderer-mod`, the Gradle wrapper, and the
+worker cache; it is not the remote server configuration. Java 21 and a working
+graphical desktop are required to launch the Minecraft client. `ssh` and
+`rsync` must be installed locally, and the Debian recorder host must run an SSH
+server and have `rsync`. Because the worker uses SSH batch mode, `mcdatacol`
+must resolve through the local SSH configuration and authenticate without an
+interactive password prompt. That SSH identity is the authority boundary: the
+remote account must be able to read the deployed Python tooling and replay
+sources, write the configured runtime/export roots, and run the tooling under
+`/srv/mc-play-recorder`. Dashboard Basic-auth credentials are not sent to the
+worker.
+
+Each invocation registers a fresh ephemeral worker, claims at most one queued
+job, renders it, finalizes it on the server, and exits. It does not stay resident
+or poll for another job. If nothing is ready, it prints a no-job message and
+exits successfully. Useful options are:
+
+```sh
+mc-recorder render-worker --host mcdatacol \
+  --remote-root /srv/mc-play-recorder \
+  --job JOB_UUID                 # claim only this queued job
+
+mc-recorder render-worker --host mcdatacol \
+  --remote-root /srv/mc-play-recorder \
+  --cache /path/to/cache \
+  --keep-workspace               # retain this attempt for diagnosis
+```
+
+The default cache is `$XDG_CACHE_HOME/mc-recorder` when that variable is set,
+or `~/.cache/mc-recorder` otherwise. Replay archives live under
+`replays/<sha256>.zip`, survive between invocations, and are reused only after
+their byte size and SHA-256 are verified. Owned per-attempt directories under
+`jobs/` are deleted after both success and failure unless `--keep-workspace` is
+set. A heartbeat renews a fenced lease while the GUI is active; a killed worker
+cannot finalize after its lease is reclaimed. Its job returns to `queued`, and
+a later one-shot worker creates a new attempt.
+
+The server pins every saved replay archive for the exact player connection and
+authors path-free requests. The worker downloads the pinned archives, verifies
+them, renders segments newest-to-oldest, and uploads hash-indexed portable
+bundles. Newer coverage owns overlaps, so each older request stops before the
+first tick supplied by a newer segment. An archive with no matching timeline
+returns `no_coverage`; holes between all valid segment ranges remain missing.
+The server never follows a worker-provided path: it verifies and canonicalizes
+each bundle beneath `paths.exports/render-jobs/`, then re-exports only the
+already verified deterministic dataset for that exact session, player,
+connection, and tick range.
+
+Complete RGB coverage ends in `complete`; a valid import with missing sample
+frames ends in `partial`. Missing RGB stays explicit and non-fatal in
+`modalities.jsonl`. A conflicting or tampered dataset is not overwritten. Once
+the dataset manifest and declared hashes change, the viewer invalidates and
+rebuilds its background SQLite byte-offset index under `.mc-recorder`.
 
 The viewer never sends the full `samples.jsonl` to the browser. It offers
 paginated sample summaries, player/connection and validity/modality filters,
@@ -173,8 +212,12 @@ files, and declared size/hash mismatches.
 The versioned HTTP interface includes:
 
 - `GET /api/v1/status`, `/api/v1/recordings`, and `/api/v1/jobs/{id}`;
+- `GET /api/v1/render-jobs`, `/api/v1/render-jobs/{id}`, and
+  `/api/v1/render-workers`;
 - `POST /api/v1/server/start`, `/api/v1/server/stop`, and
-  `/api/v1/recordings/{id}/generate`; and
+  `/api/v1/recordings/{id}/generate`;
+- `POST /api/v1/recordings/{id}/render` and
+  `/api/v1/render-jobs/{id}/cancel` or `/api/v1/render-jobs/{id}/retry`; and
 - `GET /api/v1/datasets` plus dataset metadata, paginated `samples`, opaque
   sample detail, `frame`, and `voxel-slice` routes below
   `/api/v1/datasets/{id}`.
@@ -229,6 +272,10 @@ dimensions are checked; voxel gzip payloads are size-bounded and validated down
 to palette indexes and coverage bits.
 
 ## Render RGB and voxels
+
+This lower-level command remains useful for a manual local render or optional
+voxel capture. Dashboard RGB jobs use `render-worker` instead and attach their
+verified results automatically.
 
 ```sh
 mc-recorder render SESSION_ID \
