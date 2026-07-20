@@ -189,6 +189,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     raise ValueError(
                         f"unsupported render setting: {sorted(unexpected)[0]}"
                     )
+                for setting in ("width", "height", "fps"):
+                    if setting in body and (
+                        not isinstance(body[setting], int)
+                        or isinstance(body[setting], bool)
+                    ):
+                        raise ValueError(f"render {setting} must be an integer")
                 job = self.application.service.create_render_job(
                     match.group(1),
                     width=body.get("width", 640),
