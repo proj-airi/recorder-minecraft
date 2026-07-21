@@ -18,33 +18,44 @@ repositories {
     }
 }
 
+val localFlashbackJar = providers.environmentVariable("MC_RECORDER_FLASHBACK_JAR").orNull
+// Modrinth reuses the display version across Minecraft variants. The immutable
+// version ID prevents 0.39.1 for a newer game from replacing the pinned
+// Minecraft 1.21.8 artifact in Maven resolution.
+val flashbackVersionId = property("flashback_version_id")
+val flashbackDownload = configurations.detachedConfiguration(
+    dependencies.create("maven.modrinth:flashback:$flashbackVersionId")
+).apply {
+    isTransitive = false
+}
+val flashbackJar = layout.file(providers.provider {
+    if (localFlashbackJar.isNullOrBlank()) flashbackDownload.singleFile else file(localFlashbackJar)
+})
+val nestedJarDirectory = layout.buildDirectory.dir("flashback-nested")
+val extractFlashbackNested = tasks.register<Sync>("extractFlashbackNested") {
+    from(flashbackJar.map { zipTree(it.asFile) })
+    include("META-INF/jars/*.jar")
+    eachFile { path = name }
+    includeEmptyDirs = false
+    into(nestedJarDirectory)
+    doLast {
+        check(fileTree(nestedJarDirectory).matching { include("*.jar") }.files.isNotEmpty()) {
+            "Flashback artifact has no nested runtime libraries"
+        }
+    }
+}
+val nestedFlashbackJars = fileTree(nestedJarDirectory) { include("*.jar") }.apply {
+    builtBy(extractFlashbackNested)
+}
+
 dependencies {
     minecraft("com.mojang:minecraft:${property("minecraft_version")}")
     mappings(loom.officialMojangMappings())
     modImplementation("net.fabricmc:fabric-loader:${property("loader_version")}")
     modImplementation("net.fabricmc.fabric-api:fabric-api:${property("fabric_version")}")
-
-    val localFlashbackJar = providers.environmentVariable("MC_RECORDER_FLASHBACK_JAR").orNull
-    if (localFlashbackJar.isNullOrBlank()) {
-        // Modrinth reuses the display version across Minecraft variants. The
-        // immutable version ID prevents 0.39.1 for a newer game from replacing
-        // the pinned Minecraft 1.21.8 artifact in Maven resolution.
-        val flashbackVersionId = property("flashback_version_id")
-        modCompileOnly("maven.modrinth:flashback:$flashbackVersionId")
-        modLocalRuntime("maven.modrinth:flashback:$flashbackVersionId")
-    } else {
-        val nestedJarDirectory = layout.buildDirectory.dir("local-flashback-nested").get().asFile
-        project.sync {
-            from(zipTree(localFlashbackJar))
-            include("META-INF/jars/*.jar")
-            eachFile { path = name }
-            includeEmptyDirs = false
-            into(nestedJarDirectory)
-        }
-        modCompileOnly(files(localFlashbackJar))
-        modLocalRuntime(files(localFlashbackJar))
-        modLocalRuntime(fileTree(nestedJarDirectory) { include("*.jar") })
-    }
+    modCompileOnly(files(flashbackJar))
+    modLocalRuntime(files(flashbackJar))
+    modLocalRuntime(nestedFlashbackJars)
 
     testImplementation("org.junit.jupiter:junit-jupiter:5.11.4")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
