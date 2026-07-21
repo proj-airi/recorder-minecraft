@@ -489,6 +489,7 @@ def run_ephemeral_worker(
                 "ephemeral": True,
                 "fps": [20],
                 "renderer": "minecraft-java-gui",
+                "portable_request_no_gui": True,
                 "voxel_capture": True,
             },
         },

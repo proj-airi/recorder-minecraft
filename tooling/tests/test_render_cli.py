@@ -20,6 +20,41 @@ class _Input:
 
 
 class RenderCliTest(unittest.TestCase):
+    def test_render_no_gui_flag_is_forwarded_as_an_opt_out(self) -> None:
+        config = SimpleNamespace(
+            paths=SimpleNamespace(
+                runtime=Path("/runtime"),
+                captures=Path("/captures"),
+                replays=Path("/replays"),
+                exports=Path("/exports"),
+            )
+        )
+        prepared = SimpleNamespace(manifest=Path("/render-job/render-job.json"))
+        output = io.StringIO()
+        with (
+            mock.patch.object(cli, "load_config", return_value=config),
+            mock.patch.object(cli, "operation_lock"),
+            mock.patch.object(cli, "resolve_episode", return_value=Path("/episode")),
+            mock.patch.object(cli, "resolve_replay", return_value=Path("/replay.zip")),
+            mock.patch.object(cli, "prepare_render_job", return_value=prepared) as prepare,
+            mock.patch.object(cli.sys, "stdout", output),
+        ):
+            code = cli.run(
+                [
+                    "render",
+                    "session-a",
+                    "--player",
+                    "00000000-0000-4000-8000-000000000001",
+                    "--output",
+                    "/render-job",
+                    "--no-gui",
+                    "--prepare-only",
+                ]
+            )
+
+        self.assertEqual(0, code)
+        self.assertTrue(prepare.call_args.kwargs["no_gui"])
+
     def test_internal_rpc_accepts_only_a_bounded_json_object(self) -> None:
         with mock.patch.object(cli.sys, "stdin", _Input(b'{"worker_id":"one"}\n')):
             self.assertEqual({"worker_id": "one"}, cli._read_render_rpc_body())

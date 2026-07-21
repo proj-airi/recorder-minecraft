@@ -789,6 +789,11 @@ class EpisodeExportTest(unittest.TestCase):
         )
         self.assertEqual(12, render.voxel_horizontal_radius)
         self.assertEqual(6, render.voxel_vertical_radius)
+        self.assertFalse(render.no_gui)
+        no_gui_render = _parser().parse_args(
+            ["render", "session-a", "--player", PLAYER, "--no-gui"]
+        )
+        self.assertTrue(no_gui_render.no_gui)
 
     def test_marks_barrier_disagreement_invalid_without_losing_sample(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -936,7 +941,7 @@ class EpisodeExportTest(unittest.TestCase):
             self.assertEqual(CONNECTION, manifest["connection_id"])
             self.assertEqual(10, manifest["global_start_tick"])
             self.assertEqual(11, manifest["global_end_tick"])
-            self.assertTrue(manifest["no_gui"])
+            self.assertFalse(manifest["no_gui"])
             self.assertTrue(manifest["stop_when_done"])
             self.assertEqual(2, manifest["voxel_horizontal_radius"])
             self.assertEqual(1, manifest["voxel_vertical_radius"])
@@ -944,6 +949,21 @@ class EpisodeExportTest(unittest.TestCase):
             self.assertEqual(75, manifest["voxel_crop"]["cells_per_tick"])
             self.assertEqual("mc.recorder.renderJob", manifest["renderer_contract"]["job_property"])
             self.assertFalse((result.directory / "result.json").exists())
+            with self.assertRaisesRegex(RecorderError, "no_gui must be a boolean"):
+                prepare_render_job(
+                    episode,
+                    replay,
+                    root / "invalid-render-job",
+                    player_uuid=PLAYER,
+                    connection_id=None,
+                    width=640,
+                    height=360,
+                    fps=20,
+                    first_tick=None,
+                    last_tick=None,
+                    force=False,
+                    no_gui=1,  # type: ignore[arg-type]
+                )
 
     def test_render_force_refuses_non_owned_directory(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

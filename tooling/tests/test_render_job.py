@@ -113,6 +113,15 @@ class ReplayResolutionTest(unittest.TestCase):
 
             self.assertEqual("no_coverage", result["status"])
 
+            manifest_value = json.loads(manifest.read_text())
+            manifest_value["no_gui"] = False
+            manifest.write_text(json.dumps(manifest_value), encoding="utf-8")
+            with self.assertRaisesRegex(RecorderError, "no_gui does not match"):
+                launch_render_job(
+                    config,
+                    RenderJobResult(directory, manifest, replay, "connection"),
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -7,8 +7,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class RenderJobSpecTest {
     @TempDir
@@ -22,7 +24,17 @@ final class RenderJobSpecTest {
         assertEquals(RenderJobSpec.RangePolicy.LEGACY_STRICT, spec.rangePolicy());
         assertNull(spec.segmentId());
         assertNull(spec.segmentOrdinal());
+        assertTrue(spec.noGui());
         assertEquals(temporary.resolve("progress.json").toAbsolutePath().normalize(), spec.progress());
+    }
+
+    @Test
+    void acceptsAnExplicitFullClientGuiJob() throws Exception {
+        Path job = writeJob(",\"no_gui\":false");
+
+        RenderJobSpec spec = RenderJobSpec.read(job);
+
+        assertFalse(spec.noGui());
     }
 
     @Test

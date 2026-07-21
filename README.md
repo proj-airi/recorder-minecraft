@@ -219,6 +219,13 @@ available for that player. Omit both voxel-radius options for RGB only. The
 command launches the local client renderer by default; `--prepare-only` writes
 the validated render job without launching it.
 
+New RGB jobs render the recorded first-person hand/item and the full recorded
+Minecraft HUD by default, including the hotbar, crosshair, health, hunger,
+titles, boss bars, action bar, and scoreboard. ServerReplay is configured to
+omit chat packets, and client-only screens such as inventory or crafting menus
+cannot be reconstructed. Pass `--no-gui` to a standalone manual render when a
+HUD-free first-person image is explicitly required.
+
 Render preparation records a stable replay byte size and SHA-256. The client
 verifies both before opening the archive and again after RGB/voxel generation;
 after the client exits, the CLI rehashes the archive and accepts the atomic

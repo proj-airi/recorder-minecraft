@@ -36,6 +36,7 @@ MAX_PLAN_BYTES = 4 * 1024 * 1024
 MAX_FINALIZE_BYTES = 4 * 1024 * 1024
 MAX_SEGMENTS = 1024
 MAX_ERROR_CHARS = 2048
+PORTABLE_NO_GUI_CAPABILITY = "portable_request_no_gui"
 _HEX_24_RE = re.compile(r"^[0-9a-f]{24}$")
 _HEX_32_RE = re.compile(r"^[0-9a-f]{32}$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -267,7 +268,10 @@ def _validate_job_payload(value: object) -> dict[str, Any]:
     if not selection_first <= first_tick <= last_tick <= selection_last:
         raise RecorderError("render job tick range is outside its dataset selection")
     render = _strict_object(
-        payload["render"], required={"width", "height", "fps"}, label="render settings"
+        payload["render"],
+        required={"width", "height", "fps"},
+        optional={"no_gui"},
+        label="render settings",
     )
     width = _bounded_integer(render["width"], "render width", 160, 3840)
     height = _bounded_integer(render["height"], "render height", 90, 2160)
@@ -275,6 +279,8 @@ def _validate_job_payload(value: object) -> dict[str, Any]:
         raise RecorderError("render resolution exceeds the maximum pixel count")
     if render["fps"] != 20 or isinstance(render["fps"], bool):
         raise RecorderError("remote rendering supports exactly 20 FPS")
+    if "no_gui" in render and not isinstance(render["no_gui"], bool):
+        raise RecorderError("render no_gui must be a boolean")
     return payload
 
 
@@ -440,6 +446,20 @@ class RenderRpcService:
             label="claim request",
         )
         worker_id = _canonical_uuid(request["worker_id"], "render worker ID")
+        worker = next(
+            (value for value in self.queue.workers() if value["id"] == worker_id),
+            None,
+        )
+        if worker is None:
+            raise RecorderError("render worker must register before claiming a job")
+        capabilities = worker.get("capabilities")
+        if (
+            not isinstance(capabilities, dict)
+            or capabilities.get(PORTABLE_NO_GUI_CAPABILITY) is not True
+        ):
+            raise RecorderError(
+                "render worker is too old for GUI-mode-bound requests; update its mc-recorder tooling"
+            )
         job_id = (
             _canonical_uuid(request["job_id"], "render job ID")
             if request.get("job_id") is not None
@@ -743,6 +763,7 @@ class RenderRpcService:
             request_id=request_id,
             range_policy="intersection",
             newer_cutoff=cutoff,
+            no_gui=payload["render"].get("no_gui", True),
         )
         portable = write_portable_render_request(request_path, portable_value)
         return {

@@ -21,6 +21,9 @@ job under a fenced lease, and exits after finalization or failure. It is not a
 daemon and does not claim another job in the same invocation. The worker
 heartbeats while downloading, rendering, and uploading. A reclaimed or canceled
 lease cannot publish a result, even if an older client later resumes.
+Workers advertise `portable_request_no_gui: true` before claiming. The server
+rejects workers without that capability so a strict pre-extension V1 worker
+cannot claim a request containing the optional `render.no_gui` field.
 
 The SSH connection is the worker's authority boundary. RPC calls invoke only the
 deployed `mc-recorder render-rpc` actions beneath the configured remote recorder
@@ -48,8 +51,14 @@ The exact bytes of a persisted request are bound by SHA-256. Its top-level
   `newer_cutoff` for overlap ownership;
 - an opaque replay `segment_id`, monotonic `segment_ordinal`, Flashback format,
   stable byte size, and SHA-256; and
-- bounded resolution, 20 FPS, first-person-head camera, and optional voxel
-  radii.
+- bounded resolution, 20 FPS, first-person-head camera, explicit `no_gui`, and
+  optional voxel radii.
+
+New requests set `render.no_gui: false`, binding full recorded client-HUD pixels
+and the normal first-person hand/item view into the request hash. A missing
+field is accepted only for persisted V1 compatibility and means the historical
+HUD-free behavior (`no_gui: true`). Client-only screens such as inventory
+and crafting menus are not replay state and cannot be reconstructed.
 
 Requests contain no paths, URLs, commands, JVM flags, or environment values.
 The request schema rejects unknown fields so a worker cannot smuggle executable
@@ -83,7 +92,10 @@ The GUI worker verifies the replay ZIP structure, byte size, and SHA-256 before
 materializing a legacy `mc-recorder-first-person-render-v1` job. That local job
 contains machine-specific absolute paths required by the Java client, but it
 also records the portable request ID and exact request-byte SHA-256. The local
-paths never appear in the portable request or canonical imported result.
+paths never appear in the portable request or canonical imported result. The
+worker result and canonical imported result repeat the effective `no_gui`
+policy so an artifact cannot claim a different pixel presentation than its
+request.
 
 ## Upload bundle
 

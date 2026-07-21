@@ -144,6 +144,7 @@ def _request(
     *,
     range_policy: str = "exact",
     newer_cutoff: int | None = None,
+    no_gui: bool = False,
 ) -> tuple[dict[str, object], Path, Path]:
     episode = _episode(root)
     replay = _replay(root)
@@ -159,6 +160,7 @@ def _request(
         request_id=REQUEST_ID,
         range_policy=range_policy,
         newer_cutoff=newer_cutoff,
+        no_gui=no_gui,
     )
     return request, episode, replay
 
@@ -212,6 +214,7 @@ def _complete_job(
                 "fps": 20,
                 "width": 64,
                 "height": 64,
+                "no_gui": request["render"].get("no_gui", True),
                 "voxel_snapshots": 0,
                 "voxel_horizontal_radius": 0,
                 "voxel_vertical_radius": 0,
@@ -231,6 +234,7 @@ class PortableRenderTransferTest(unittest.TestCase):
             self.assertNotIn(str(root), encoded)
             self.assertEqual(PORTABLE_REQUEST_TYPE, request["request_type"])
             self.assertEqual("segment-0001", request["source_replay"]["segment_id"])
+            self.assertFalse(request["render"]["no_gui"])
             published = write_portable_render_request(root / "request.json", request)
             self.assertEqual(published, load_portable_render_request(root / "request.json"))
             self.assertEqual(published, write_portable_render_request(root / "request.json", request))
@@ -242,6 +246,50 @@ class PortableRenderTransferTest(unittest.TestCase):
             self.assertEqual(published.sha256, job["portable_request"]["sha256"])
             self.assertEqual(str(replay.resolve()), job["replay"])
             self.assertEqual(str((root / "render-job" / "frames").resolve()), job["output"])
+            self.assertFalse(job["no_gui"])
+
+            legacy = json.loads(json.dumps(request))
+            legacy["render"].pop("no_gui")
+            legacy_job = materialize_portable_render_job(
+                legacy, replay, root / "legacy-render-job"
+            )
+            self.assertTrue(json.loads(legacy_job.manifest.read_text())["no_gui"])
+
+            invalid = json.loads(json.dumps(request))
+            invalid["render"]["no_gui"] = "false"
+            with self.assertRaisesRegex(RecorderError, "no_gui must be a boolean"):
+                write_portable_render_request(root / "invalid-request.json", invalid)
+
+    def test_legacy_hud_free_request_is_idempotent_after_upgrade(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            request, _episode_path, replay = _request(root, no_gui=True)
+            legacy = json.loads(json.dumps(request))
+            legacy["render"].pop("no_gui")
+            path = root / "request.json"
+            original = write_portable_render_request(path, legacy)
+            original_bytes = path.read_bytes()
+
+            reused = write_portable_render_request(path, request)
+
+            self.assertEqual(original.sha256, reused.sha256)
+            self.assertNotIn("no_gui", reused.data["render"])
+            self.assertEqual(original_bytes, path.read_bytes())
+
+            explicit_path = root / "explicit-request.json"
+            explicit_path.write_text(json.dumps(request, indent=2) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(RecorderError, "different bytes"):
+                write_portable_render_request(explicit_path, request)
+
+            job = _complete_job(root, legacy, replay)
+            result_path = job / "result.json"
+            result = json.loads(result_path.read_text())
+            result.pop("no_gui")
+            result_path.write_text(json.dumps(result), encoding="utf-8")
+            bundle = create_render_bundle(
+                job, root / "legacy-bundle", legacy, use_hardlinks=False
+            )
+            self.assertTrue(bundle.manifest.is_file())
 
     def test_complete_bundle_imports_canonical_relative_result_and_exports(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -262,6 +310,7 @@ class PortableRenderTransferTest(unittest.TestCase):
             self.assertEqual(CANONICAL_RENDER_RESULT_TYPE, result["result_type"])
             self.assertEqual("frames", result["output"])
             self.assertEqual("frames/frames.jsonl", result["frames_index"])
+            self.assertFalse(result["no_gui"])
             self.assertNotIn(str(root), imported.result.read_text())
             self.assertEqual("segment-0001", result["source_replay"]["segment_id"])
 
@@ -274,11 +323,25 @@ class PortableRenderTransferTest(unittest.TestCase):
             manifest = json.loads((dataset.output / "manifest.json").read_text())
             source = manifest["selection"]["frame_attachments"][0]
             self.assertEqual("segment-0001", source["source_replay"]["segment_id"])
+            self.assertFalse(source["no_gui"])
 
             result["output"] = str((imported.directory / "frames").resolve())
             imported.result.write_text(json.dumps(result), encoding="utf-8")
             with self.assertRaisesRegex(RecorderError, "contained relative path"):
                 export_episode(episode, root / "dataset-invalid", frames=[imported.directory])
+
+    def test_worker_result_gui_mode_must_match_the_request(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            request, _episode_path, replay = _request(root)
+            job = _complete_job(root, request, replay)
+            result_path = job / "result.json"
+            result = json.loads(result_path.read_text())
+            result["no_gui"] = True
+            result_path.write_text(json.dumps(result), encoding="utf-8")
+
+            with self.assertRaisesRegex(RecorderError, "no_gui does not match"):
+                create_render_bundle(job, root / "bundle", request, use_hardlinks=False)
 
     def test_rejects_tampering_symlinks_hardlinks_and_extra_payloads(self) -> None:
         cases = ("tamper", "symlink", "hardlink", "extra")
@@ -342,6 +405,7 @@ class PortableRenderTransferTest(unittest.TestCase):
                         "session_id": "session-a",
                         "connection_id": CONNECTION,
                         "player_uuid": PLAYER,
+                        "no_gui": request["render"].get("no_gui", True),
                     }
                 ),
                 encoding="utf-8",

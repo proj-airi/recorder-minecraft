@@ -290,7 +290,7 @@ mc-recorder render SESSION_ID \
   [--from-tick N] [--to-tick N] \
   [--width 640] [--height 360] [--fps 20] \
   [--voxel-horizontal-radius N --voxel-vertical-radius N] \
-  [--output PATH] [--prepare-only] [--force]
+  [--no-gui] [--output PATH] [--prepare-only] [--force]
 ```
 
 V1 accepts completed Flashback replay ZIPs and exactly 20 FPS. The command
@@ -298,6 +298,9 @@ validates/hashes the source episode and replay, selects one recorded connection,
 and writes `render-job.json`. Optional positive voxel radii request a crop around
 the player on every selected tick; use zero/omit both for RGB only. Unless
 `--prepare-only` is used, the command launches `renderer-mod` through Gradle.
+New jobs include the recorded first-person hand/item and full recorded in-game
+HUD by default. `--no-gui` is the explicit HUD-free opt-out; it does not
+remove the requirement for a graphical Java client.
 
 The job stores a replay byte-size/SHA-256 integrity envelope produced while the
 archive is stable. The renderer checks that envelope before opening the replay
@@ -307,7 +310,8 @@ before it accepts the job as complete.
 
 The local client finds a matching `mc_recorder:timeline/v1` marker inside the
 archive, aligns replay ticks to global server ticks, tracks the selected
-player's head in first person, and writes:
+player's head in first person, renders the player's hand/item and HUD, and
+writes:
 
 ```text
 <render-job>/

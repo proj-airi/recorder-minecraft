@@ -244,6 +244,7 @@ def _import(
             "session_id": SESSION,
             "connection_id": CONNECTION,
             "player_uuid": PLAYER,
+            "no_gui": request["render"].get("no_gui", True),
         }
     else:
         frames = materialized.directory / "frames"
@@ -294,6 +295,7 @@ def _import(
             "fps": 20,
             "width": 64,
             "height": 64,
+            "no_gui": request["render"].get("no_gui", True),
             "voxel_snapshots": last_tick - first_tick + 1 if voxels else 0,
             "voxel_horizontal_radius": 1 if voxels else 0,
             "voxel_vertical_radius": 1 if voxels else 0,

@@ -110,6 +110,11 @@ def _parser() -> argparse.ArgumentParser:
     )
     render.add_argument("--from-tick", type=int)
     render.add_argument("--to-tick", type=int)
+    render.add_argument(
+        "--no-gui",
+        action="store_true",
+        help="render without the client HUD; a graphical desktop is still required",
+    )
     render.add_argument("--force", action="store_true")
     render.add_argument(
         "--prepare-only", action="store_true", help="write render-job.json without launching the local client"
@@ -312,6 +317,7 @@ def run(argv: Sequence[str] | None = None) -> int:
                 force=args.force,
                 voxel_horizontal_radius=args.voxel_horizontal_radius,
                 voxel_vertical_radius=args.voxel_vertical_radius,
+                no_gui=args.no_gui,
             )
         print(f"Prepared render job {result.manifest}")
         if args.prepare_only:

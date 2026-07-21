@@ -82,6 +82,56 @@ class DashboardServiceTest(unittest.TestCase):
             finally:
                 service.close()
 
+    def test_recording_row_exposes_rgb_presentation(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            config = load_config(initialize(root / "recorder.toml", accept_eula=True))
+            session = "20260721T000000.000Z-deadbeef"
+            control = config.paths.runtime / "control"
+            control.mkdir(parents=True)
+            (control / "connections.json").write_text(
+                json.dumps(
+                    {
+                        "session_id": session,
+                        "connections": [
+                            {
+                                "player_uuid": PLAYER,
+                                "player_name": "Player",
+                                "connection_id": ENDED,
+                                "join_server_tick": 5,
+                                "end_server_tick": 10,
+                                "end_sequence": 99,
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            service = DashboardService(config)
+            metadata = mock.Mock(
+                sample_count=6,
+                rgb_samples=6,
+                rgb_presentation="full_client",
+                first_tick=5,
+                last_tick=10,
+            )
+            try:
+                with (
+                    mock.patch.object(
+                        service, "_dataset_match", return_value=("matching", None)
+                    ),
+                    mock.patch.object(
+                        service.dataset_viewer,
+                        "get_dataset_metadata",
+                        return_value=metadata,
+                    ),
+                ):
+                    row = service.recordings()[0]
+                self.assertTrue(row["rgb_complete"])
+                self.assertEqual("full_client", row["rgb_presentation"])
+            finally:
+                service.close()
+
     def test_preserves_terminal_heartbeat_state_after_it_becomes_stale(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -491,7 +541,7 @@ class DashboardServiceTest(unittest.TestCase):
                         ),
                     )
                     self.assertEqual(
-                        {"width": 1280, "height": 720, "fps": 20},
+                        {"width": 1280, "height": 720, "fps": 20, "no_gui": False},
                         job["payload"]["render"],
                     )
                     with self.assertRaisesRegex(RecorderError, "width"):
@@ -500,6 +550,8 @@ class DashboardServiceTest(unittest.TestCase):
                         service.create_render_job(recording_id, fps=30)
                     with self.assertRaisesRegex(RecorderError, "width"):
                         service.create_render_job(recording_id, width=True)
+                    with self.assertRaisesRegex(RecorderError, "no_gui must be a boolean"):
+                        service.create_render_job(recording_id, no_gui=0)  # type: ignore[arg-type]
                     with self.assertRaisesRegex(RecorderError, "retried while queued"):
                         service.retry_render_job(job["id"])
                     service.cancel_render_job(job["id"])
@@ -507,6 +559,15 @@ class DashboardServiceTest(unittest.TestCase):
                     self.assertEqual(job["id"], retry["retry_of"])
                     self.assertNotEqual(job["id"], retry["id"])
                     self.assertEqual((6, 9), (retry["payload"]["start_tick"], retry["payload"]["end_tick"]))
+                    self.assertFalse(retry["payload"]["render"]["no_gui"])
+
+                    legacy_payload = json.loads(json.dumps(job["payload"]))
+                    legacy_payload["render"].pop("no_gui")
+                    legacy = service.render_queue.create(legacy_payload)
+                    service.cancel_render_job(legacy["id"])
+                    legacy_retry = service.retry_render_job(legacy["id"])
+                    self.assertTrue(legacy_retry["payload"]["render"]["no_gui"])
+                    service.cancel_render_job(legacy_retry["id"])
                 missing_row = {**row, "dataset_id": "c" * 32}
                 service.cancel_render_job(retry["id"])
                 with mock.patch.object(service, "recordings", return_value=[missing_row]):

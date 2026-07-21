@@ -264,7 +264,44 @@ class DashboardHTTPTest(unittest.TestCase):
             )
             self.assertEqual(202, response.status)
             self.assertEqual("queued", json.load(response)["state"])
-            create.assert_called_once_with(recording_id, width=1280, height=720, fps=20)
+            create.assert_called_once_with(
+                recording_id,
+                width=1280,
+                height=720,
+                fps=20,
+                no_gui=False,
+            )
+
+        with mock.patch.object(
+            self.application.service,
+            "create_render_job",
+            return_value=queued,
+        ) as create_no_gui:
+            response = self._request(
+                f"/api/v1/recordings/{recording_id}/render",
+                method="POST",
+                body=json.dumps({"no_gui": True}).encode(),
+                headers=headers,
+            )
+            self.assertEqual(202, response.status)
+            create_no_gui.assert_called_once_with(
+                recording_id,
+                width=640,
+                height=360,
+                fps=20,
+                no_gui=True,
+            )
+
+        with self.assertRaises(urllib.error.HTTPError) as raised:
+            self._request(
+                f"/api/v1/recordings/{recording_id}/render",
+                method="POST",
+                body=json.dumps({"no_gui": 0}).encode(),
+                headers=headers,
+            )
+        self.assertEqual(400, raised.exception.code)
+        self.assertIn("no_gui must be a boolean", raised.exception.read().decode())
+        raised.exception.close()
 
         with self.assertRaises(urllib.error.HTTPError) as raised:
             self._request(

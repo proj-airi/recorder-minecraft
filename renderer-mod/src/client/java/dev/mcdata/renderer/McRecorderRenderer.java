@@ -17,7 +17,9 @@ import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
+import net.minecraft.client.CameraType;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.player.AbstractClientPlayer;
 import net.minecraft.world.entity.Entity;
 import org.joml.Vector3d;
 import org.slf4j.Logger;
@@ -48,6 +50,7 @@ public final class McRecorderRenderer implements ClientModInitializer {
     private static final int MAX_ANCHOR_SCAN_TICKS = 200;
     private static final int ANCHOR_SETTLE_CLIENT_TICKS = 3;
     private static final int VOXEL_SETTLE_CLIENT_TICKS = 2;
+    private static final long EXPORT_SETTLE_NANOS = 1_000_000_000L;
 
     private RenderJobSpec job;
     private Phase phase = Phase.DISABLED;
@@ -70,6 +73,11 @@ public final class McRecorderRenderer implements ClientModInitializer {
     private int voxelReplayTick;
     private int voxelSettleTicks;
     private boolean voxelsComplete;
+    private boolean clientPresentationActive;
+    private Entity previousCameraEntity;
+    private CameraType previousCameraType;
+    private boolean previousHideGui;
+    private long exportSettleStartedNanos;
     private final List<JsonObject> voxelIndexRows = new ArrayList<>();
 
     @Override
@@ -375,6 +383,14 @@ public final class McRecorderRenderer implements ClientModInitializer {
             return;
         }
 
+        this.activateClientPresentation(minecraft, target);
+        if (this.exportSettleStartedNanos == 0L) {
+            this.exportSettleStartedNanos = System.nanoTime();
+            return;
+        }
+        if (System.nanoTime() - this.exportSettleStartedNanos < EXPORT_SETTLE_NANOS) {
+            return;
+        }
         EditorState editorState = this.firstPersonEditorState();
         ExportSettings settings = new ExportSettings(
             "mc-recorder-" + this.job.playerId(),
@@ -498,26 +514,72 @@ public final class McRecorderRenderer implements ClientModInitializer {
 
     private EditorState firstPersonEditorState() {
         EditorState editorState = new EditorState();
-        KeyframeTrack track = new KeyframeTrack(TrackEntityKeyframeType.INSTANCE);
-
-        TrackEntityKeyframe firstPerson = new TrackEntityKeyframe(
-            this.job.playerId(), TrackingBodyPart.HEAD,
-            0.0f, 0.0f, new Vector3d(), new Vector3d(), 0.0f,
-            InterpolationType.HOLD
-        );
-        track.keyframesByTick.put(this.resolvedStartTick, firstPerson);
-        track.keyframesByTick.put(this.resolvedEndTick, firstPerson.copy());
+        ReplayPresentation.configureClientGui(editorState.replayVisuals, this.job.noGui());
 
         long stamp = editorState.acquireWrite();
         try {
             EditorScene scene = editorState.getCurrentScene(stamp);
-            scene.keyframeTracks.add(track);
-            editorState.hideDuringExport.add(this.job.playerId());
+            if (!ReplayPresentation.useSpectatedPlayerCamera(this.job.noGui())) {
+                KeyframeTrack track = new KeyframeTrack(TrackEntityKeyframeType.INSTANCE);
+                TrackEntityKeyframe firstPerson = new TrackEntityKeyframe(
+                    this.job.playerId(), TrackingBodyPart.HEAD,
+                    0.0f, 0.0f, new Vector3d(), new Vector3d(), 0.0f,
+                    InterpolationType.HOLD
+                );
+                track.keyframesByTick.put(this.resolvedStartTick, firstPerson);
+                track.keyframesByTick.put(this.resolvedEndTick, firstPerson.copy());
+                scene.keyframeTracks.add(track);
+            }
+            if (ReplayPresentation.hideTrackedPlayerDuringExport(this.job.noGui())) {
+                editorState.hideDuringExport.add(this.job.playerId());
+            }
             editorState.markDirty();
         } finally {
             editorState.release(stamp);
         }
         return editorState;
+    }
+
+    private void activateClientPresentation(Minecraft minecraft, Entity target) {
+        if (!ReplayPresentation.useSpectatedPlayerCamera(this.job.noGui())) {
+            return;
+        }
+        if (!(target instanceof AbstractClientPlayer replayPlayer) || replayPlayer == minecraft.player) {
+            throw new IllegalStateException(
+                "Recorded player cannot be used as the first-person replay camera: " + this.job.playerId()
+            );
+        }
+        if (!this.clientPresentationActive) {
+            this.previousCameraEntity = minecraft.getCameraEntity();
+            this.previousCameraType = minecraft.options.getCameraType();
+            this.previousHideGui = minecraft.options.hideGui;
+            this.clientPresentationActive = true;
+            LOGGER.info("Using replay player {} for first-person hand and HUD rendering", this.job.playerId());
+        }
+        minecraft.options.setCameraType(CameraType.FIRST_PERSON);
+        minecraft.options.hideGui = false;
+        minecraft.setCameraEntity(replayPlayer);
+        if (Flashback.getSpectatingPlayer() != replayPlayer) {
+            throw new IllegalStateException(
+                "Flashback did not activate the recorded player as its first-person camera"
+            );
+        }
+    }
+
+    private void restoreClientPresentation(Minecraft minecraft) {
+        if (!this.clientPresentationActive) {
+            return;
+        }
+        this.clientPresentationActive = false;
+        minecraft.setCameraEntity(
+            this.previousCameraEntity != null ? this.previousCameraEntity : minecraft.player
+        );
+        if (this.previousCameraType != null) {
+            minecraft.options.setCameraType(this.previousCameraType);
+        }
+        minecraft.options.hideGui = this.previousHideGui;
+        this.previousCameraEntity = null;
+        this.previousCameraType = null;
     }
 
     private void finishWhenExportCompletes(Minecraft minecraft) throws IOException {
@@ -534,6 +596,7 @@ public final class McRecorderRenderer implements ClientModInitializer {
         }
 
         int expectedFrames = this.resolvedEndTick - this.resolvedStartTick + 1;
+        this.restoreClientPresentation(minecraft);
         if (this.job.capturesVoxels() && this.voxelIndexRows.size() != expectedFrames) {
             throw new IOException(
                 "Expected " + expectedFrames + " voxel snapshots, found " + this.voxelIndexRows.size()
@@ -631,6 +694,7 @@ public final class McRecorderRenderer implements ClientModInitializer {
         result.addProperty("fps", (int) Math.round(this.job.framesPerSecond()));
         result.addProperty("width", this.job.width());
         result.addProperty("height", this.job.height());
+        result.addProperty("no_gui", this.job.noGui());
         result.addProperty("voxel_snapshots", this.voxelIndexRows.size());
         result.addProperty("voxel_horizontal_radius", this.job.voxelHorizontalRadius());
         result.addProperty("voxel_vertical_radius", this.job.voxelVerticalRadius());
@@ -704,6 +768,7 @@ public final class McRecorderRenderer implements ClientModInitializer {
 
     private void fail(Minecraft minecraft, Throwable throwable) {
         this.phase = Phase.FAILED;
+        this.restoreClientPresentation(minecraft);
         LOGGER.error("Automated render failed", throwable);
         try {
             if (this.job != null) {

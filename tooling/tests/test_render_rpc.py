@@ -53,7 +53,11 @@ class RenderRpcServiceTest(unittest.TestCase):
         self.service = RenderRpcService(self.config)
         self.service.dispatch(
             "register",
-            {"worker_id": WORKER_ID, "name": "ephemeral-test", "capabilities": {}},
+            {
+                "worker_id": WORKER_ID,
+                "name": "ephemeral-test",
+                "capabilities": {"portable_request_no_gui": True},
+            },
         )
         self.job = self.service.queue.create(
             {
@@ -204,6 +208,25 @@ class RenderRpcServiceTest(unittest.TestCase):
         self.assertEqual(1, queued["attempt_count"])
         self.assertIsNone(queued["active_attempt"])
 
+    def test_old_worker_cannot_claim_gui_mode_bound_requests(self) -> None:
+        old_worker = "99999999-9999-4999-8999-999999999999"
+        self.service.dispatch(
+            "register",
+            {"worker_id": old_worker, "name": "old-worker", "capabilities": {}},
+        )
+
+        with self.assertRaisesRegex(RecorderError, "too old for GUI-mode-bound requests"):
+            self.service.dispatch(
+                "claim",
+                {
+                    "worker_id": old_worker,
+                    "job_id": self.job["id"],
+                    "lease_seconds": 120,
+                },
+            )
+
+        self.assertEqual("queued", self.service.queue.get(self.job["id"])["state"])
+
     def test_claim_validates_optional_dataset_selection_bounds(self) -> None:
         base = dict(self.job["payload"])
         cases = (
@@ -244,6 +267,7 @@ class RenderRpcServiceTest(unittest.TestCase):
         newest, newest_calls = self._request(claimed, NEW_SEGMENT)
         self.assertFalse(newest["done"])
         self.assertEqual("intersection", newest_calls[0]["range_policy"])
+        self.assertTrue(newest_calls[0]["no_gui"])
         self.assertEqual((10, 40), (newest_calls[0]["first_tick"], newest_calls[0]["last_tick"]))
 
         older, older_calls = self._request(claimed, OLD_SEGMENT, newer_cutoff=25)
@@ -254,6 +278,37 @@ class RenderRpcServiceTest(unittest.TestCase):
         self.assertEqual(older["request"], repeated["request"])
         self.assertEqual(older["request_sha256"], repeated["request_sha256"])
         self.assertEqual(older_calls[0]["request_id"], repeated_calls[0]["request_id"])
+
+    def test_render_gui_mode_is_strict_and_propagates_to_portable_requests(self) -> None:
+        base = dict(self.job["payload"])
+        for invalid in (0, "false", None):
+            with self.subTest(invalid=invalid):
+                payload = {
+                    **base,
+                    "render": {**base["render"], "no_gui": invalid},
+                }
+                job = self.service.queue.create(payload)
+                with self.assertRaisesRegex(RecorderError, "no_gui must be a boolean"):
+                    self.service.dispatch(
+                        "claim",
+                        {
+                            "worker_id": WORKER_ID,
+                            "job_id": job["id"],
+                            "lease_seconds": 120,
+                        },
+                    )
+
+        self.job = self.service.queue.create(
+            {
+                **base,
+                "render": {**base["render"], "no_gui": False},
+            }
+        )
+        source = self._source(NEW_SEGMENT, 5, b"new replay")
+        claimed = self._claim([source])
+        _request, calls = self._request(claimed, NEW_SEGMENT)
+
+        self.assertFalse(calls[0]["no_gui"])
 
     def test_wider_dataset_selection_authors_only_the_renderable_sample_range(self) -> None:
         payload = {

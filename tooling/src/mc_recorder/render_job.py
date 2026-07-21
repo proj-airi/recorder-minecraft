@@ -220,6 +220,7 @@ def prepare_render_job(
     force: bool,
     voxel_horizontal_radius: int = 0,
     voxel_vertical_radius: int = 0,
+    no_gui: bool = False,
 ) -> RenderJobResult:
     try:
         normalized_player_uuid = str(uuid.UUID(player_uuid))
@@ -229,6 +230,8 @@ def prepare_render_job(
         raise RecorderError("render dimensions must be between 64 and 16384 pixels")
     if fps != 20:
         raise RecorderError("renderer v1 supports exactly 20 FPS")
+    if not isinstance(no_gui, bool):
+        raise RecorderError("no_gui must be a boolean")
     if (voxel_horizontal_radius == 0) != (voxel_vertical_radius == 0):
         raise RecorderError("voxel radii must both be zero or both be positive")
     if not 0 <= voxel_horizontal_radius <= 64 or not 0 <= voxel_vertical_radius <= 64:
@@ -298,7 +301,7 @@ def prepare_render_job(
             "fps": fps,
             "voxel_horizontal_radius": voxel_horizontal_radius,
             "voxel_vertical_radius": voxel_vertical_radius,
-            "no_gui": True,
+            "no_gui": no_gui,
             "stop_when_done": True,
             "episode": {
                 "session_id": validation.session_id,
@@ -418,6 +421,14 @@ def launch_render_job(config: RecorderConfig, job: RenderJobResult) -> dict[str,
     if result is None or result.get("status") not in {"complete", "no_coverage"}:
         raise RecorderError(f"renderer exited without an atomic terminal result at {result_path}")
     job_manifest = _read_job_manifest(job.manifest)
+    expected_no_gui = job_manifest.get("no_gui", True)
+    result_no_gui = result.get("no_gui", True)
+    if (
+        not isinstance(expected_no_gui, bool)
+        or not isinstance(result_no_gui, bool)
+        or result_no_gui != expected_no_gui
+    ):
+        raise RecorderError("renderer result no_gui does not match the render job")
     if result.get("status") == "no_coverage":
         timeline = job_manifest.get("timeline")
         if not isinstance(timeline, dict) or timeline.get("range_policy") != "intersection":

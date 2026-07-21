@@ -98,6 +98,7 @@ def _write_dataset(
     name: str = "session-test.dataset",
     owner: str = "mc-recorder",
     format_name: str = "mc-recorder-jsonl-v1",
+    frame_attachments: list[dict[str, object]] | None = None,
 ) -> Path:
     directory = exports / name
     directory.mkdir(parents=True, exist_ok=True)
@@ -127,7 +128,7 @@ def _write_dataset(
             "players": [],
             "from_tick": None,
             "to_tick": None,
-            "frame_attachments": [],
+            "frame_attachments": frame_attachments or [],
             "voxel_attachments": [],
         },
         "timeline": {"tick_rate_hz": 20, "sample_rate_hz": 20},
@@ -332,6 +333,7 @@ class DatasetIndexTest(unittest.TestCase):
             metadata = viewer.get_dataset_metadata(summary.dataset_id)
             self.assertEqual(4, metadata.sample_count)
             self.assertEqual(1, metadata.source_sealed_epochs)
+            self.assertIsNone(metadata.rgb_presentation)
             self.assertEqual(
                 {"actions.jsonl", "modalities.jsonl", "samples.jsonl", "states.jsonl"},
                 set(metadata.files),
@@ -379,6 +381,37 @@ class DatasetIndexTest(unittest.TestCase):
                 viewer.resolve_rgb_artifact(
                     summary.dataset_id, invalid.items[0].sample_id
                 )
+
+    def test_reports_verified_rgb_presentation_provenance(self) -> None:
+        rgb = {"available": True, "valid": True}
+        cases = (
+            ("full.dataset", [{"no_gui": False}], "full_client"),
+            ("hud-free.dataset", [{"no_gui": True}], "hud_free"),
+            ("legacy.dataset", [{"result_sha256": "0" * 64}], "hud_free"),
+            (
+                "mixed.dataset",
+                [{"no_gui": False}, {"no_gui": True}],
+                "mixed",
+            ),
+        )
+        for name, attachments, expected in cases:
+            with self.subTest(expected=expected):
+                with tempfile.TemporaryDirectory() as temporary:
+                    root = Path(temporary)
+                    exports = root / "exports"
+                    exports.mkdir()
+                    _write_dataset(
+                        exports,
+                        [_sample(1, rgb=rgb)],
+                        name=name,
+                        frame_attachments=attachments,
+                    )
+                    viewer = DatasetViewer(exports, root / "runtime")
+                    dataset_id = viewer.list_datasets()[0].dataset_id
+                    self.assertEqual(
+                        expected,
+                        viewer.get_dataset_metadata(dataset_id).rgb_presentation,
+                    )
 
     def test_rebuilds_offsets_when_valid_export_fingerprint_changes(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

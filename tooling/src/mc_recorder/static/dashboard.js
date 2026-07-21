@@ -147,7 +147,12 @@ async function refreshRecordings() {
             } else if (renderJob && ["queued", "downloading", "rendering", "uploading", "verifying", "attaching"].includes(renderJob.state)) {
               renderAction = `<span class="status ${badgeClass(renderJob.state)}">RGB ${escapeHtml(renderJob.state)}</span><button class="quiet" data-render-cancel="${renderJob.id}">Cancel</button>`;
             } else if (renderJob?.state === "complete" || recording.rgb_complete) {
-              renderAction = '<span class="status ok">RGB complete</span>';
+              const presentation = {
+                full_client: "full client + hand",
+                hud_free: "HUD-free (legacy)",
+                mixed: "mixed presentation",
+              }[recording.rgb_presentation];
+              renderAction = `<span class="status ok">RGB complete${presentation ? ` · ${presentation}` : ""}</span>`;
             } else if (recording.can_render) {
               renderAction = `<select class="render-resolution" data-render-resolution="${recording.id}" aria-label="RGB render resolution"><option value="640x360">640×360</option><option value="1280x720">1280×720</option></select><button class="quiet" data-render-recording="${recording.id}">Render RGB</button>`;
             }

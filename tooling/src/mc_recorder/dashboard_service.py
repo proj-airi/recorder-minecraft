@@ -310,11 +310,13 @@ class DashboardService:
             dataset_ready = dataset_status == "matching"
             render_job = self.render_queue.latest_for_recording(recording_id)
             sample_count = rgb_samples = None
+            rgb_presentation = None
             sample_start_tick = sample_end_tick = None
             if dataset_ready:
                 metadata = self.dataset_viewer.get_dataset_metadata(self._dataset_id(output))
                 sample_count = metadata.sample_count
                 rgb_samples = metadata.rgb_samples
+                rgb_presentation = metadata.rgb_presentation
                 sample_start_tick = metadata.first_tick
                 sample_end_tick = metadata.last_tick
             rgb_complete = (
@@ -377,6 +379,7 @@ class DashboardService:
                     "sample_end_tick": sample_end_tick,
                     "rgb_samples": rgb_samples,
                     "rgb_complete": rgb_complete,
+                    "rgb_presentation": rgb_presentation,
                     "can_render": dataset_ready
                     and not rgb_complete
                     and sample_start_tick is not None
@@ -414,8 +417,9 @@ class DashboardService:
         width: int = 640,
         height: int = 360,
         fps: int = RENDER_FPS,
+        no_gui: bool = False,
     ) -> dict[str, Any]:
-        self._validate_render_settings(width, height, fps)
+        self._validate_render_settings(width, height, fps, no_gui)
         row = next((item for item in self.recordings() if item["id"] == recording_id), None)
         if row is None:
             raise RecorderError("recording not found")
@@ -423,7 +427,13 @@ class DashboardService:
             raise RecorderError("a structured dataset must be complete before RGB rendering")
         if row.get("rgb_complete"):
             raise RecorderError("the dataset already has complete RGB coverage")
-        payload = self._render_job_payload(row, width=width, height=height, fps=fps)
+        payload = self._render_job_payload(
+            row,
+            width=width,
+            height=height,
+            fps=fps,
+            no_gui=no_gui,
+        )
         return self.render_queue.create(payload)
 
     def _render_job_payload(
@@ -433,8 +443,9 @@ class DashboardService:
         width: int,
         height: int,
         fps: int,
+        no_gui: bool,
     ) -> dict[str, Any]:
-        self._validate_render_settings(width, height, fps)
+        self._validate_render_settings(width, height, fps, no_gui)
         selection_start = row.get("start_tick")
         selection_end = row.get("end_tick")
         render_start = row.get("sample_start_tick")
@@ -461,7 +472,12 @@ class DashboardService:
             "end_tick": render_end,
             "selection_start_tick": selection_start,
             "selection_end_tick": selection_end,
-            "render": {"width": width, "height": height, "fps": fps},
+            "render": {
+                "width": width,
+                "height": height,
+                "fps": fps,
+                "no_gui": no_gui,
+            },
         }
 
     def render_jobs(self, limit: int = 50) -> list[dict[str, Any]]:
@@ -495,6 +511,7 @@ class DashboardService:
             width=render.get("width"),
             height=render.get("height"),
             fps=render.get("fps"),
+            no_gui=render.get("no_gui", True),
         )
         return self.render_queue.create(payload, retry_of=original["id"])
 
@@ -566,7 +583,12 @@ class DashboardService:
         return self.render_queue.fail_attempt(worker_id, attempt_id, lease_token, error)
 
     @staticmethod
-    def _validate_render_settings(width: object, height: object, fps: object) -> None:
+    def _validate_render_settings(
+        width: object,
+        height: object,
+        fps: object,
+        no_gui: object,
+    ) -> None:
         if (
             not isinstance(width, int)
             or isinstance(width, bool)
@@ -587,6 +609,8 @@ class DashboardService:
             raise RecorderError("render resolution exceeds the maximum pixel count")
         if not isinstance(fps, int) or isinstance(fps, bool) or fps != RENDER_FPS:
             raise RecorderError(f"render fps must be {RENDER_FPS}")
+        if not isinstance(no_gui, bool):
+            raise RecorderError("render no_gui must be a boolean")
 
     def generate_job(self, recording_id: str) -> dict[str, Any]:
         row = next((item for item in self.recordings() if item["id"] == recording_id), None)

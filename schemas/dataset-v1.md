@@ -176,9 +176,18 @@ The V1 renderer:
 - selects a player UUID and `connection_id`;
 - aligns replay ticks to global server ticks from
   `mc_recorder:timeline/v1` markers;
-- tracks the recorded player's head in first person; and
+- tracks the recorded player's head in first person;
+- renders the recorded first-person hand/item and full recorded client HUD by
+  default; and
 - emits one PNG per tick at exactly 20 FPS plus `frames.jsonl` and an atomic
   `result.json`.
+
+The render request and result record `no_gui`. New jobs use `false`; omission
+is retained only for legacy V1 requests and means the historical HUD-free
+mode. The HUD can include hotbar, crosshair, health, hunger, titles, boss bars,
+action bar, and scoreboard packets. Chat packets are not present in the
+configured ServerReplay source, and client-only inventory/crafting screens
+cannot be reconstructed.
 
 `frames.jsonl` rows include frame number, global `server_tick`, replay tick,
 session ID, connection ID, player UUID, and image path. The rendered image is a
@@ -193,6 +202,10 @@ matching attached frame remain explicitly unavailable. Referenced paths and
 every image are containment-checked and hashed. PNG chunk ordering, CRCs,
 IHDR/IDAT/IEND presence, and dimensions are validated against `result.json`;
 absolute, escaping, missing, or symlinked references are rejected.
+The dataset manifest's frame-attachment provenance preserves `no_gui`, so
+consumers can distinguish full-client RGB from historical HUD-free RGB. The
+dashboard labels complete coverage as `full client + hand`, `HUD-free
+(legacy)`, or `mixed presentation` when a dataset combines both source modes.
 
 Legacy local renderer results identify their replay and output with absolute
 local paths. An imported `mc-recorder-render-result-v2` instead uses contained

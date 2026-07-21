@@ -244,7 +244,10 @@ def _validate_request(value: Any) -> dict[str, Any]:
 
     render = _object(request.get("render"), "portable render request render")
     _required_keys(
-        render, {"width", "height", "fps", "camera", "voxel_crop"}, set(), "request render"
+        render,
+        {"width", "height", "fps", "camera", "voxel_crop"},
+        {"no_gui"},
+        "request render",
     )
     _integer(render.get("width"), "request render width", 64, 16_384)
     _integer(render.get("height"), "request render height", 64, 16_384)
@@ -252,6 +255,8 @@ def _validate_request(value: Any) -> dict[str, Any]:
         raise RecorderError("portable renderer v1 supports exactly 20 FPS")
     if render.get("camera") != "first_person_head":
         raise RecorderError("portable renderer v1 supports first_person_head only")
+    if "no_gui" in render and not isinstance(render["no_gui"], bool):
+        raise RecorderError("request render no_gui must be a boolean")
     crop = _object(render.get("voxel_crop"), "portable render request voxel_crop")
     _required_keys(crop, {"horizontal_radius", "vertical_radius"}, set(), "request voxel_crop")
     horizontal = _integer(crop.get("horizontal_radius"), "request horizontal voxel radius", 0, 64)
@@ -310,6 +315,7 @@ def create_portable_render_request(
     request_id: str | None = None,
     range_policy: str = "exact",
     newer_cutoff: int | None = None,
+    no_gui: bool = False,
 ) -> dict[str, Any]:
     validation = validate_episode(episode)
     if not validation.valid or validation.sealed_epochs == 0:
@@ -318,6 +324,8 @@ def create_portable_render_request(
         normalized_player = str(uuid.UUID(player_uuid))
     except (ValueError, TypeError, AttributeError) as exc:
         raise RecorderError(f"invalid player UUID: {player_uuid!r}") from exc
+    if not isinstance(no_gui, bool):
+        raise RecorderError("no_gui must be a boolean")
     connection, observed_first, observed_last = _select_connection(
         episode, normalized_player, connection_id
     )
@@ -378,6 +386,7 @@ def create_portable_render_request(
             "height": height,
             "fps": fps,
             "camera": "first_person_head",
+            "no_gui": no_gui,
             "voxel_crop": {
                 "horizontal_radius": voxel_horizontal_radius,
                 "vertical_radius": voxel_vertical_radius,
@@ -401,7 +410,9 @@ def write_portable_render_request(
     target.parent.mkdir(parents=True, exist_ok=True)
     if target.exists():
         existing = load_portable_render_request(target)
-        if target.read_bytes() != encoded:
+        if target.read_bytes() != encoded and not _requests_match_with_legacy_gui_default(
+            existing.data, validated
+        ):
             raise RecorderError(f"portable render request already exists with different bytes: {target}")
         return existing
     descriptor, temporary_name = tempfile.mkstemp(prefix=f".{target.name}.tmp-", dir=target.parent)
@@ -415,7 +426,9 @@ def write_portable_render_request(
             os.link(temporary, target)
         except FileExistsError:
             existing = load_portable_render_request(target)
-            if target.read_bytes() != encoded:
+            if target.read_bytes() != encoded and not _requests_match_with_legacy_gui_default(
+                existing.data, validated
+            ):
                 raise RecorderError(
                     f"portable render request was concurrently published with different bytes: {target}"
                 )
@@ -428,6 +441,31 @@ def write_portable_render_request(
         sha256=_sha256_bytes(encoded),
         request_id=validated["request_id"],
     )
+
+
+def _requests_match_with_legacy_gui_default(
+    existing: Mapping[str, Any], requested: Mapping[str, Any]
+) -> bool:
+    existing_render = existing.get("render")
+    requested_render = requested.get("render")
+    existing_has_no_gui = (
+        isinstance(existing_render, dict) and "no_gui" in existing_render
+    )
+    requested_has_no_gui = (
+        isinstance(requested_render, dict) and "no_gui" in requested_render
+    )
+    if existing_has_no_gui == requested_has_no_gui:
+        return False
+    explicit_render = existing_render if existing_has_no_gui else requested_render
+    if not isinstance(explicit_render, dict) or explicit_render.get("no_gui") is not True:
+        return False
+    existing_value = json.loads(json.dumps(existing))
+    requested_value = json.loads(json.dumps(requested))
+    for value in (existing_value, requested_value):
+        render = value.get("render")
+        if isinstance(render, dict) and "no_gui" not in render:
+            render["no_gui"] = True
+    return existing_value == requested_value
 
 
 def load_portable_render_request(path: Path) -> PortableRenderRequest:
@@ -497,6 +535,7 @@ def materialize_portable_render_job(
     value = portable.data
     timeline = value["timeline"]
     render = value["render"]
+    requested_no_gui = render.get("no_gui", True)
     crop = render["voxel_crop"]
     source = value["source_replay"]
     subject = value["subject"]
@@ -527,7 +566,9 @@ def materialize_portable_render_job(
             "fps": render["fps"],
             "voxel_horizontal_radius": horizontal,
             "voxel_vertical_radius": vertical,
-            "no_gui": True,
+            # Requests authored before no_gui became portable omit the field and
+            # retain the original world-only renderer behavior.
+            "no_gui": requested_no_gui,
             "stop_when_done": True,
             "episode": dict(value["episode"]),
             "source_replay": {**source, "path": str(resolved_replay)},
@@ -621,6 +662,7 @@ def _raw_result_range(
     subject = value["subject"]
     timeline = value["timeline"]
     render = value["render"]
+    requested_no_gui = render.get("no_gui", True)
     if result.get("session_id") != value["episode"]["session_id"]:
         raise RecorderError("worker result session_id does not match its request")
     if result.get("player_uuid") != subject["player_uuid"]:
@@ -631,6 +673,9 @@ def _raw_result_range(
         raise RecorderError("worker result replay_sha256 does not match its request")
     if result.get("replay_bytes") != source["size_bytes"]:
         raise RecorderError("worker result replay_bytes does not match its request")
+    result_no_gui = result.get("no_gui", True)
+    if not isinstance(result_no_gui, bool) or result_no_gui != requested_no_gui:
+        raise RecorderError("worker result no_gui does not match its request")
     if status_text == "no_coverage":
         if timeline["range_policy"] != "intersection":
             raise RecorderError("no_coverage is valid only for an intersection request")
@@ -1098,6 +1143,7 @@ def _canonical_result(
         "newer_cutoff": timeline["newer_cutoff"],
         "requested_global_start_tick": timeline["global_start_tick"],
         "requested_global_end_tick": timeline["global_end_tick"],
+        "no_gui": value["render"].get("no_gui", True),
         "global_start_tick": first_tick,
         "global_end_tick": last_tick,
         "artifact_root": ".",

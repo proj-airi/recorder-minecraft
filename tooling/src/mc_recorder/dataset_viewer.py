@@ -142,6 +142,7 @@ class DatasetMetadata:
     selected_from_tick: int | None
     selected_to_tick: int | None
     rgb_samples: int
+    rgb_presentation: str | None
     voxel_samples: int
     files: dict[str, dict[str, object]]
 
@@ -421,6 +422,7 @@ class DatasetViewer:
             selected_from_tick=_mapping_int(selection, "from_tick"),
             selected_to_tick=_mapping_int(selection, "to_tick"),
             rgb_samples=int(row[3]),
+            rgb_presentation=_rgb_presentation(selection, int(row[3])),
             voxel_samples=int(row[4]),
             files=files,
         )
@@ -1389,6 +1391,27 @@ def _manifest_modality_records(manifest: dict[str, Any], name: str) -> int | Non
         return None
     entry = modalities.get(name)
     return _mapping_int(entry, "records")
+
+
+def _rgb_presentation(selection: object, rgb_samples: int) -> str | None:
+    if rgb_samples <= 0:
+        return None
+    attachments = (
+        selection.get("frame_attachments") if isinstance(selection, dict) else None
+    )
+    if not isinstance(attachments, list) or not attachments:
+        # V1 results predating presentation provenance were always HUD-free.
+        return "hud_free"
+    presentations: set[str] = set()
+    for attachment in attachments:
+        if not isinstance(attachment, dict):
+            presentations.add("hud_free")
+            continue
+        no_gui = attachment.get("no_gui", True)
+        presentations.add("full_client" if no_gui is False else "hud_free")
+    if len(presentations) > 1:
+        return "mixed"
+    return next(iter(presentations))
 
 
 def _verify_file(

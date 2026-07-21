@@ -1205,6 +1205,9 @@ def _load_frame_attachments(
         result = _read_object(result_path, "renderer result")
         if result.get("status") != "complete":
             raise RecorderError(f"renderer result is not complete: {result_path}")
+        no_gui = result.get("no_gui", True)
+        if not isinstance(no_gui, bool):
+            raise RecorderError(f"renderer result no_gui must be a boolean: {result_path}")
         replay_sha, replay_bytes, replay_path = _renderer_replay_integrity(result, result_path)
         session = result.get("session_id")
         player = result.get("player_uuid")
@@ -1367,6 +1370,7 @@ def _load_frame_attachments(
                 "fps": TICK_RATE_HZ,
                 "width": width,
                 "height": height,
+                "no_gui": no_gui,
                 "frame_count": row_count,
                 "replay": replay_path,
                 "replay_sha256": replay_sha,
@@ -1450,6 +1454,9 @@ def _load_voxel_attachments(
             result = _read_object(result_path, "renderer result")
             if result.get("status") != "complete":
                 raise RecorderError(f"renderer result is not complete: {result_path}")
+            no_gui = result.get("no_gui", True)
+            if not isinstance(no_gui, bool):
+                raise RecorderError(f"renderer result no_gui must be a boolean: {result_path}")
             replay_sha, replay_bytes, replay_path = _renderer_replay_integrity(
                 result, result_path
             )
@@ -1668,6 +1675,8 @@ def _load_voxel_attachments(
             source["replay"] = replay_path
             source["replay_sha256"] = replay_sha
             source["replay_bytes"] = replay_bytes
+            assert result is not None
+            source["no_gui"] = result.get("no_gui", True)
             if result is not None and result.get("result_type") == CANONICAL_RENDER_RESULT_TYPE:
                 source["portable_request"] = result.get("portable_request")
                 source["source_replay"] = result.get("source_replay")

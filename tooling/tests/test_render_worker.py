@@ -283,6 +283,11 @@ class EphemeralWorkerTest(unittest.TestCase):
             ["register", "claim", "request", "heartbeat", "finalize"],
             actions,
         )
+        registration = remote_json.call_args_list[0].kwargs["body"]
+        self.assertIs(
+            registration["capabilities"]["portable_request_no_gui"],
+            True,
+        )
 
     def test_worker_does_not_download_an_older_segment_already_covered(self) -> None:
         job_id = "00000000-0000-4000-8000-000000000030"
