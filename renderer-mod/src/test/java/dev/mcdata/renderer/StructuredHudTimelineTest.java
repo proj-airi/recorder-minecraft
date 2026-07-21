@@ -62,6 +62,40 @@ final class StructuredHudTimelineTest {
         assertThrows(java.io.IOException.class, () -> StructuredHudTimeline.load(job));
     }
 
+    @Test
+    void keepsReplayViewerVitalsOutOfTheProjectionPlan() {
+        assertEquals(
+            new StructuredHudTimeline.ProjectionPlan(true, true, false),
+            StructuredHudTimeline.decideProjection(
+                StructuredHudTimeline.CameraKind.REQUESTED_PLAYER, true
+            )
+        );
+        assertEquals(
+            new StructuredHudTimeline.ProjectionPlan(false, false, false),
+            StructuredHudTimeline.decideProjection(
+                StructuredHudTimeline.CameraKind.REPLAY_VIEWER, false
+            )
+        );
+        assertEquals(
+            new StructuredHudTimeline.ProjectionPlan(false, false, false),
+            StructuredHudTimeline.decideProjection(
+                StructuredHudTimeline.CameraKind.OTHER, false
+            )
+        );
+        assertEquals(
+            new StructuredHudTimeline.ProjectionPlan(false, false, true),
+            StructuredHudTimeline.decideProjection(
+                StructuredHudTimeline.CameraKind.REPLAY_VIEWER, true
+            )
+        );
+        assertEquals(
+            new StructuredHudTimeline.ProjectionPlan(false, false, true),
+            StructuredHudTimeline.decideProjection(
+                StructuredHudTimeline.CameraKind.OTHER, true
+            )
+        );
+    }
+
     private String sidecar(long... ticks) {
         StringBuilder value = new StringBuilder();
         for (long tick : ticks) {

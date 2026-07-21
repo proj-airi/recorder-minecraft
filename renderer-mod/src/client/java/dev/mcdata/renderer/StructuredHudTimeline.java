@@ -58,6 +58,26 @@ final class StructuredHudTimeline {
     private final BitSet appliedTicks;
     private volatile boolean prepared;
 
+    enum CameraKind {
+        REQUESTED_PLAYER,
+        REPLAY_VIEWER,
+        OTHER
+    }
+
+    record ProjectionPlan(
+        boolean applyViewerPresentation,
+        boolean applyCameraFullState,
+        boolean reject
+    ) {
+    }
+
+    private static final ProjectionPlan APPLY_REQUESTED_CAMERA =
+        new ProjectionPlan(true, true, false);
+    private static final ProjectionPlan SKIP_PROJECTION =
+        new ProjectionPlan(false, false, false);
+    private static final ProjectionPlan REJECT_PROJECTION =
+        new ProjectionPlan(false, false, true);
+
     private StructuredHudTimeline(
         RenderJobSpec.StructuredHudSpec spec,
         UUID playerId,
@@ -181,28 +201,44 @@ final class StructuredHudTimeline {
         }
         int index = Math.toIntExact(serverTick - this.startTick);
         HudState state = this.states.get(index);
-        LocalPlayer localPlayer = minecraft.player;
-        applyPlayer(localPlayer, state);
         Entity camera = minecraft.getCameraEntity();
-        if (countsTowardRender
-            && (!(camera instanceof Player) || !camera.getUUID().equals(this.playerId))) {
+        CameraKind cameraKind;
+        if (camera == minecraft.player) {
+            cameraKind = CameraKind.REPLAY_VIEWER;
+        } else if (camera instanceof Player && camera.getUUID().equals(this.playerId)) {
+            cameraKind = CameraKind.REQUESTED_PLAYER;
+        } else {
+            cameraKind = CameraKind.OTHER;
+        }
+
+        ProjectionPlan plan = decideProjection(cameraKind, countsTowardRender);
+        if (plan.reject()) {
             throw new IOException(
                 "Structured HUD render camera does not match the requested player " + this.playerId
             );
         }
-        if (camera instanceof Player cameraPlayer && cameraPlayer != localPlayer) {
-            if (cameraPlayer.getUUID().equals(this.playerId)) {
-                applyPlayer(cameraPlayer, state);
-            } else if (countsTowardRender) {
-                throw new IOException("Structured HUD cannot target an unrelated camera player");
-            }
+        if (!plan.applyCameraFullState()) {
+            return;
         }
+        // Minecraft renders the first-person hand and experience from the replay viewer,
+        // but zero health on that LocalPlayer opens a DeathScreen and wedges Flashback export.
+        if (plan.applyViewerPresentation()) {
+            applyPresentation(minecraft.player, state);
+        }
+        applyCameraFullState((Player) camera, state);
         if (countsTowardRender) {
             this.appliedTicks.set(index);
         }
     }
 
-    private void applyPlayer(Player player, HudState state) throws IOException {
+    static ProjectionPlan decideProjection(CameraKind cameraKind, boolean countsTowardRender) {
+        if (cameraKind == CameraKind.REQUESTED_PLAYER) {
+            return APPLY_REQUESTED_CAMERA;
+        }
+        return countsTowardRender ? REJECT_PROJECTION : SKIP_PROJECTION;
+    }
+
+    private void applyPresentation(Player player, HudState state) {
         Inventory inventory = player.getInventory();
         inventory.clearContent();
         for (InventoryStack entry : state.inventory()) {
@@ -210,6 +246,19 @@ final class StructuredHudTimeline {
         }
         inventory.setSelectedSlot(state.selectedSlot());
         inventory.setChanged();
+
+        player.experienceProgress = state.experienceProgress();
+        player.totalExperience = state.totalExperience();
+        player.experienceLevel = state.experienceLevel();
+        if (player instanceof LocalPlayer localPlayer) {
+            localPlayer.setExperienceValues(
+                state.experienceProgress(), state.totalExperience(), state.experienceLevel()
+            );
+        }
+    }
+
+    private void applyCameraFullState(Player player, HudState state) throws IOException {
+        applyPresentation(player, state);
 
         AttributeInstance maxHealth = player.getAttribute(Attributes.MAX_HEALTH);
         if (maxHealth == null) {
@@ -229,14 +278,6 @@ final class StructuredHudTimeline {
         }
         player.getFoodData().setFoodLevel(state.foodLevel());
         player.getFoodData().setSaturation(state.saturation());
-        player.experienceProgress = state.experienceProgress();
-        player.totalExperience = state.totalExperience();
-        player.experienceLevel = state.experienceLevel();
-        if (player instanceof LocalPlayer localPlayer) {
-            localPlayer.setExperienceValues(
-                state.experienceProgress(), state.totalExperience(), state.experienceLevel()
-            );
-        }
     }
 
     synchronized void verifyApplied(long firstTick, long lastTick) throws IOException {
