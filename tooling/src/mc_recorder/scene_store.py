@@ -17,6 +17,7 @@ from typing import Any, Iterable, Mapping, Sequence
 from urllib.parse import quote
 
 from .errors import RecorderError
+from .render_sources import FLASHBACK_CAPTURE_CONTRACT
 from .scene_integrity import (
     SceneStreamIntegrityError,
     VerifiedSceneStream,
@@ -58,6 +59,7 @@ _EXTRACTION_RESULT_FIELDS = frozenset(
         "global_end_tick",
         "scope",
         "metadata_policy",
+        "flashback_capture_contract",
         "source_replays",
         "subject_poses",
         "stream",
@@ -947,9 +949,13 @@ def _validated_extraction_provenance(
             "scene extraction result identity or tick range does not match the store"
         )
     _required_text(result.get("job_id"), "scene extraction result job_id")
-    if result.get("scope") != scope or result.get("metadata_policy") != metadata_policy:
+    if (
+        result.get("scope") != scope
+        or result.get("metadata_policy") != metadata_policy
+        or result.get("flashback_capture_contract") != FLASHBACK_CAPTURE_CONTRACT
+    ):
         raise SceneStoreValidationError(
-            "scene extraction result policy does not match persisted provenance"
+            "scene extraction result policy or capture contract does not match persisted provenance"
         )
     result_sources = _validated_source_replays(
         result.get("source_replays"), "scene extraction result source_replays"

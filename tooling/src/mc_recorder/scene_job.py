@@ -24,7 +24,11 @@ from .episodes import (
     validate_episode,
 )
 from .errors import RecorderError
-from .render_sources import ReplaySegmentSource, resolve_replay_segments
+from .render_sources import (
+    FLASHBACK_CAPTURE_CONTRACT,
+    ReplaySegmentSource,
+    resolve_replay_segments,
+)
 from .scene_integrity import (
     SceneStreamIntegrity,
     SceneStreamIntegrityError,
@@ -555,6 +559,14 @@ def prepare_scene_job(
             connection_id=connection,
         )
     )
+    if any(
+        source.flashback_capture_contract != FLASHBACK_CAPTURE_CONTRACT
+        for source in sources
+    ):
+        raise RecorderError(
+            "scene extraction requires replay archives captured under "
+            f"{FLASHBACK_CAPTURE_CONTRACT}"
+        )
     job_id = str(uuid.uuid4())
     requested = output or (config.paths.runtime / "scene-jobs" / job_id)
     unresolved = requested.expanduser()
@@ -595,6 +607,7 @@ def prepare_scene_job(
             "global_end_tick": selected_last,
             "scope": "client_visible",
             "metadata_policy": "full_packet_metadata",
+            "flashback_capture_contract": FLASHBACK_CAPTURE_CONTRACT,
             "source_replays": [
                 {
                     "segment_id": source.segment_id,
@@ -699,6 +712,7 @@ def _validate_result(job: SceneJob, value: dict[str, Any]) -> SceneStreamIntegri
         "global_end_tick",
         "scope",
         "metadata_policy",
+        "flashback_capture_contract",
         "source_replays",
         "subject_poses",
         "stream",
@@ -717,8 +731,14 @@ def _validate_result(job: SceneJob, value: dict[str, Any]) -> SceneStreamIntegri
     }
     if any(value.get(key) != expected_value for key, expected_value in expected.items()):
         raise RecorderError("scene extractor result identity does not match its job")
-    if value.get("scope") != "client_visible" or value.get("metadata_policy") != "full_packet_metadata":
-        raise RecorderError("scene extractor result scope does not match its job")
+    if (
+        value.get("scope") != "client_visible"
+        or value.get("metadata_policy") != "full_packet_metadata"
+        or value.get("flashback_capture_contract") != FLASHBACK_CAPTURE_CONTRACT
+    ):
+        raise RecorderError(
+            "scene extractor result policy or capture contract does not match its job"
+        )
     if value.get("subject_poses") != job.subject_poses.as_dict():
         raise RecorderError("scene extractor result subject poses do not match its job")
     expected_sources = [

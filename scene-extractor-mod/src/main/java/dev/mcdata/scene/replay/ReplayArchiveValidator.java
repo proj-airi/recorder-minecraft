@@ -121,12 +121,16 @@ public final class ReplayArchiveValidator {
         SceneJob job,
         SceneJob.SourceReplay source
     ) throws IOException {
-        if (requiredInt(identity, "schema_version") < 1
+        if (requiredInt(identity, "schema_version") != 3
             || !requiredString(identity, "session_id").equals(job.sessionId())
             || !requiredUuid(identity, "segment_id").equals(source.segmentId())
             || requiredInt(identity, "segment_ordinal") != source.segmentOrdinal()
             || !requiredUuid(identity, "player_uuid").equals(job.playerUuid())
-            || !requiredUuid(identity, "connection_id").equals(job.connectionId())) {
+            || !requiredUuid(identity, "connection_id").equals(job.connectionId())
+            || !requiredString(identity, "hotbar_snapshot_contract")
+                .equals(SceneJob.HOTBAR_SNAPSHOT_CONTRACT)
+            || !requiredString(identity, "flashback_capture_contract")
+                .equals(SceneJob.FLASHBACK_CAPTURE_CONTRACT)) {
             throw new IOException("embedded mc_recorder identity does not match scene job for " + source.path());
         }
     }

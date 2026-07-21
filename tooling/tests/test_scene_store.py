@@ -80,6 +80,7 @@ def _result(
         "global_end_tick": ticks[-1],
         "scope": "client_visible",
         "metadata_policy": "full_packet_metadata",
+        "flashback_capture_contract": "client_visible_scene_v1",
         "source_replays": list(sources),
         "subject_poses": {
             "format": "mc-recorder-subject-poses-v1",
@@ -562,6 +563,35 @@ class SceneStoreValidationTest(unittest.TestCase):
                 connection.commit()
 
             with self.assertRaisesRegex(SceneStoreValidationError, "subject_poses coverage"):
+                validate_scene_store(path)
+
+    def test_rejects_persisted_capture_contract_tampering(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "scene.sqlite3"
+            sources = _sources()
+            with SceneStoreBuilder(
+                IDENTITY,
+                start_tick=1,
+                end_tick=2,
+                source_replays=sources,
+                provenance=_provenance(IDENTITY, (1, 2), sources),
+            ) as builder:
+                _add_frames(builder, (1, 2))
+                builder.publish(path, expected_ticks=(1, 2))
+            with closing(sqlite3.connect(path)) as connection:
+                provenance = json.loads(
+                    connection.execute(
+                        "SELECT provenance_json FROM scene_meta"
+                    ).fetchone()[0]
+                )
+                provenance["result"]["flashback_capture_contract"] = "legacy"
+                connection.execute(
+                    "UPDATE scene_meta SET provenance_json = ?",
+                    (json.dumps(provenance, sort_keys=True, separators=(",", ":")),),
+                )
+                connection.commit()
+
+            with self.assertRaisesRegex(SceneStoreValidationError, "capture contract"):
                 validate_scene_store(path)
 
 

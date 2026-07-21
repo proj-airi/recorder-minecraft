@@ -41,7 +41,7 @@ public final class SceneJobLoader {
     private static final Set<String> ROOT_KEYS = Set.of(
         "schema_version", "job_id", "session_id", "subject", "global_start_tick",
         "global_end_tick", "scope", "metadata_policy", "source_replays", "output",
-        "subject_poses", "stop_when_done"
+        "subject_poses", "flashback_capture_contract", "stop_when_done"
     );
     private static final Set<String> SUBJECT_KEYS = Set.of("player_uuid", "connection_id");
     private static final Set<String> SOURCE_KEYS = Set.of(
@@ -105,6 +105,9 @@ public final class SceneJobLoader {
         }
         requireLiteral(root, "scope", SceneJob.SCOPE);
         requireLiteral(root, "metadata_policy", SceneJob.METADATA_POLICY);
+        requireLiteral(
+            root, "flashback_capture_contract", SceneJob.FLASHBACK_CAPTURE_CONTRACT
+        );
         boolean stopWhenDone = requiredBoolean(root, "stop_when_done");
         if (!stopWhenDone) {
             throw new IOException("scene extractor only accepts stop_when_done=true");

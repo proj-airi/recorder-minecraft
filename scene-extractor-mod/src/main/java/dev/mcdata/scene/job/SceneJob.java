@@ -24,6 +24,8 @@ public record SceneJob(
 ) {
     public static final String SCOPE = "client_visible";
     public static final String METADATA_POLICY = "full_packet_metadata";
+    public static final String FLASHBACK_CAPTURE_CONTRACT = "client_visible_scene_v1";
+    public static final String HOTBAR_SNAPSHOT_CONTRACT = "item_stack_copy_v1";
 
     public SceneJob {
         sourceReplays = List.copyOf(sourceReplays);

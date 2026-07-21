@@ -42,6 +42,23 @@ final class SceneJobLoaderTest {
     }
 
     @Test
+    void rejectsAReplayWithoutTheExactSceneCaptureContract() throws IOException {
+        Path source = temporary.resolve("source.zip");
+        Files.write(source, new byte[] {1});
+        Path poses = writePoses(temporary.resolve("subject-poses.jsonl"), validPoses());
+        Path request = writeJob(source, poses, temporary.resolve("spool"), "");
+        Files.writeString(
+            request,
+            Files.readString(request).replace(
+                "\"flashback_capture_contract\": \"client_visible_scene_v1\"",
+                "\"flashback_capture_contract\": \"legacy\""
+            )
+        );
+
+        assertThrows(IOException.class, () -> SceneJobLoader.load(request));
+    }
+
+    @Test
     void rejectsOutputOutsideTheJobRoot() throws IOException {
         Path source = temporary.resolve("source.zip");
         Files.write(source, new byte[] {1});
@@ -144,6 +161,7 @@ final class SceneJobLoaderTest {
               "global_end_tick": 12,
               "scope": "client_visible",
               "metadata_policy": "full_packet_metadata",
+              "flashback_capture_contract": "client_visible_scene_v1",
               "source_replays": [{
                 "segment_id": "33333333-3333-3333-3333-333333333333",
                 "segment_ordinal": 2,

@@ -19,7 +19,7 @@ from mc_recorder.cli import _parser, _prepare_scene_output, run
 from mc_recorder.config import initialize, load_config
 from mc_recorder.episodes import inspect_epoch
 from mc_recorder.errors import RecorderError
-from mc_recorder.render_sources import ReplaySegmentSource
+from mc_recorder.render_sources import FLASHBACK_CAPTURE_CONTRACT, ReplaySegmentSource
 from mc_recorder.scene_job import (
     _validate_result,
     _select_subject_poses,
@@ -92,6 +92,7 @@ class SceneJobTest(unittest.TestCase):
             replay_format="flashback",
             sha256=hashlib.sha256(replay.read_bytes()).hexdigest(),
             size_bytes=replay.stat().st_size,
+            flashback_capture_contract=FLASHBACK_CAPTURE_CONTRACT,
         )
         return config, episode, source
 
@@ -184,6 +185,7 @@ class SceneJobTest(unittest.TestCase):
             "global_end_tick": 11,
             "scope": "client_visible",
             "metadata_policy": "full_packet_metadata",
+            "flashback_capture_contract": FLASHBACK_CAPTURE_CONTRACT,
             "source_replays": [
                 {
                     "segment_id": source.segment_id,
@@ -231,6 +233,7 @@ class SceneJobTest(unittest.TestCase):
                     "global_end_tick",
                     "scope",
                     "metadata_policy",
+                    "flashback_capture_contract",
                     "source_replays",
                     "subject_poses",
                     "output",
@@ -240,6 +243,10 @@ class SceneJobTest(unittest.TestCase):
             )
             self.assertEqual("client_visible", value["scope"])
             self.assertEqual("full_packet_metadata", value["metadata_policy"])
+            self.assertEqual(
+                FLASHBACK_CAPTURE_CONTRACT,
+                value["flashback_capture_contract"],
+            )
             self.assertFalse(job.stream.exists())
             self.assertFalse(job.result.exists())
             self.assertEqual(job.subject_poses.path, job.directory / "subject-poses.jsonl")
@@ -252,6 +259,35 @@ class SceneJobTest(unittest.TestCase):
                 for line in job.subject_poses.path.read_text(encoding="utf-8").splitlines()
             ]
             self.assertEqual([10, 11], [record["server_tick"] for record in records])
+
+    def test_prepare_rejects_replays_without_the_scene_capture_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            config, episode, source = self._fixture(root)
+            legacy = replace(source, flashback_capture_contract=None)
+            with (
+                mock.patch(
+                    "mc_recorder.scene_job.validate_episode",
+                    return_value=SimpleNamespace(
+                        valid=True, sealed_epochs=1, session_id="session-a"
+                    ),
+                ),
+                mock.patch(
+                    "mc_recorder.scene_job._select_subject_poses",
+                    return_value=self._pose_selection(10, 11),
+                ),
+                mock.patch(
+                    "mc_recorder.scene_job.resolve_replay_segments",
+                    return_value=[legacy],
+                ),
+            ):
+                with self.assertRaisesRegex(RecorderError, "captured under"):
+                    prepare_scene_job(
+                        config,
+                        episode,
+                        player_uuid=PLAYER,
+                        connection_id=CONNECTION,
+                    )
 
     def test_pose_selection_authenticates_epoch_and_requires_contiguous_finite_values(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -342,6 +378,11 @@ class SceneJobTest(unittest.TestCase):
             value["subject_poses"] = dict(value["subject_poses"])  # type: ignore[arg-type]
             value["subject_poses"]["sha256"] = "f" * 64  # type: ignore[index]
             with self.assertRaisesRegex(RecorderError, "subject poses"):
+                _validate_result(prepared, value)
+
+            value["subject_poses"]["sha256"] = prepared.subject_poses.sha256  # type: ignore[index]
+            value["flashback_capture_contract"] = "legacy"
+            with self.assertRaisesRegex(RecorderError, "capture contract"):
                 _validate_result(prepared, value)
 
     def test_prepare_rejects_an_unpinned_new_seal_before_reading_epoch_data(self) -> None:

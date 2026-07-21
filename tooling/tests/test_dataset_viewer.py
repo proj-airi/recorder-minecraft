@@ -298,6 +298,7 @@ def _scene_store_bytes(
         "global_end_tick": tick,
         "scope": "client_visible",
         "metadata_policy": "full_packet_metadata",
+        "flashback_capture_contract": "client_visible_scene_v1",
         "source_replays": list(sources),
         "subject_poses": {
             "format": "mc-recorder-subject-poses-v1",

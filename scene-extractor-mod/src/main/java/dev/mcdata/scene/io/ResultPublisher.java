@@ -85,6 +85,9 @@ public final class ResultPublisher {
         result.addProperty("global_end_tick", job.globalEndTick());
         result.addProperty("scope", SceneJob.SCOPE);
         result.addProperty("metadata_policy", SceneJob.METADATA_POLICY);
+        result.addProperty(
+            "flashback_capture_contract", SceneJob.FLASHBACK_CAPTURE_CONTRACT
+        );
         result.add("source_replays", sourceReplays(sourceReplays));
         result.add("subject_poses", subjectPoses(job.subjectPoses()));
         return result;
