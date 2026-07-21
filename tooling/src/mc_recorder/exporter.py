@@ -17,6 +17,7 @@ from .episodes import EpochInfo, iter_epochs, iter_events, sha256_file, validate
 from .errors import RecorderError
 from .render_contract import FULL_CLIENT_PRESENTATION_CONTRACT
 from .render_hud import validate_hud_result_envelope
+from .storage import pin_sealed_epochs
 
 
 EXPORT_SCHEMA_VERSION = 2
@@ -1354,6 +1355,34 @@ def _assert_attachments_unchanged(frames: dict[FrameKey, AttachedFrame]) -> None
 
 
 def export_episode(
+    episode: Path,
+    output: Path,
+    *,
+    players: Iterable[str] = (),
+    connections: Iterable[str] = (),
+    first_tick: int | None = None,
+    last_tick: int | None = None,
+    frames: Iterable[Path] = (),
+    scenes: Iterable[Path] = (),
+    force: bool = False,
+) -> ExportResult:
+    """Validate, read, and atomically publish while source epochs are pinned."""
+
+    with pin_sealed_epochs(episode):
+        return _export_episode_pinned(
+            episode,
+            output,
+            players=players,
+            connections=connections,
+            first_tick=first_tick,
+            last_tick=last_tick,
+            frames=frames,
+            scenes=scenes,
+            force=force,
+        )
+
+
+def _export_episode_pinned(
     episode: Path,
     output: Path,
     *,

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -12,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
 from mc_recorder import cli
 from mc_recorder.errors import RecorderError
+from mc_recorder.storage import enforce_quota
 
 
 class _Input:
@@ -20,6 +23,80 @@ class _Input:
 
 
 class RenderCliTest(unittest.TestCase):
+    def test_scene_prepare_pins_epochs_against_retention(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            captures = root / "captures"
+            episode = captures / "session-a"
+            epoch = episode / "epochs" / "epoch-000000"
+            epoch.mkdir(parents=True)
+            events = b"{}\n"
+            (epoch / "events.jsonl").write_bytes(events)
+            (epoch / "manifest.json").write_text(
+                json.dumps(
+                    {
+                        "sealed": True,
+                        "record_count": 1,
+                        "events_bytes": len(events),
+                        "events_sha256": hashlib.sha256(events).hexdigest(),
+                    }
+                ),
+                encoding="utf-8",
+            )
+            config = SimpleNamespace(
+                paths=SimpleNamespace(
+                    captures=captures,
+                    runtime=root / "runtime",
+                )
+            )
+            prepared = SimpleNamespace(manifest=root / "prepared" / "scene-job.json")
+            reports = []
+
+            def prepare(*_args, **_kwargs):
+                reports.append(
+                    enforce_quota(
+                        captures,
+                        quota_bytes=1,
+                        warn_percent=80,
+                        evict_oldest=True,
+                    )
+                )
+                self.assertTrue(epoch.is_dir())
+                return prepared
+
+            with (
+                mock.patch.object(cli, "load_config", return_value=config),
+                mock.patch.object(cli, "resolve_episode", return_value=episode),
+                mock.patch.object(cli, "prepare_scene_job", side_effect=prepare),
+            ):
+                code = cli.run(
+                    [
+                        "scene",
+                        "extract",
+                        "session-a",
+                        "--player",
+                        "00000000-0000-4000-8000-000000000001",
+                        "--connection",
+                        "00000000-0000-4000-8000-000000000002",
+                        "--output",
+                        str(root / "scene.sqlite3"),
+                        "--prepare-only",
+                    ]
+                )
+
+            self.assertEqual(0, code)
+            self.assertEqual("full", reports[0].status)
+            self.assertEqual((), reports[0].evicted)
+            self.assertTrue(epoch.is_dir())
+            after = enforce_quota(
+                captures,
+                quota_bytes=1,
+                warn_percent=80,
+                evict_oldest=True,
+            )
+            self.assertEqual(1, len(after.evicted))
+            self.assertFalse(epoch.exists())
+
     def test_render_no_gui_flag_is_forwarded_as_an_opt_out(self) -> None:
         config = SimpleNamespace(
             paths=SimpleNamespace(

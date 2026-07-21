@@ -19,6 +19,7 @@ from mc_recorder.exporter import _safe_replace_directory, export_episode
 from mc_recorder.cli import _parser
 from mc_recorder.render_job import prepare_render_job
 from mc_recorder.scene_store import SceneIdentity, SceneStoreBuilder, validate_scene_store
+from mc_recorder.storage import enforce_quota
 
 
 PLAYER = "00000000-0000-4000-8000-000000000001"
@@ -433,6 +434,48 @@ def _scene_store(
 
 
 class EpisodeExportTest(unittest.TestCase):
+    def test_epoch_pin_covers_validation_reads_and_atomic_publication(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            captures = root / "captures"
+            episode = _episode(captures)
+            epoch = episode / "epochs" / "epoch-000000"
+            output = root / "dataset"
+            reports = []
+            original_publish = _safe_replace_directory
+
+            def publish(staging: Path, destination: Path, force: bool) -> None:
+                reports.append(
+                    enforce_quota(
+                        captures,
+                        quota_bytes=1,
+                        warn_percent=80,
+                        evict_oldest=True,
+                    )
+                )
+                self.assertTrue(epoch.is_dir())
+                original_publish(staging, destination, force)
+
+            with mock.patch(
+                "mc_recorder.exporter._safe_replace_directory", side_effect=publish
+            ):
+                result = export_episode(episode, output, players=[PLAYER])
+
+            self.assertEqual(output.resolve(), result.output)
+            self.assertEqual(1, len(reports))
+            self.assertEqual("full", reports[0].status)
+            self.assertEqual((), reports[0].evicted)
+            self.assertTrue(epoch.is_dir())
+
+            after = enforce_quota(
+                captures,
+                quota_bytes=1,
+                warn_percent=80,
+                evict_oldest=True,
+            )
+            self.assertEqual(1, len(after.evicted))
+            self.assertFalse(epoch.exists())
+
     def test_exports_canonical_connection_aware_multiplayer_transition(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

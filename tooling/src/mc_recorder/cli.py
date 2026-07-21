@@ -33,7 +33,7 @@ from .scene_job import (
 )
 from .scene_store import compact_scene_stream, validate_scene_store
 from .server import show_logs, show_status, start_server, stop_server
-from .storage import StorageReport, enforce_quota, human_bytes
+from .storage import StorageReport, enforce_quota, human_bytes, pin_sealed_epochs
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -405,14 +405,15 @@ def run(argv: Sequence[str] | None = None) -> int:
         output = _prepare_scene_output(args.output, force=args.force)
         with operation_lock(config.paths.runtime, "scene_extract"):
             cleanup_stale_scene_jobs(config.paths.runtime, keep=1)
-            job = prepare_scene_job(
-                config,
-                episode,
-                player_uuid=args.player,
-                connection_id=args.connection,
-                first_tick=args.from_tick,
-                last_tick=args.to_tick,
-            )
+            with pin_sealed_epochs(episode):
+                job = prepare_scene_job(
+                    config,
+                    episode,
+                    player_uuid=args.player,
+                    connection_id=args.connection,
+                    first_tick=args.from_tick,
+                    last_tick=args.to_tick,
+                )
             print(f"Prepared scene extraction job {job.manifest}")
             if args.prepare_only:
                 cleanup_stale_scene_jobs(config.paths.runtime, keep=1)

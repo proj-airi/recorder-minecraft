@@ -159,7 +159,12 @@ def completed_replay_paths(
 
 @contextmanager
 def pin_sealed_epochs(episode: Path) -> Iterator[tuple[Path, ...]]:
-    """Hold shared locks on every sealed epoch needed by a dataset export."""
+    """Hold shared locks on every manifest that declares a sealed epoch.
+
+    This boundary intentionally does not hash event streams. Callers perform
+    their authoritative validation after the locks are held, avoiding duplicate
+    full-file reads while still excluding retention for every eligible epoch.
+    """
 
     if episode.is_symlink() or not episode.is_dir():
         raise RecorderError(f"episode is not a safe directory: {episode}")
@@ -174,12 +179,17 @@ def pin_sealed_epochs(episode: Path) -> Iterator[tuple[Path, ...]]:
         for candidate in sorted(epochs.iterdir()):
             if candidate.is_symlink() or not candidate.is_dir():
                 continue
-            info = inspect_epoch(candidate)
-            if info is None or info.status != "sealed":
-                continue
             manifest = candidate / "manifest.json"
             if manifest.is_symlink():
-                raise RecorderError(f"sealed epoch manifest may not be a symlink: {manifest}")
+                continue
+            if not manifest.is_file():
+                continue
+            try:
+                declared = json.loads(manifest.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if not isinstance(declared, dict) or declared.get("sealed") is not True:
+                continue
             try:
                 handle = manifest.open("rb")
             except OSError as exc:
@@ -189,17 +199,34 @@ def pin_sealed_epochs(episode: Path) -> Iterator[tuple[Path, ...]]:
             except BlockingIOError as exc:
                 handle.close()
                 raise RecorderError(f"sealed epoch is being retained or evicted: {candidate}") from exc
-            # Revalidate after acquiring the lock so retention cannot win the
-            # inspect/open race and replace the path beneath this operation.
-            current = inspect_epoch(candidate)
-            if current is None or current.status != "sealed":
+            # Re-read the exact opened file and compare it with the path after
+            # acquiring the lock. Retention cannot win the inspect/open race or
+            # replace the manifest beneath this operation.
+            try:
+                opened = os.fstat(handle.fileno())
+                current_path = manifest.stat()
+                handle.seek(0)
+                current = json.load(handle)
+            except (OSError, json.JSONDecodeError) as exc:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+                handle.close()
+                raise RecorderError(f"sealed epoch changed while being pinned: {candidate}") from exc
+            if (
+                opened.st_dev,
+                opened.st_ino,
+                opened.st_size,
+                opened.st_mtime_ns,
+            ) != (
+                current_path.st_dev,
+                current_path.st_ino,
+                current_path.st_size,
+                current_path.st_mtime_ns,
+            ) or not isinstance(current, dict) or current.get("sealed") is not True:
                 fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
                 handle.close()
                 raise RecorderError(f"sealed epoch changed while being pinned: {candidate}")
             handles.append(handle)
-            pinned.append(candidate)
-        if not pinned:
-            raise RecorderError(f"episode has no sealed epochs to pin: {episode}")
+            pinned.append(candidate.resolve())
         yield tuple(pinned)
     finally:
         for handle in reversed(handles):
