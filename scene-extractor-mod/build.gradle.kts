@@ -29,7 +29,7 @@ dependencies {
 loom {
     runs {
         named("server") {
-            runDir = "run"
+            runDir = providers.gradleProperty("mcRecorderSceneRunDir").orElse("run").get()
         }
     }
 }

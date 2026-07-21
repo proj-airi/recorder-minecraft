@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from dataclasses import asdict
 from pathlib import Path
@@ -24,8 +25,13 @@ from .render_job import launch_render_job, prepare_render_job, resolve_replay
 from .render_queue import RenderQueueStore
 from .render_rpc import dispatch_render_rpc
 from .render_worker import RemoteRecorder, run_render_worker
-from .scene_job import launch_scene_job, prepare_scene_job
-from .scene_store import compact_scene_stream
+from .scene_job import (
+    cleanup_scene_job,
+    cleanup_stale_scene_jobs,
+    launch_scene_job,
+    prepare_scene_job,
+)
+from .scene_store import compact_scene_stream, validate_scene_store
 from .server import show_logs, show_status, start_server, stop_server
 from .storage import StorageReport, enforce_quota, human_bytes
 
@@ -124,6 +130,11 @@ def _parser() -> argparse.ArgumentParser:
     scene_extract.add_argument("--to-tick", type=int)
     scene_extract.add_argument("--output", "-o", type=Path, required=True)
     scene_extract.add_argument(
+        "--force",
+        action="store_true",
+        help="atomically replace an existing valid scene store",
+    )
+    scene_extract.add_argument(
         "--prepare-only", action="store_true", help="write scene-job.json without launching the server"
     )
 
@@ -182,6 +193,34 @@ def _parser() -> argparse.ArgumentParser:
         ),
     )
     return parser
+
+
+def _prepare_scene_output(path: Path, *, force: bool) -> Path:
+    requested = Path(os.path.abspath(path.expanduser()))
+    if requested.is_symlink():
+        raise RecorderError(f"scene store output may not be a symlink: {requested}")
+    parent = requested.parent
+    missing: list[str] = []
+    ancestor = parent
+    while not ancestor.exists() and not ancestor.is_symlink():
+        missing.append(ancestor.name)
+        ancestor = ancestor.parent
+    if ancestor.is_symlink() or not ancestor.is_dir():
+        raise RecorderError(f"scene store parent is not a safe directory: {ancestor}")
+    resolved_parent = ancestor.resolve()
+    for name in reversed(missing):
+        resolved_parent /= name
+    resolved_parent.mkdir(parents=True, exist_ok=True)
+    if resolved_parent.is_symlink() or not resolved_parent.is_dir():
+        raise RecorderError(f"scene store parent is not a safe directory: {resolved_parent}")
+    output = resolved_parent / requested.name
+    if output.exists() or output.is_symlink():
+        if not force:
+            raise RecorderError(
+                f"scene store output exists: {output}; pass --force to replace it"
+            )
+        validate_scene_store(output)
+    return output
 
 
 def _episode_json(info: EpisodeInfo) -> dict[str, object]:
@@ -363,7 +402,9 @@ def run(argv: Sequence[str] | None = None) -> int:
     if args.command == "scene":
         config = load_config(args.config)
         episode = resolve_episode(config.paths.captures, args.episode)
+        output = _prepare_scene_output(args.output, force=args.force)
         with operation_lock(config.paths.runtime, "scene_extract"):
+            cleanup_stale_scene_jobs(config.paths.runtime, keep=1)
             job = prepare_scene_job(
                 config,
                 episode,
@@ -374,19 +415,28 @@ def run(argv: Sequence[str] | None = None) -> int:
             )
             print(f"Prepared scene extraction job {job.manifest}")
             if args.prepare_only:
+                cleanup_stale_scene_jobs(config.paths.runtime, keep=1)
                 return 0
-            launch_scene_job(config, job)
-            info = compact_scene_stream(
-                job.stream,
-                args.output,
-                expected_session_id=job.session_id,
-                expected_player_uuid=job.player_uuid,
-                expected_connection_id=job.connection_id,
-                expected_ticks=job.state_ticks,
-            )
+            try:
+                verified_stream = launch_scene_job(config, job)
+                info = compact_scene_stream(
+                    job.stream,
+                    output,
+                    expected_session_id=job.session_id,
+                    expected_player_uuid=job.player_uuid,
+                    expected_connection_id=job.connection_id,
+                    expected_ticks=job.state_ticks,
+                    force=args.force,
+                    verified_stream=verified_stream,
+                )
+            except BaseException:
+                cleanup_stale_scene_jobs(config.paths.runtime, keep=1)
+                raise
+            else:
+                cleanup_scene_job(job)
         print(
             f"Extracted {info.frame_count} random-access scene frames to "
-            f"{args.output.expanduser().resolve()}"
+            f"{output}"
         )
         return 0
 
