@@ -50,7 +50,10 @@ def _write_viewer_dataset(exports: Path) -> None:
             "position": {"x": 1, "y": 64, "z": 2},
         },
         "action": {
-            "ordered_packets": [],
+            "ordered_packets": [
+                {"action_type": "swing", "payload": {"hand": "main_hand"}},
+                {"action_type": "use", "payload": {"hand": "off_hand"}},
+            ],
             "reconstructed_control": {
                 "server_tick": 21,
                 "action_type": "control_state",
@@ -161,6 +164,9 @@ class DashboardHTTPTest(unittest.TestCase):
         body = response.read()
         self.assertIn(b"Recorder control room", body)
         self.assertIn(b"Player trajectory", body)
+        self.assertIn(b"Left click", body)
+        self.assertIn(b"Right click", body)
+        self.assertIn(b"Mouse delta", body)
         self.assertIn(b"SERVER-RECONSTRUCTED", body)
         self.assertEqual("no-store", response.headers["Cache-Control"])
 

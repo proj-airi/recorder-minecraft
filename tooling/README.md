@@ -230,7 +230,8 @@ rebuilds its background SQLite byte-offset index under `.mc-recorder`.
 
 The viewer never sends the full `samples.jsonl` to the browser. It offers
 paginated sample summaries, player/connection and validity/modality filters,
-20 Hz timeline stepping/playback, a bounded top-down X/Z trajectory, and
+20 Hz timeline stepping/playback, a bounded top-down X/Z trajectory, held-key
+and observed-click indicators, an accepted yaw/pitch delta vector, and
 on-demand sample detail. The trajectory is derived from the verified SQLite
 index, breaks across invalid/missing transitions, and is decimated on the server
 for long captures. Synchronized held-control buttons, camera movement, and

@@ -118,8 +118,10 @@ dimension tracks, and breaks lines across missing or invalid transitions. The
 server streams the indexed positions while calculating exact travel distance
 and returns at most the requested display-point bound, so long captures are not
 loaded into browser memory. The synchronized controls panel renders
-`action.reconstructed_control.payload` as held buttons and camera/slot values.
-These remain server-reconstructed 20 Hz observations, not raw device events.
+`action.reconstructed_control.payload` as held buttons, camera/slot values,
+and an outward yaw/pitch delta vector. It derives per-transition left/right
+click indicators from applied `action.ordered_packets`; neither view claims raw
+input-device telemetry. These remain server-reconstructed 20 Hz observations.
 
 RGB and voxel bytes are served only after their references remain contained
 within the configured export root and their declared size/hash still match.

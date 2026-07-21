@@ -207,6 +207,7 @@ automatically.
 The viewer pages through a SQLite byte-offset index rather than loading a large
 `samples.jsonl` into the browser. It provides a 20 Hz synchronized timeline and
 RGB playback when attached, a server-bounded top-down player trajectory,
+held-key and observed-click indicators, an accepted yaw/pitch delta vector,
 player/connection filters, live server-reconstructed control buttons,
 state-to-next-state differences, ordered packet actions, peers, transition
 validity, and provenance. The trajectory and control HUD need no GUI renderer.

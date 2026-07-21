@@ -124,6 +124,31 @@
                     <button class="input-key" type="button" data-control="sneak" tabindex="-1" aria-pressed="false"><kbd>⇧</kbd><span>Sneak</span></button>
                     <button class="input-key" type="button" data-control="sprint" tabindex="-1" aria-pressed="false"><kbd>Ctrl</kbd><span>Sprint</span></button>
                   </div>
+                  <div class="pointer-inputs">
+                    <div class="mouse-buttons">
+                      <p class="input-section-label">Click actions</p>
+                      <div class="mouse-button-grid" aria-label="Observed mouse click actions">
+                        <button class="input-key mouse-key" type="button" data-mouse-button="left" tabindex="-1" aria-pressed="false"><kbd>LMB</kbd><span>Left click</span></button>
+                        <button class="input-key mouse-key" type="button" data-mouse-button="right" tabindex="-1" aria-pressed="false"><kbd>RMB</kbd><span>Right click</span></button>
+                      </div>
+                    </div>
+                    <figure id="mouse-vector" class="mouse-vector unavailable" aria-label="Mouse delta unavailable">
+                      <figcaption><span>Mouse delta</span><output id="mouse-vector-value">unavailable</output></figcaption>
+                      <svg viewBox="0 0 160 160" role="img" aria-hidden="true">
+                        <defs>
+                          <marker id="mouse-arrowhead" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                            <path d="M 0 0 L 8 4 L 0 8 z"></path>
+                          </marker>
+                        </defs>
+                        <line class="mouse-axis" x1="18" y1="80" x2="142" y2="80"></line>
+                        <line class="mouse-axis" x1="80" y1="18" x2="80" y2="142"></line>
+                        <text x="139" y="74" text-anchor="end">+yaw</text>
+                        <text x="86" y="144">+pitch</text>
+                        <circle class="mouse-origin" cx="80" cy="80" r="4"></circle>
+                        <line id="mouse-vector-line" class="mouse-vector-line" x1="80" y1="80" x2="80" y2="80" marker-end="url(#mouse-arrowhead)"></line>
+                      </svg>
+                    </figure>
+                  </div>
                   <dl id="camera-controls" class="control-metrics"></dl>
                   <div><p class="input-section-label">Applied packet actions</p><div id="packet-actions" class="packet-actions"><span class="muted">No sample</span></div></div>
                   <p id="input-note" class="muted input-note">These are server-observed persistent flags, not raw keyboard or mouse events.</p>

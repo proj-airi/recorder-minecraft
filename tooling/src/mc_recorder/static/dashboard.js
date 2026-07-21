@@ -574,6 +574,59 @@ function formatControlNumber(value, suffix = "") {
   return finiteCoordinate(value) ? `${value.toFixed(1)}${suffix}` : "—";
 }
 
+function normalizedPacketValue(value) {
+  return typeof value === "string" ? value.toLowerCase().replaceAll("-", "_") : "";
+}
+
+function observedMouseButtons(packets) {
+  const observed = { left: false, right: false };
+  packets.forEach((packet) => {
+    const payload = packet?.payload && typeof packet.payload === "object" ? packet.payload : {};
+    const actionType = normalizedPacketValue(packet?.action_type || payload.action_kind);
+    const packetType = normalizedPacketValue(payload.packet_type).split(":").at(-1);
+    const interaction = normalizedPacketValue(payload.interaction);
+    const action = normalizedPacketValue(payload.action);
+    if (
+      actionType === "swing"
+      || packetType === "swing"
+      || (actionType === "interact" && interaction === "attack")
+      || (actionType === "player_action" && ["start_destroy_block", "abort_destroy_block", "stop_destroy_block"].includes(action))
+    ) observed.left = true;
+    if (
+      actionType === "use"
+      || packetType.startsWith("use_item")
+      || (actionType === "interact" && ["interact", "interact_at"].includes(interaction))
+    ) observed.right = true;
+  });
+  return observed;
+}
+
+function renderMouseDelta(payload) {
+  const vector = $("#mouse-vector");
+  const line = $("#mouse-vector-line");
+  const value = $("#mouse-vector-value");
+  const yaw = payload?.camera_delta_yaw;
+  const pitch = payload?.camera_delta_pitch;
+  const available = finiteCoordinate(yaw) && finiteCoordinate(pitch);
+  vector.classList.toggle("unavailable", !available);
+  if (!available) {
+    vector.classList.remove("zero");
+    line.setAttribute("x2", "80");
+    line.setAttribute("y2", "80");
+    value.textContent = "unavailable";
+    vector.setAttribute("aria-label", "Mouse delta unavailable");
+    return;
+  }
+  const magnitude = Math.hypot(yaw, pitch);
+  const displayLength = magnitude === 0 ? 0 : Math.min(54, Math.max(18, magnitude * 2.4));
+  const displayScale = magnitude === 0 ? 0 : displayLength / magnitude;
+  line.setAttribute("x2", String(80 + yaw * displayScale));
+  line.setAttribute("y2", String(80 + pitch * displayScale));
+  vector.classList.toggle("zero", magnitude === 0);
+  value.textContent = `Δ ${yaw.toFixed(2)}°, ${pitch.toFixed(2)}°`;
+  vector.setAttribute("aria-label", `Accepted mouse delta: yaw ${yaw.toFixed(2)} degrees, pitch ${pitch.toFixed(2)} degrees`);
+}
+
 function renderInputHud(sample) {
   const control = sample?.action?.reconstructed_control;
   const payload = control?.payload;
@@ -596,12 +649,21 @@ function renderInputHud(sample) {
     ["Source", control?.source?.record_type || (available ? "control_state" : "—")],
   ];
   $("#camera-controls").innerHTML = metrics.map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`).join("");
-  const packets = sample?.action?.ordered_packets || [];
+  renderMouseDelta(payload);
+  const actionsAvailable = Array.isArray(sample?.action?.ordered_packets);
+  const packets = actionsAvailable ? sample.action.ordered_packets : [];
+  const mouseButtons = observedMouseButtons(packets);
+  document.querySelectorAll("[data-mouse-button]").forEach((button) => {
+    const pressed = actionsAvailable && mouseButtons[button.dataset.mouseButton] === true;
+    button.classList.toggle("active", pressed);
+    button.classList.toggle("unavailable", !actionsAvailable);
+    button.setAttribute("aria-pressed", pressed ? "true" : "false");
+  });
   $("#packet-actions").innerHTML = packets.length
     ? packets.map((packet) => `<span class="packet-action">${escapeHtml(String(packet.action_type || "unknown").replaceAll("_", " "))}</span>`).join("")
     : '<span class="muted">No applied packet actions in this transition</span>';
   $("#input-note").textContent = available
-    ? "Held state reconstructed at 20 Hz from server-observed controls; not raw keyboard or mouse events."
+    ? "Held keys and accepted camera deltas are reconstructed at 20 Hz; click indicators come from applied packet actions, not raw device events."
     : "No reconstructed control is available for this transition; button state is unknown.";
 }
 
