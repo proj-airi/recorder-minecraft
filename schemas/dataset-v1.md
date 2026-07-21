@@ -178,9 +178,10 @@ The V1 renderer:
   `mc_recorder:timeline/v1` markers;
 - enters Flashback's replay-server spectate mode for the recorded player and
   waits for the server-confirmed camera switch before export;
-- tracks the recorded player's head in first person while Flashback forwards
-  the recorded nine-slot hotbar, selected slot, food, saturation, and
-  experience state to the HUD;
+- tracks the recorded player's head in first person and, on each exact recorder
+  timeline tick, applies the verified dataset's structured HUD state (all
+  inventory stacks, selected slot, health, absorption, air, food, saturation,
+  and experience) before rendering;
 - renders the recorded first-person hand/item and full recorded client HUD by
   default; and
 - emits one PNG per tick at exactly 20 FPS plus `frames.jsonl` and an atomic
@@ -199,10 +200,11 @@ the camera entity with only tracked equipment. GUI exports therefore use the
 normal replay `spectate <player UUID>` command path and do not begin until its
 camera acknowledgement is visible on the client.
 
-Synchronized GUI results also record
-`presentation_contract: "flashback_server_spectate_v1"`. A `no_gui: false`
-attachment without that exact marker was produced before replay-server HUD
-synchronization was enforced and is classified as
+Faithful GUI results also record
+`presentation_contract: "flashback_server_spectate_structured_hud_v1"`. A
+`no_gui: false` attachment without that exact marker, including the earlier
+`flashback_server_spectate_v1` spectate-only contract, was produced before
+dataset-authoritative HUD overrides were enforced and is classified as
 `legacy_gui_unsynchronized`, not `full_client`. The dashboard offers an
 explicit RGB re-render for that state. The replacement uses a new immutable
 render-job identity and is attached only after verification and atomic dataset
@@ -222,10 +224,10 @@ every image are containment-checked and hashed. PNG chunk ordering, CRCs,
 IHDR/IDAT/IEND presence, and dimensions are validated against `result.json`;
 absolute, escaping, missing, or symlinked references are rejected.
 The dataset manifest's frame-attachment provenance preserves `no_gui` and the
-presentation contract, so consumers can distinguish synchronized full-client
-RGB, unsynchronized legacy GUI RGB, and historical HUD-free RGB. The dashboard
-labels these states rather than inferring pixel fidelity from frame count
-alone.
+presentation contract plus the path-free structured-HUD hash/count/tick
+envelope, so consumers can distinguish dataset-authoritative full-client RGB,
+unsynchronized legacy GUI RGB, and historical HUD-free RGB. The dashboard
+labels these states rather than inferring pixel fidelity from frame count alone.
 
 Legacy local renderer results identify their replay and output with absolute
 local paths. An imported `mc-recorder-render-result-v2` instead uses contained

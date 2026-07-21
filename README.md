@@ -135,10 +135,14 @@ Generation is structured-first: it writes JSONL immediately and treats missing
 RGB/voxel modalities as explicit, non-fatal metadata. Once the structured
 dataset is complete, choose a resolution and click **Render RGB**. This queues a
 leased job on the recorder host; it does not attempt to start a graphics client
-on the headless server. GUI renders are versioned with the
-`flashback_server_spectate_v1` presentation contract. A pre-contract GUI render
-is shown as unsynchronized legacy RGB and can be replaced explicitly with
-**Re-render RGB**; its verified original import remains preserved for audit.
+on the headless server. The host streams the verified dataset into a compact,
+hash-bound structured-HUD sidecar, and the worker applies its exact inventory,
+selected slot, health, food, air, and experience state before each frame. GUI
+renders that complete this path are versioned with the
+`flashback_server_spectate_structured_hud_v1` presentation contract. Older GUI
+renders, including the spectate-only v1 contract, are shown as unsynchronized
+legacy RGB and can be replaced explicitly with **Re-render RGB**; each verified
+original import remains preserved for audit.
 
 On a GUI-capable machine, use the same project revision as the recorder host,
 install the Python tooling, initialize a local `recorder.toml`, and make Java 21
@@ -155,10 +159,11 @@ mc-recorder render-worker \
 
 The worker registers one process identity, polls continuously, and processes
 jobs sequentially until interrupted with Ctrl-C. Each job downloads its exact
-replay segments, launches one local Java GUI renderer, uploads integrity-bound
-bundles, asks the server to verify/import/re-export the dataset, and then closes
-that Java client before claiming another job. The default poll interval is 10
-seconds; `--poll-interval SECONDS` accepts values from 1 through 30. Use
+replay segments and verified structured-HUD sidecar, launches one local Java GUI
+renderer, uploads integrity-bound bundles, asks the server to
+verify/import/re-export the dataset, and then closes that Java client before
+claiming another job. The default poll interval is 10 seconds;
+`--poll-interval SECONDS` accepts values from 1 through 30. Use
 `--once` for the previous single-claim behavior, or `--job JOB_UUID` for a
 targeted one-shot claim. Keep the foreground process inside a logged-in GUI
 session; launchd integration is not provided yet.
@@ -241,12 +246,15 @@ available for that player. Omit both voxel-radius options for RGB only. The
 command launches the local client renderer by default; `--prepare-only` writes
 the validated render job without launching it.
 
-New RGB jobs render the recorded first-person hand/item and the full recorded
-Minecraft HUD by default, including the hotbar, crosshair, health, hunger,
-titles, boss bars, action bar, and scoreboard. ServerReplay is configured to
-omit chat packets, and client-only screens such as inventory or crafting menus
-cannot be reconstructed. Pass `--no-gui` to a standalone manual render when a
-HUD-free first-person image is explicitly required.
+Standalone RGB jobs render the first-person hand/item and Minecraft HUD by
+default, including the hotbar, crosshair, health, hunger, titles, boss bars,
+action bar, and scoreboard. An episode-only standalone job has no exported
+dataset from which to author the verified per-tick HUD sidecar, so it remains a
+legacy/unverified GUI result; use the dashboard dataset workflow for faithful
+inventory pixels. ServerReplay is configured to omit chat packets, and
+client-only screens such as inventory or crafting menus cannot be
+reconstructed. Pass `--no-gui` to a standalone manual render when a HUD-free
+first-person image is explicitly required.
 
 Render preparation records a stable replay byte size and SHA-256. The client
 verifies both before opening the archive and again after RGB/voxel generation;

@@ -15,6 +15,8 @@ from .episodes import resolve_episode
 from .errors import RecorderError
 from .exporter import CANONICAL_RENDER_RESULT_TYPE, export_episode
 from .operations import operation_lock
+from .render_contract import FULL_CLIENT_PRESENTATION_CONTRACT
+from .render_hud import validate_hud_result_envelope
 from .render_transfer import ImportedRenderResult, PORTABLE_REQUEST_TYPE, RENDER_IMPORT_TYPE
 
 
@@ -85,6 +87,13 @@ class _CompleteImport:
     start_tick: int
     end_tick: int
     has_voxels: bool
+
+
+@dataclass(frozen=True)
+class _VerifiedDataset:
+    metadata: DatasetMetadata
+    manifest_sha256: str
+    samples_sha256: str
 
 
 def _canonical_uuid(value: object, label: str) -> str:
@@ -194,7 +203,7 @@ def _job_identity(config: RecorderConfig, job: Mapping[str, Any]) -> _JobIdentit
 
 def _verify_dataset(
     config: RecorderConfig, identity: _JobIdentity
-) -> DatasetMetadata:
+) -> _VerifiedDataset:
     output = identity.output
     if output.is_symlink() or not output.is_dir():
         raise RecorderError(f"refusing to attach RGB: deterministic dataset is missing: {output}")
@@ -206,7 +215,7 @@ def _verify_dataset(
         raise RecorderError(
             f"refusing to overwrite missing or tampered dataset {output}: {exc}"
         ) from exc
-    manifest, _encoded = _read_json(output / "manifest.json", "dataset manifest")
+    manifest, encoded = _read_json(output / "manifest.json", "dataset manifest")
     selection = manifest.get("selection")
     if (
         metadata.session_id != identity.session_id
@@ -222,7 +231,16 @@ def _verify_dataset(
         )
     if metadata.selected_players != (identity.player_uuid,):
         raise RecorderError("refusing to overwrite dataset with a conflicting player selection")
-    return metadata
+    files = manifest.get("files")
+    samples = files.get("samples.jsonl") if isinstance(files, dict) else None
+    samples_sha256 = samples.get("sha256") if isinstance(samples, dict) else None
+    if not isinstance(samples_sha256, str) or _SHA256_RE.fullmatch(samples_sha256) is None:
+        raise RecorderError("refusing to overwrite dataset with invalid samples provenance")
+    return _VerifiedDataset(
+        metadata=metadata,
+        manifest_sha256=hashlib.sha256(encoded).hexdigest(),
+        samples_sha256=samples_sha256,
+    )
 
 
 def _entry_fields(
@@ -257,6 +275,7 @@ def _entry_fields(
 def _validate_import(
     config: RecorderConfig,
     identity: _JobIdentity,
+    dataset: _VerifiedDataset,
     value: ImportedRenderResult | Mapping[str, Any],
 ) -> _CompleteImport | None:
     unresolved, status, supplied_result, supplied_manifest, supplied_segment = _entry_fields(value)
@@ -296,6 +315,38 @@ def _validate_import(
         or result.get("requested_global_end_tick") != identity.end_tick
     ):
         raise RecorderError("render import identity or requested range does not match its queue job")
+    presentation = result.get("presentation_contract")
+    if presentation is not None and presentation != FULL_CLIENT_PRESENTATION_CONTRACT:
+        raise RecorderError("render import presentation contract is unsupported")
+    if presentation == FULL_CLIENT_PRESENTATION_CONTRACT:
+        if result.get("no_gui") is not False:
+            raise RecorderError("render import full-client presentation requires GUI output")
+        structured_hud = validate_hud_result_envelope(
+            result.get("structured_hud"), "render import structured_hud"
+        )
+        if (
+            structured_hud["start_server_tick"] != identity.start_tick
+            or structured_hud["end_server_tick"] != identity.end_tick
+        ):
+            raise RecorderError(
+                "render import structured_hud range does not match its queue job"
+            )
+        if (
+            structured_hud["dataset_id"] != identity.dataset_id
+            or structured_hud["dataset_manifest_sha256"]
+            != dataset.manifest_sha256
+            or structured_hud["samples_sha256"] != dataset.samples_sha256
+            or structured_hud["session_id"] != identity.session_id
+            or structured_hud["player_uuid"] != identity.player_uuid
+            or structured_hud["connection_id"] != identity.connection_id
+        ):
+            raise RecorderError(
+                "render import structured_hud does not match the currently verified dataset"
+            )
+    elif result.get("structured_hud") is not None:
+        raise RecorderError(
+            "render import structured_hud lacks the current presentation contract"
+        )
     portable = result.get("portable_request")
     source_replay = result.get("source_replay")
     if not isinstance(portable, dict) or not isinstance(source_replay, dict):
@@ -445,7 +496,7 @@ def attach_imported_renders(
         seen_segments: set[str] = set()
         seen_requests: set[str] = set()
         for value in imported_values:
-            item = _validate_import(config, identity, value)
+            item = _validate_import(config, identity, existing, value)
             if item is None:
                 no_coverage_count += 1
                 continue
@@ -456,8 +507,16 @@ def attach_imported_renders(
             complete.append(item)
         _coverage(complete)
         if not complete:
-            return _result(identity, existing, complete, no_coverage_count)
+            return _result(identity, existing.metadata, complete, no_coverage_count)
 
+        current = _verify_dataset(config, identity)
+        if (
+            current.manifest_sha256 != existing.manifest_sha256
+            or current.samples_sha256 != existing.samples_sha256
+        ):
+            raise RecorderError(
+                "refusing to attach RGB because the structured dataset changed during verification"
+            )
         episode = resolve_episode(config.paths.captures, identity.session_id)
         export_episode(
             episode,
@@ -471,7 +530,7 @@ def attach_imported_renders(
             force=True,
         )
         verified = _verify_dataset(config, identity)
-        return _result(identity, verified, complete, no_coverage_count)
+        return _result(identity, verified.metadata, complete, no_coverage_count)
 
 
 __all__ = ["RenderAttachmentResult", "attach_imported_renders"]

@@ -50,9 +50,12 @@ final class ReplayPresentationTest {
         assertEquals("spectate " + playerId, ReplayPresentation.startSpectatingCommand(playerId));
         assertEquals("spectate", ReplayPresentation.stopSpectatingCommand());
         assertEquals(
-            "flashback_server_spectate_v1",
-            ReplayPresentation.resultPresentationContract(false)
+            "flashback_server_spectate_structured_hud_v1",
+            ReplayPresentation.resultPresentationContract(
+                false, ReplayPresentation.FULL_CLIENT_PRESENTATION_CONTRACT
+            )
         );
-        assertNull(ReplayPresentation.resultPresentationContract(true));
+        assertNull(ReplayPresentation.resultPresentationContract(true, null));
+        assertNull(ReplayPresentation.resultPresentationContract(false, null));
     }
 }

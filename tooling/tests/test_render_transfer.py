@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 from mc_recorder.errors import RecorderError
 from mc_recorder.exporter import CANONICAL_RENDER_RESULT_TYPE, export_episode
 from mc_recorder.render_contract import FULL_CLIENT_PRESENTATION_CONTRACT
+from mc_recorder.render_hud import hud_result_envelope
 from mc_recorder.render_transfer import (
     PORTABLE_REQUEST_TYPE,
     create_portable_render_request,
@@ -150,6 +151,26 @@ def _request(
 ) -> tuple[dict[str, object], Path, Path]:
     episode = _episode(root)
     replay = _replay(root)
+    structured_hud = None
+    if presentation_contract == FULL_CLIENT_PRESENTATION_CONTRACT:
+        hud = root / "structured-hud.jsonl"
+        hud.write_bytes(b'{"server_tick":10}\n{"server_tick":11}\n')
+        structured_hud = {
+            "schema_version": 1,
+            "sidecar_type": "mc-recorder-structured-hud-v1",
+            "format": "jsonl",
+            "sha256": hashlib.sha256(hud.read_bytes()).hexdigest(),
+            "size_bytes": hud.stat().st_size,
+            "record_count": 2,
+            "first_tick": 10,
+            "last_tick": 11,
+            "dataset_id": "a" * 32,
+            "dataset_manifest_sha256": "b" * 64,
+            "samples_sha256": "c" * 64,
+            "session_id": "session-a",
+            "player_uuid": PLAYER,
+            "connection_id": CONNECTION,
+        }
     request = create_portable_render_request(
         episode,
         replay,
@@ -164,6 +185,7 @@ def _request(
         newer_cutoff=newer_cutoff,
         no_gui=no_gui,
         presentation_contract=presentation_contract,
+        structured_hud=structured_hud,
     )
     return request, episode, replay
 
@@ -175,7 +197,16 @@ def _complete_job(
     *,
     ticks: tuple[int, ...] = (10, 11),
 ) -> Path:
-    job = materialize_portable_render_job(request, replay, root / "job")
+    job = materialize_portable_render_job(
+        request,
+        replay,
+        root / "job",
+        structured_hud=(
+            root / "structured-hud.jsonl"
+            if request.get("structured_hud") is not None
+            else None
+        ),
+    )
     frames = job.directory / "frames"
     rows: list[dict[str, object]] = []
     first = min(ticks)
@@ -222,7 +253,10 @@ def _complete_job(
                     {
                         "presentation_contract": request["render"][
                             "presentation_contract"
-                        ]
+                        ],
+                        "structured_hud": hud_result_envelope(
+                            request["structured_hud"]
+                        ),
                     }
                     if "presentation_contract" in request["render"]
                     else {}
@@ -387,6 +421,17 @@ class PortableRenderTransferTest(unittest.TestCase):
                 FULL_CLIENT_PRESENTATION_CONTRACT,
                 job_manifest["presentation_contract"],
             )
+            self.assertEqual(
+                {
+                    **hud_result_envelope(request["structured_hud"]),
+                    "path": str((job / "hud-states.jsonl").resolve()),
+                },
+                job_manifest["structured_hud"],
+            )
+            self.assertEqual(
+                (root / "structured-hud.jsonl").read_bytes(),
+                (job / "hud-states.jsonl").read_bytes(),
+            )
             bundle = create_render_bundle(
                 job, root / "bundle", request, use_hardlinks=False
             )
@@ -408,9 +453,25 @@ class PortableRenderTransferTest(unittest.TestCase):
                     "presentation_contract"
                 ],
             )
+            self.assertEqual(
+                request["structured_hud"]["sha256"],
+                manifest["selection"]["frame_attachments"][0]["structured_hud"][
+                    "sha256"
+                ],
+            )
 
             result_path = job / "result.json"
             result = json.loads(result_path.read_text())
+            result["structured_hud"]["sha256"] = "0" * 64
+            result_path.write_text(json.dumps(result), encoding="utf-8")
+            with self.assertRaisesRegex(RecorderError, "structured_hud does not match"):
+                create_render_bundle(
+                    job,
+                    root / "mismatched-hud-bundle",
+                    request,
+                    use_hardlinks=False,
+                )
+            result["structured_hud"]["sha256"] = request["structured_hud"]["sha256"]
             result.pop("presentation_contract")
             result_path.write_text(json.dumps(result), encoding="utf-8")
             with self.assertRaisesRegex(
@@ -419,6 +480,51 @@ class PortableRenderTransferTest(unittest.TestCase):
                 create_render_bundle(
                     job, root / "mismatched-bundle", request, use_hardlinks=False
                 )
+
+    def test_structured_hud_request_is_path_free_identity_bound_and_verified(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            request, _episode_path, replay = _request(
+                root,
+                presentation_contract=FULL_CLIENT_PRESENTATION_CONTRACT,
+            )
+            injected_path = json.loads(json.dumps(request))
+            injected_path["structured_hud"]["path"] = "/etc/passwd"
+            with self.assertRaisesRegex(RecorderError, "unsupported or missing fields"):
+                write_portable_render_request(root / "path-request.json", injected_path)
+
+            wrong_subject = json.loads(json.dumps(request))
+            wrong_subject["structured_hud"]["connection_id"] = REQUEST_ID
+            with self.assertRaisesRegex(RecorderError, "subject is inconsistent"):
+                write_portable_render_request(root / "identity-request.json", wrong_subject)
+
+            sidecar = root / "structured-hud.jsonl"
+            sidecar.write_bytes(sidecar.read_bytes() + b"tampered\n")
+            with self.assertRaisesRegex(RecorderError, "does not match the portable request"):
+                materialize_portable_render_job(
+                    request,
+                    replay,
+                    root / "tampered-job",
+                    structured_hud=sidecar,
+                )
+
+    def test_full_sidecar_may_cover_a_narrower_replay_segment_intersection(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            request, _episode_path, replay = _request(
+                root,
+                presentation_contract=FULL_CLIENT_PRESENTATION_CONTRACT,
+            )
+            request["timeline"]["global_end_tick"] = 10
+            job = materialize_portable_render_job(
+                request,
+                replay,
+                root / "subset-job",
+                structured_hud=root / "structured-hud.jsonl",
+            )
+            manifest = json.loads(job.manifest.read_text())
+            self.assertEqual(10, manifest["global_end_tick"])
+            self.assertEqual(11, manifest["structured_hud"]["end_server_tick"])
 
     def test_presentation_contract_validation_preserves_unmarked_legacy_requests(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -437,21 +543,13 @@ class PortableRenderTransferTest(unittest.TestCase):
                 "presentation_contract"
             ] = FULL_CLIENT_PRESENTATION_CONTRACT
             result_path.write_text(json.dumps(upgraded_result), encoding="utf-8")
-            upgraded_bundle = create_render_bundle(
-                legacy_job, root / "upgraded-bundle", request, use_hardlinks=False
-            )
-            upgraded_import = import_render_bundle(
-                request,
-                upgraded_bundle.directory,
-                replay,
-                root / "upgraded-import",
-            )
-            self.assertEqual(
-                FULL_CLIENT_PRESENTATION_CONTRACT,
-                json.loads(upgraded_import.result.read_text())[
-                    "presentation_contract"
-                ],
-            )
+            with self.assertRaisesRegex(RecorderError, "was not requested"):
+                create_render_bundle(
+                    legacy_job,
+                    root / "upgraded-bundle",
+                    request,
+                    use_hardlinks=False,
+                )
 
             invalid = json.loads(json.dumps(request))
             invalid["render"]["presentation_contract"] = "unknown_v9"

@@ -6,12 +6,14 @@ import json
 import os
 import re
 import tempfile
+import threading
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Mapping
 
 from .config import RecorderConfig
+from .dataset_viewer import DatasetViewer
 from .errors import RecorderError
 from .render_contract import (
     FULL_CLIENT_PRESENTATION_CAPABILITY_KEY,
@@ -22,6 +24,10 @@ from .render_queue import (
     MAX_LEASE_SECONDS,
     MIN_LEASE_SECONDS,
     RenderQueueStore,
+)
+from .render_hud import (
+    create_structured_hud_sidecar,
+    validate_hud_sidecar_envelope,
 )
 from .render_sources import (
     ReplayNotReadyError,
@@ -47,6 +53,7 @@ MAX_SEGMENTS = 1024
 MAX_ERROR_CHARS = 2048
 PORTABLE_NO_GUI_CAPABILITY = "portable_request_no_gui"
 STRUCTURED_CLAIM_FAILURE_CAPABILITY = "structured_claim_failure"
+PLAN_PREPARATION_HEARTBEAT_SECONDS = 20.0
 _HEX_24_RE = re.compile(r"^[0-9a-f]{24}$")
 _HEX_32_RE = re.compile(r"^[0-9a-f]{32}$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -230,6 +237,78 @@ def _read_json(path: Path, maximum: int, label: str) -> dict[str, Any]:
     return value
 
 
+class _PlanLeaseKeeper:
+    """Renew a worker lease while the server prepares immutable render inputs."""
+
+    def __init__(
+        self,
+        queue: RenderQueueStore,
+        *,
+        worker_id: str,
+        attempt_id: str,
+        lease_token: str,
+        lease_seconds: int,
+        interval_seconds: float = PLAN_PREPARATION_HEARTBEAT_SECONDS,
+    ) -> None:
+        self.queue = queue
+        self.worker_id = worker_id
+        self.attempt_id = attempt_id
+        self.lease_token = lease_token
+        self.lease_seconds = lease_seconds
+        self.interval_seconds = interval_seconds
+        self._stop = threading.Event()
+        self._thread = threading.Thread(
+            target=self._run,
+            name="mc-recorder-render-plan-lease",
+            daemon=True,
+        )
+        self._error: BaseException | None = None
+        self._started = False
+
+    def start(self) -> None:
+        self._renew()
+        self._started = True
+        self._thread.start()
+
+    def finish(self) -> None:
+        self._join()
+        if self._error is not None:
+            raise RecorderError(
+                f"render lease renewal failed while preparing the server plan: {self._error}"
+            ) from self._error
+        self._renew()
+
+    def abort(self) -> None:
+        self._join()
+
+    def _join(self) -> None:
+        self._stop.set()
+        if self._started:
+            self._thread.join(timeout=30)
+            if self._thread.is_alive() and self._error is None:
+                self._error = RecorderError(
+                    "render plan lease keeper did not stop within 30 seconds"
+                )
+
+    def _renew(self) -> None:
+        self.queue.heartbeat(
+            self.worker_id,
+            self.attempt_id,
+            self.lease_token,
+            phase="downloading",
+            message="Preparing verified server render inputs",
+            lease_seconds=self.lease_seconds,
+        )
+
+    def _run(self) -> None:
+        while not self._stop.wait(self.interval_seconds):
+            try:
+                self._renew()
+            except BaseException as exc:
+                self._error = exc
+                return
+
+
 def _validate_job_payload(value: object) -> dict[str, Any]:
     payload = _strict_object(
         value,
@@ -316,6 +395,7 @@ def _validate_plan(value: object) -> dict[str, Any]:
             "payload",
             "sources",
         },
+        optional={"structured_hud"},
         label="remote render plan",
     )
     if plan["schema_version"] != 1 or isinstance(plan["schema_version"], bool):
@@ -333,6 +413,45 @@ def _validate_plan(value: object) -> dict[str, Any]:
     ):
         raise RecorderError("remote render plan has an invalid lease token digest")
     payload = _validate_job_payload(plan["payload"])
+    structured_hud = plan.get("structured_hud")
+    if structured_hud is not None:
+        if not isinstance(structured_hud, dict) or set(structured_hud) != {
+            "file",
+            "schema_version",
+            "sidecar_type",
+            "format",
+            "sha256",
+            "size_bytes",
+            "record_count",
+            "first_tick",
+            "last_tick",
+            "dataset_id",
+            "dataset_manifest_sha256",
+            "samples_sha256",
+            "session_id",
+            "player_uuid",
+            "connection_id",
+        }:
+            raise RecorderError("remote render plan structured_hud has invalid fields")
+        if structured_hud.get("file") != "hud/structured-hud.jsonl":
+            raise RecorderError("remote render plan has a non-canonical structured_hud file")
+        envelope = validate_hud_sidecar_envelope(
+            {key: value for key, value in structured_hud.items() if key != "file"},
+            "remote render plan structured_hud",
+        )
+        if (
+            envelope["dataset_id"] != payload["dataset_id"]
+            or envelope["session_id"] != payload["session_id"]
+            or envelope["player_uuid"] != payload["player_uuid"]
+            or envelope["connection_id"] != payload["connection_id"]
+            or envelope["first_tick"] != payload["start_tick"]
+            or envelope["last_tick"] != payload["end_tick"]
+        ):
+            raise RecorderError("remote render plan structured_hud identity is inconsistent")
+        if payload["render"].get("presentation_contract") != FULL_CLIENT_PRESENTATION_CONTRACT:
+            raise RecorderError("remote render plan structured_hud requires the current presentation")
+    elif payload["render"].get("presentation_contract") == FULL_CLIENT_PRESENTATION_CONTRACT:
+        raise RecorderError("current full-client render plan requires structured_hud")
     sources = plan["sources"]
     if not isinstance(sources, list) or not 1 <= len(sources) <= MAX_SEGMENTS:
         raise RecorderError(f"remote render plan must contain 1..{MAX_SEGMENTS} sources")
@@ -411,6 +530,7 @@ class RenderRpcService:
             self.exports_root / "render-jobs", "durable render import root", create=True
         )
         self.queue = RenderQueueStore(self.runtime / "render-queue.sqlite3")
+        self.dataset_viewer = DatasetViewer(config.paths.exports, config.paths.runtime)
 
     def dispatch(self, action: str, body: Mapping[str, Any]) -> dict[str, Any]:
         if not isinstance(action, str) or not _ACTION_RE.fullmatch(action):
@@ -521,9 +641,20 @@ class RenderRpcService:
         if claim is None:
             return {"claim": None, "sources": [], "upload_directory": None}
         attempt = claim["attempt"]
+        lease_keeper = _PlanLeaseKeeper(
+            self.queue,
+            worker_id=worker_id,
+            attempt_id=attempt["id"],
+            lease_token=attempt["lease_token"],
+            lease_seconds=lease_seconds,
+        )
+        plan_root: Path | None = None
         try:
+            lease_keeper.start()
             plan, plan_root = self._create_plan(claim, worker_id)
+            lease_keeper.finish()
         except ReplayNotReadyError as exc:
+            lease_keeper.abort()
             queued = self.queue.defer_attempt(
                 worker_id,
                 attempt["id"],
@@ -539,6 +670,7 @@ class RenderRpcService:
                 "deferred_job_cooldown_seconds": DEFAULT_DEFER_COOLDOWN_SECONDS,
             }
         except Exception as exc:
+            lease_keeper.abort()
             try:
                 failed = self.queue.fail_attempt(
                     worker_id,
@@ -547,7 +679,23 @@ class RenderRpcService:
                     str(exc),
                 )
             except Exception:
+                if plan_root is not None:
+                    try:
+                        self._remove_hud_sidecar(plan_root)
+                    except Exception as cleanup_exc:
+                        exc.add_note(
+                            "structured HUD cleanup also failed: "
+                            f"{str(cleanup_exc) or type(cleanup_exc).__name__}"
+                        )
                 raise exc
+            if plan_root is not None:
+                try:
+                    self._remove_hud_sidecar(plan_root)
+                except Exception as cleanup_exc:
+                    exc.add_note(
+                        "structured HUD cleanup also failed: "
+                        f"{str(cleanup_exc) or type(cleanup_exc).__name__}"
+                    )
             detail = (str(exc) or type(exc).__name__)[:MAX_ERROR_CHARS]
             if capabilities.get(STRUCTURED_CLAIM_FAILURE_CAPABILITY) is not True:
                 raise RecorderError(
@@ -564,6 +712,7 @@ class RenderRpcService:
         return {
             "claim": claim,
             "sources": [self._source_response(plan_root, source) for source in plan["sources"]],
+            "structured_hud": self._hud_response(plan_root, plan.get("structured_hud")),
             "upload_directory": str(plan_root / "uploads"),
         }
 
@@ -594,7 +743,7 @@ class RenderRpcService:
         if plan_root.exists() or plan_root.is_symlink():
             raise RecorderError(f"render attempt plan already exists: {attempt_id}")
         plan_root.mkdir(mode=0o700)
-        for name in ("sources", "requests", "uploads"):
+        for name in ("sources", "requests", "uploads", "hud"):
             (plan_root / name).mkdir(mode=0o700)
         planned_sources: list[dict[str, Any]] = []
         try:
@@ -614,13 +763,41 @@ class RenderRpcService:
                 "payload": payload,
                 "sources": planned_sources,
             }
+            if payload["render"].get("presentation_contract") == FULL_CLIENT_PRESENTATION_CONTRACT:
+                sidecar = create_structured_hud_sidecar(
+                    self.dataset_viewer,
+                    payload["dataset_id"],
+                    plan_root / "hud" / "structured-hud.jsonl",
+                    session_id=payload["session_id"],
+                    player_uuid=payload["player_uuid"],
+                    connection_id=payload["connection_id"],
+                    first_tick=payload["start_tick"],
+                    last_tick=payload["end_tick"],
+                    selection_first_tick=payload.get(
+                        "selection_start_tick", payload["start_tick"]
+                    ),
+                    selection_last_tick=payload.get(
+                        "selection_end_tick", payload["end_tick"]
+                    ),
+                )
+                plan["structured_hud"] = {
+                    **sidecar.envelope(),
+                    "file": "hud/structured-hud.jsonl",
+                }
             _validate_plan(plan)
             _publish_json(plan_root / "plan.json", plan, MAX_PLAN_BYTES, "remote render plan")
-        except Exception:
+        except Exception as exc:
             # The hardlinks deliberately remain only when a durable plan exists.
             for child in (plan_root / "sources").glob("*"):
                 if not child.is_symlink() and child.is_file():
                     child.unlink(missing_ok=True)
+            try:
+                self._remove_hud_sidecar(plan_root)
+            except Exception as cleanup_exc:
+                exc.add_note(
+                    "structured HUD cleanup also failed: "
+                    f"{str(cleanup_exc) or type(cleanup_exc).__name__}"
+                )
             raise
         return plan, plan_root
 
@@ -685,13 +862,44 @@ class RenderRpcService:
             "size_bytes": source["size_bytes"],
         }
 
+    @staticmethod
+    def _hud_response(
+        plan_root: Path, structured_hud: object
+    ) -> dict[str, Any] | None:
+        if structured_hud is None:
+            return None
+        assert isinstance(structured_hud, dict)
+        return {
+            **{key: value for key, value in structured_hud.items() if key != "file"},
+            "path": str(plan_root / structured_hud["file"]),
+        }
+
+    def _remove_hud_sidecar(self, plan_root: Path) -> None:
+        root = _assert_safe_descendant(
+            self.attempts_root, plan_root, "render attempt HUD root"
+        )
+        if root.parent != self.attempts_root:
+            raise RecorderError("render attempt HUD root is not a direct owned attempt")
+        hud_root = root / "hud"
+        sidecar = hud_root / "structured-hud.jsonl"
+        _assert_safe_descendant(self.rpc_root, hud_root, "render attempt HUD directory")
+        _assert_safe_descendant(self.rpc_root, sidecar, "render attempt HUD sidecar")
+        if sidecar.is_symlink():
+            raise RecorderError("render attempt HUD sidecar may not be a symlink")
+        if not sidecar.exists():
+            return
+        if not sidecar.is_file():
+            raise RecorderError("render attempt HUD sidecar is not a regular file")
+        sidecar.unlink()
+        _fsync_directory(hud_root)
+
     def _plan(self, attempt_id: str) -> tuple[dict[str, Any], Path]:
         canonical = _canonical_uuid(attempt_id, "render attempt ID")
         root = self.attempts_root / canonical
         _assert_safe_descendant(self.rpc_root, root, "render attempt plan")
         if root.is_symlink() or not root.is_dir():
             raise RecorderError("render attempt has no owned server plan")
-        for name in ("sources", "requests", "uploads"):
+        for name in ("sources", "requests", "uploads", "hud"):
             child = root / name
             _assert_safe_descendant(self.rpc_root, child, f"render attempt {name}")
             if child.is_symlink() or not child.is_dir():
@@ -822,6 +1030,15 @@ class RenderRpcService:
             newer_cutoff=cutoff,
             no_gui=payload["render"].get("no_gui", True),
             presentation_contract=payload["render"].get("presentation_contract"),
+            structured_hud=(
+                {
+                    key: value
+                    for key, value in plan["structured_hud"].items()
+                    if key != "file"
+                }
+                if isinstance(plan.get("structured_hud"), dict)
+                else None
+            ),
         )
         portable = write_portable_render_request(request_path, portable_value)
         return {
@@ -882,11 +1099,12 @@ class RenderRpcService:
         error = request["error"]
         if not isinstance(error, str) or not error or len(error) > MAX_ERROR_CHARS:
             raise RecorderError(f"render worker error must be 1..{MAX_ERROR_CHARS} characters")
-        plan, _root = self._plan(attempt_id)
+        plan, root = self._plan(attempt_id)
         self._authorize_plan(plan, worker_id, request["lease_token"])
         job = self.queue.fail_attempt(
             worker_id, attempt_id, request["lease_token"], error
         )
+        self._remove_hud_sidecar(root)
         return {"job": job}
 
     def _finalize(self, body: dict[str, Any]) -> dict[str, Any]:
@@ -901,9 +1119,12 @@ class RenderRpcService:
         self._authorize_plan(plan, worker_id, request["lease_token"])
         job = self.queue.get(plan["job_id"])
         if job["state"] in {"failed", "canceled"}:
+            self._remove_hud_sidecar(root)
             raise RecorderError(f"render job cannot be finalized while {job['state']}")
         if job["state"] in {"attaching", "complete", "partial"}:
-            return self._finalize_response(plan, root, job)
+            response = self._finalize_response(plan, root, job)
+            self._remove_hud_sidecar(root)
+            return response
         requested = self._requested_sources(plan, root)
         if not requested:
             raise RecorderError("render attempt has no portable requests to finalize")
@@ -947,8 +1168,19 @@ class RenderRpcService:
                 self.queue.fail(plan["job_id"], str(exc))
             except Exception:
                 pass
+            try:
+                self._remove_hud_sidecar(root)
+            except Exception as cleanup_exc:
+                exc.add_note(
+                    "structured HUD cleanup also failed: "
+                    f"{str(cleanup_exc) or type(cleanup_exc).__name__}"
+                )
             raise
-        return self._response_from_imports(plan, self.queue.get(plan["job_id"]), imports)
+        response = self._response_from_imports(
+            plan, self.queue.get(plan["job_id"]), imports
+        )
+        self._remove_hud_sidecar(root)
+        return response
 
     def _requested_sources(
         self, plan: Mapping[str, Any], root: Path

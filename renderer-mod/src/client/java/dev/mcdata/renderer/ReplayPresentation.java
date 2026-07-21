@@ -5,7 +5,8 @@ import com.moulberry.flashback.visuals.ReplayVisuals;
 import java.util.UUID;
 
 final class ReplayPresentation {
-    static final String FULL_CLIENT_PRESENTATION_CONTRACT = "flashback_server_spectate_v1";
+    static final String FULL_CLIENT_PRESENTATION_CONTRACT =
+        "flashback_server_spectate_structured_hud_v1";
 
     private ReplayPresentation() {
     }
@@ -38,7 +39,15 @@ final class ReplayPresentation {
         return "spectate";
     }
 
-    static String resultPresentationContract(boolean noGui) {
-        return noGui ? null : FULL_CLIENT_PRESENTATION_CONTRACT;
+    static String resultPresentationContract(boolean noGui, String requestedContract) {
+        if (noGui || requestedContract == null) {
+            return null;
+        }
+        if (!FULL_CLIENT_PRESENTATION_CONTRACT.equals(requestedContract)) {
+            throw new IllegalArgumentException(
+                "Unsupported requested presentation contract: " + requestedContract
+            );
+        }
+        return requestedContract;
     }
 }

@@ -50,7 +50,7 @@ response is fail-stop because the server may already have leased or failed a
 job even when the worker did not receive the response.
 
 Workers advertise `portable_request_no_gui: true`,
-`full_client_presentation_contract: "flashback_server_spectate_v1"`, and
+`full_client_presentation_contract: "flashback_server_spectate_structured_hud_v1"`, and
 `structured_claim_failure: true` before claiming. The server rejects workers
 without the portable-request capability or current presentation contract so a
 strict pre-extension V1 worker cannot claim a GUI request whose pixels require
@@ -70,11 +70,11 @@ bundle uploads are limited to server-returned descendants of that root. HTTP
 Basic-auth credentials, arbitrary commands, browser paths, JVM flags, and
 environment values are not queue fields.
 
-The worker cache stores replay archives by declared SHA-256 and verifies stable
-size and digest before every reuse. Per-attempt render workspaces carry an owner
-marker and are deleted after success or failure unless the operator explicitly
-retains one. Removing a workspace never removes the content-addressed replay
-cache.
+The worker cache stores replay archives and structured HUD sidecars by declared
+SHA-256 and verifies stable size and digest before every reuse. Per-attempt
+render workspaces carry an owner marker and are deleted after success or failure
+unless the operator explicitly retains one. Removing a workspace never removes
+either content-addressed cache.
 
 ## Portable request
 
@@ -92,20 +92,31 @@ The exact bytes of a persisted request are bound by SHA-256. Its top-level
 - bounded resolution, 20 FPS, first-person-head camera, explicit `no_gui`, the
   GUI `presentation_contract`, and optional voxel radii.
 
+Current GUI requests also carry a path-free `structured_hud` envelope. It binds
+the exact dataset ID, dataset-manifest and `samples.jsonl` hashes, session,
+player, connection, contiguous tick range, record count, byte size, and sidecar
+SHA-256. The sidecar itself is generated server-side by streaming the already
+verified dataset. Each row contains the authoritative health, absorption,
+air, food, saturation, experience, selected slot, and every non-empty inventory
+stack for one tick. `stack_snbt` is the authoritative item payload; item, count,
+and damage fields are retained for diagnostics. Missing ticks, duplicate ticks,
+identity mismatches, missing SNBT, or a changing dataset fail the render plan.
+
 New requests set `render.no_gui: false`, binding full recorded client-HUD pixels
 and the normal first-person hand/item view into the request hash. A missing
 field is accepted only for persisted V1 compatibility and means the historical
 HUD-free behavior (`no_gui: true`). Client-only screens such as inventory
 and crafting menus are not replay state and cannot be reconstructed.
 
-For `no_gui: false`, the renderer must enter Flashback's replay-server spectate
-mode and wait for the server-confirmed camera switch. Directly changing the
-client camera is not equivalent: it bypasses Flashback's forwarding of the
-recorded hotbar, selected slot, food, saturation, and experience state.
-New GUI requests bind
-`presentation_contract: "flashback_server_spectate_v1"` into their request
-hash. A historical GUI request or result without that marker remains readable
-but is not evidence of synchronized full-client HUD pixels.
+For `no_gui: false`, the renderer enters Flashback's replay-server spectate mode
+and waits for the server-confirmed camera switch. At each recorder timeline
+payload it then applies the hash-bound structured state before rendering. This
+override is required because an older ServerReplay inventory capture path could
+serialize a live mutable `ItemStack` after it changed. New GUI requests bind
+`presentation_contract: "flashback_server_spectate_structured_hud_v1"` into
+their request hash. Historical GUI results without this exact marker, including
+`flashback_server_spectate_v1`, remain legacy rather than evidence of faithful
+full-client HUD state.
 
 Requests contain no paths, URLs, commands, JVM flags, or environment values.
 The request schema rejects unknown fields so a worker cannot smuggle executable
@@ -135,14 +146,31 @@ look complete.
 
 ## Local materialization
 
-The GUI worker verifies the replay ZIP structure, byte size, and SHA-256 before
-materializing a legacy `mc-recorder-first-person-render-v1` job. That local job
-contains machine-specific absolute paths required by the Java client, but it
-also records the portable request ID and exact request-byte SHA-256. The local
-paths never appear in the portable request or canonical imported result. The
-worker result and canonical imported result repeat the effective `no_gui`
-policy and presentation contract so an artifact cannot claim a different pixel
-presentation than its request.
+The GUI worker verifies the replay ZIP and HUD sidecar byte sizes and SHA-256
+before materializing a legacy `mc-recorder-first-person-render-v1` job. The
+sidecar is copied to the owned job's canonical `hud-states.jsonl`; its local job
+entry records the type, absolute path, hash, byte size, record count, and tick
+range. That local job contains machine-specific absolute paths required by the
+Java client, but it also records the portable request ID and exact request-byte
+SHA-256. Local paths never appear in the portable request or canonical imported
+result. The worker result and canonical imported result repeat the effective
+`no_gui` policy and presentation contract so an artifact cannot claim a
+different pixel presentation than its request.
+
+When the sidecar is loaded, both results also repeat a path-free
+`structured_hud` envelope containing its schema and format, type, SHA-256, byte
+size, record count, full sidecar tick range, dataset ID, dataset-manifest and
+`samples.jsonl` hashes, session, player, and connection. The launcher, bundle
+verifier, canonical importer, attachment workflow, and exporter compare that
+complete envelope with the request/job. Attachment also re-verifies that the
+dataset manifest and samples hashes are unchanged immediately before promotion.
+The sidecar range may cover more ticks than one replay-segment intersection,
+but it must cover every rendered tick; no result may add the current
+presentation marker or sidecar provenance when the request omitted them.
+
+An episode-only local `render prepare` job has no verified exported-dataset
+identity from which to author this sidecar. It may still render the historical
+spectate view, but it does not claim the structured-HUD presentation contract.
 
 ## Upload bundle
 

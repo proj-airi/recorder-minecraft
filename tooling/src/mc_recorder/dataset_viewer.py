@@ -22,6 +22,7 @@ from typing import Any, Iterable, Iterator
 
 from .errors import RecorderError
 from .render_contract import FULL_CLIENT_PRESENTATION_CONTRACT
+from .render_hud import validate_hud_result_envelope
 
 
 DATASET_SCHEMA_VERSION = 1
@@ -423,7 +424,14 @@ class DatasetViewer:
             selected_from_tick=_mapping_int(selection, "from_tick"),
             selected_to_tick=_mapping_int(selection, "to_tick"),
             rgb_samples=int(row[3]),
-            rgb_presentation=_rgb_presentation(selection, int(row[3])),
+            rgb_presentation=_rgb_presentation(
+                selection,
+                int(row[3]),
+                dataset_id=dataset.dataset_id,
+                session_id=_required_string(
+                    manifest, "session_id", "dataset manifest"
+                ),
+            ),
             voxel_samples=int(row[4]),
             files=files,
         )
@@ -1394,7 +1402,13 @@ def _manifest_modality_records(manifest: dict[str, Any], name: str) -> int | Non
     return _mapping_int(entry, "records")
 
 
-def _rgb_presentation(selection: object, rgb_samples: int) -> str | None:
+def _rgb_presentation(
+    selection: object,
+    rgb_samples: int,
+    *,
+    dataset_id: str,
+    session_id: str,
+) -> str | None:
     if rgb_samples <= 0:
         return None
     attachments = (
@@ -1410,10 +1424,39 @@ def _rgb_presentation(selection: object, rgb_samples: int) -> str | None:
             continue
         no_gui = attachment.get("no_gui", True)
         if no_gui is False:
+            structured_hud_valid = False
+            if (
+                attachment.get("presentation_contract")
+                == FULL_CLIENT_PRESENTATION_CONTRACT
+            ):
+                try:
+                    structured_hud = validate_hud_result_envelope(
+                        attachment.get("structured_hud"),
+                        "dataset frame attachment structured_hud",
+                    )
+                    first_tick = attachment.get("global_start_tick")
+                    last_tick = attachment.get("global_end_tick")
+                    structured_hud_valid = (
+                        structured_hud["dataset_id"] == dataset_id
+                        and structured_hud["session_id"] == session_id
+                        and structured_hud["session_id"]
+                        == attachment.get("session_id")
+                        and structured_hud["player_uuid"]
+                        == attachment.get("player_uuid")
+                        and structured_hud["connection_id"]
+                        == attachment.get("connection_id")
+                        and isinstance(first_tick, int)
+                        and not isinstance(first_tick, bool)
+                        and isinstance(last_tick, int)
+                        and not isinstance(last_tick, bool)
+                        and structured_hud["start_server_tick"] <= first_tick
+                        and structured_hud["end_server_tick"] >= last_tick
+                    )
+                except RecorderError:
+                    pass
             presentations.add(
                 "full_client"
-                if attachment.get("presentation_contract")
-                == FULL_CLIENT_PRESENTATION_CONTRACT
+                if structured_hud_valid
                 else "legacy_gui_unsynchronized"
             )
         else:

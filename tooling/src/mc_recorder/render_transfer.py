@@ -21,6 +21,11 @@ from .exporter import (
     _load_voxel_attachments,
 )
 from .render_contract import FULL_CLIENT_PRESENTATION_CONTRACT
+from .render_hud import (
+    hud_result_envelope,
+    validate_hud_result_envelope,
+    validate_hud_sidecar_envelope,
+)
 from .render_job import (
     OWNER,
     RENDER_JOB_TYPE,
@@ -166,7 +171,7 @@ def _validate_request(value: Any) -> dict[str, Any]:
             "source_replay",
             "render",
         },
-        set(),
+        {"structured_hud"},
         "portable render request",
     )
     if request.get("schema_version") != 1 or isinstance(request.get("schema_version"), bool):
@@ -266,6 +271,27 @@ def _validate_request(value: Any) -> dict[str, Any]:
             raise RecorderError(
                 "request render presentation_contract requires no_gui=false"
             )
+    structured_hud = request.get("structured_hud")
+    if structured_hud is not None:
+        structured_hud = validate_hud_sidecar_envelope(
+            structured_hud, "portable request structured_hud"
+        )
+        if presentation_contract != FULL_CLIENT_PRESENTATION_CONTRACT:
+            raise RecorderError(
+                "portable request structured_hud requires the current presentation contract"
+            )
+        if structured_hud["session_id"] != episode["session_id"]:
+            raise RecorderError("portable request structured_hud session is inconsistent")
+        if structured_hud["player_uuid"] != subject["player_uuid"] or structured_hud[
+            "connection_id"
+        ] != subject["connection_id"]:
+            raise RecorderError("portable request structured_hud subject is inconsistent")
+        if structured_hud["first_tick"] > first_tick or structured_hud["last_tick"] < last_tick:
+            raise RecorderError("portable request structured_hud does not cover its render range")
+    elif presentation_contract == FULL_CLIENT_PRESENTATION_CONTRACT:
+        raise RecorderError(
+            "current full-client presentation requests require structured_hud"
+        )
     crop = _object(render.get("voxel_crop"), "portable render request voxel_crop")
     _required_keys(crop, {"horizontal_radius", "vertical_radius"}, set(), "request voxel_crop")
     horizontal = _integer(crop.get("horizontal_radius"), "request horizontal voxel radius", 0, 64)
@@ -326,6 +352,7 @@ def create_portable_render_request(
     newer_cutoff: int | None = None,
     no_gui: bool = False,
     presentation_contract: str | None = None,
+    structured_hud: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     validation = validate_episode(episode)
     if not validation.valid or validation.sealed_epochs == 0:
@@ -405,6 +432,8 @@ def create_portable_render_request(
     }
     if presentation_contract is not None:
         value["render"]["presentation_contract"] = presentation_contract
+    if structured_hud is not None:
+        value["structured_hud"] = dict(structured_hud)
     return _validate_request(value)
 
 
@@ -517,15 +546,40 @@ def _verify_replay(path: Path, request: PortableRenderRequest) -> Path:
     return resolved
 
 
+def _verify_hud_sidecar(path: Path, request: PortableRenderRequest) -> tuple[Path, dict[str, Any]]:
+    envelope = request.data.get("structured_hud")
+    if not isinstance(envelope, dict):
+        raise RecorderError("portable request has no structured HUD sidecar envelope")
+    unresolved = path.expanduser()
+    if unresolved.is_symlink() or not unresolved.is_file():
+        raise RecorderError(f"structured HUD sidecar is missing or symlinked: {unresolved}")
+    resolved = unresolved.resolve()
+    digest, size = _stable_file_digest(resolved, "structured HUD sidecar")
+    if digest != envelope["sha256"] or size != envelope["size_bytes"]:
+        raise RecorderError(
+            "structured HUD sidecar size or SHA-256 does not match the portable request"
+        )
+    return resolved, envelope
+
+
 def materialize_portable_render_job(
     request: Path | Mapping[str, Any] | PortableRenderRequest,
     replay: Path,
     output: Path,
     *,
+    structured_hud: Path | None = None,
     force: bool = False,
 ) -> RenderJobResult:
     portable = _request_from_value(request)
     resolved_replay = _verify_replay(replay, portable)
+    hud_path: Path | None = None
+    hud_envelope: dict[str, Any] | None = None
+    if portable.data.get("structured_hud") is not None:
+        if structured_hud is None:
+            raise RecorderError("portable render job requires its structured HUD sidecar")
+        hud_path, hud_envelope = _verify_hud_sidecar(structured_hud, portable)
+    elif structured_hud is not None:
+        raise RecorderError("portable render request does not declare a structured HUD sidecar")
     requested_output = output.expanduser()
     if requested_output.is_symlink():
         raise RecorderError(f"render job output may not be a symlink: {requested_output}")
@@ -634,6 +688,20 @@ def materialize_portable_render_job(
         }
         if "presentation_contract" in render:
             job["presentation_contract"] = render["presentation_contract"]
+        if hud_path is not None and hud_envelope is not None:
+            local_hud = staging / "hud-states.jsonl"
+            shutil.copyfile(hud_path, local_hud, follow_symlinks=False)
+            copied_sha, copied_size = _stable_file_digest(
+                local_hud, "materialized structured HUD sidecar"
+            )
+            if copied_sha != hud_envelope["sha256"] or copied_size != hud_envelope[
+                "size_bytes"
+            ]:
+                raise RecorderError("materialized structured HUD sidecar failed verification")
+            job["structured_hud"] = {
+                **hud_result_envelope(hud_envelope),
+                "path": str((resolved_output / "hud-states.jsonl").resolve()),
+            }
         (staging / "render-job.json").write_text(
             json.dumps(job, indent=2, sort_keys=True) + "\n", encoding="utf-8"
         )
@@ -708,6 +776,21 @@ def _raw_result_range(
         raise RecorderError(
             "worker result presentation_contract does not match its request"
         )
+    if requested_presentation is None and result_presentation is not None:
+        raise RecorderError(
+            "worker result presentation_contract was not requested"
+        )
+    requested_hud = value.get("structured_hud")
+    result_hud = result.get("structured_hud")
+    if requested_presentation == FULL_CLIENT_PRESENTATION_CONTRACT:
+        assert isinstance(requested_hud, dict)
+        actual_hud = validate_hud_result_envelope(result_hud, "worker result structured_hud")
+        if actual_hud != hud_result_envelope(requested_hud):
+            raise RecorderError(
+                "worker result structured_hud does not match its request"
+            )
+    elif result_hud is not None:
+        raise RecorderError("worker result structured_hud was not requested")
     if status_text == "no_coverage":
         if timeline["range_policy"] != "intersection":
             raise RecorderError("no_coverage is valid only for an intersection request")
@@ -1183,6 +1266,8 @@ def _canonical_result(
     }
     if "presentation_contract" in raw:
         result["presentation_contract"] = raw["presentation_contract"]
+    if "structured_hud" in raw:
+        result["structured_hud"] = raw["structured_hud"]
     if status_value == "no_coverage":
         reason = raw.get("reason")
         result["reason"] = reason if isinstance(reason, str) and reason else "segment_has_no_coverage"

@@ -6,6 +6,7 @@ import com.google.gson.JsonParser;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Set;
 import java.util.UUID;
 
 record RenderJobSpec(
@@ -30,6 +31,7 @@ record RenderJobSpec(
     int voxelVerticalRadius,
     boolean noGui,
     String presentationContract,
+    StructuredHudSpec structuredHud,
     boolean stopWhenDone,
     Path result
 ) {
@@ -97,6 +99,9 @@ record RenderJobSpec(
         int voxelVerticalRadius = integer(json, "voxel_vertical_radius", 0);
         boolean noGui = bool(json, "no_gui", true);
         String presentationContract = optionalString(json, "presentation_contract");
+        StructuredHudSpec structuredHud = structuredHud(
+            base, json, sessionId, playerId, connectionId
+        );
         boolean stop = bool(json, "stop_when_done", true);
         Path result = json.has("result")
             ? resolve(base, json.get("result").getAsString())
@@ -113,6 +118,13 @@ record RenderJobSpec(
 
         if (globalStartTick < 0 || globalEndTick < globalStartTick) {
             throw new IllegalArgumentException("Invalid global_start_tick/global_end_tick interval");
+        }
+        if (structuredHud != null
+            && (structuredHud.startServerTick() > globalStartTick
+                || structuredHud.endServerTick() < globalEndTick)) {
+            throw new IllegalArgumentException(
+                "structured_hud tick range must cover the requested global range"
+            );
         }
         if (newerCutoff != null) {
             boolean atEndExclusive = globalEndTick < Long.MAX_VALUE && newerCutoff == globalEndTick + 1;
@@ -154,11 +166,17 @@ record RenderJobSpec(
             if (noGui) {
                 throw new IllegalArgumentException("presentation_contract requires no_gui=false");
             }
+            if (structuredHud == null) {
+                throw new IllegalArgumentException("presentation_contract requires structured_hud");
+            }
+        } else if (structuredHud != null) {
+            throw new IllegalArgumentException("structured_hud requires presentation_contract");
         }
         return new RenderJobSpec(normalizedJob, replay, replaySha256, replayBytes,
             output, sessionId, connectionId, playerId, segmentId, segmentOrdinal, rangePolicy, newerCutoff,
             globalStartTick, globalEndTick,
             width, height, fps, voxelHorizontalRadius, voxelVerticalRadius, noGui, presentationContract,
+            structuredHud,
             stop, result);
     }
 
@@ -174,6 +192,91 @@ record RenderJobSpec(
         return this.newerCutoff == null
             ? this.globalEndTick
             : Math.min(this.globalEndTick, this.newerCutoff - 1);
+    }
+
+    private static StructuredHudSpec structuredHud(
+        Path base,
+        JsonObject job,
+        String sessionId,
+        UUID playerId,
+        String connectionId
+    ) {
+        if (!job.has("structured_hud") || job.get("structured_hud").isJsonNull()) {
+            return null;
+        }
+        if (!job.get("structured_hud").isJsonObject()) {
+            throw new IllegalArgumentException("structured_hud must be an object");
+        }
+        JsonObject value = job.getAsJsonObject("structured_hud");
+        if (!value.keySet().equals(Set.of(
+            "schema_version", "type", "path", "format", "sha256", "size_bytes",
+            "records", "start_server_tick", "end_server_tick", "dataset_id",
+            "dataset_manifest_sha256", "samples_sha256", "session_id", "player_uuid",
+            "connection_id"
+        ))) {
+            throw new IllegalArgumentException("structured_hud has unsupported or missing fields");
+        }
+        Path path = resolve(base, requiredString(value, "path"));
+        Path expectedPath = base.resolve("hud-states.jsonl").toAbsolutePath().normalize();
+        long schemaVersion = requiredLong(value, "schema_version");
+        String type = requiredString(value, "type");
+        String format = requiredString(value, "format");
+        String sha256 = requiredString(value, "sha256").toLowerCase();
+        long sizeBytes = requiredLong(value, "size_bytes");
+        long records = requiredLong(value, "records");
+        long startTick = requiredLong(value, "start_server_tick");
+        long endTick = requiredLong(value, "end_server_tick");
+        String datasetId = requiredString(value, "dataset_id");
+        String datasetManifestSha256 = requiredString(
+            value, "dataset_manifest_sha256"
+        ).toLowerCase();
+        String samplesSha256 = requiredString(value, "samples_sha256").toLowerCase();
+        String sidecarSessionId = requiredString(value, "session_id");
+        UUID sidecarPlayerId = UUID.fromString(requiredString(value, "player_uuid"));
+        String sidecarConnectionId = requiredString(value, "connection_id");
+        UUID.fromString(sidecarConnectionId);
+        if (!path.equals(expectedPath)
+            || schemaVersion != 1
+            || !StructuredHudTimeline.SIDECAR_TYPE.equals(type)
+            || !"jsonl".equals(format)
+            || !sha256.matches("[0-9a-f]{64}")
+            || !datasetId.matches("[0-9a-f]{32}")
+            || !datasetManifestSha256.matches("[0-9a-f]{64}")
+            || !samplesSha256.matches("[0-9a-f]{64}")
+            || !sidecarSessionId.equals(sessionId)
+            || !sidecarPlayerId.equals(playerId)
+            || !sidecarConnectionId.equals(connectionId)
+            || sizeBytes <= 0
+            || records <= 0
+            || startTick < 0
+            || endTick < startTick
+            || endTick - startTick + 1 != records) {
+            throw new IllegalArgumentException("Invalid structured_hud integrity envelope");
+        }
+        return new StructuredHudSpec(
+            path, schemaVersion, type, format, sha256, sizeBytes, records, startTick, endTick,
+            datasetId, datasetManifestSha256, samplesSha256,
+            sidecarSessionId, sidecarPlayerId, sidecarConnectionId
+        );
+    }
+
+    record StructuredHudSpec(
+        Path path,
+        long schemaVersion,
+        String type,
+        String format,
+        String sha256,
+        long sizeBytes,
+        long records,
+        long startServerTick,
+        long endServerTick,
+        String datasetId,
+        String datasetManifestSha256,
+        String samplesSha256,
+        String sessionId,
+        UUID playerId,
+        String connectionId
+    ) {
     }
 
     enum RangePolicy {

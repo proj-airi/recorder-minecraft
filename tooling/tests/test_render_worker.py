@@ -23,6 +23,7 @@ from mc_recorder.render_worker import (
     RemoteRecorder,
     call_remote_json,
     create_job_workspace,
+    download_hud_sidecar,
     download_replay,
     remove_job_workspace,
     rsync_download_command,
@@ -95,6 +96,46 @@ class RemoteRecorderTest(unittest.TestCase):
 
 
 class ReplayTransferTest(unittest.TestCase):
+    def test_structured_hud_download_is_content_addressed_and_verified(self) -> None:
+        remote = RemoteRecorder.parse("mcdatacol", "/srv/mc-play-recorder")
+        sidecar = b'{"server_tick":10}\n'
+        digest = hashlib.sha256(sidecar).hexdigest()
+        calls = 0
+
+        def runner(argv: list[str], **_kwargs: object) -> subprocess.CompletedProcess[bytes]:
+            nonlocal calls
+            calls += 1
+            Path(argv[-1]).write_bytes(sidecar)
+            return subprocess.CompletedProcess(argv, 0)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            cache = Path(temporary) / "cache"
+            first = download_hud_sidecar(
+                remote,
+                remote_path=(
+                    "/srv/mc-play-recorder/.mc-recorder/render-rpc/attempts/a/hud/"
+                    "structured-hud.jsonl"
+                ),
+                expected_sha256=digest,
+                expected_size=len(sidecar),
+                cache_root=cache,
+                runner=runner,
+            )
+            second = download_hud_sidecar(
+                remote,
+                remote_path=(
+                    "/srv/mc-play-recorder/.mc-recorder/render-rpc/attempts/a/hud/"
+                    "structured-hud.jsonl"
+                ),
+                expected_sha256=digest,
+                expected_size=len(sidecar),
+                cache_root=cache,
+                runner=runner,
+            )
+
+        self.assertEqual(first, second)
+        self.assertEqual(1, calls)
+
     def test_download_uses_a_content_addressed_cache_and_verifies_before_promotion(self) -> None:
         remote = RemoteRecorder.parse("mcdatacol", "/srv/mc-play-recorder")
         replay = b"stable replay bytes"

@@ -21,6 +21,7 @@ from typing import Any, Iterable
 from .episodes import EpochInfo, iter_epochs, iter_events, sha256_file, validate_episode
 from .errors import RecorderError
 from .render_contract import FULL_CLIENT_PRESENTATION_CONTRACT
+from .render_hud import validate_hud_result_envelope
 
 
 EXPORT_SCHEMA_VERSION = 1
@@ -1210,6 +1211,7 @@ def _load_frame_attachments(
         if not isinstance(no_gui, bool):
             raise RecorderError(f"renderer result no_gui must be a boolean: {result_path}")
         presentation_contract = result.get("presentation_contract")
+        structured_hud: dict[str, Any] | None = None
         if presentation_contract is not None:
             if presentation_contract != FULL_CLIENT_PRESENTATION_CONTRACT:
                 raise RecorderError(
@@ -1219,6 +1221,13 @@ def _load_frame_attachments(
                 raise RecorderError(
                     f"renderer result presentation_contract requires no_gui=false: {result_path}"
                 )
+            structured_hud = validate_hud_result_envelope(
+                result.get("structured_hud"), "renderer result structured_hud"
+            )
+        elif result.get("structured_hud") is not None:
+            raise RecorderError(
+                f"renderer result structured_hud requires a presentation_contract: {result_path}"
+            )
         replay_sha, replay_bytes, replay_path = _renderer_replay_integrity(result, result_path)
         session = result.get("session_id")
         player = result.get("player_uuid")
@@ -1229,10 +1238,25 @@ def _load_frame_attachments(
             )
         if not isinstance(player, str) or not isinstance(connection, str):
             raise RecorderError(f"renderer result lacks player_uuid or connection_id: {result_path}")
+        if structured_hud is not None and (
+            structured_hud["session_id"] != session
+            or structured_hud["player_uuid"] != player
+            or structured_hud["connection_id"] != connection
+        ):
+            raise RecorderError(
+                f"renderer result structured_hud identity does not match its subject: {result_path}"
+            )
         first_tick = _required_int(result, "global_start_tick", result_path)
         last_tick = _required_int(result, "global_end_tick", result_path)
         if first_tick > last_tick:
             raise RecorderError(f"renderer result has an invalid global tick range: {result_path}")
+        if structured_hud is not None and (
+            structured_hud["start_server_tick"] > first_tick
+            or structured_hud["end_server_tick"] < last_tick
+        ):
+            raise RecorderError(
+                f"renderer result structured_hud range does not cover frame coverage: {result_path}"
+            )
         if last_tick - first_tick + 1 > MAX_ATTACHMENT_TICKS:
             raise RecorderError(f"renderer result exceeds the attachment tick limit: {result_path}")
         if _required_int(result, "fps", result_path) != TICK_RATE_HZ:
@@ -1385,6 +1409,11 @@ def _load_frame_attachments(
                 **(
                     {"presentation_contract": presentation_contract}
                     if presentation_contract is not None
+                    else {}
+                ),
+                **(
+                    {"structured_hud": structured_hud}
+                    if structured_hud is not None
                     else {}
                 ),
                 "frame_count": row_count,

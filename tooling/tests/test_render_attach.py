@@ -20,6 +20,8 @@ from mc_recorder.dataset_viewer import opaque_dataset_id
 from mc_recorder.errors import RecorderError
 from mc_recorder.exporter import export_episode
 from mc_recorder.render_attach import attach_imported_renders
+from mc_recorder.render_contract import FULL_CLIENT_PRESENTATION_CONTRACT
+from mc_recorder.render_hud import hud_result_envelope
 from mc_recorder.render_transfer import (
     create_portable_render_request,
     create_render_bundle,
@@ -216,7 +218,39 @@ def _import(
     segment_id: str = "segment-0001",
     first_tick: int = 10,
     last_tick: int = 12,
+    full_client: bool = False,
 ) -> dict[str, object]:
+    work = config.paths.runtime / "test-worker" / segment_id
+    structured_hud: dict[str, object] | None = None
+    hud_path: Path | None = None
+    if full_client:
+        work.mkdir(parents=True, exist_ok=True)
+        hud_path = work / "structured-hud.jsonl"
+        hud_path.write_bytes(
+            b"".join(
+                json.dumps({"server_tick": tick}).encode() + b"\n"
+                for tick in range(first_tick, last_tick + 1)
+            )
+        )
+        dataset = config.paths.exports / f"{SESSION}-{PLAYER}-{CONNECTION}.dataset"
+        manifest_bytes = (dataset / "manifest.json").read_bytes()
+        manifest = json.loads(manifest_bytes)
+        structured_hud = {
+            "schema_version": 1,
+            "sidecar_type": "mc-recorder-structured-hud-v1",
+            "format": "jsonl",
+            "sha256": hashlib.sha256(hud_path.read_bytes()).hexdigest(),
+            "size_bytes": hud_path.stat().st_size,
+            "record_count": last_tick - first_tick + 1,
+            "first_tick": first_tick,
+            "last_tick": last_tick,
+            "dataset_id": opaque_dataset_id(config.paths.exports, dataset.name),
+            "dataset_manifest_sha256": hashlib.sha256(manifest_bytes).hexdigest(),
+            "samples_sha256": manifest["files"]["samples.jsonl"]["sha256"],
+            "session_id": SESSION,
+            "player_uuid": PLAYER,
+            "connection_id": CONNECTION,
+        }
     request = create_portable_render_request(
         episode,
         replay,
@@ -232,9 +266,17 @@ def _import(
         voxel_vertical_radius=1 if voxels else 0,
         request_id=str(uuid.uuid5(uuid.NAMESPACE_DNS, segment_id)),
         range_policy="intersection",
+        presentation_contract=(
+            FULL_CLIENT_PRESENTATION_CONTRACT if full_client else None
+        ),
+        structured_hud=structured_hud,
     )
-    work = config.paths.runtime / "test-worker" / segment_id
-    materialized = materialize_portable_render_job(request, replay, work / "job")
+    materialized = materialize_portable_render_job(
+        request,
+        replay,
+        work / "job",
+        structured_hud=hud_path,
+    )
     if status == "no_coverage":
         raw_result: dict[str, object] = {
             "status": "no_coverage",
@@ -302,6 +344,10 @@ def _import(
         }
         if voxels:
             raw_result["voxel_index"] = str((frames / "voxels.jsonl").resolve())
+    if full_client:
+        assert structured_hud is not None
+        raw_result["presentation_contract"] = FULL_CLIENT_PRESENTATION_CONTRACT
+        raw_result["structured_hud"] = hud_result_envelope(structured_hud)
     (materialized.directory / "result.json").write_text(json.dumps(raw_result), encoding="utf-8")
     bundle = create_render_bundle(
         materialized.directory, work / "bundle", request, use_hardlinks=False
@@ -378,6 +424,64 @@ class RenderAttachmentTest(unittest.TestCase):
             manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
             self.assertEqual(10, manifest["selection"]["from_tick"])
             self.assertEqual(12, manifest["selection"]["to_tick"])
+
+    def test_full_client_import_is_bound_to_the_exact_verified_dataset(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            config, episode, replay, _output, job = self._fixture(Path(temporary))
+            job["payload"].update(
+                {
+                    "start_tick": 10,
+                    "end_tick": 11,
+                    "selection_start_tick": 10,
+                    "selection_end_tick": 12,
+                }
+            )
+            imported = _import(
+                config,
+                episode,
+                replay,
+                first_tick=10,
+                last_tick=11,
+                full_client=True,
+            )
+
+            result = attach_imported_renders(config, job, [imported])
+
+            self.assertFalse(result.partial)
+            self.assertEqual(2, result.rgb_sample_count)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            config, episode, replay, output, job = self._fixture(Path(temporary))
+            job["payload"].update(
+                {
+                    "start_tick": 10,
+                    "end_tick": 11,
+                    "selection_start_tick": 10,
+                    "selection_end_tick": 12,
+                }
+            )
+            imported = _import(
+                config,
+                episode,
+                replay,
+                first_tick=10,
+                last_tick=11,
+                full_client=True,
+            )
+            samples_path = output / "samples.jsonl"
+            samples_path.write_bytes(
+                b"".join(b" " + line + b"\n" for line in samples_path.read_bytes().splitlines())
+            )
+            manifest_path = output / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["files"]["samples.jsonl"] = {
+                "size_bytes": samples_path.stat().st_size,
+                "sha256": hashlib.sha256(samples_path.read_bytes()).hexdigest(),
+            }
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+            with self.assertRaisesRegex(RecorderError, "currently verified dataset"):
+                attach_imported_renders(config, job, [imported])
 
     def test_refuses_missing_conflicting_and_tampered_existing_datasets(self) -> None:
         for case in ("missing", "conflicting", "tampered"):

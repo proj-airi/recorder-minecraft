@@ -53,7 +53,7 @@ public final class McRecorderRenderer implements ClientModInitializer {
     private static final long EXPORT_SETTLE_NANOS = 1_000_000_000L;
 
     private RenderJobSpec job;
-    private Phase phase = Phase.DISABLED;
+    private volatile Phase phase = Phase.DISABLED;
     private Throwable startupFailure;
     private int waitTicks;
     private int resolvedStartTick = -1;
@@ -79,6 +79,7 @@ public final class McRecorderRenderer implements ClientModInitializer {
     private CameraType previousCameraType;
     private boolean previousHideGui;
     private long exportSettleStartedNanos;
+    private StructuredHudTimeline structuredHud;
     private final List<JsonObject> voxelIndexRows = new ArrayList<>();
 
     @Override
@@ -88,6 +89,16 @@ public final class McRecorderRenderer implements ClientModInitializer {
             ReplayServer replayServer = Flashback.getReplayServer();
             if (replayServer != null && this.job != null && this.matchesJob(payload)) {
                 this.timelineObservation = new TimelineObservation(payload, replayServer.getReplayTick());
+                if (this.structuredHud != null && this.structuredHud.isPrepared()) {
+                    try {
+                        this.structuredHud.apply(
+                            context.client(), payload.serverTick(), this.phase == Phase.EXPORTING
+                        );
+                    } catch (Throwable throwable) {
+                        this.startupFailure = throwable;
+                        this.phase = Phase.STARTUP_FAILED;
+                    }
+                }
             }
         });
 
@@ -104,6 +115,7 @@ public final class McRecorderRenderer implements ClientModInitializer {
         try {
             this.job = RenderJobSpec.read(Path.of(jobValue));
             this.validateInputs();
+            this.structuredHud = StructuredHudTimeline.load(this.job);
             this.writeProgress("prepared", 0, 0);
             this.phase = Phase.OPEN_REPLAY;
             LOGGER.info("Loaded render job {}", this.job.jobPath());
@@ -188,6 +200,9 @@ public final class McRecorderRenderer implements ClientModInitializer {
         }
 
         replayServer.replayPaused = true;
+        if (this.structuredHud != null) {
+            this.structuredHud.prepare(minecraft.level.registryAccess());
+        }
         this.anchorScanTick = 0;
         this.anchorScanRequested = false;
         this.anchorSettleTicks = 0;
@@ -388,6 +403,9 @@ public final class McRecorderRenderer implements ClientModInitializer {
             this.checkTimeout("Flashback replay-server spectate for player " + this.job.playerId());
             return;
         }
+        if (this.structuredHud != null) {
+            this.structuredHud.apply(minecraft, this.resolvedGlobalStartTick, false);
+        }
         this.waitTicks = 0;
         if (this.exportSettleStartedNanos == 0L) {
             this.exportSettleStartedNanos = System.nanoTime();
@@ -410,6 +428,9 @@ public final class McRecorderRenderer implements ClientModInitializer {
 
         this.writeStatus("running", null);
         this.writeProgress("rendering", 0, this.resolvedEndTick - this.resolvedStartTick + 1);
+        if (this.structuredHud != null) {
+            this.structuredHud.apply(minecraft, this.resolvedGlobalStartTick, true);
+        }
         Flashback.EXPORT_JOB = new ExportJob(settings);
         this.phase = Phase.EXPORTING;
         LOGGER.info(
@@ -577,10 +598,17 @@ public final class McRecorderRenderer implements ClientModInitializer {
         }
         if (!this.clientPresentationActive) {
             this.clientPresentationActive = true;
-            LOGGER.info(
-                "Replay server activated player {} with synchronized hotbar, food, experience, hand, and HUD state",
-                this.job.playerId()
-            );
+            if (this.structuredHud != null) {
+                LOGGER.info(
+                    "Replay server activated player {}; verified structured HUD state will be applied per frame",
+                    this.job.playerId()
+                );
+            } else {
+                LOGGER.info(
+                    "Replay server activated player {} without a structured HUD fidelity contract",
+                    this.job.playerId()
+                );
+            }
         }
         return true;
     }
@@ -620,6 +648,11 @@ public final class McRecorderRenderer implements ClientModInitializer {
 
         int expectedFrames = this.resolvedEndTick - this.resolvedStartTick + 1;
         this.restoreClientPresentation(minecraft);
+        if (this.structuredHud != null) {
+            this.structuredHud.verifyApplied(
+                this.resolvedGlobalStartTick, this.resolvedGlobalEndTick
+            );
+        }
         if (this.job.capturesVoxels() && this.voxelIndexRows.size() != expectedFrames) {
             throw new IOException(
                 "Expected " + expectedFrames + " voxel snapshots, found " + this.voxelIndexRows.size()
@@ -631,6 +664,9 @@ public final class McRecorderRenderer implements ClientModInitializer {
         }
 
         this.validateReplayIntegrity();
+        if (this.structuredHud != null) {
+            this.structuredHud.validateIntegrity();
+        }
 
         this.writeStatus("complete", null);
         this.writeProgress("complete", actualFrames, expectedFrames);
@@ -718,9 +754,14 @@ public final class McRecorderRenderer implements ClientModInitializer {
         result.addProperty("width", this.job.width());
         result.addProperty("height", this.job.height());
         result.addProperty("no_gui", this.job.noGui());
-        String presentationContract = ReplayPresentation.resultPresentationContract(this.job.noGui());
+        String presentationContract = ReplayPresentation.resultPresentationContract(
+            this.job.noGui(), this.job.presentationContract()
+        );
         if (presentationContract != null) {
             result.addProperty("presentation_contract", presentationContract);
+        }
+        if (this.structuredHud != null) {
+            result.add("structured_hud", this.structuredHud.resultEnvelope());
         }
         result.addProperty("voxel_snapshots", this.voxelIndexRows.size());
         result.addProperty("voxel_horizontal_radius", this.job.voxelHorizontalRadius());

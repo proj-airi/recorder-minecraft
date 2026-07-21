@@ -25,10 +25,11 @@ from mc_recorder.render_job import (
 
 
 PLAYER_UUID = "12345678-1234-5678-1234-567812345678"
+CONNECTION_UUID = "87654321-4321-4678-9234-567812345678"
 
 
 class ReplayResolutionTest(unittest.TestCase):
-    def test_prepared_gui_jobs_declare_current_presentation_contract(self) -> None:
+    def test_direct_prepared_gui_job_does_not_claim_dataset_bound_contract(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             episode = root / "episode"
@@ -86,10 +87,8 @@ class ReplayResolutionTest(unittest.TestCase):
 
             gui_manifest = json.loads(gui.manifest.read_text(encoding="utf-8"))
             no_gui_manifest = json.loads(no_gui.manifest.read_text(encoding="utf-8"))
-            self.assertEqual(
-                FULL_CLIENT_PRESENTATION_CONTRACT,
-                gui_manifest["presentation_contract"],
-            )
+            self.assertNotIn("presentation_contract", gui_manifest)
+            self.assertNotIn("structured_hud", gui_manifest)
             self.assertNotIn("presentation_contract", no_gui_manifest)
 
     def test_rejects_invalid_player_before_building_a_replay_path(self) -> None:
@@ -201,10 +200,38 @@ class ReplayResolutionTest(unittest.TestCase):
             digest = hashlib.sha256(b"replay").hexdigest()
             directory = root / "job"
             directory.mkdir()
+            hud = directory / "hud-states.jsonl"
+            hud.write_bytes(b'{"server_tick":10}\n{"server_tick":11}\n')
+            hud_digest = hashlib.sha256(hud.read_bytes()).hexdigest()
+            hud_result = {
+                "schema_version": 1,
+                "type": "mc-recorder-structured-hud-v1",
+                "format": "jsonl",
+                "sha256": hud_digest,
+                "size_bytes": hud.stat().st_size,
+                "records": 2,
+                "start_server_tick": 10,
+                "end_server_tick": 11,
+                "dataset_id": "a" * 32,
+                "dataset_manifest_sha256": "b" * 64,
+                "samples_sha256": "c" * 64,
+                "session_id": "session-a",
+                "player_uuid": PLAYER_UUID,
+                "connection_id": CONNECTION_UUID,
+            }
             manifest = directory / "render-job.json"
             manifest_value = {
                 "no_gui": False,
                 "presentation_contract": FULL_CLIENT_PRESENTATION_CONTRACT,
+                "session_id": "session-a",
+                "player_uuid": PLAYER_UUID,
+                "connection_id": CONNECTION_UUID,
+                "global_start_tick": 10,
+                "global_end_tick": 11,
+                "structured_hud": {
+                    **hud_result,
+                    "path": str(hud.resolve()),
+                },
                 "source_replay": {"sha256": digest, "size_bytes": 6},
             }
             manifest.write_text(json.dumps(manifest_value), encoding="utf-8")
@@ -213,6 +240,7 @@ class ReplayResolutionTest(unittest.TestCase):
                 "status": "complete",
                 "no_gui": False,
                 "presentation_contract": FULL_CLIENT_PRESENTATION_CONTRACT,
+                "structured_hud": dict(hud_result),
                 "replay_sha256": digest,
                 "replay_bytes": 6,
             }
@@ -221,7 +249,7 @@ class ReplayResolutionTest(unittest.TestCase):
                 mods=SimpleNamespace(renderer_project=project),
                 paths=SimpleNamespace(base=root, runtime=root / "runtime"),
             )
-            job = RenderJobResult(directory, manifest, replay, "connection")
+            job = RenderJobResult(directory, manifest, replay, CONNECTION_UUID)
 
             result = launch_render_job(config, job)
             self.assertEqual(
@@ -233,6 +261,20 @@ class ReplayResolutionTest(unittest.TestCase):
             result_path.write_text(json.dumps(result_value), encoding="utf-8")
             with self.assertRaisesRegex(RecorderError, "presentation_contract does not match"):
                 launch_render_job(config, job)
+
+            result_value["presentation_contract"] = FULL_CLIENT_PRESENTATION_CONTRACT
+            result_path.write_text(json.dumps(result_value), encoding="utf-8")
+            hud.write_bytes(b"tampered")
+            with self.assertRaisesRegex(RecorderError, "failed its integrity envelope"):
+                launch_render_job(config, job)
+            hud.write_bytes(b'{"server_tick":10}\n{"server_tick":11}\n')
+
+            result_value["structured_hud"]["sha256"] = "0" * 64
+            result_path.write_text(json.dumps(result_value), encoding="utf-8")
+            with self.assertRaisesRegex(RecorderError, "structured_hud does not match"):
+                launch_render_job(config, job)
+            result_value["structured_hud"]["sha256"] = hud_digest
+            result_path.write_text(json.dumps(result_value), encoding="utf-8")
 
             manifest_value["presentation_contract"] = "direct_camera_v0"
             manifest.write_text(json.dumps(manifest_value), encoding="utf-8")

@@ -21,6 +21,7 @@ from mc_recorder.dataset_viewer import (
     DatasetViewer,
     DatasetViewerError,
     SampleNotFoundError,
+    opaque_dataset_id,
 )
 from mc_recorder.render_contract import FULL_CLIENT_PRESENTATION_CONTRACT
 
@@ -35,6 +36,39 @@ def _missing_modality(reason: str) -> dict[str, object]:
         "valid": False,
         "reference": None,
         "reason": reason,
+    }
+
+
+def _structured_hud_result() -> dict[str, object]:
+    return {
+        "schema_version": 1,
+        "type": "mc-recorder-structured-hud-v1",
+        "format": "jsonl",
+        "sha256": "a" * 64,
+        "size_bytes": 123,
+        "records": 1,
+        "start_server_tick": 1,
+        "end_server_tick": 1,
+        "dataset_id": "b" * 32,
+        "dataset_manifest_sha256": "c" * 64,
+        "samples_sha256": "d" * 64,
+        "session_id": "session-test",
+        "player_uuid": "00000000-0000-4000-8000-000000000001",
+        "connection_id": "00000000-0000-4000-8000-000000000002",
+    }
+
+
+def _full_client_attachment() -> dict[str, object]:
+    hud = _structured_hud_result()
+    return {
+        "no_gui": False,
+        "presentation_contract": FULL_CLIENT_PRESENTATION_CONTRACT,
+        "structured_hud": hud,
+        "session_id": hud["session_id"],
+        "player_uuid": hud["player_uuid"],
+        "connection_id": hud["connection_id"],
+        "global_start_tick": 1,
+        "global_end_tick": 1,
     }
 
 
@@ -388,17 +422,22 @@ class DatasetIndexTest(unittest.TestCase):
         cases = (
             (
                 "full.dataset",
+                [_full_client_attachment()],
+                "full_client",
+            ),
+            (
+                "legacy-gui.dataset",
+                [{"no_gui": False}],
+                "legacy_gui_unsynchronized",
+            ),
+            (
+                "unbound-current-gui.dataset",
                 [
                     {
                         "no_gui": False,
                         "presentation_contract": FULL_CLIENT_PRESENTATION_CONTRACT,
                     }
                 ],
-                "full_client",
-            ),
-            (
-                "legacy-gui.dataset",
-                [{"no_gui": False}],
                 "legacy_gui_unsynchronized",
             ),
             (
@@ -411,10 +450,7 @@ class DatasetIndexTest(unittest.TestCase):
             (
                 "mixed.dataset",
                 [
-                    {
-                        "no_gui": False,
-                        "presentation_contract": FULL_CLIENT_PRESENTATION_CONTRACT,
-                    },
+                    _full_client_attachment(),
                     {"no_gui": True},
                 ],
                 "mixed",
@@ -434,6 +470,14 @@ class DatasetIndexTest(unittest.TestCase):
                     root = Path(temporary)
                     exports = root / "exports"
                     exports.mkdir()
+                    for attachment in attachments:
+                        if not isinstance(attachment, dict):
+                            continue
+                        structured_hud = attachment.get("structured_hud")
+                        if isinstance(structured_hud, dict):
+                            structured_hud["dataset_id"] = opaque_dataset_id(
+                                exports, name
+                            )
                     _write_dataset(
                         exports,
                         [_sample(1, rgb=rgb)],

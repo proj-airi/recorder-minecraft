@@ -41,13 +41,26 @@ final class RenderJobSpecTest {
 
     @Test
     void acceptsCurrentPresentationContractForGuiJob() throws Exception {
-        Path job = writeJob(
-            ",\"no_gui\":false,\"presentation_contract\":\"flashback_server_spectate_v1\""
-        );
+        Path job = writeJob(currentPresentationFields());
 
         RenderJobSpec spec = RenderJobSpec.read(job);
 
         assertEquals(ReplayPresentation.FULL_CLIENT_PRESENTATION_CONTRACT, spec.presentationContract());
+        assertEquals(11, spec.structuredHud().records());
+        assertEquals(
+            temporary.resolve("hud-states.jsonl").toAbsolutePath().normalize(),
+            spec.structuredHud().path()
+        );
+    }
+
+    @Test
+    void rejectsCurrentPresentationContractWithoutStructuredHud() throws Exception {
+        Path job = writeJob(
+            ",\"no_gui\":false,\"presentation_contract\":\""
+                + ReplayPresentation.FULL_CLIENT_PRESENTATION_CONTRACT + "\""
+        );
+
+        assertThrows(IllegalArgumentException.class, () -> RenderJobSpec.read(job));
     }
 
     @Test
@@ -60,7 +73,8 @@ final class RenderJobSpecTest {
     @Test
     void rejectsPresentationContractForNoGuiJob() throws Exception {
         Path job = writeJob(
-            ",\"presentation_contract\":\"flashback_server_spectate_v1\""
+            ",\"presentation_contract\":\""
+                + ReplayPresentation.FULL_CLIENT_PRESENTATION_CONTRACT + "\""
         );
 
         assertThrows(IllegalArgumentException.class, () -> RenderJobSpec.read(job));
@@ -117,5 +131,29 @@ final class RenderJobSpecTest {
             }
             """.formatted(extra));
         return job;
+    }
+
+    private String currentPresentationFields() {
+        return """
+            ,"no_gui":false,
+             "presentation_contract":"%s",
+             "structured_hud":{
+               "schema_version":1,
+               "type":"mc-recorder-structured-hud-v1",
+               "path":"hud-states.jsonl",
+               "format":"jsonl",
+               "sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+               "size_bytes":123,
+               "records":11,
+               "start_server_tick":10,
+               "end_server_tick":20,
+               "dataset_id":"cccccccccccccccccccccccccccccccc",
+               "dataset_manifest_sha256":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+               "samples_sha256":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+               "session_id":"session",
+               "player_uuid":"11111111-1111-1111-1111-111111111111",
+               "connection_id":"22222222-2222-2222-2222-222222222222"
+             }
+            """.formatted(ReplayPresentation.FULL_CLIENT_PRESENTATION_CONTRACT);
     }
 }

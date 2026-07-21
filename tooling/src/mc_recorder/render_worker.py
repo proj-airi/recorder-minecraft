@@ -23,6 +23,7 @@ from .render_contract import (
     FULL_CLIENT_PRESENTATION_CONTRACT,
 )
 from .render_job import launch_render_job
+from .render_hud import MAX_HUD_SIDECAR_BYTES, validate_hud_sidecar_envelope
 from .render_transfer import (
     create_render_bundle,
     materialize_portable_render_job,
@@ -251,6 +252,51 @@ def download_replay(
         except OSError:
             pass
         raise RecorderError("downloaded replay does not match its server SHA-256 and size")
+    os.replace(partial, destination)
+    return destination
+
+
+def download_hud_sidecar(
+    remote: RemoteRecorder,
+    *,
+    remote_path: str,
+    expected_sha256: str,
+    expected_size: int,
+    cache_root: Path,
+    runner: Callable[..., subprocess.CompletedProcess[bytes]] = subprocess.run,
+) -> Path:
+    digest = expected_sha256.lower()
+    if _SHA256.fullmatch(digest) is None:
+        raise RecorderError("structured HUD sidecar has an invalid SHA-256")
+    if expected_size <= 0 or expected_size > MAX_HUD_SIDECAR_BYTES:
+        raise RecorderError("structured HUD sidecar has an invalid byte size")
+    root = _safe_cache_root(cache_root) / "structured-hud"
+    root.mkdir(mode=0o700, exist_ok=True)
+    destination = root / f"{digest}.jsonl"
+    if _verified_replay(destination, digest, expected_size):
+        return destination
+    if destination.exists() or destination.is_symlink():
+        if destination.is_dir():
+            raise RecorderError(
+                f"structured HUD cache entry is not a file: {destination}"
+            )
+        destination.unlink()
+    partial = root / f".{digest}.jsonl.inprogress"
+    if partial.is_symlink() or (partial.exists() and not partial.is_file()):
+        raise RecorderError(f"structured HUD partial is unsafe: {partial}")
+    try:
+        result = runner(rsync_download_command(remote, remote_path, partial), check=False)
+    except OSError as exc:
+        raise RecorderError(f"could not launch rsync: {exc}") from exc
+    if result.returncode != 0:
+        raise RecorderError(
+            f"structured HUD download failed with rsync exit code {result.returncode}"
+        )
+    if not _verified_replay(partial, digest, expected_size):
+        partial.unlink(missing_ok=True)
+        raise RecorderError(
+            "downloaded structured HUD sidecar does not match its server SHA-256 and size"
+        )
     os.replace(partial, destination)
     return destination
 
@@ -569,6 +615,47 @@ def _source_rows(response: dict[str, Any]) -> list[dict[str, Any]]:
     return sorted(sources, key=lambda item: int(item["segment_ordinal"]), reverse=True)
 
 
+def _structured_hud_response(
+    response: dict[str, Any], job: dict[str, Any]
+) -> dict[str, Any] | None:
+    raw = response.get("structured_hud")
+    payload = job.get("payload")
+    render = payload.get("render") if isinstance(payload, dict) else None
+    requires_hud = (
+        isinstance(render, dict)
+        and render.get("presentation_contract") == FULL_CLIENT_PRESENTATION_CONTRACT
+    )
+    if raw is None:
+        if requires_hud:
+            raise RecorderError(
+                "remote full-client render claim has no structured HUD sidecar"
+            )
+        return None
+    if not isinstance(raw, dict) or "path" not in raw:
+        raise RecorderError("remote render claim has an invalid structured HUD sidecar")
+    path = raw.get("path")
+    if not isinstance(path, str):
+        raise RecorderError("remote structured HUD sidecar has no transfer path")
+    envelope = validate_hud_sidecar_envelope(
+        {key: value for key, value in raw.items() if key != "path"},
+        "remote structured HUD sidecar",
+    )
+    if isinstance(payload, dict) and (
+        envelope["dataset_id"] != payload.get("dataset_id")
+        or envelope["session_id"] != payload.get("session_id")
+        or envelope["player_uuid"] != payload.get("player_uuid")
+        or envelope["connection_id"] != payload.get("connection_id")
+        or envelope["first_tick"] != payload.get("start_tick")
+        or envelope["last_tick"] != payload.get("end_tick")
+    ):
+        raise RecorderError("remote structured HUD sidecar does not match its claimed job")
+    if not requires_hud:
+        raise RecorderError(
+            "remote structured HUD sidecar lacks the current full-client presentation contract"
+        )
+    return {**envelope, "path": path}
+
+
 def _run_registered_worker_once(
     config: RecorderConfig,
     remote: RemoteRecorder,
@@ -643,6 +730,7 @@ def _run_registered_worker_once(
             attempt.get("lease_token"), "render lease token", 256
         )
         sources = _source_rows(claimed)
+        structured_hud = _structured_hud_response(claimed, job)
         upload_directory = claimed.get("upload_directory")
         if not isinstance(upload_directory, str):
             raise RecorderError("remote render claim lacks its upload directory")
@@ -717,6 +805,16 @@ def _run_registered_worker_once(
         workspace = create_job_workspace(cache_root, claimed_job_id, attempt_id)
         bundles_root = workspace / "bundles"
         bundles_root.mkdir()
+        local_hud: Path | None = None
+        if structured_hud is not None:
+            lease.set_phase("downloading", "Downloading verified structured HUD state")
+            local_hud = download_hud_sidecar(
+                remote,
+                remote_path=str(structured_hud["path"]),
+                expected_sha256=str(structured_hud["sha256"]),
+                expected_size=int(structured_hud["size_bytes"]),
+                cache_root=cache_root,
+            )
         newer_cutoff: int | None = None
         processed = 0
         for index, source in enumerate(sources, 1):
@@ -756,6 +854,7 @@ def _run_registered_worker_once(
                 portable,
                 local_replay,
                 workspace / "renders" / segment_id,
+                structured_hud=local_hud,
             )
             lease.set_phase("rendering", f"Rendering replay {index}/{len(sources)}")
             result = launch_render_job(config, render_job)

@@ -16,6 +16,12 @@ from typing import TYPE_CHECKING, Any
 from .episodes import iter_epochs, iter_events, sha256_file, validate_episode
 from .errors import RecorderError
 from .render_contract import FULL_CLIENT_PRESENTATION_CONTRACT
+from .render_hud import (
+    HUD_SIDECAR_TYPE,
+    MAX_HUD_SIDECAR_BYTES,
+    hud_result_envelope,
+    validate_hud_result_envelope,
+)
 
 if TYPE_CHECKING:
     from .config import RecorderConfig
@@ -153,6 +159,7 @@ def _owned_render_directory(path: Path) -> bool:
         if not {entry.name for entry in entries} <= {
             "render-job.json",
             "frames",
+            "hud-states.jsonl",
             "result.json",
             "result.json.inprogress",
         }:
@@ -165,6 +172,9 @@ def _owned_render_directory(path: Path) -> bool:
             result_path = path / result_name
             if result_path.exists() and (result_path.is_symlink() or not result_path.is_file()):
                 return False
+        hud_path = path / "hud-states.jsonl"
+        if hud_path.exists() and (hud_path.is_symlink() or not hud_path.is_file()):
+            return False
         if not _owned_render_artifacts(path / "frames"):
             return False
         expected_frames = (path / "frames").resolve()
@@ -363,8 +373,6 @@ def prepare_render_job(
                 "Voxel V1 materializes block states but not block-entity data; the replay remains source.",
             ],
         }
-        if not no_gui:
-            job["presentation_contract"] = FULL_CLIENT_PRESENTATION_CONTRACT
         manifest = staging / "render-job.json"
         manifest.write_text(json.dumps(job, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         staging.rename(output)
@@ -387,6 +395,15 @@ def launch_render_job(config: RecorderConfig, job: RenderJobResult) -> dict[str,
     wrapper = config.paths.base / "gradlew"
     if not wrapper.is_file():
         raise RecorderError(f"Gradle wrapper not found: {wrapper}")
+
+    job_manifest = _read_job_manifest(job.manifest)
+    declared_presentation = job_manifest.get("presentation_contract")
+    if (
+        declared_presentation is not None
+        and declared_presentation != FULL_CLIENT_PRESENTATION_CONTRACT
+    ):
+        raise RecorderError("render job presentation_contract is not supported")
+    _validate_structured_hud_job(job, job_manifest)
 
     environment = dict(os.environ)
     environment["MC_RECORDER_RENDER_JOB"] = str(job.manifest)
@@ -423,7 +440,6 @@ def launch_render_job(config: RecorderConfig, job: RenderJobResult) -> dict[str,
         raise RecorderError(f"renderer client exited with code {process.returncode}{detail}")
     if result is None or result.get("status") not in {"complete", "no_coverage"}:
         raise RecorderError(f"renderer exited without an atomic terminal result at {result_path}")
-    job_manifest = _read_job_manifest(job.manifest)
     expected_no_gui = job_manifest.get("no_gui", True)
     result_no_gui = result.get("no_gui", True)
     if (
@@ -442,6 +458,20 @@ def launch_render_job(config: RecorderConfig, job: RenderJobResult) -> dict[str,
             raise RecorderError(
                 "renderer result presentation_contract does not match the render job"
             )
+        expected_hud = hud_result_envelope(job_manifest["structured_hud"])
+        actual_hud = validate_hud_result_envelope(result.get("structured_hud"))
+        if actual_hud != expected_hud:
+            raise RecorderError(
+                "renderer result structured_hud does not match the render job"
+            )
+    elif result.get("presentation_contract") is not None:
+        raise RecorderError(
+            "renderer result presentation_contract was not requested by the render job"
+        )
+    elif result.get("structured_hud") is not None:
+        raise RecorderError(
+            "renderer result structured_hud was not requested by the render job"
+        )
     if result.get("status") == "no_coverage":
         timeline = job_manifest.get("timeline")
         if not isinstance(timeline, dict) or timeline.get("range_policy") != "intersection":
@@ -460,6 +490,93 @@ def launch_render_job(config: RecorderConfig, job: RenderJobResult) -> dict[str,
     ):
         raise RecorderError("replay integrity does not match the completed renderer result")
     return result
+
+
+def _validate_structured_hud_job(
+    job: RenderJobResult, manifest: dict[str, Any]
+) -> None:
+    presentation = manifest.get("presentation_contract")
+    value = manifest.get("structured_hud")
+    if presentation != FULL_CLIENT_PRESENTATION_CONTRACT:
+        if value is not None:
+            raise RecorderError(
+                "render job structured_hud requires the current presentation contract"
+            )
+        return
+    if not isinstance(value, dict) or set(value) != {
+        "schema_version",
+        "type",
+        "path",
+        "format",
+        "sha256",
+        "size_bytes",
+        "records",
+        "start_server_tick",
+        "end_server_tick",
+        "dataset_id",
+        "dataset_manifest_sha256",
+        "samples_sha256",
+        "session_id",
+        "player_uuid",
+        "connection_id",
+    }:
+        raise RecorderError(
+            "current full-client render job requires a complete structured_hud envelope"
+        )
+    if value.get("type") != HUD_SIDECAR_TYPE:
+        raise RecorderError("render job structured_hud type is unsupported")
+    envelope = hud_result_envelope(value)
+    if (
+        envelope["session_id"] != manifest.get("session_id")
+        or envelope["player_uuid"] != manifest.get("player_uuid")
+        or envelope["connection_id"] != manifest.get("connection_id")
+    ):
+        raise RecorderError("render job structured_hud identity does not match the job")
+    expected_path = (job.directory / "hud-states.jsonl").resolve()
+    supplied_path = value.get("path")
+    if not isinstance(supplied_path, str) or Path(supplied_path).expanduser().resolve() != expected_path:
+        raise RecorderError("render job structured_hud path is not canonical")
+    if expected_path.is_symlink() or not expected_path.is_file():
+        raise RecorderError("render job structured_hud file is missing or symlinked")
+    digest = value.get("sha256")
+    size = value.get("size_bytes")
+    records = value.get("records")
+    first = value.get("start_server_tick")
+    last = value.get("end_server_tick")
+    if (
+        not isinstance(digest, str)
+        or re.fullmatch(r"[0-9a-f]{64}", digest) is None
+        or not isinstance(size, int)
+        or isinstance(size, bool)
+        or not 1 <= size <= MAX_HUD_SIDECAR_BYTES
+        or not isinstance(records, int)
+        or isinstance(records, bool)
+        or records <= 0
+        or not isinstance(first, int)
+        or isinstance(first, bool)
+        or not isinstance(last, int)
+        or isinstance(last, bool)
+        or first < 0
+        or last < first
+        or records != last - first + 1
+    ):
+        raise RecorderError("render job structured_hud integrity envelope is invalid")
+    job_first = manifest.get("global_start_tick")
+    job_last = manifest.get("global_end_tick")
+    if (
+        not isinstance(job_first, int)
+        or isinstance(job_first, bool)
+        or not isinstance(job_last, int)
+        or isinstance(job_last, bool)
+        or first > job_first
+        or last < job_last
+    ):
+        raise RecorderError("render job structured_hud tick range does not cover the job")
+    actual_digest, actual_size = _stable_file_digest(
+        expected_path, "structured HUD sidecar"
+    )
+    if actual_digest != digest or actual_size != size:
+        raise RecorderError("render job structured_hud file failed its integrity envelope")
 
 
 def _read_job_manifest(path: Path) -> dict[str, Any]:

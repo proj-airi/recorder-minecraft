@@ -17,7 +17,7 @@ from mc_recorder.render_contract import (
     FULL_CLIENT_PRESENTATION_CAPABILITY_KEY,
     FULL_CLIENT_PRESENTATION_CONTRACT,
 )
-from mc_recorder.render_rpc import RenderRpcService
+from mc_recorder.render_rpc import RenderRpcService, _PlanLeaseKeeper
 from mc_recorder.render_sources import ReplayNotReadyError, ReplaySegmentSource
 from mc_recorder.render_transfer import ImportedRenderResult
 
@@ -100,11 +100,43 @@ class RenderRpcServiceTest(unittest.TestCase):
             size_bytes=size,
         )
 
+    def _gui_job(self) -> dict[str, object]:
+        payload = dict(self.job["payload"])
+        payload["render"] = {
+            **payload["render"],
+            "no_gui": False,
+            "presentation_contract": FULL_CLIENT_PRESENTATION_CONTRACT,
+        }
+        return self.service.queue.create(payload)
+
     def _claim(
         self, sources: list[ReplaySegmentSource], *, lease_seconds: int = 120
     ) -> dict[str, object]:
-        with mock.patch(
-            "mc_recorder.render_rpc.resolve_replay_segments", return_value=sources
+        payload = self.job["payload"]
+        hud_envelope = {
+            "schema_version": 1,
+            "sidecar_type": "mc-recorder-structured-hud-v1",
+            "format": "jsonl",
+            "sha256": "d" * 64,
+            "size_bytes": 123,
+            "record_count": payload["end_tick"] - payload["start_tick"] + 1,
+            "first_tick": payload["start_tick"],
+            "last_tick": payload["end_tick"],
+            "dataset_id": payload["dataset_id"],
+            "dataset_manifest_sha256": "e" * 64,
+            "samples_sha256": "f" * 64,
+            "session_id": payload["session_id"],
+            "player_uuid": payload["player_uuid"],
+            "connection_id": payload["connection_id"],
+        }
+        with (
+            mock.patch(
+                "mc_recorder.render_rpc.resolve_replay_segments", return_value=sources
+            ),
+            mock.patch(
+                "mc_recorder.render_rpc.create_structured_hud_sidecar",
+                return_value=SimpleNamespace(envelope=lambda: hud_envelope),
+            ),
         ):
             return self.service.dispatch(
                 "claim",
@@ -171,6 +203,130 @@ class RenderRpcServiceTest(unittest.TestCase):
         ):
             result = self.service.dispatch("request", body)
         return result, created
+
+    def test_server_plan_lease_keeper_renews_during_slow_input_preparation(self) -> None:
+        claim = self.service.queue.claim(
+            WORKER_ID, job_id=self.job["id"], lease_seconds=10
+        )
+        assert claim is not None
+        attempt = claim["attempt"]
+        with mock.patch.object(
+            self.service.queue,
+            "heartbeat",
+            wraps=self.service.queue.heartbeat,
+        ) as heartbeat:
+            keeper = _PlanLeaseKeeper(
+                self.service.queue,
+                worker_id=WORKER_ID,
+                attempt_id=attempt["id"],
+                lease_token=attempt["lease_token"],
+                lease_seconds=10,
+                interval_seconds=0.01,
+            )
+            keeper.start()
+            time.sleep(0.035)
+            keeper.finish()
+
+        self.assertGreaterEqual(heartbeat.call_count, 3)
+
+    def test_failed_plan_removes_only_the_owned_hud_sidecar_bytes(self) -> None:
+        self.job = self._gui_job()
+        source = self._source(NEW_SEGMENT, 5, b"new replay")
+
+        def fail_after_write(
+            _viewer: object, _dataset_id: str, output: Path, **_kwargs: object
+        ) -> object:
+            output.write_bytes(b"sensitive derived HUD state")
+            raise RecorderError("synthetic HUD authoring failure")
+
+        with (
+            mock.patch(
+                "mc_recorder.render_rpc.resolve_replay_segments",
+                return_value=[source],
+            ),
+            mock.patch(
+                "mc_recorder.render_rpc.create_structured_hud_sidecar",
+                side_effect=fail_after_write,
+            ),
+        ):
+            response = self.service.dispatch(
+                "claim",
+                {
+                    "worker_id": WORKER_ID,
+                    "job_id": self.job["id"],
+                    "lease_seconds": 120,
+                },
+            )
+
+        self.assertEqual("claim_failed", response["reason"])
+        attempts = list((self.runtime / "render-rpc" / "attempts").iterdir())
+        self.assertEqual(1, len(attempts))
+        self.assertFalse((attempts[0] / "hud" / "structured-hud.jsonl").exists())
+        self.assertTrue((attempts[0] / "sources").is_dir())
+
+    def test_worker_failure_removes_hud_bytes_but_retains_plan_envelopes(self) -> None:
+        self.job = self._gui_job()
+        payload = self.job["payload"]
+        source = self._source(NEW_SEGMENT, 5, b"new replay")
+
+        def create_sidecar(
+            _viewer: object, _dataset_id: str, output: Path, **_kwargs: object
+        ) -> object:
+            contents = b"verified HUD bytes"
+            output.write_bytes(contents)
+            envelope = {
+                "schema_version": 1,
+                "sidecar_type": "mc-recorder-structured-hud-v1",
+                "format": "jsonl",
+                "sha256": hashlib.sha256(contents).hexdigest(),
+                "size_bytes": len(contents),
+                "record_count": payload["end_tick"] - payload["start_tick"] + 1,
+                "first_tick": payload["start_tick"],
+                "last_tick": payload["end_tick"],
+                "dataset_id": payload["dataset_id"],
+                "dataset_manifest_sha256": "e" * 64,
+                "samples_sha256": "f" * 64,
+                "session_id": payload["session_id"],
+                "player_uuid": payload["player_uuid"],
+                "connection_id": payload["connection_id"],
+            }
+            return SimpleNamespace(envelope=lambda: envelope)
+
+        with (
+            mock.patch(
+                "mc_recorder.render_rpc.resolve_replay_segments",
+                return_value=[source],
+            ),
+            mock.patch(
+                "mc_recorder.render_rpc.create_structured_hud_sidecar",
+                side_effect=create_sidecar,
+            ),
+        ):
+            claimed = self.service.dispatch(
+                "claim",
+                {
+                    "worker_id": WORKER_ID,
+                    "job_id": self.job["id"],
+                    "lease_seconds": 120,
+                },
+            )
+        attempt = claimed["claim"]["attempt"]
+        plan_root = self.runtime / "render-rpc" / "attempts" / attempt["id"]
+        sidecar = plan_root / "hud" / "structured-hud.jsonl"
+        self.assertTrue(sidecar.is_file())
+
+        self.service.dispatch(
+            "fail",
+            {
+                "worker_id": WORKER_ID,
+                "attempt_id": attempt["id"],
+                "lease_token": attempt["lease_token"],
+                "error": "synthetic worker failure",
+            },
+        )
+
+        self.assertFalse(sidecar.exists())
+        self.assertTrue((plan_root / "plan.json").is_file())
 
     def test_claim_pins_exact_sources_newest_first_in_owned_atomic_plan(self) -> None:
         old = self._source(OLD_SEGMENT, 2, b"old replay")
@@ -474,6 +630,9 @@ class RenderRpcServiceTest(unittest.TestCase):
             FULL_CLIENT_PRESENTATION_CONTRACT,
             calls[0]["presentation_contract"],
         )
+        self.assertEqual("mc-recorder-structured-hud-v1", calls[0]["structured_hud"]["sidecar_type"])
+        self.assertEqual(self.job["payload"]["dataset_id"], calls[0]["structured_hud"]["dataset_id"])
+        self.assertNotIn("path", calls[0]["structured_hud"])
 
     def test_wider_dataset_selection_authors_only_the_renderable_sample_range(self) -> None:
         payload = {
