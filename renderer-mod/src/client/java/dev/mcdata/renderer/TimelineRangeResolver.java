@@ -58,6 +58,36 @@ final class TimelineRangeResolver {
         return ready(effectiveStart, effectiveEnd, offset, totalReplayTicks, coverageStart, coverageEnd);
     }
 
+    static Marker extendForwardCoverage(Marker first, Marker last, Marker candidate) {
+        if (first == null || last == null || candidate == null) {
+            throw new IllegalArgumentException("Timeline markers are required while extending coverage");
+        }
+        boolean sequencesKnown = last.eventSequence() >= 0 && candidate.eventSequence() >= 0;
+        if (sequencesKnown && candidate.eventSequence() <= last.eventSequence()) {
+            if (candidate.serverTick() <= last.serverTick()) {
+                return last;
+            }
+            throw new IllegalArgumentException("Timeline marker sequence did not advance");
+        }
+        if (candidate.serverTick() <= last.serverTick()) {
+            if (sequencesKnown) {
+                throw new IllegalArgumentException("Timeline marker server tick did not advance");
+            }
+            return last;
+        }
+        if (candidate.replayTick() <= last.replayTick()) {
+            throw new IllegalArgumentException("Timeline marker replay tick did not advance");
+        }
+        long firstOffset = first.serverTick() - first.replayTick();
+        long candidateOffset = candidate.serverTick() - candidate.replayTick();
+        if (candidateOffset != firstOffset) {
+            throw new IllegalArgumentException(
+                "Timeline offset changed inside replay segment: " + firstOffset + " != " + candidateOffset
+            );
+        }
+        return candidate;
+    }
+
     private static Resolution ready(
         long globalStart,
         long globalEnd,
@@ -86,7 +116,10 @@ final class TimelineRangeResolver {
         }
     }
 
-    record Marker(long serverTick, int replayTick) {
+    record Marker(long serverTick, int replayTick, long eventSequence) {
+        Marker(long serverTick, int replayTick) {
+            this(serverTick, replayTick, -1);
+        }
     }
 
     record Resolution(

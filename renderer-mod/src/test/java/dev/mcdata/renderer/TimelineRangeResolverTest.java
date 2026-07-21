@@ -24,6 +24,76 @@ final class TimelineRangeResolverTest {
     }
 
     @Test
+    void alignsTheRecordedConnectionRangeWithoutSeekingToReplayEnd() {
+        TimelineRangeResolver.Resolution resolution = TimelineRangeResolver.resolve(
+            RenderJobSpec.RangePolicy.INTERSECTION,
+            1200, 1890, 1357,
+            new TimelineRangeResolver.Marker(1200, 3),
+            new TimelineRangeResolver.Marker(1890, 693)
+        );
+
+        assertEquals(TimelineRangeResolver.Status.READY, resolution.status());
+        assertEquals(1197, resolution.globalTickOffset());
+        assertEquals(3, resolution.replayStartTick());
+        assertEquals(693, resolution.replayEndTick());
+    }
+
+    @Test
+    void retainsTheRealMarkerWhenAForwardSeekReplaysItAgain() {
+        TimelineRangeResolver.Marker first = new TimelineRangeResolver.Marker(1200, 3, 2419);
+        TimelineRangeResolver.Marker last = new TimelineRangeResolver.Marker(1892, 695, 9002);
+
+        TimelineRangeResolver.Marker accepted = TimelineRangeResolver.extendForwardCoverage(
+            first, last, new TimelineRangeResolver.Marker(1892, 1357, 9002)
+        );
+
+        assertEquals(last, accepted);
+    }
+
+    @Test
+    void ignoresAnOlderMarkerReplayedByAForwardSeek() {
+        TimelineRangeResolver.Marker first = new TimelineRangeResolver.Marker(1200, 3, 2419);
+        TimelineRangeResolver.Marker last = new TimelineRangeResolver.Marker(1500, 303, 6000);
+
+        TimelineRangeResolver.Marker accepted = TimelineRangeResolver.extendForwardCoverage(
+            first, last, new TimelineRangeResolver.Marker(1499, 450, 5990)
+        );
+
+        assertEquals(last, accepted);
+    }
+
+    @Test
+    void rejectsARegressedServerTickWithANewerSequence() {
+        assertThrows(IllegalArgumentException.class, () -> TimelineRangeResolver.extendForwardCoverage(
+            new TimelineRangeResolver.Marker(1200, 3, 2419),
+            new TimelineRangeResolver.Marker(1500, 303, 6000),
+            new TimelineRangeResolver.Marker(1499, 450, 6001)
+        ));
+    }
+
+    @Test
+    void acceptsAnAdvancingMarkerWithTheExactOffset() {
+        TimelineRangeResolver.Marker candidate = new TimelineRangeResolver.Marker(1202, 5, 2437);
+
+        TimelineRangeResolver.Marker accepted = TimelineRangeResolver.extendForwardCoverage(
+            new TimelineRangeResolver.Marker(1200, 3, 2419),
+            new TimelineRangeResolver.Marker(1201, 4, 2428),
+            candidate
+        );
+
+        assertEquals(candidate, accepted);
+    }
+
+    @Test
+    void rejectsAnAdvancingMarkerWithOffsetDriftDuringForwardScan() {
+        assertThrows(IllegalArgumentException.class, () -> TimelineRangeResolver.extendForwardCoverage(
+            new TimelineRangeResolver.Marker(1200, 3, 2419),
+            new TimelineRangeResolver.Marker(1201, 4, 2428),
+            new TimelineRangeResolver.Marker(1202, 6, 2437)
+        ));
+    }
+
+    @Test
     void reportsNoCoverageWithoutInventingFrames() {
         TimelineRangeResolver.Resolution resolution = TimelineRangeResolver.resolve(
             RenderJobSpec.RangePolicy.INTERSECTION,
