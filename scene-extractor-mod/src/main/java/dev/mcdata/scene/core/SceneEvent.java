@@ -8,6 +8,7 @@ import java.util.UUID;
 /** Stable values translated from live Minecraft packet objects at the adapter boundary. */
 public sealed interface SceneEvent permits
     SceneEvent.DimensionChanged,
+    SceneEvent.ChunkReplaced,
     SceneEvent.SectionLoaded,
     SceneEvent.ChunkUnloaded,
     SceneEvent.BlockChanged,
@@ -32,9 +33,18 @@ public sealed interface SceneEvent permits
 
     record Rotation(float yaw, float pitch, float headYaw) { }
 
-    record BlockState(String name, Map<String, String> properties) {
+    record BlockState(
+        String name,
+        Map<String, String> properties,
+        Set<String> compatibleBlockEntityTypes
+    ) {
+        public BlockState(String name, Map<String, String> properties) {
+            this(name, properties, Set.of());
+        }
+
         public BlockState {
             properties = Map.copyOf(properties);
+            compatibleBlockEntityTypes = Set.copyOf(compatibleBlockEntityTypes);
         }
     }
 
@@ -68,6 +78,9 @@ public sealed interface SceneEvent permits
     }
 
     record DimensionChanged(String dimension, int subjectEntityId, int minY, int height) implements SceneEvent { }
+
+    /** Begins an authoritative full-chunk snapshot, replacing all previously visible chunk state. */
+    record ChunkReplaced(String dimension, int chunkX, int chunkZ) implements SceneEvent { }
 
     record SectionLoaded(
         String dimension,

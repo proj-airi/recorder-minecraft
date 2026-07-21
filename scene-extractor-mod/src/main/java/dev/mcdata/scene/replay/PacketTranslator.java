@@ -68,6 +68,7 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -79,6 +80,7 @@ import java.util.UUID;
 public final class PacketTranslator {
     private final RegistryAccess registries;
     private final SceneReducer reducer;
+    private final Map<BlockState, Set<String>> compatibleBlockEntityTypes = new HashMap<>();
 
     public PacketTranslator(RegistryAccess registries, SceneReducer reducer) {
         this.registries = registries;
@@ -261,7 +263,8 @@ public final class PacketTranslator {
         int sectionCount = reducer.height() / 16;
         int firstSectionY = Math.floorDiv(reducer.minY(), 16);
         Registry<net.minecraft.world.level.biome.Biome> biomes = registries.lookupOrThrow(Registries.BIOME);
-        List<SceneEvent> events = new ArrayList<>(sectionCount + 8);
+        List<SceneEvent> events = new ArrayList<>(sectionCount + 9);
+        events.add(new SceneEvent.ChunkReplaced(reducer.dimension(), chunk.getX(), chunk.getZ()));
         try {
             for (int index = 0; index < sectionCount; index++) {
                 LevelChunkSection section = new LevelChunkSection(biomes);
@@ -373,7 +376,15 @@ public final class PacketTranslator {
             properties.put(value.getKey().getName(), propertyName(value.getKey(), value.getValue()));
         }
         Block block = state.getBlock();
-        return new SceneEvent.BlockState(BuiltInRegistries.BLOCK.getKey(block).toString(), properties);
+        Set<String> blockEntityTypes = compatibleBlockEntityTypes.computeIfAbsent(state, candidate ->
+            BuiltInRegistries.BLOCK_ENTITY_TYPE.stream()
+                .filter(type -> type.isValid(candidate))
+                .map(type -> BuiltInRegistries.BLOCK_ENTITY_TYPE.getKey(type).toString())
+                .collect(java.util.stream.Collectors.toUnmodifiableSet())
+        );
+        return new SceneEvent.BlockState(
+            BuiltInRegistries.BLOCK.getKey(block).toString(), properties, blockEntityTypes
+        );
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})

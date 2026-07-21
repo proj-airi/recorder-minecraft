@@ -60,6 +60,11 @@ public final class SceneReducer {
             return;
         }
         requireDimension();
+        if (event instanceof SceneEvent.ChunkReplaced replaced) {
+            requireCurrentDimension(replaced.dimension());
+            removeChunkState(replaced.chunkX(), replaced.chunkZ());
+            return;
+        }
         if (event instanceof SceneEvent.SectionLoaded loaded) {
             requireCurrentDimension(loaded.dimension());
             requireSectionY(loaded.sectionY());
@@ -71,13 +76,7 @@ public final class SceneReducer {
         }
         if (event instanceof SceneEvent.ChunkUnloaded unloaded) {
             requireCurrentDimension(unloaded.dimension());
-            sections.keySet().removeIf(key ->
-                key.chunkX == unloaded.chunkX() && key.chunkZ == unloaded.chunkZ()
-            );
-            blockEntities.keySet().removeIf(position ->
-                Math.floorDiv(position.x, 16) == unloaded.chunkX()
-                    && Math.floorDiv(position.z, 16) == unloaded.chunkZ()
-            );
+            removeChunkState(unloaded.chunkX(), unloaded.chunkZ());
             return;
         }
         if (event instanceof SceneEvent.BlockChanged changed) {
@@ -298,11 +297,26 @@ public final class SceneReducer {
         if (section == null) {
             throw new SceneStateException("block update targets an unknown client-visible section " + key);
         }
-        section.set(
+        SceneEvent.BlockState previous = section.set(
             Math.floorMod(changed.x(), 16), Math.floorMod(changed.y(), 16),
             Math.floorMod(changed.z(), 16), changed.state()
         );
-        blockEntities.remove(new BlockPosition(changed.x(), changed.y(), changed.z()));
+        BlockPosition position = new BlockPosition(changed.x(), changed.y(), changed.z());
+        SceneSnapshot.BlockEntity existing = blockEntities.get(position);
+        if (existing != null && (
+            !previous.name().equals(changed.state().name())
+                || !changed.state().compatibleBlockEntityTypes().contains(existing.typeId())
+        )) {
+            blockEntities.remove(position);
+        }
+    }
+
+    private void removeChunkState(int chunkX, int chunkZ) {
+        sections.keySet().removeIf(key -> key.chunkX == chunkX && key.chunkZ == chunkZ);
+        blockEntities.keySet().removeIf(position ->
+            Math.floorDiv(position.x, 16) == chunkX
+                && Math.floorDiv(position.z, 16) == chunkZ
+        );
     }
 
     private void requireDimension() {
@@ -365,13 +379,16 @@ public final class SceneReducer {
             this.indices = snapshot.indices();
         }
 
-        private void set(int x, int y, int z, SceneEvent.BlockState state) {
+        private SceneEvent.BlockState set(int x, int y, int z, SceneEvent.BlockState state) {
+            int offset = y * 256 + z * 16 + x;
+            SceneEvent.BlockState previous = palette.get(indices[offset]);
             int paletteIndex = palette.indexOf(state);
             if (paletteIndex < 0) {
                 paletteIndex = palette.size();
                 palette.add(state);
             }
-            indices[y * 256 + z * 16 + x] = paletteIndex;
+            indices[offset] = paletteIndex;
+            return previous;
         }
 
         private SceneEvent.SectionSnapshot snapshot() {

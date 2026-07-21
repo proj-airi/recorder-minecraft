@@ -10,6 +10,7 @@ import java.util.Set;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -107,6 +108,87 @@ final class SceneReducerTest {
     }
 
     @Test
+    void retainsBlockEntityAcrossCompatiblePropertyUpdate() {
+        SceneReducer reducer = reducerWithSection(2, 5, sectionWith(
+            1, 2, 3, blockEntityState("minecraft:chest", "minecraft:chest", "north")
+        ));
+        reducer.apply(blockEntity(33, 2, 83, "minecraft:chest"));
+
+        reducer.apply(new SceneEvent.BlockChanged(
+            "minecraft:overworld", 33, 2, 83,
+            blockEntityState("minecraft:chest", "minecraft:chest", "south")
+        ));
+
+        assertEquals(1, reducer.snapshot().blockEntities().size());
+        assertEquals("minecraft:chest", reducer.snapshot().blockEntities().getFirst().typeId());
+    }
+
+    @Test
+    void removesBlockEntityWhenBlockTypeChanges() {
+        SceneReducer reducer = reducerWithSection(2, 5, sectionWith(
+            1, 2, 3, blockEntityState("minecraft:chest", "minecraft:chest", "north")
+        ));
+        reducer.apply(blockEntity(33, 2, 83, "minecraft:chest"));
+
+        reducer.apply(new SceneEvent.BlockChanged(
+            "minecraft:overworld", 33, 2, 83,
+            new SceneEvent.BlockState("minecraft:stone", Map.of())
+        ));
+
+        assertTrue(reducer.snapshot().blockEntities().isEmpty());
+    }
+
+    @Test
+    void removesBlockEntityWhenSameBlockStateIsIncompatibleWithItsType() {
+        SceneReducer reducer = reducerWithSection(2, 5, sectionWith(
+            1, 2, 3, blockEntityState("minecraft:chest", "minecraft:chest", "north")
+        ));
+        reducer.apply(blockEntity(33, 2, 83, "minecraft:furnace"));
+
+        reducer.apply(new SceneEvent.BlockChanged(
+            "minecraft:overworld", 33, 2, 83,
+            blockEntityState("minecraft:chest", "minecraft:chest", "south")
+        ));
+
+        assertTrue(reducer.snapshot().blockEntities().isEmpty());
+    }
+
+    @Test
+    void fullChunkReplacementClearsOnlyAbsentBlockEntitiesInThatChunk() {
+        SceneReducer reducer = reducerWithSection(2, 5, sectionWith(
+            1, 2, 3, blockEntityState("minecraft:chest", "minecraft:chest", "north")
+        ));
+        reducer.apply(new SceneEvent.BlockChanged(
+            "minecraft:overworld", 34, 2, 83,
+            blockEntityState("minecraft:furnace", "minecraft:furnace", "north")
+        ));
+        reducer.apply(new SceneEvent.SectionLoaded(
+            "minecraft:overworld", 3, 5, 0, sectionWith(
+                1, 2, 3, blockEntityState("minecraft:chest", "minecraft:chest", "north")
+            )
+        ));
+        reducer.apply(blockEntity(33, 2, 83, "minecraft:chest"));
+        reducer.apply(blockEntity(34, 2, 83, "minecraft:furnace"));
+        reducer.apply(blockEntity(49, 2, 83, "minecraft:chest"));
+
+        reducer.apply(new SceneEvent.ChunkReplaced("minecraft:overworld", 2, 5));
+        reducer.apply(new SceneEvent.SectionLoaded(
+            "minecraft:overworld", 2, 5, 0, sectionWith(
+                2, 2, 3, blockEntityState("minecraft:barrel", "minecraft:barrel", "north")
+            )
+        ));
+        reducer.apply(blockEntity(34, 2, 83, "minecraft:barrel"));
+
+        List<SceneSnapshot.BlockEntity> blockEntities = reducer.snapshot().blockEntities();
+        assertEquals(2, blockEntities.size());
+        assertFalse(blockEntities.stream().anyMatch(blockEntity -> blockEntity.x() == 33));
+        assertTrue(blockEntities.stream().anyMatch(blockEntity ->
+            blockEntity.x() == 34 && blockEntity.typeId().equals("minecraft:barrel")
+        ));
+        assertTrue(blockEntities.stream().anyMatch(blockEntity -> blockEntity.x() == 49));
+    }
+
+    @Test
     void rejectsTimelineIdentityMismatch() {
         SceneReducer reducer = new SceneReducer(job());
         reducer.beginSegment();
@@ -138,6 +220,55 @@ final class SceneReducerTest {
     private static SceneEvent.SectionSnapshot emptySection() {
         return new SceneEvent.SectionSnapshot(
             List.of(new SceneEvent.BlockState("minecraft:air", Map.of())), new int[4096]
+        );
+    }
+
+    private static SceneReducer reducerWithSection(
+        int chunkX,
+        int chunkZ,
+        SceneEvent.SectionSnapshot section
+    ) {
+        SceneReducer reducer = new SceneReducer(job());
+        reducer.beginSegment();
+        reducer.apply(new SceneEvent.DimensionChanged("minecraft:overworld", 7, -64, 384));
+        reducer.apply(new SceneEvent.SectionLoaded(
+            "minecraft:overworld", chunkX, chunkZ, 0, section
+        ));
+        return reducer;
+    }
+
+    private static SceneEvent.SectionSnapshot sectionWith(
+        int x,
+        int y,
+        int z,
+        SceneEvent.BlockState state
+    ) {
+        int[] indices = new int[4096];
+        indices[y * 256 + z * 16 + x] = 1;
+        return new SceneEvent.SectionSnapshot(
+            List.of(new SceneEvent.BlockState("minecraft:air", Map.of()), state), indices
+        );
+    }
+
+    private static SceneEvent.BlockEntityChanged blockEntity(
+        int x,
+        int y,
+        int z,
+        String type
+    ) {
+        return new SceneEvent.BlockEntityChanged(
+            "minecraft:overworld", x, y, z, type,
+            new SceneEvent.EncodedValue("minecraft:nbt", "nbt", -1, "CgAAAA==")
+        );
+    }
+
+    private static SceneEvent.BlockState blockEntityState(
+        String block,
+        String blockEntityType,
+        String facing
+    ) {
+        return new SceneEvent.BlockState(
+            block, Map.of("facing", facing), Set.of(blockEntityType)
         );
     }
 
