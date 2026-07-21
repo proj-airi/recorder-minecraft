@@ -69,9 +69,9 @@
           </aside>
           <section class="panel inspector">
             <div id="dataset-overview" class="empty-state">
-              <p class="eyebrow">SAMPLE INSPECTOR</p>
+              <p class="eyebrow">TICK INSPECTOR</p>
               <h2>Select a verified dataset</h2>
-              <p>Samples are indexed by byte offset; large JSONL files stay on the server.</p>
+              <p>Every canonical state tick is indexed from states.jsonl and modalities.jsonl; transition controls appear when a matching sample exists.</p>
             </div>
             <div id="sample-viewer" hidden>
               <div class="viewer-filters">
@@ -111,7 +111,7 @@
                 <section class="input-card" aria-labelledby="input-heading">
                   <div class="observation-heading">
                     <div><p class="eyebrow">SERVER-RECONSTRUCTED</p><h2 id="input-heading">Controls</h2></div>
-                    <span id="input-tick" class="axis-note">No sample</span>
+                    <span id="input-tick" class="axis-note">No tick</span>
                   </div>
                   <div class="input-pad" aria-label="Persistent movement controls">
                     <button class="input-key key-forward" type="button" data-control="forward" tabindex="-1" aria-pressed="false"><kbd>W</kbd><span>Forward</span></button>
@@ -150,7 +150,7 @@
                     </figure>
                   </div>
                   <dl id="camera-controls" class="control-metrics"></dl>
-                  <div><p class="input-section-label">Applied packet actions</p><div id="packet-actions" class="packet-actions"><span class="muted">No sample</span></div></div>
+                  <div><p class="input-section-label">Applied packet actions</p><div id="packet-actions" class="packet-actions"><span class="muted">No tick</span></div></div>
                   <p id="input-note" class="muted input-note">These are server-observed persistent flags, not raw keyboard or mouse events.</p>
                 </section>
               </div>
@@ -158,7 +158,7 @@
                 <div class="frame-wrap"><img id="sample-frame" alt="Rendered Minecraft frame"><div id="frame-missing">RGB unavailable</div></div>
                 <div id="sample-summary" class="sample-summary"></div>
               </div>
-              <details open><summary>State → next state</summary><pre id="state-diff"></pre></details>
+              <details open><summary>State → next state (when available)</summary><pre id="state-diff"></pre></details>
               <details><summary>Controls and ordered actions</summary><pre id="sample-actions"></pre></details>
               <details><summary>Peers, validity, and provenance</summary><pre id="sample-provenance"></pre></details>
               <details id="scene-details" open>
@@ -171,7 +171,7 @@
                 </div>
                 <div class="scene-canvas-wrap">
                   <canvas id="scene-canvas" role="img" aria-label="Client-visible world scene slice"></canvas>
-                  <p id="scene-empty" class="empty">Select a sample with scene data.</p>
+                  <p id="scene-empty" class="empty">Select a tick with scene data.</p>
                 </div>
                 <div id="scene-legend" class="scene-legend"></div>
                 <p id="scene-note" class="muted"></p>

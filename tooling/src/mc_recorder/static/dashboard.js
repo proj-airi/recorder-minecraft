@@ -282,7 +282,7 @@ async function refreshDatasets() {
     state.datasets = data.datasets || [];
     if (state.datasetRefreshTimer) clearTimeout(state.datasetRefreshTimer);
     $("#dataset-list").innerHTML = state.datasets.length
-      ? state.datasets.map((dataset) => `<button class="dataset-item" data-dataset="${dataset.id}"><strong>${escapeHtml(dataset.session_id)}</strong><small>${escapeHtml(dataset.status || "indexed")} · ${escapeHtml(dataset.sample_count ?? "—")} samples · ${fmtBytes(dataset.size_bytes)}</small></button>`).join("")
+      ? state.datasets.map((dataset) => `<button class="dataset-item" data-dataset="${dataset.id}"><strong>${escapeHtml(dataset.session_id)}</strong><small>${escapeHtml(dataset.status || "indexed")} · ${escapeHtml(dataset.state_count ?? "—")} ticks · ${escapeHtml(dataset.sample_count ?? "—")} transitions · ${fmtBytes(dataset.size_bytes)}</small></button>`).join("")
       : `<p class="empty">${data.indexing ? "Indexing verified exports…" : "No verified *.dataset exports found."}</p>`;
     document.querySelectorAll("[data-dataset]").forEach((button) => {
       button.addEventListener("click", () => selectDataset(button.dataset.dataset));
@@ -398,15 +398,15 @@ async function loadSamplePage() {
       state.sampleRequest += 1;
       state.currentSample = null;
       $("#sample-position").textContent = "0 / 0";
-      $("#sample-summary").innerHTML = '<p class="empty">No samples match these filters.</p>';
+      $("#sample-summary").innerHTML = '<p class="empty">No ticks match these filters.</p>';
       $("#sample-frame").removeAttribute("src");
       $("#sample-frame").hidden = true;
       $("#frame-missing").hidden = false;
-      $("#state-diff").textContent = JSON.stringify({ unavailable: "no matching sample" }, null, 2);
-      $("#sample-actions").textContent = JSON.stringify({ unavailable: "no matching sample" }, null, 2);
-      $("#sample-provenance").textContent = JSON.stringify({ unavailable: "no matching sample" }, null, 2);
+      $("#state-diff").textContent = JSON.stringify({ unavailable: "no matching tick" }, null, 2);
+      $("#sample-actions").textContent = JSON.stringify({ unavailable: "no matching tick" }, null, 2);
+      $("#sample-provenance").textContent = JSON.stringify({ unavailable: "no matching tick" }, null, 2);
       cancelSceneLoad();
-      clearScene("No samples match these filters.");
+      clearScene("No ticks match these filters.");
       renderInputHud(null);
       drawTrajectory();
     }
@@ -631,9 +631,10 @@ function renderMouseDelta(payload) {
 }
 
 function renderInputHud(sample) {
+  const transitionAvailable = sample?.transition_available === true;
   const control = sample?.action?.reconstructed_control;
   const payload = control?.payload;
-  const available = Boolean(payload && typeof payload === "object");
+  const available = transitionAvailable && Boolean(payload && typeof payload === "object");
   document.querySelectorAll("[data-control]").forEach((button) => {
     const pressed = available && payload[button.dataset.control] === true;
     button.classList.toggle("active", pressed);
@@ -653,7 +654,7 @@ function renderInputHud(sample) {
   ];
   $("#camera-controls").innerHTML = metrics.map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`).join("");
   renderMouseDelta(payload);
-  const actionsAvailable = Array.isArray(sample?.action?.ordered_packets);
+  const actionsAvailable = transitionAvailable && Array.isArray(sample?.action?.ordered_packets);
   const packets = actionsAvailable ? sample.action.ordered_packets : [];
   const mouseButtons = observedMouseButtons(packets);
   document.querySelectorAll("[data-mouse-button]").forEach((button) => {
@@ -664,8 +665,10 @@ function renderInputHud(sample) {
   });
   $("#packet-actions").innerHTML = packets.length
     ? packets.map((packet) => `<span class="packet-action">${escapeHtml(String(packet.action_type || "unknown").replaceAll("_", " "))}</span>`).join("")
-    : '<span class="muted">No applied packet actions in this transition</span>';
-  $("#input-note").textContent = available
+    : `<span class="muted">${transitionAvailable ? "No applied packet actions in this transition" : "Transition unavailable at this tick"}</span>`;
+  $("#input-note").textContent = !transitionAvailable && sample
+    ? "This observation has no following transition, so controls and packet actions are unavailable."
+    : available
     ? "Held keys and accepted camera deltas are reconstructed at 20 Hz; click indicators come from applied packet actions, not raw device events."
     : "No reconstructed control is available for this transition; button state is unknown.";
 }
@@ -688,11 +691,20 @@ async function showSample(index) {
     const key = sample.sample_key || {};
     const rgb = sample.modalities?.rgb || {};
     const scene = sample.modalities?.scene || {};
-    $("#sample-summary").innerHTML = `<p class="eyebrow">TICK ${escapeHtml(key.server_tick ?? sample.server_tick)}</p><h2>${escapeHtml(sample.state?.player_name || key.player_uuid || sample.player_uuid)}</h2><dl><dt>Connection</dt><dd>${escapeHtml(key.connection_id || sample.connection_id)}</dd><dt>Transition</dt><dd>${sample.transition_valid ? "valid" : "invalid"}</dd><dt>RGB</dt><dd>${rgb.available && rgb.valid ? "available" : escapeHtml(rgb.reason || "missing")}</dd><dt>Scene</dt><dd>${sceneUsable(scene) ? "available" : escapeHtml(scene.reason || "missing")}</dd></dl>`;
-    const difference = stateDifference(sample.state, sample.next_state);
-    $("#state-diff").textContent = JSON.stringify(Object.keys(difference).length ? difference : { unchanged: true }, null, 2);
-    $("#sample-actions").textContent = JSON.stringify({ reconstructed_control: sample.action?.reconstructed_control, ordered_packets: sample.action?.ordered_packets || [] }, null, 2);
-    $("#sample-provenance").textContent = JSON.stringify({ peers: sample.peers, transition_valid: sample.transition_valid, transition_invalid_reasons: sample.transition_invalid_reasons, source: sample.source, source_manifest_sha256: sample.source_manifest_sha256 }, null, 2);
+    const transitionStatus = sample.transition_available === true
+      ? (sample.transition_valid ? "valid" : "invalid")
+      : "unavailable";
+    $("#sample-summary").innerHTML = `<p class="eyebrow">TICK ${escapeHtml(key.server_tick ?? sample.server_tick)}</p><h2>${escapeHtml(sample.state?.player_name || key.player_uuid || sample.player_uuid)}</h2><dl><dt>Connection</dt><dd>${escapeHtml(key.connection_id || sample.connection_id)}</dd><dt>Transition</dt><dd>${transitionStatus}</dd><dt>RGB</dt><dd>${rgb.available && rgb.valid ? "available" : escapeHtml(rgb.reason || "missing")}</dd><dt>Scene</dt><dd>${sceneUsable(scene) ? "available" : escapeHtml(scene.reason || "missing")}</dd></dl>`;
+    const difference = sample.transition_available === true
+      ? stateDifference(sample.state, sample.next_state)
+      : null;
+    $("#state-diff").textContent = JSON.stringify(difference == null
+      ? { unavailable: "no following transition from this tick" }
+      : (Object.keys(difference).length ? difference : { unchanged: true }), null, 2);
+    $("#sample-actions").textContent = JSON.stringify(sample.transition_available === true
+      ? { reconstructed_control: sample.action?.reconstructed_control, ordered_packets: sample.action?.ordered_packets || [] }
+      : { unavailable: "no following transition from this tick" }, null, 2);
+    $("#sample-provenance").textContent = JSON.stringify({ peers: sample.peers, transition_available: sample.transition_available, transition_valid: sample.transition_valid, transition_invalid_reasons: sample.transition_invalid_reasons, source: sample.source, source_manifest_sha256: sample.source_manifest_sha256 }, null, 2);
     renderInputHud(sample);
     drawTrajectory();
 
@@ -770,7 +782,7 @@ function sceneUnavailableMessage(scene) {
   if (reason === "scene_not_attached") return "Scene data has not been generated for this dataset.";
   if (typeof reason === "string" && reason.includes("queued")) return "Scene generation is queued.";
   if (typeof reason === "string" && reason.includes("failed")) return `Scene generation failed: ${reason}`;
-  return typeof reason === "string" && reason ? `Scene unavailable: ${reason}` : "Scene data is unavailable for this sample.";
+  return typeof reason === "string" && reason ? `Scene unavailable: ${reason}` : "Scene data is unavailable for this tick.";
 }
 
 function cancelSceneLoad() {

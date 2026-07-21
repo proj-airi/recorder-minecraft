@@ -151,6 +151,39 @@ def _sample(
     }
 
 
+def _state_stream_row(tick: dict[str, object]) -> dict[str, object]:
+    state = dict(tick["state"])
+    state.update(
+        {
+            "schema_version": 2,
+            "source_schema_version": 1,
+            "session_id": tick["session_id"],
+            "epoch_index": tick.get("epoch_index", 0),
+            "server_tick": tick["server_tick"],
+            "sequence": tick["server_tick"],
+            "recorded_at_ns": tick["server_tick"] * 100,
+            "player_uuid": tick["player_uuid"],
+            "connection_id": tick["connection_id"],
+            "source": {},
+        }
+    )
+    return state
+
+
+def _modality_stream_row(tick: dict[str, object]) -> dict[str, object]:
+    return {
+        "schema_version": 2,
+        "session_id": tick["session_id"],
+        "epoch_index": tick.get("epoch_index", 0),
+        "server_tick": tick["server_tick"],
+        "player_uuid": tick["player_uuid"],
+        "connection_id": tick["connection_id"],
+        "scene": tick["modalities"]["scene"],
+        "rgb": tick["modalities"]["rgb"],
+        "source": {},
+    }
+
+
 def _write_dataset(
     exports: Path,
     samples: list[dict[str, object]],
@@ -161,17 +194,27 @@ def _write_dataset(
     frame_attachments: list[dict[str, object]] | None = None,
     scene_store: bytes | None = None,
     scene_attachment: object = _AUTO_SCENE_ATTACHMENT,
+    ticks: list[dict[str, object]] | None = None,
 ) -> Path:
     directory = exports / name
     directory.mkdir(parents=True, exist_ok=True)
+    tick_rows = samples if ticks is None else ticks
     streams = {
         "samples.jsonl": b"".join(
             json.dumps(row, sort_keys=True, separators=(",", ":")).encode() + b"\n"
             for row in samples
         ),
-        "states.jsonl": b"",
+        "states.jsonl": b"".join(
+            json.dumps(_state_stream_row(row), sort_keys=True, separators=(",", ":")).encode()
+            + b"\n"
+            for row in tick_rows
+        ),
         "actions.jsonl": b"",
-        "modalities.jsonl": b"",
+        "modalities.jsonl": b"".join(
+            json.dumps(_modality_stream_row(row), sort_keys=True, separators=(",", ":")).encode()
+            + b"\n"
+            for row in tick_rows
+        ),
     }
     for file_name, content in streams.items():
         (directory / file_name).write_bytes(content)
@@ -202,18 +245,19 @@ def _write_dataset(
             },
             "state": {
                 "available": True,
-                "records": len(samples),
+                "records": len(tick_rows),
                 "file": "states.jsonl",
             },
             "actions": {
                 "available": True,
-                "records": len(samples),
+                "records": 0,
                 "file": "actions.jsonl",
             },
             "rgb": {
                 "availability": "per-sample",
                 "records_attached": sum(
-                    row["modalities"]["rgb"].get("available") is True for row in samples
+                    row["modalities"]["rgb"].get("available") is True
+                    for row in tick_rows
                 ),
                 "index": "modalities.jsonl",
             },
@@ -221,7 +265,7 @@ def _write_dataset(
                 "availability": "per-sample",
                 "records_attached": sum(
                     row["modalities"]["scene"].get("available") is True
-                    for row in samples
+                    for row in tick_rows
                 ),
                 "index": "modalities.jsonl",
                 "store": "scene/scene-v1.sqlite3" if scene_store is not None else None,
@@ -541,6 +585,7 @@ class DatasetIndexTest(unittest.TestCase):
 
             summary = viewer.list_datasets()[0]
             self.assertEqual(4, summary.sample_count)
+            self.assertEqual(4, summary.state_count)
             self.assertEqual(2, summary.player_count)
             self.assertEqual(2, summary.connection_count)
             self.assertEqual((10, 12), (summary.first_tick, summary.last_tick))
@@ -563,9 +608,9 @@ class DatasetIndexTest(unittest.TestCase):
             primary = next(
                 item for item in connections if item.player_uuid == "player-a"
             )
-            self.assertEqual(3, primary.sample_count)
+            self.assertEqual(3, primary.state_count)
             self.assertEqual(2, primary.valid_transitions)
-            self.assertEqual(0, primary.scene_samples)
+            self.assertEqual(0, primary.scene_states)
 
             first_page = viewer.list_sample_summaries(summary.dataset_id, limit=2)
             self.assertEqual(4, first_page.total)
@@ -667,6 +712,59 @@ class DatasetIndexTest(unittest.TestCase):
                     axis="y",
                     radius=65,
                 )
+
+    def test_terminal_state_is_selectable_and_completes_the_trajectory(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            exports = root / "exports"
+            exports.mkdir()
+            _write_dataset(
+                exports,
+                [_sample(20)],
+                ticks=[_sample(20), _sample(21)],
+            )
+            viewer = DatasetViewer(exports, root / "runtime")
+            summary = viewer.list_datasets()[0]
+
+            page = viewer.list_sample_summaries(summary.dataset_id)
+            first, terminal = page.items
+            detail = viewer.get_sample_detail(
+                summary.dataset_id, terminal.sample_id
+            ).record
+            trajectory = viewer.get_trajectory(summary.dataset_id)
+
+            self.assertEqual((1, 2), (summary.sample_count, summary.state_count))
+            self.assertEqual(2, page.total)
+            self.assertTrue(first.transition_available)
+            self.assertTrue(first.transition_valid)
+            self.assertEqual(21, first.next_server_tick)
+            self.assertFalse(terminal.transition_available)
+            self.assertIsNone(terminal.transition_valid)
+            self.assertIsNone(terminal.next_server_tick)
+            self.assertEqual(21, detail["server_tick"])
+            self.assertFalse(detail["transition_available"])
+            self.assertIsNone(detail["action"])
+            self.assertIsNone(detail["next_state"])
+            self.assertEqual(2, trajectory.total_points)
+            self.assertEqual(
+                [20, 21],
+                [point.server_tick for point in trajectory.tracks[0].points],
+            )
+            self.assertEqual(
+                [False, True],
+                [
+                    point.continuous_from_previous
+                    for point in trajectory.tracks[0].points
+                ],
+            )
+            self.assertAlmostEqual(
+                2**0.5, trajectory.tracks[0].horizontal_distance_blocks
+            )
+            valid_only = viewer.list_sample_summaries(
+                summary.dataset_id, transition_valid=True
+            )
+            self.assertEqual(1, valid_only.total)
+            self.assertEqual(20, valid_only.items[0].server_tick)
 
     def test_reports_verified_rgb_presentation_provenance(self) -> None:
         rgb = {"available": True, "valid": True}
@@ -841,7 +939,8 @@ class DatasetArtifactTest(unittest.TestCase):
             }
             _write_dataset(
                 exports,
-                [_sample(7, scene=scene)],
+                [],
+                ticks=[_sample(7, scene=scene)],
                 scene_store=_scene_store_bytes(root),
             )
             viewer = DatasetViewer(exports, root / "runtime")
@@ -859,9 +958,14 @@ class DatasetArtifactTest(unittest.TestCase):
                 radius=8,
             )
 
-            self.assertEqual(1, summary.scene_samples)
+            self.assertEqual(0, summary.scene_samples)
+            self.assertEqual(1, summary.scene_states)
+            self.assertEqual(0, summary.sample_count)
+            self.assertEqual(1, summary.state_count)
             self.assertEqual(1, page.total)
             self.assertTrue(page.items[0].scene_available)
+            self.assertFalse(page.items[0].transition_available)
+            self.assertFalse(detail.record["transition_available"])
             self.assertNotIn("reference", detail.record["modalities"]["scene"])
             self.assertEqual(
                 sample_id, detail.record["modalities"]["scene"]["artifact_id"]
@@ -1141,7 +1245,7 @@ class DatasetArtifactTest(unittest.TestCase):
             catalog = DatasetViewer(exports, root / "runtime").catalog()
 
             self.assertEqual((), catalog.datasets)
-            self.assertIn("resolves to tick 7, not sample tick 8", catalog.rejected[0].message)
+            self.assertIn("resolves to tick 7, not state tick 8", catalog.rejected[0].message)
 
 
 if __name__ == "__main__":

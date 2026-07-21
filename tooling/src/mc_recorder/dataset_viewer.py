@@ -35,7 +35,7 @@ _ALLOWED_DATASET_FILES = frozenset((*CORE_DATASET_FILES, SCENE_STORE_REFERENCE))
 _ALLOWED_TOP_LEVEL_ENTRIES = frozenset(("manifest.json", *CORE_DATASET_FILES, "scene"))
 _SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
 _OPAQUE_ID_RE = re.compile(r"^[0-9a-f]{32}$")
-_INDEX_SCHEMA_VERSION = 2
+_INDEX_SCHEMA_VERSION = 3
 _MAX_SQLITE_INTEGER = 2**63 - 1
 _SCENE_ATTACHMENT_FIELDS = frozenset(
     {
@@ -127,6 +127,7 @@ class DatasetSummary:
     session_id: str
     created_at: str | None
     sample_count: int
+    state_count: int
     player_count: int
     connection_count: int
     first_tick: int | None
@@ -134,6 +135,8 @@ class DatasetSummary:
     size_bytes: int
     rgb_samples: int
     scene_samples: int
+    rgb_states: int
+    scene_states: int
 
 
 @dataclass(frozen=True)
@@ -164,6 +167,8 @@ class DatasetMetadata:
     rgb_samples: int
     rgb_presentation: str | None
     scene_samples: int
+    rgb_states: int
+    scene_states: int
     files: dict[str, dict[str, object]]
 
 
@@ -172,25 +177,26 @@ class PlayerConnectionSummary:
     player_uuid: str
     player_name: str | None
     connection_id: str
-    sample_count: int
+    state_count: int
     first_tick: int
     last_tick: int
     valid_transitions: int
-    rgb_samples: int
-    scene_samples: int
+    rgb_states: int
+    scene_states: int
 
 
 @dataclass(frozen=True)
 class SampleSummary:
     sample_id: str
     server_tick: int
-    next_server_tick: int
+    next_server_tick: int | None
     player_uuid: str
     player_name: str | None
     connection_id: str
     dimension: str | None
     position: tuple[float, float, float] | None
-    transition_valid: bool
+    transition_available: bool
+    transition_valid: bool | None
     transition_invalid_reasons: tuple[str, ...]
     ordered_packet_count: int
     peer_count: int
@@ -322,7 +328,7 @@ class DatasetViewer:
             raise DatasetViewerError(
                 f"dataset index root is not a regular directory: {index_directory}"
             )
-        self.index_path = index_directory / "samples-v2.sqlite3"
+        self.index_path = index_directory / "ticks-v3.sqlite3"
         if self.index_path.is_symlink():
             raise DatasetViewerError(
                 f"dataset index may not be a symlink: {self.index_path}"
@@ -400,7 +406,8 @@ class DatasetViewer:
         with self._connect() as database:
             row = database.execute(
                 """
-                SELECT sample_count, first_tick, last_tick, rgb_samples, scene_samples
+                SELECT sample_count, state_count, first_tick, last_tick,
+                       rgb_samples, scene_samples, rgb_states, scene_states
                 FROM indexed_datasets WHERE dataset_id = ?
                 """,
                 (dataset.dataset_id,),
@@ -437,26 +444,28 @@ class DatasetViewer:
             owner=DATASET_OWNER,
             format=DATASET_FORMAT,
             sample_count=int(row[0]),
-            state_count=_manifest_modality_records(manifest, "state"),
+            state_count=int(row[1]),
             action_count=_manifest_modality_records(manifest, "actions"),
-            first_tick=_nullable_int(row[1]),
-            last_tick=_nullable_int(row[2]),
+            first_tick=_nullable_int(row[2]),
+            last_tick=_nullable_int(row[3]),
             size_bytes=sum(item.size_bytes for item in dataset.files.values()),
             source_sealed_epochs=_mapping_int(source, "sealed_epochs"),
             source_active_epochs_skipped=_mapping_int(source, "active_epochs_skipped"),
             selected_players=selected_players,
             selected_from_tick=_mapping_int(selection, "from_tick"),
             selected_to_tick=_mapping_int(selection, "to_tick"),
-            rgb_samples=int(row[3]),
+            rgb_samples=int(row[4]),
             rgb_presentation=_rgb_presentation(
                 selection,
-                int(row[3]),
+                int(row[4]),
                 dataset_id=dataset.dataset_id,
                 session_id=_required_string(
                     manifest, "session_id", "dataset manifest"
                 ),
             ),
-            scene_samples=int(row[4]),
+            scene_samples=int(row[5]),
+            rgb_states=int(row[6]),
+            scene_states=int(row[7]),
             files=files,
         )
 
@@ -469,7 +478,8 @@ class DatasetViewer:
             rows = database.execute(
                 """
                 SELECT player_uuid, MAX(player_name), connection_id, COUNT(*),
-                       MIN(server_tick), MAX(server_tick), SUM(transition_valid),
+                       MIN(server_tick), MAX(server_tick),
+                       SUM(CASE WHEN transition_valid = 1 THEN 1 ELSE 0 END),
                        SUM(rgb_available), SUM(scene_available)
                 FROM samples
                 WHERE dataset_id = ?
@@ -483,12 +493,12 @@ class DatasetViewer:
                 player_uuid=str(row[0]),
                 player_name=str(row[1]) if row[1] is not None else None,
                 connection_id=str(row[2]),
-                sample_count=int(row[3]),
+                state_count=int(row[3]),
                 first_tick=int(row[4]),
                 last_tick=int(row[5]),
                 valid_transitions=int(row[6]),
-                rgb_samples=int(row[7]),
-                scene_samples=int(row[8]),
+                rgb_states=int(row[7]),
+                scene_states=int(row[8]),
             )
             for row in rows
         )
@@ -543,10 +553,6 @@ class DatasetViewer:
             ("server_tick >=", from_tick),
             ("server_tick <=", to_tick),
             (
-                "transition_valid",
-                int(transition_valid) if transition_valid is not None else None,
-            ),
-            (
                 "rgb_available",
                 int(rgb_available) if rgb_available is not None else None,
             ),
@@ -555,6 +561,9 @@ class DatasetViewer:
                 int(scene_available) if scene_available is not None else None,
             ),
         )
+        if transition_valid is not None:
+            clauses.extend(("transition_available = 1", "transition_valid = ?"))
+            parameters.append(int(transition_valid))
         for expression, value in filters:
             if value is not None:
                 clauses.append(
@@ -590,8 +599,8 @@ class DatasetViewer:
                 f"""
                 SELECT sample_id, server_tick, next_server_tick, player_uuid, player_name,
                        connection_id, dimension, position_x, position_y, position_z,
-                       transition_valid, invalid_reasons, ordered_packet_count, peer_count,
-                       rgb_available, scene_available
+                       transition_available, transition_valid, invalid_reasons,
+                       ordered_packet_count, peer_count, rgb_available, scene_available
                 FROM samples
                 WHERE {" AND ".join(page_clauses)}
                 ORDER BY ordinal
@@ -643,7 +652,7 @@ class DatasetViewer:
         scene_available: bool | None = None,
         max_points: int = 2_400,
     ) -> TrajectoryOverview:
-        """Return a bounded top-down trajectory from the verified sample index.
+        """Return a bounded top-down trajectory from the verified state index.
 
         The source rows are streamed per player/connection/dimension track. The
         response preserves each returned track's endpoints and marks paths that
@@ -691,10 +700,6 @@ class DatasetViewer:
             ("server_tick >=", from_tick),
             ("server_tick <=", to_tick),
             (
-                "transition_valid",
-                int(transition_valid) if transition_valid is not None else None,
-            ),
-            (
                 "rgb_available",
                 int(rgb_available) if rgb_available is not None else None,
             ),
@@ -703,6 +708,9 @@ class DatasetViewer:
                 int(scene_available) if scene_available is not None else None,
             ),
         )
+        if transition_valid is not None:
+            clauses.extend(("transition_available = 1", "transition_valid = ?"))
+            parameters.append(int(transition_valid))
         for expression, value in filters:
             if value is not None:
                 clauses.append(
@@ -777,7 +785,7 @@ class DatasetViewer:
                 cursor = database.execute(
                     f"""
                     SELECT server_tick, next_server_tick, position_x, position_y,
-                           position_z, transition_valid
+                           position_z, transition_available, transition_valid
                     FROM samples
                     WHERE {" AND ".join(group_clauses)}
                     ORDER BY ordinal
@@ -785,7 +793,9 @@ class DatasetViewer:
                     group_parameters,
                 )
                 points: list[TrajectoryPoint] = []
-                previous: tuple[int, int, float, float, float, bool] | None = None
+                previous: tuple[
+                    int, int | None, float, float, float, bool, bool | None
+                ] | None = None
                 continuous_since_selected = True
                 distance_blocks = 0.0
                 horizontal_distance_blocks = 0.0
@@ -793,14 +803,19 @@ class DatasetViewer:
                 for index, row in enumerate(cursor):
                     current = (
                         int(row[0]),
-                        int(row[1]),
+                        int(row[1]) if row[1] is not None else None,
                         float(row[2]),
                         float(row[3]),
                         float(row[4]),
                         bool(row[5]),
+                        bool(row[6]) if row[6] is not None else None,
                     )
                     if previous is not None:
-                        continuous = previous[5] and current[0] == previous[1]
+                        continuous = (
+                            previous[5]
+                            and previous[6] is True
+                            and current[0] == previous[1]
+                        )
                         continuous_since_selected = (
                             continuous_since_selected and continuous
                         )
@@ -1264,21 +1279,45 @@ class DatasetViewer:
                     dataset_id TEXT PRIMARY KEY,
                     fingerprint TEXT NOT NULL,
                     sample_count INTEGER NOT NULL,
+                    state_count INTEGER NOT NULL,
                     first_tick INTEGER,
                     last_tick INTEGER,
                     rgb_samples INTEGER NOT NULL,
                     scene_samples INTEGER NOT NULL,
+                    rgb_states INTEGER NOT NULL,
+                    scene_states INTEGER NOT NULL,
                     indexed_at_ns INTEGER NOT NULL
                 );
-                CREATE TABLE IF NOT EXISTS samples (
+                CREATE TABLE IF NOT EXISTS transitions (
                     dataset_id TEXT NOT NULL,
                     ordinal INTEGER NOT NULL,
-                    sample_id TEXT NOT NULL,
                     byte_offset INTEGER NOT NULL,
                     byte_length INTEGER NOT NULL,
                     session_id TEXT NOT NULL,
                     server_tick INTEGER NOT NULL,
                     next_server_tick INTEGER NOT NULL,
+                    player_uuid TEXT NOT NULL,
+                    connection_id TEXT NOT NULL,
+                    state_payload_sha256 TEXT NOT NULL,
+                    modalities_sha256 TEXT NOT NULL,
+                    transition_valid INTEGER NOT NULL,
+                    invalid_reasons TEXT NOT NULL,
+                    ordered_packet_count INTEGER NOT NULL,
+                    peer_count INTEGER NOT NULL,
+                    PRIMARY KEY (dataset_id, ordinal),
+                    UNIQUE (dataset_id, server_tick, player_uuid, connection_id)
+                );
+                CREATE TABLE IF NOT EXISTS samples (
+                    dataset_id TEXT NOT NULL,
+                    ordinal INTEGER NOT NULL,
+                    sample_id TEXT NOT NULL,
+                    state_byte_offset INTEGER NOT NULL,
+                    state_byte_length INTEGER NOT NULL,
+                    modality_byte_offset INTEGER NOT NULL,
+                    modality_byte_length INTEGER NOT NULL,
+                    session_id TEXT NOT NULL,
+                    server_tick INTEGER NOT NULL,
+                    next_server_tick INTEGER,
                     player_uuid TEXT NOT NULL,
                     player_name TEXT,
                     connection_id TEXT NOT NULL,
@@ -1286,7 +1325,8 @@ class DatasetViewer:
                     position_x REAL,
                     position_y REAL,
                     position_z REAL,
-                    transition_valid INTEGER NOT NULL,
+                    transition_available INTEGER NOT NULL,
+                    transition_valid INTEGER,
                     invalid_reasons TEXT NOT NULL,
                     ordered_packet_count INTEGER NOT NULL,
                     peer_count INTEGER NOT NULL,
@@ -1299,7 +1339,8 @@ class DatasetViewer:
                 CREATE INDEX IF NOT EXISTS samples_subject_tick
                     ON samples(dataset_id, player_uuid, connection_id, server_tick);
                 CREATE INDEX IF NOT EXISTS samples_filters
-                    ON samples(dataset_id, transition_valid, rgb_available, scene_available, ordinal);
+                    ON samples(dataset_id, transition_available, transition_valid,
+                               rgb_available, scene_available, ordinal);
                 """
             )
             existing = database.execute(
@@ -1344,24 +1385,35 @@ class DatasetViewer:
                 database.execute(
                     "DELETE FROM samples WHERE dataset_id = ?", (dataset.dataset_id,)
                 )
-                sample_count, first_tick, last_tick, rgb_count, scene_count = (
-                    self._index_samples(database, dataset)
+                database.execute(
+                    "DELETE FROM transitions WHERE dataset_id = ?",
+                    (dataset.dataset_id,),
+                )
+                sample_count, rgb_samples, scene_samples = self._index_transitions(
+                    database, dataset
+                )
+                state_count, first_tick, last_tick, rgb_states, scene_states = (
+                    self._index_states(database, dataset, sample_count)
                 )
                 database.execute(
                     """
                     INSERT OR REPLACE INTO indexed_datasets(
-                        dataset_id, fingerprint, sample_count, first_tick, last_tick,
-                        rgb_samples, scene_samples, indexed_at_ns
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        dataset_id, fingerprint, sample_count, state_count, first_tick,
+                        last_tick, rgb_samples, scene_samples, rgb_states, scene_states,
+                        indexed_at_ns
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         dataset.dataset_id,
                         dataset.fingerprint,
                         sample_count,
+                        state_count,
                         first_tick,
                         last_tick,
-                        rgb_count,
-                        scene_count,
+                        rgb_samples,
+                        scene_samples,
+                        rgb_states,
+                        scene_states,
                         time.time_ns(),
                     ),
                 )
@@ -1374,18 +1426,15 @@ class DatasetViewer:
                     f"could not build dataset sample index: {exc}"
                 ) from exc
 
-    def _index_samples(
+    def _index_transitions(
         self, database: sqlite3.Connection, dataset: _Dataset
-    ) -> tuple[int, int | None, int | None, int, int]:
+    ) -> tuple[int, int, int]:
         samples = dataset.files["samples.jsonl"]
         digest = hashlib.sha256()
         byte_count = 0
         sample_count = 0
-        first_tick: int | None = None
-        last_tick: int | None = None
         rgb_count = 0
         scene_count = 0
-        scene_subject: tuple[str, str] | None = None
         try:
             handle = samples.path.open("rb")
         except OSError as exc:
@@ -1394,13 +1443,6 @@ class DatasetViewer:
             ) from exc
         with ExitStack() as resources:
             resources.enter_context(handle)
-            scene_reader = None
-            if SCENE_STORE_REFERENCE in dataset.files:
-                scene_reader = resources.enter_context(
-                    _open_verified_scene_store(
-                        dataset.files[SCENE_STORE_REFERENCE]
-                    )
-                )
             while True:
                 offset = handle.tell()
                 line = handle.readline(self.max_sample_line_bytes + 1)
@@ -1423,49 +1465,37 @@ class DatasetViewer:
                 try:
                     database.execute(
                         """
-                        INSERT INTO samples(
-                            dataset_id, ordinal, sample_id, byte_offset, byte_length,
-                            session_id, server_tick, next_server_tick, player_uuid,
-                            player_name, connection_id, dimension, position_x, position_y,
-                            position_z, transition_valid, invalid_reasons,
-                            ordered_packet_count, peer_count, rgb_available, scene_available
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        INSERT INTO transitions(
+                            dataset_id, ordinal, byte_offset, byte_length, session_id,
+                            server_tick, next_server_tick, player_uuid, connection_id,
+                            state_payload_sha256, modalities_sha256, transition_valid,
+                            invalid_reasons, ordered_packet_count, peer_count
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
-                        (dataset.dataset_id, sample_count, *values),
+                        (
+                            dataset.dataset_id,
+                            sample_count,
+                            offset,
+                            len(line),
+                            values[3],
+                            values[4],
+                            values[5],
+                            values[6],
+                            values[8],
+                            _json_value_sha256(record["state"]),
+                            _json_value_sha256(record["modalities"]),
+                            values[13],
+                            values[14],
+                            values[15],
+                            values[16],
+                        ),
                     )
                 except sqlite3.IntegrityError as exc:
                     raise DatasetValidationError(
                         f"{context}: duplicate sample identity"
                     ) from exc
-                tick = int(values[4])
-                first_tick = tick if first_tick is None else min(first_tick, tick)
-                last_tick = tick if last_tick is None else max(last_tick, tick)
-                rgb_count += int(values[-2])
-                scene_count += int(values[-1])
-                if values[-1]:
-                    if scene_reader is None:
-                        raise DatasetValidationError(
-                            f"{context}: usable scene has no scene store reader"
-                        )
-                    scene_modality = _sample_modality(record, "scene")
-                    try:
-                        frame = scene_reader.frame(scene_modality["frame_id"])
-                    except RecorderError as exc:
-                        raise DatasetValidationError(
-                            f"{context}: modalities.scene.frame_id does not resolve: {exc}"
-                        ) from exc
-                    if frame.tick != tick:
-                        raise DatasetValidationError(
-                            f"{context}: modalities.scene.frame_id resolves to tick "
-                            f"{frame.tick}, not sample tick {tick}"
-                        )
-                    subject = (str(values[6]), str(values[8]))
-                    if scene_subject is None:
-                        scene_subject = subject
-                    elif subject != scene_subject:
-                        raise DatasetValidationError(
-                            "dataset scene store may belong to only one player connection"
-                        )
+                rgb_count += int(values[17])
+                scene_count += int(values[18])
                 sample_count += 1
 
         if byte_count != samples.size_bytes or digest.hexdigest() != samples.sha256:
@@ -1477,18 +1507,238 @@ class DatasetViewer:
             raise DatasetValidationError(
                 f"dataset manifest declares {declared} samples but samples.jsonl contains {sample_count}"
             )
+        return sample_count, rgb_count, scene_count
+
+    def _index_states(
+        self,
+        database: sqlite3.Connection,
+        dataset: _Dataset,
+        transition_count: int,
+    ) -> tuple[int, int | None, int | None, int, int]:
+        state_file = dataset.files["states.jsonl"]
+        modality_file = dataset.files["modalities.jsonl"]
+        state_digest = hashlib.sha256()
+        modality_digest = hashlib.sha256()
+        state_bytes = modality_bytes = 0
+        state_count = rgb_count = scene_count = 0
+        first_tick: int | None = None
+        last_tick: int | None = None
+        linked_transitions = 0
+        scene_subject: tuple[str, str] | None = None
+        try:
+            states = state_file.path.open("rb")
+            modalities = modality_file.path.open("rb")
+        except OSError as exc:
+            raise DatasetValidationError(
+                "cannot open states.jsonl and modalities.jsonl while indexing"
+            ) from exc
+
+        def next_row(
+            handle: Any,
+            digest: Any,
+            byte_count: int,
+            label: str,
+        ) -> tuple[tuple[int, bytes] | None, int]:
+            while True:
+                offset = handle.tell()
+                line = handle.readline(self.max_sample_line_bytes + 1)
+                if not line:
+                    return None, byte_count
+                digest.update(line)
+                byte_count += len(line)
+                if len(line) > self.max_sample_line_bytes:
+                    raise DatasetValidationError(
+                        f"{label} contains a row larger than {self.max_sample_line_bytes} bytes"
+                    )
+                if line.strip():
+                    return (offset, line), byte_count
+
+        with ExitStack() as resources:
+            resources.enter_context(states)
+            resources.enter_context(modalities)
+            scene_reader = None
+            if SCENE_STORE_REFERENCE in dataset.files:
+                scene_reader = resources.enter_context(
+                    _open_verified_scene_store(dataset.files[SCENE_STORE_REFERENCE])
+                )
+            while True:
+                state_entry, state_bytes = next_row(
+                    states, state_digest, state_bytes, "states.jsonl"
+                )
+                modality_entry, modality_bytes = next_row(
+                    modalities, modality_digest, modality_bytes, "modalities.jsonl"
+                )
+                if state_entry is None or modality_entry is None:
+                    if state_entry is not None or modality_entry is not None:
+                        raise DatasetValidationError(
+                            "states.jsonl and modalities.jsonl must contain one aligned row per tick"
+                        )
+                    break
+                state_offset, state_line = state_entry
+                modality_offset, modality_line = modality_entry
+                try:
+                    state_record = _strict_json_loads(state_line)
+                except (ValueError, RecursionError) as exc:
+                    raise DatasetValidationError(
+                        f"states.jsonl byte {state_offset}: invalid JSON"
+                    ) from exc
+                try:
+                    modality_record = _strict_json_loads(modality_line)
+                except (ValueError, RecursionError) as exc:
+                    raise DatasetValidationError(
+                        f"modalities.jsonl byte {modality_offset}: invalid JSON"
+                    ) from exc
+                state_values = _state_index_values(
+                    state_record, dataset, state_offset
+                )
+                modality_values = _modality_index_values(
+                    modality_record, dataset, modality_offset
+                )
+                if state_values[:4] != modality_values[:4]:
+                    raise DatasetValidationError(
+                        f"modalities.jsonl byte {modality_offset}: identity does not match "
+                        f"states.jsonl byte {state_offset}"
+                    )
+                session_id, tick, player_uuid, connection_id = state_values[:4]
+                transition = database.execute(
+                    """
+                    SELECT byte_offset, byte_length, next_server_tick,
+                           transition_valid, invalid_reasons, ordered_packet_count,
+                           peer_count, state_payload_sha256, modalities_sha256
+                    FROM transitions
+                    WHERE dataset_id = ? AND server_tick = ?
+                          AND player_uuid = ? AND connection_id = ?
+                    """,
+                    (dataset.dataset_id, tick, player_uuid, connection_id),
+                ).fetchone()
+                state_payload = _state_payload(state_record)
+                modalities_payload = {
+                    "scene": modality_record["scene"],
+                    "rgb": modality_record["rgb"],
+                }
+                if transition is not None:
+                    if transition[7] != _json_value_sha256(state_payload):
+                        raise DatasetValidationError(
+                            f"states.jsonl byte {state_offset}: canonical state disagrees "
+                            "with its transition sample"
+                        )
+                    if transition[8] != _json_value_sha256(modalities_payload):
+                        raise DatasetValidationError(
+                            f"modalities.jsonl byte {modality_offset}: canonical modalities "
+                            "disagree with their transition sample"
+                        )
+                    linked_transitions += 1
+
+                scene_available = int(modality_values[5])
+                if scene_available:
+                    if scene_reader is None:
+                        raise DatasetValidationError(
+                            f"modalities.jsonl byte {modality_offset}: usable scene has no scene store reader"
+                        )
+                    scene_modality = modality_record["scene"]
+                    try:
+                        frame = scene_reader.frame(scene_modality["frame_id"])
+                    except RecorderError as exc:
+                        raise DatasetValidationError(
+                            f"modalities.jsonl byte {modality_offset}: scene.frame_id does not resolve: {exc}"
+                        ) from exc
+                    if frame.tick != tick:
+                        raise DatasetValidationError(
+                            f"modalities.jsonl byte {modality_offset}: scene.frame_id resolves "
+                            f"to tick {frame.tick}, not state tick {tick}"
+                        )
+                    subject = (player_uuid, connection_id)
+                    if scene_subject is None:
+                        scene_subject = subject
+                    elif subject != scene_subject:
+                        raise DatasetValidationError(
+                            "dataset scene store may belong to only one player connection"
+                        )
+
+                sample_id = _state_sample_id(
+                    dataset, session_id, tick, player_uuid, connection_id
+                )
+                try:
+                    database.execute(
+                        """
+                        INSERT INTO samples(
+                            dataset_id, ordinal, sample_id, state_byte_offset,
+                            state_byte_length, modality_byte_offset,
+                            modality_byte_length, session_id, server_tick,
+                            next_server_tick, player_uuid, player_name, connection_id,
+                            dimension, position_x, position_y, position_z,
+                            transition_available, transition_valid, invalid_reasons,
+                            ordered_packet_count, peer_count, rgb_available,
+                            scene_available
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            dataset.dataset_id,
+                            state_count,
+                            sample_id,
+                            state_offset,
+                            len(state_line),
+                            modality_offset,
+                            len(modality_line),
+                            session_id,
+                            tick,
+                            int(transition[2]) if transition is not None else None,
+                            player_uuid,
+                            state_values[4],
+                            connection_id,
+                            state_values[5],
+                            state_values[6],
+                            state_values[7],
+                            state_values[8],
+                            int(transition is not None),
+                            int(transition[3]) if transition is not None else None,
+                            str(transition[4]) if transition is not None else "[]",
+                            int(transition[5]) if transition is not None else 0,
+                            int(transition[6]) if transition is not None else 0,
+                            int(modality_values[4]),
+                            scene_available,
+                        ),
+                    )
+                except sqlite3.IntegrityError as exc:
+                    raise DatasetValidationError(
+                        f"states.jsonl byte {state_offset}: duplicate state identity"
+                    ) from exc
+                first_tick = tick if first_tick is None else min(first_tick, tick)
+                last_tick = tick if last_tick is None else max(last_tick, tick)
+                rgb_count += int(modality_values[4])
+                scene_count += scene_available
+                state_count += 1
+
+        for verified, digest, byte_count, label in (
+            (state_file, state_digest, state_bytes, "states.jsonl"),
+            (modality_file, modality_digest, modality_bytes, "modalities.jsonl"),
+        ):
+            if byte_count != verified.size_bytes or digest.hexdigest() != verified.sha256:
+                raise DatasetValidationError(
+                    f"{label} changed while its index was being built"
+                )
+        declared = _manifest_modality_records(dataset.manifest, "state")
+        if declared is not None and declared != state_count:
+            raise DatasetValidationError(
+                f"dataset manifest declares {declared} states but states.jsonl contains {state_count}"
+            )
+        if linked_transitions != transition_count:
+            raise DatasetValidationError(
+                "every transition sample must have a matching canonical state and modality row"
+            )
         if scene_count and SCENE_STORE_REFERENCE not in dataset.files:
             raise DatasetValidationError(
-                "samples reference scenes but the scene store is absent from the manifest"
+                "modalities reference scenes but the scene store is absent from the manifest"
             )
-        return sample_count, first_tick, last_tick, rgb_count, scene_count
+        return state_count, first_tick, last_tick, rgb_count, scene_count
 
     def _dataset_summary(self, dataset: _Dataset) -> DatasetSummary:
         with self._connect() as database:
             row = database.execute(
                 """
-                SELECT d.sample_count, d.first_tick, d.last_tick, d.rgb_samples,
-                       d.scene_samples, COUNT(DISTINCT s.player_uuid),
+                SELECT d.sample_count, d.state_count, d.first_tick, d.last_tick,
+                       d.rgb_samples, d.scene_samples, d.rgb_states, d.scene_states,
+                       COUNT(DISTINCT s.player_uuid),
                        COUNT(DISTINCT s.player_uuid || char(0) || s.connection_id)
                 FROM indexed_datasets d
                 LEFT JOIN samples s ON s.dataset_id = d.dataset_id
@@ -1510,12 +1760,15 @@ class DatasetViewer:
                 else None
             ),
             sample_count=int(row[0]),
-            first_tick=_nullable_int(row[1]),
-            last_tick=_nullable_int(row[2]),
-            rgb_samples=int(row[3]),
-            scene_samples=int(row[4]),
-            player_count=int(row[5]),
-            connection_count=int(row[6]),
+            state_count=int(row[1]),
+            first_tick=_nullable_int(row[2]),
+            last_tick=_nullable_int(row[3]),
+            rgb_samples=int(row[4]),
+            scene_samples=int(row[5]),
+            rgb_states=int(row[6]),
+            scene_states=int(row[7]),
+            player_count=int(row[8]),
+            connection_count=int(row[9]),
             size_bytes=sum(item.size_bytes for item in dataset.files.values()),
         )
 
@@ -1525,36 +1778,99 @@ class DatasetViewer:
         with self._connect() as database:
             row = database.execute(
                 """
-                SELECT byte_offset, byte_length FROM samples
+                SELECT state_byte_offset, state_byte_length,
+                       modality_byte_offset, modality_byte_length,
+                       session_id, server_tick, player_uuid, connection_id,
+                       transition_available
+                FROM samples
                 WHERE dataset_id = ? AND sample_id = ?
                 """,
                 (dataset.dataset_id, sample_id),
             ).fetchone()
         if row is None:
             raise SampleNotFoundError("sample was not found in this dataset")
-        offset, length = int(row[0]), int(row[1])
-        source = dataset.files["samples.jsonl"]
+        state_record = self._read_indexed_record(
+            dataset.files["states.jsonl"], int(row[0]), int(row[1]), "state"
+        )
+        modality_record = self._read_indexed_record(
+            dataset.files["modalities.jsonl"], int(row[2]), int(row[3]), "modality"
+        )
+        state_values = _state_index_values(state_record, dataset, int(row[0]))
+        modality_values = _modality_index_values(
+            modality_record, dataset, int(row[2])
+        )
+        identity = (str(row[4]), int(row[5]), str(row[6]), str(row[7]))
+        if state_values[:4] != identity or modality_values[:4] != identity:
+            raise DatasetValidationError(
+                "state index identity no longer matches its source rows"
+            )
+        expected_id = _state_sample_id(dataset, *identity)
+        if expected_id != sample_id:
+            raise DatasetValidationError(
+                "sample index fingerprint no longer matches its source row"
+            )
+        state_payload = _state_payload(state_record)
+        modalities = {
+            "scene": modality_record["scene"],
+            "rgb": modality_record["rgb"],
+        }
+        if bool(row[8]):
+            with self._connect() as database:
+                transition = database.execute(
+                    """
+                    SELECT byte_offset, byte_length FROM transitions
+                    WHERE dataset_id = ? AND server_tick = ?
+                          AND player_uuid = ? AND connection_id = ?
+                    """,
+                    (dataset.dataset_id, identity[1], identity[2], identity[3]),
+                ).fetchone()
+            if transition is None:
+                raise DatasetValidationError("state index lost its transition link")
+            record = self._read_indexed_record(
+                dataset.files["samples.jsonl"],
+                int(transition[0]),
+                int(transition[1]),
+                "transition sample",
+            )
+            values = _sample_index_values(
+                record, dataset, int(transition[0]), int(transition[1])
+            )
+            if (values[3], values[4], values[6], values[8]) != identity:
+                raise DatasetValidationError(
+                    "transition link identity no longer matches its state row"
+                )
+            if record.get("state") != state_payload or record.get("modalities") != modalities:
+                raise DatasetValidationError(
+                    "transition sample no longer matches canonical state modalities"
+                )
+            record["state"] = state_payload
+            record["modalities"] = modalities
+            record["transition_available"] = True
+            return record
+        return _terminal_state_record(dataset, state_record, state_payload, modalities)
+
+    @staticmethod
+    def _read_indexed_record(
+        source: _VerifiedFile, offset: int, length: int, label: str
+    ) -> dict[str, Any]:
         if offset < 0 or length <= 0 or offset + length > source.size_bytes:
-            raise DatasetValidationError("sample index contains an invalid byte range")
+            raise DatasetValidationError(f"{label} index contains an invalid byte range")
         try:
             with source.path.open("rb") as handle:
                 handle.seek(offset)
                 line = handle.read(length)
         except OSError as exc:
-            raise DatasetValidationError("could not read indexed sample bytes") from exc
+            raise DatasetValidationError(f"could not read indexed {label} bytes") from exc
         if len(line) != length:
-            raise DatasetValidationError("indexed sample bytes are truncated")
+            raise DatasetValidationError(f"indexed {label} bytes are truncated")
         try:
             record = _strict_json_loads(line)
         except (ValueError, RecursionError) as exc:
             raise DatasetValidationError(
-                "indexed sample is no longer valid JSON"
+                f"indexed {label} is no longer valid JSON"
             ) from exc
-        values = _sample_index_values(record, dataset, offset, length)
-        if values[0] != sample_id:
-            raise DatasetValidationError(
-                "sample index fingerprint no longer matches its source row"
-            )
+        if not isinstance(record, dict):
+            raise DatasetValidationError(f"indexed {label} must be an object")
         return record
 
     def _verified_artifact(
@@ -1922,6 +2238,226 @@ def _open_verified_scene_store(verified: _VerifiedFile) -> Iterator[Any]:
         _assert_verified_file_metadata(verified, "scene store")
 
 
+_STATE_ROW_ENVELOPE_FIELDS = frozenset(
+    {
+        "schema_version",
+        "source_schema_version",
+        "session_id",
+        "epoch_index",
+        "server_tick",
+        "sequence",
+        "recorded_at_ns",
+        "recorded_at_unix_ms",
+        "source",
+    }
+)
+
+
+def _json_value_sha256(value: object) -> str:
+    payload = json.dumps(
+        value,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _state_payload(record: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: copy.deepcopy(value)
+        for key, value in record.items()
+        if key not in _STATE_ROW_ENVELOPE_FIELDS
+    }
+
+
+def _state_player_uuid(record: dict[str, Any], context: str) -> str:
+    for key in ("player_uuid", "uuid"):
+        value = record.get(key)
+        if isinstance(value, str) and value:
+            return value
+    player = record.get("player")
+    value = player.get("uuid") if isinstance(player, dict) else None
+    if isinstance(value, str) and value:
+        return value
+    raise DatasetValidationError(f"{context}: player_uuid must be a non-empty string")
+
+
+def _state_index_values(
+    record: object, dataset: _Dataset, offset: int
+) -> tuple[object, ...]:
+    context = f"states.jsonl byte {offset}"
+    if not isinstance(record, dict):
+        raise DatasetValidationError(f"{context}: state must be an object")
+    if record.get("schema_version") != DATASET_SCHEMA_VERSION or isinstance(
+        record.get("schema_version"), bool
+    ):
+        raise DatasetValidationError(f"{context}: unsupported state schema_version")
+    session_id = _required_string(record, "session_id", context)
+    if session_id != _required_string(
+        dataset.manifest, "session_id", "dataset manifest"
+    ):
+        raise DatasetValidationError(
+            f"{context}: session_id does not match the dataset"
+        )
+    server_tick = _required_nonnegative_int(record, "server_tick", context)
+    player_uuid = _state_player_uuid(record, context)
+    connection_id = _required_string(record, "connection_id", context)
+    player_name = (
+        record.get("player_name")
+        if isinstance(record.get("player_name"), str)
+        else None
+    )
+    dimension = (
+        record.get("dimension") if isinstance(record.get("dimension"), str) else None
+    )
+    coordinates: list[float | None] = [None, None, None]
+    position = record.get("position")
+    if isinstance(position, dict):
+        for index, axis in enumerate(("x", "y", "z")):
+            value = position.get(axis)
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                try:
+                    coordinate = float(value)
+                except OverflowError as exc:
+                    raise DatasetValidationError(
+                        f"{context}: position.{axis} is outside finite numeric bounds"
+                    ) from exc
+                if not math.isfinite(coordinate):
+                    raise DatasetValidationError(
+                        f"{context}: position.{axis} must be finite"
+                    )
+                coordinates[index] = coordinate
+    return (
+        session_id,
+        server_tick,
+        player_uuid,
+        connection_id,
+        player_name,
+        dimension,
+        coordinates[0],
+        coordinates[1],
+        coordinates[2],
+    )
+
+
+def _modality_index_values(
+    record: object, dataset: _Dataset, offset: int
+) -> tuple[object, ...]:
+    context = f"modalities.jsonl byte {offset}"
+    if not isinstance(record, dict):
+        raise DatasetValidationError(f"{context}: modality row must be an object")
+    if record.get("schema_version") != DATASET_SCHEMA_VERSION or isinstance(
+        record.get("schema_version"), bool
+    ):
+        raise DatasetValidationError(f"{context}: unsupported modality schema_version")
+    session_id = _required_string(record, "session_id", context)
+    if session_id != _required_string(
+        dataset.manifest, "session_id", "dataset manifest"
+    ):
+        raise DatasetValidationError(
+            f"{context}: session_id does not match the dataset"
+        )
+    server_tick = _required_nonnegative_int(record, "server_tick", context)
+    player_uuid = _required_string(record, "player_uuid", context)
+    connection_id = _required_string(record, "connection_id", context)
+    rgb = _modality_value(record, "rgb", context)
+    scene = _modality_value(record, "scene", context)
+    rgb_available = int(rgb.get("available") is True and rgb.get("valid") is True)
+    _validate_scene_modality(scene, dataset, context)
+    scene_available = int(_scene_is_available(scene))
+    if scene_available and dataset.scene_identity != (
+        session_id,
+        player_uuid,
+        connection_id,
+    ):
+        raise DatasetValidationError(
+            f"{context}: scene identity does not match its scene store"
+        )
+    return (
+        session_id,
+        server_tick,
+        player_uuid,
+        connection_id,
+        rgb_available,
+        scene_available,
+    )
+
+
+def _modality_value(
+    record: dict[str, Any], name: str, context: str
+) -> dict[str, Any]:
+    value = record.get(name)
+    if not isinstance(value, dict):
+        raise DatasetValidationError(f"{context}: {name} must be an object")
+    if not isinstance(value.get("available"), bool) or not isinstance(
+        value.get("valid"), bool
+    ):
+        raise DatasetValidationError(f"{context}: {name} availability flags are invalid")
+    return value
+
+
+def _state_sample_id(
+    dataset: _Dataset,
+    session_id: str,
+    server_tick: int,
+    player_uuid: str,
+    connection_id: str,
+) -> str:
+    value = (
+        f"state-tick-v3\0{dataset.fingerprint}\0{session_id}\0{server_tick}\0"
+        f"{player_uuid}\0{connection_id}"
+    ).encode()
+    return hashlib.blake2b(value, digest_size=16).hexdigest()
+
+
+def _terminal_state_record(
+    dataset: _Dataset,
+    state_record: dict[str, Any],
+    state_payload: dict[str, Any],
+    modalities: dict[str, Any],
+) -> dict[str, Any]:
+    session_id = _required_string(state_record, "session_id", "terminal state")
+    server_tick = _required_nonnegative_int(
+        state_record, "server_tick", "terminal state"
+    )
+    player_uuid = _state_player_uuid(state_record, "terminal state")
+    connection_id = _required_string(
+        state_record, "connection_id", "terminal state"
+    )
+    return {
+        "schema_version": DATASET_SCHEMA_VERSION,
+        "sample_key": {
+            "session_id": session_id,
+            "server_tick": server_tick,
+            "player_uuid": player_uuid,
+            "connection_id": connection_id,
+        },
+        "session_id": session_id,
+        "epoch_index": state_record.get("epoch_index"),
+        "server_tick": server_tick,
+        "player_uuid": player_uuid,
+        "connection_id": connection_id,
+        "state": state_payload,
+        "action": None,
+        "next_state": None,
+        "next_server_tick": None,
+        "peers": None,
+        "modalities": modalities,
+        "transition_available": False,
+        "transition_valid": None,
+        "transition_invalid_reasons": [],
+        "source_manifest_sha256": dataset.manifest.get("source_manifest_sha256"),
+        "source": {
+            "state": copy.deepcopy(state_record.get("source")),
+            "reconstructed_control": None,
+            "ordered_packets": [],
+            "next_state": None,
+        },
+    }
+
+
 def _sample_index_values(
     record: object, dataset: _Dataset, offset: int, length: int
 ) -> tuple[object, ...]:
@@ -2081,7 +2617,7 @@ def _sample_summary(row: tuple[object, ...]) -> SampleSummary:
         else None
     )
     try:
-        raw_reasons = json.loads(str(row[11]))
+        raw_reasons = json.loads(str(row[12]))
     except ValueError:
         raw_reasons = []
     reasons = (
@@ -2092,18 +2628,19 @@ def _sample_summary(row: tuple[object, ...]) -> SampleSummary:
     return SampleSummary(
         sample_id=str(row[0]),
         server_tick=int(row[1]),
-        next_server_tick=int(row[2]),
+        next_server_tick=int(row[2]) if row[2] is not None else None,
         player_uuid=str(row[3]),
         player_name=str(row[4]) if row[4] is not None else None,
         connection_id=str(row[5]),
         dimension=str(row[6]) if row[6] is not None else None,
         position=position,
-        transition_valid=bool(row[10]),
+        transition_available=bool(row[10]),
+        transition_valid=bool(row[11]) if row[11] is not None else None,
         transition_invalid_reasons=reasons,
-        ordered_packet_count=int(row[12]),
-        peer_count=int(row[13]),
-        rgb_available=bool(row[14]),
-        scene_available=bool(row[15]),
+        ordered_packet_count=int(row[13]),
+        peer_count=int(row[14]),
+        rgb_available=bool(row[15]),
+        scene_available=bool(row[16]),
     )
 
 
