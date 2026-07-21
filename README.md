@@ -241,6 +241,10 @@ The export contains `samples.jsonl`, `states.jsonl`, `actions.jsonl`,
 `modalities.jsonl`, and a provenance manifest under
 `artifacts/exports/SESSION_ID.dataset/`.
 
+The dataset viewer indexes every canonical state/modality tick. Transition
+controls are joined when present, while a connection's final tick remains
+viewable with its scene and an explicitly unavailable transition.
+
 Both subject filters are repeatable. Player, connection, and tick-range
 filters are intersected, so a reconnect can be exported without mixing its
 states or actions with another connection. Selected samples still include

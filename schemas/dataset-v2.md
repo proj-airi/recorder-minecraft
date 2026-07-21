@@ -41,6 +41,12 @@ The key is `(session_id, player_uuid, connection_id, server_tick)`. Samples do
 not cross a connection boundary. Invalid or incomplete transitions remain in
 the dataset with `transition_valid: false` and explicit reasons.
 
+Tick-oriented viewers use `states.jsonl` and `modalities.jsonl` as the
+canonical observation index, then join a `samples.jsonl` transition when one
+exists. The terminal state of a connection therefore remains randomly
+accessible (including scene/RGB modalities) with no fabricated action or next
+state; a one-tick connection has one viewable observation and zero transitions.
+
 Each state/sample has this modality envelope:
 
 ```json
