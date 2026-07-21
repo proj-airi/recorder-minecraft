@@ -2,21 +2,36 @@ package dev.mcdata.scene.core;
 
 import dev.mcdata.scene.job.SceneJob;
 
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeMap;
+import java.util.UUID;
 
 /**
  * Single-owner deterministic scene state machine. It contains no filesystem, replay, server, or
  * codec effects; adapters translate packets into {@link SceneEvent} values before applying them.
  */
 public final class SceneReducer {
+    private static final Comparator<SectionKey> SECTION_ORDER = Comparator
+        .comparingInt(SectionKey::chunkX)
+        .thenComparingInt(SectionKey::sectionY)
+        .thenComparingInt(SectionKey::chunkZ);
+    private static final Comparator<BlockPosition> BLOCK_POSITION_ORDER = Comparator
+        .comparingInt(BlockPosition::x)
+        .thenComparingInt(BlockPosition::y)
+        .thenComparingInt(BlockPosition::z);
+
     private final SceneJob job;
     private final Map<Integer, MutableEntity> entities = new HashMap<>();
-    private final Set<SectionKey> sections = new HashSet<>();
+    private final Map<SectionKey, MutableSection> sections = new HashMap<>();
+    private final Map<BlockPosition, SceneSnapshot.BlockEntity> blockEntities = new HashMap<>();
     private final Map<Integer, Integer> spawnGenerations = new HashMap<>();
+    private final Map<UUID, SceneSnapshot.PlayerInfo> playerInfo = new HashMap<>();
 
     private String dimension;
     private int subjectEntityId = -1;
@@ -30,6 +45,9 @@ public final class SceneReducer {
     public void beginSegment() {
         entities.clear();
         sections.clear();
+        blockEntities.clear();
+        spawnGenerations.clear();
+        playerInfo.clear();
         dimension = null;
         subjectEntityId = -1;
         minY = 0;
@@ -38,52 +56,45 @@ public final class SceneReducer {
 
     public void apply(SceneEvent event) {
         if (event instanceof SceneEvent.DimensionChanged changed) {
-            if (changed.height() <= 0 || changed.height() % 16 != 0 || changed.minY() % 16 != 0) {
-                throw new SceneStateException("dimension height/minY is not section aligned");
-            }
-            MutableEntity existingSubject = entities.get(subjectEntityId);
-            dimension = changed.dimension();
-            subjectEntityId = changed.subjectEntityId();
-            minY = changed.minY();
-            height = changed.height();
-            entities.clear();
-            if (existingSubject != null) {
-                entities.put(subjectEntityId, existingSubject);
-            }
-            sections.clear();
+            applyDimensionChange(changed);
             return;
         }
         requireDimension();
         if (event instanceof SceneEvent.SectionLoaded loaded) {
             requireCurrentDimension(loaded.dimension());
             requireSectionY(loaded.sectionY());
-            sections.add(new SectionKey(loaded.chunkX(), loaded.sectionY(), loaded.chunkZ()));
+            sections.put(
+                new SectionKey(loaded.chunkX(), loaded.sectionY(), loaded.chunkZ()),
+                new MutableSection(loaded.snapshot())
+            );
             return;
         }
         if (event instanceof SceneEvent.ChunkUnloaded unloaded) {
             requireCurrentDimension(unloaded.dimension());
-            sections.removeIf(key -> key.chunkX == unloaded.chunkX() && key.chunkZ == unloaded.chunkZ());
+            sections.keySet().removeIf(key ->
+                key.chunkX == unloaded.chunkX() && key.chunkZ == unloaded.chunkZ()
+            );
+            blockEntities.keySet().removeIf(position ->
+                Math.floorDiv(position.x, 16) == unloaded.chunkX()
+                    && Math.floorDiv(position.z, 16) == unloaded.chunkZ()
+            );
             return;
         }
         if (event instanceof SceneEvent.BlockChanged changed) {
-            requireCurrentDimension(changed.dimension());
-            int sectionY = Math.floorDiv(changed.y(), 16);
-            SectionKey key = new SectionKey(Math.floorDiv(changed.x(), 16), sectionY, Math.floorDiv(changed.z(), 16));
-            if (!sections.contains(key)) {
-                throw new SceneStateException("block update targets an unknown client-visible section " + key);
-            }
+            applyBlockChange(changed);
             return;
         }
         if (event instanceof SceneEvent.BlockEntityChanged changed) {
             requireCurrentDimension(changed.dimension());
+            BlockPosition position = new BlockPosition(changed.x(), changed.y(), changed.z());
+            blockEntities.put(position, new SceneSnapshot.BlockEntity(
+                dimension, changed.x(), changed.y(), changed.z(), changed.blockEntityType(), changed.nbt()
+            ));
             return;
         }
         if (event instanceof SceneEvent.EntitySpawned spawned) {
             int generation = spawnGenerations.merge(spawned.entityId(), 1, Integer::sum);
-            entities.put(spawned.entityId(), new MutableEntity(
-                spawned.position(), spawned.velocity(), spawned.rotation().yaw(), spawned.rotation().pitch(),
-                spawned.rotation().headYaw(), generation
-            ));
+            entities.put(spawned.entityId(), new MutableEntity(spawned, generation));
             if (spawned.subject()) {
                 subjectEntityId = spawned.entityId();
             }
@@ -104,16 +115,23 @@ public final class SceneReducer {
             if (moved.pitch() != null) {
                 entity.pitch = moved.pitch();
             }
+            entity.onGround = moved.onGround();
             return;
         }
         if (event instanceof SceneEvent.EntityTeleported teleported) {
             MutableEntity entity = requireEntity(teleported.entityId());
-            entity.position = resolveVector(entity.position, teleported.position(), teleported.relatives(), "X", "Y", "Z");
-            entity.velocity = resolveVector(
-                entity.velocity, teleported.velocity(), teleported.relatives(), "DELTA_X", "DELTA_Y", "DELTA_Z"
+            entity.position = resolveVector(
+                entity.position, teleported.position(), teleported.relatives(), "X", "Y", "Z"
             );
-            entity.yaw = teleported.relatives().contains("Y_ROT") ? entity.yaw + teleported.yaw() : teleported.yaw();
-            entity.pitch = teleported.relatives().contains("X_ROT") ? entity.pitch + teleported.pitch() : teleported.pitch();
+            entity.velocity = resolveVector(
+                entity.velocity, teleported.velocity(), teleported.relatives(),
+                "DELTA_X", "DELTA_Y", "DELTA_Z"
+            );
+            entity.yaw = teleported.relatives().contains("Y_ROT")
+                ? entity.yaw + teleported.yaw() : teleported.yaw();
+            entity.pitch = teleported.relatives().contains("X_ROT")
+                ? entity.pitch + teleported.pitch() : teleported.pitch();
+            entity.onGround = teleported.onGround();
             return;
         }
         if (event instanceof SceneEvent.EntityVelocityChanged changed) {
@@ -125,40 +143,65 @@ public final class SceneReducer {
             return;
         }
         if (event instanceof SceneEvent.EntityMetadataChanged changed) {
-            requireEntity(changed.entityId());
+            requireEntity(changed.entityId()).metadata.putAll(changed.values());
             return;
         }
         if (event instanceof SceneEvent.EntityEquipmentChanged changed) {
-            requireEntity(changed.entityId());
-            return;
-        }
-        if (event instanceof SceneEvent.EntityPassengersChanged changed) {
-            requireEntity(changed.vehicleId());
-            for (int passenger : changed.passengers()) {
-                requireEntity(passenger);
+            MutableEntity entity = requireEntity(changed.entityId());
+            for (SceneEvent.EquipmentValue equipment : changed.equipment()) {
+                entity.equipment.put(equipment.slot(), equipment);
             }
             return;
         }
+        if (event instanceof SceneEvent.EntityPassengersChanged changed) {
+            MutableEntity vehicle = requireEntity(changed.vehicleId());
+            for (int passenger : changed.passengers()) {
+                requireEntity(passenger);
+            }
+            vehicle.passengers = List.copyOf(changed.passengers());
+            return;
+        }
         if (event instanceof SceneEvent.EntityLeashChanged changed) {
-            requireEntity(changed.sourceId());
+            MutableEntity source = requireEntity(changed.sourceId());
             if (changed.destinationId() != 0) {
                 requireEntity(changed.destinationId());
+                source.leashDestination = changed.destinationId();
+            } else {
+                source.leashDestination = null;
             }
             return;
         }
         if (event instanceof SceneEvent.EntityAttributesChanged changed) {
-            requireEntity(changed.entityId());
+            MutableEntity entity = requireEntity(changed.entityId());
+            for (SceneEvent.AttributeValue attribute : changed.attributes()) {
+                entity.attributes.put(attribute.attribute(), attribute);
+            }
             return;
         }
         if (event instanceof SceneEvent.EntityEffectChanged changed) {
-            requireEntity(changed.entityId());
+            MutableEntity entity = requireEntity(changed.entityId());
+            entity.effects.put(changed.effect(), new SceneSnapshot.Effect(
+                changed.effect(), changed.amplifier(), changed.durationTicks(), changed.ambient(),
+                changed.visible(), changed.showIcon(), changed.blend()
+            ));
             return;
         }
         if (event instanceof SceneEvent.EntityEffectRemoved changed) {
-            requireEntity(changed.entityId());
+            requireEntity(changed.entityId()).effects.remove(changed.effect());
             return;
         }
-        if (event instanceof SceneEvent.PlayerInfoChanged || event instanceof SceneEvent.PlayerInfoRemoved) {
+        if (event instanceof SceneEvent.PlayerInfoChanged changed) {
+            List<String> actions = changed.actions().stream().sorted().toList();
+            SceneSnapshot.PlayerInfo value = new SceneSnapshot.PlayerInfo(actions, changed.packet());
+            for (UUID profileId : changed.profileIds()) {
+                playerInfo.put(profileId, value);
+            }
+            return;
+        }
+        if (event instanceof SceneEvent.PlayerInfoRemoved removed) {
+            for (UUID profileId : removed.profileIds()) {
+                playerInfo.remove(profileId);
+            }
             return;
         }
         throw new SceneStateException("unhandled scene event " + event.getClass().getName());
@@ -185,8 +228,32 @@ public final class SceneReducer {
         ));
     }
 
+    public SceneSnapshot snapshot() {
+        requireDimension();
+        List<SceneSnapshot.Section> sectionValues = sections.entrySet().stream()
+            .sorted(Map.Entry.comparingByKey(SECTION_ORDER))
+            .map(entry -> new SceneSnapshot.Section(
+                dimension, entry.getKey().chunkX, entry.getKey().sectionY, entry.getKey().chunkZ,
+                entry.getValue().snapshot()
+            ))
+            .toList();
+        List<SceneSnapshot.Entity> entityValues = entities.entrySet().stream()
+            .sorted(Map.Entry.comparingByKey())
+            .map(entry -> entry.getValue().snapshot(entry.getKey(), dimension, playerInfo.get(entry.getValue().uuid)))
+            .toList();
+        List<SceneSnapshot.BlockEntity> blockEntityValues = blockEntities.entrySet().stream()
+            .sorted(Map.Entry.comparingByKey(BLOCK_POSITION_ORDER))
+            .map(Map.Entry::getValue)
+            .toList();
+        return new SceneSnapshot(sectionValues, entityValues, blockEntityValues);
+    }
+
     public int subjectEntityId() {
         return subjectEntityId;
+    }
+
+    public boolean hasEntity(int entityId) {
+        return entities.containsKey(entityId);
     }
 
     public String dimension() {
@@ -202,6 +269,40 @@ public final class SceneReducer {
     public int height() {
         requireDimension();
         return height;
+    }
+
+    private void applyDimensionChange(SceneEvent.DimensionChanged changed) {
+        if (changed.height() <= 0 || changed.height() % 16 != 0 || changed.minY() % 16 != 0) {
+            throw new SceneStateException("dimension height/minY is not section aligned");
+        }
+        MutableEntity existingSubject = entities.get(subjectEntityId);
+        dimension = changed.dimension();
+        subjectEntityId = changed.subjectEntityId();
+        minY = changed.minY();
+        height = changed.height();
+        entities.clear();
+        if (existingSubject != null) {
+            entities.put(subjectEntityId, existingSubject);
+        }
+        sections.clear();
+        blockEntities.clear();
+    }
+
+    private void applyBlockChange(SceneEvent.BlockChanged changed) {
+        requireCurrentDimension(changed.dimension());
+        int sectionY = Math.floorDiv(changed.y(), 16);
+        SectionKey key = new SectionKey(
+            Math.floorDiv(changed.x(), 16), sectionY, Math.floorDiv(changed.z(), 16)
+        );
+        MutableSection section = sections.get(key);
+        if (section == null) {
+            throw new SceneStateException("block update targets an unknown client-visible section " + key);
+        }
+        section.set(
+            Math.floorMod(changed.x(), 16), Math.floorMod(changed.y(), 16),
+            Math.floorMod(changed.z(), 16), changed.state()
+        );
+        blockEntities.remove(new BlockPosition(changed.x(), changed.y(), changed.z()));
     }
 
     private void requireDimension() {
@@ -253,29 +354,77 @@ public final class SceneReducer {
 
     private record SectionKey(int chunkX, int sectionY, int chunkZ) { }
 
+    private record BlockPosition(int x, int y, int z) { }
+
+    private static final class MutableSection {
+        private final List<SceneEvent.BlockState> palette;
+        private final int[] indices;
+
+        private MutableSection(SceneEvent.SectionSnapshot snapshot) {
+            this.palette = new ArrayList<>(snapshot.palette());
+            this.indices = snapshot.indices();
+        }
+
+        private void set(int x, int y, int z, SceneEvent.BlockState state) {
+            int paletteIndex = palette.indexOf(state);
+            if (paletteIndex < 0) {
+                paletteIndex = palette.size();
+                palette.add(state);
+            }
+            indices[y * 256 + z * 16 + x] = paletteIndex;
+        }
+
+        private SceneEvent.SectionSnapshot snapshot() {
+            return new SceneEvent.SectionSnapshot(palette, indices);
+        }
+    }
+
     private static final class MutableEntity {
+        private final UUID uuid;
+        private final String typeId;
+        private final double width;
+        private final double height;
+        private final int spawnData;
+        private final boolean subject;
+        private final int generation;
+        private final Map<Integer, SceneEvent.EncodedValue> metadata = new TreeMap<>();
+        private final Map<String, SceneEvent.EquipmentValue> equipment = new TreeMap<>();
+        private final Map<String, SceneEvent.AttributeValue> attributes = new TreeMap<>();
+        private final Map<String, SceneSnapshot.Effect> effects = new TreeMap<>();
         private SceneEvent.Vec3 position;
         private SceneEvent.Vec3 velocity;
         private float yaw;
         private float pitch;
         private float headYaw;
-        @SuppressWarnings("unused")
-        private final int generation;
+        private boolean onGround;
+        private List<Integer> passengers = List.of();
+        private Integer leashDestination;
 
-        private MutableEntity(
-            SceneEvent.Vec3 position,
-            SceneEvent.Vec3 velocity,
-            float yaw,
-            float pitch,
-            float headYaw,
-            int generation
-        ) {
-            this.position = position;
-            this.velocity = velocity;
-            this.yaw = yaw;
-            this.pitch = pitch;
-            this.headYaw = headYaw;
+        private MutableEntity(SceneEvent.EntitySpawned spawned, int generation) {
+            this.uuid = spawned.uuid();
+            this.typeId = spawned.entityType();
+            this.width = spawned.width();
+            this.height = spawned.height();
+            this.spawnData = spawned.spawnData();
+            this.subject = spawned.subject();
             this.generation = generation;
+            this.position = spawned.position();
+            this.velocity = spawned.velocity();
+            this.yaw = spawned.rotation().yaw();
+            this.pitch = spawned.rotation().pitch();
+            this.headYaw = spawned.rotation().headYaw();
+        }
+
+        private SceneSnapshot.Entity snapshot(
+            int networkId,
+            String dimension,
+            SceneSnapshot.PlayerInfo info
+        ) {
+            return new SceneSnapshot.Entity(
+                networkId, generation, uuid, typeId, dimension, position, velocity,
+                yaw, pitch, headYaw, width, height, spawnData, subject, onGround,
+                metadata, equipment, passengers, leashDestination, attributes, effects, info
+            );
         }
     }
 

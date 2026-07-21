@@ -27,7 +27,7 @@ public final class ReplayArchiveValidator {
     private static final long MAX_METADATA_BYTES = 1_048_576;
     private static final Set<String> INFRASTRUCTURE_IDS = Set.of(
         "minecraft", "java", "fabricloader", "fabric-api", "fabric-language-kotlin",
-        "mc-recorder-scene-extractor"
+        "mc-recorder-scene-extractor", "mixinextras", "inject"
     );
 
     public VerifiedSource verify(SceneJob job, SceneJob.SourceReplay source) throws IOException {

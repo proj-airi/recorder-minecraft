@@ -413,6 +413,11 @@ public final class PacketTranslator {
     }
 
     private static SceneEvent.EncodedValue encodeNbt(CompoundTag tag) throws IOException {
+        if (tag == null) {
+            return new SceneEvent.EncodedValue(
+                "minecraft:compound_nbt", "absent", -1, ""
+            );
+        }
         try (ByteArrayOutputStream bytes = new ByteArrayOutputStream();
              DataOutputStream output = new DataOutputStream(bytes)) {
             NbtIo.write(tag, output);

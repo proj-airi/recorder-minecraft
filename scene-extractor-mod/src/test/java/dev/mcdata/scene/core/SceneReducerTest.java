@@ -81,6 +81,32 @@ final class SceneReducerTest {
     }
 
     @Test
+    void materializesBlockAndEntityUpdatesIntoFrameSnapshot() {
+        SceneReducer reducer = new SceneReducer(job());
+        reducer.beginSegment();
+        reducer.apply(new SceneEvent.DimensionChanged("minecraft:overworld", 7, -64, 384));
+        reducer.apply(new SceneEvent.SectionLoaded(
+            "minecraft:overworld", 2, 5, 0, emptySection()
+        ));
+        reducer.apply(subject(7, new SceneEvent.Vec3(32.5, 1, 80.5)));
+        SceneEvent.EncodedValue value = new SceneEvent.EncodedValue(
+            "minecraft:entity_metadata", "packet", 3, "AA=="
+        );
+        reducer.apply(new SceneEvent.EntityMetadataChanged(7, Map.of(4, value)));
+        reducer.apply(new SceneEvent.BlockChanged(
+            "minecraft:overworld", 33, 2, 83,
+            new SceneEvent.BlockState("minecraft:stone", Map.of())
+        ));
+
+        SceneSnapshot snapshot = reducer.snapshot();
+        SceneEvent.SectionSnapshot section = snapshot.sections().getFirst().snapshot();
+        int offset = 2 * 256 + 3 * 16 + 1;
+        assertEquals("minecraft:stone", section.palette().get(section.indices()[offset]).name());
+        assertEquals(value, snapshot.entities().getFirst().metadata().get(4));
+        assertEquals("minecraft:overworld", snapshot.entities().getFirst().dimension());
+    }
+
+    @Test
     void rejectsTimelineIdentityMismatch() {
         SceneReducer reducer = new SceneReducer(job());
         reducer.beginSegment();

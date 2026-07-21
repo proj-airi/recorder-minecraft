@@ -73,6 +73,9 @@ public final class FlashbackSceneExtractor {
     public ExtractionStats extract(List<ReplayArchiveValidator.VerifiedSource> sources) throws IOException {
         for (ReplayArchiveValidator.VerifiedSource verified : sources) {
             extractSegment(verified.source());
+            if (coveredTicks.contains(job.globalEndTick())) {
+                break;
+            }
         }
         for (long tick = job.globalStartTick(); tick <= job.globalEndTick(); tick++) {
             if (!coveredTicks.contains(tick)) {
@@ -96,10 +99,10 @@ public final class FlashbackSceneExtractor {
                         initial = false;
                         consumeSnapshot(reader, context);
                     }
-                    while (consumeNext(reader, context)) {
+                    while (!context.finished && consumeNext(reader, context)) {
                         // Actions are consumed by the callback.
                     }
-                } while (reader.moveToNextChunk());
+                } while (!context.finished && reader.moveToNextChunk());
             } finally {
                 reader.close();
             }
@@ -176,10 +179,9 @@ public final class FlashbackSceneExtractor {
         }
         for (SceneEvent event : translated.events()) {
             reducer.apply(event);
-            spool.writeChange(context.replayTick, context.source, event);
         }
         if (translated.timeline().isPresent()) {
-            SceneFrame frame = reducer.frame(translated.timeline().orElseThrow(), context.replayTick, context.source)
+            SceneFrame frame = reducer.frame(translated.timeline().orElseThrow(), context.outputTick(), context.source)
                 .orElse(null);
             if (frame == null) {
                 return;
@@ -191,8 +193,13 @@ public final class FlashbackSceneExtractor {
             if (!markerKeys.add(markerKey)) {
                 throw new IOException("duplicate timeline marker in one replay segment at global tick " + frame.globalTick());
             }
-            coveredTicks.add(frame.globalTick());
-            spool.writeFrame(frame);
+            if (!coveredTicks.add(frame.globalTick())) {
+                return;
+            }
+            spool.writeFrame(frame, reducer.snapshot());
+            if (frame.globalTick() == job.globalEndTick()) {
+                context.finished = true;
+            }
         }
     }
 
@@ -220,7 +227,6 @@ public final class FlashbackSceneExtractor {
             context.playerId, uuid, x, y, z, pitch, yaw, headYaw, velocity
         );
         reducer.apply(event);
-        spool.writeChange(context.replayTick, context.source, event);
     }
 
     private void processMoveEntities(RegistryFriendlyByteBuf buffer, SegmentContext context) throws IOException {
@@ -229,13 +235,18 @@ public final class FlashbackSceneExtractor {
             throw new IOException("Flashback move-entities dimension count is invalid: " + dimensions);
         }
         for (int dimensionIndex = 0; dimensionIndex < dimensions; dimensionIndex++) {
-            buffer.readResourceKey(Registries.DIMENSION);
+            ResourceKey<net.minecraft.world.level.Level> movementDimension = buffer.readResourceKey(Registries.DIMENSION);
+            boolean currentDimension = movementDimension.location().toString().equals(reducer.dimension());
             int movements = buffer.readVarInt();
             if (movements < 0 || movements > 1_000_000) {
                 throw new IOException("Flashback move-entities count is invalid: " + movements);
             }
             for (int movementIndex = 0; movementIndex < movements; movementIndex++) {
                 EntityMovement movement = EntityMovement.Companion.read(buffer);
+                if (!currentDimension || !reducer.hasEntity(movement.getId())) {
+                    ignoredPackets.merge("flashback:movement_for_untracked_entity", 1L, Long::sum);
+                    continue;
+                }
                 SceneEvent.EntityTeleported event = new SceneEvent.EntityTeleported(
                     movement.getId(),
                     vector(movement.getPosition()),
@@ -246,12 +257,10 @@ public final class FlashbackSceneExtractor {
                     movement.getOnGround()
                 );
                 reducer.apply(event);
-                spool.writeChange(context.replayTick, context.source, event);
                 SceneEvent.EntityHeadRotated head = new SceneEvent.EntityHeadRotated(
                     movement.getId(), movement.getHeadRot()
                 );
                 reducer.apply(head);
-                spool.writeChange(context.replayTick, context.source, head);
             }
         }
     }
@@ -345,9 +354,15 @@ public final class FlashbackSceneExtractor {
         private FileSystem system;
         private int replayTick;
         private int playerId = -1;
+        private boolean finished;
 
         private SegmentContext(SceneJob.SourceReplay source) {
             this.source = source;
+        }
+
+        private int outputTick() {
+            // Flashback's ReplayServer exposes the action-stream cursor as a one-based replay tick.
+            return replayTick + 1;
         }
     }
 
