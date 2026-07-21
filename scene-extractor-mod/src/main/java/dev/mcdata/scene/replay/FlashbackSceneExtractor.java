@@ -313,12 +313,13 @@ public final class FlashbackSceneExtractor {
         return cached;
     }
 
-    private static boolean couldAffectScene(String packetType) {
+    static boolean couldAffectScene(String packetType) {
         String path = packetType.substring(packetType.indexOf(':') + 1);
         if (Set.of(
             "entity_event", "damage_event", "animate", "hurt_animation", "take_item_entity",
             "block_event", "block_destruction", "level_event", "chunks_biomes", "light_update",
-            "set_chunk_cache_center", "set_chunk_cache_radius", "set_simulation_distance"
+            "set_chunk_cache_center", "set_chunk_cache_radius", "set_simulation_distance",
+            "sound", "sound_entity", "stop_sound"
         ).contains(path)) {
             return false;
         }
@@ -331,8 +332,15 @@ public final class FlashbackSceneExtractor {
             || path.equals("login")
             || path.equals("respawn")
             || path.equals("player_position")
+            || path.equals("player_rotation")
+            || path.equals("player_look_at")
             || path.equals("player_info_update")
-            || path.equals("player_info_remove");
+            || path.equals("player_info_remove")
+            || path.equals("move_vehicle")
+            || path.equals("move_minecart")
+            || path.equals("move_minecart_along_track")
+            || path.equals("projectile_power")
+            || path.equals("explode");
     }
 
     private static SceneEvent.Vec3 vector(Vec3 vector) {

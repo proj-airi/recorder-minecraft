@@ -8,6 +8,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.UUID;
@@ -133,6 +134,27 @@ public final class SceneReducer {
             entity.onGround = teleported.onGround();
             return;
         }
+        if (event instanceof SceneEvent.EntityMinecartMoved moved) {
+            MutableEntity entity = requireEntity(moved.entityId());
+            entity.position = moved.position();
+            entity.velocity = moved.velocity();
+            entity.yaw = moved.yaw();
+            entity.pitch = moved.pitch();
+            return;
+        }
+        if (event instanceof SceneEvent.EntityVehicleMoved moved) {
+            MutableEntity entity = requireEntity(moved.entityId());
+            entity.position = moved.position();
+            entity.yaw = moved.yaw();
+            entity.pitch = moved.pitch();
+            return;
+        }
+        if (event instanceof SceneEvent.EntityRotated rotated) {
+            MutableEntity entity = requireEntity(rotated.entityId());
+            entity.yaw = rotated.yaw();
+            entity.pitch = rotated.pitch();
+            return;
+        }
         if (event instanceof SceneEvent.EntityVelocityChanged changed) {
             requireEntity(changed.entityId()).velocity = changed.velocity();
             return;
@@ -253,6 +275,37 @@ public final class SceneReducer {
 
     public boolean hasEntity(int entityId) {
         return entities.containsKey(entityId);
+    }
+
+    /** Returns the subject's outermost mounted vehicle, or empty when the subject is not mounted. */
+    public OptionalInt subjectRootVehicleId() {
+        int current = subjectEntityId;
+        if (!entities.containsKey(current)) {
+            return OptionalInt.empty();
+        }
+        boolean mounted = false;
+        Set<Integer> visited = new java.util.HashSet<>();
+        visited.add(current);
+        while (true) {
+            Integer parent = null;
+            for (Map.Entry<Integer, MutableEntity> candidate : entities.entrySet()) {
+                if (!candidate.getValue().passengers.contains(current)) {
+                    continue;
+                }
+                if (parent != null) {
+                    throw new SceneStateException("subject is attached to multiple client-visible vehicles");
+                }
+                parent = candidate.getKey();
+            }
+            if (parent == null) {
+                return mounted ? OptionalInt.of(current) : OptionalInt.empty();
+            }
+            if (!visited.add(parent)) {
+                throw new SceneStateException("client-visible passenger graph contains a cycle");
+            }
+            mounted = true;
+            current = parent;
+        }
     }
 
     public String dimension() {

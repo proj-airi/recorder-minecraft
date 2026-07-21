@@ -28,7 +28,10 @@ import net.minecraft.network.protocol.game.ClientboundForgetLevelChunkPacket;
 import net.minecraft.network.protocol.game.ClientboundLevelChunkWithLightPacket;
 import net.minecraft.network.protocol.game.ClientboundLoginPacket;
 import net.minecraft.network.protocol.game.ClientboundMoveEntityPacket;
+import net.minecraft.network.protocol.game.ClientboundMoveMinecartPacket;
+import net.minecraft.network.protocol.game.ClientboundMoveVehiclePacket;
 import net.minecraft.network.protocol.game.ClientboundPlayerPositionPacket;
+import net.minecraft.network.protocol.game.ClientboundPlayerRotationPacket;
 import net.minecraft.network.protocol.game.ClientboundPlayerInfoRemovePacket;
 import net.minecraft.network.protocol.game.ClientboundPlayerInfoUpdatePacket;
 import net.minecraft.network.protocol.game.ClientboundRemoveEntitiesPacket;
@@ -55,6 +58,7 @@ import net.minecraft.world.entity.PositionMoveRotation;
 import net.minecraft.world.entity.Relative;
 import net.minecraft.world.entity.ai.attributes.Attribute;
 import net.minecraft.world.entity.ai.attributes.AttributeModifier;
+import net.minecraft.world.entity.vehicle.NewMinecartBehavior;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntityType;
@@ -144,6 +148,31 @@ public final class PacketTranslator {
                 move.hasRotation() ? move.getYRot() : null,
                 move.hasRotation() ? move.getXRot() : null,
                 move.isOnGround()
+            )));
+        }
+        if (packet instanceof ClientboundMoveMinecartPacket move) {
+            List<NewMinecartBehavior.MinecartStep> steps = move.lerpSteps();
+            if (steps.isEmpty()) {
+                return Translation.events(List.of());
+            }
+            NewMinecartBehavior.MinecartStep finalStep = steps.get(steps.size() - 1);
+            return Translation.events(List.of(new SceneEvent.EntityMinecartMoved(
+                move.entityId(), vector(finalStep.position()), vector(finalStep.movement()),
+                finalStep.yRot(), finalStep.xRot()
+            )));
+        }
+        if (packet instanceof ClientboundMoveVehiclePacket move) {
+            var vehicle = reducer.subjectRootVehicleId();
+            if (vehicle.isEmpty()) {
+                return Translation.events(List.of());
+            }
+            return Translation.events(List.of(new SceneEvent.EntityVehicleMoved(
+                vehicle.getAsInt(), vector(move.position()), move.yRot(), move.xRot()
+            )));
+        }
+        if (packet instanceof ClientboundPlayerRotationPacket rotation) {
+            return Translation.events(List.of(new SceneEvent.EntityRotated(
+                reducer.subjectEntityId(), rotation.yRot(), rotation.xRot()
             )));
         }
         if (packet instanceof ClientboundTeleportEntityPacket teleport) {

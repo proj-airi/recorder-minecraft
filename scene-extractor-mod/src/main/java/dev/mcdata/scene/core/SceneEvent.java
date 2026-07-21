@@ -17,6 +17,9 @@ public sealed interface SceneEvent permits
     SceneEvent.EntitiesRemoved,
     SceneEvent.EntityMoved,
     SceneEvent.EntityTeleported,
+    SceneEvent.EntityMinecartMoved,
+    SceneEvent.EntityVehicleMoved,
+    SceneEvent.EntityRotated,
     SceneEvent.EntityVelocityChanged,
     SceneEvent.EntityHeadRotated,
     SceneEvent.EntityMetadataChanged,
@@ -143,6 +146,26 @@ public sealed interface SceneEvent permits
             relatives = Set.copyOf(relatives);
         }
     }
+
+    /** Applies the final absolute state carried by one minecart interpolation packet. */
+    record EntityMinecartMoved(
+        int entityId,
+        Vec3 position,
+        Vec3 velocity,
+        float yaw,
+        float pitch
+    ) implements SceneEvent { }
+
+    /** Applies a locally authoritative root-vehicle correction without changing its velocity. */
+    record EntityVehicleMoved(
+        int entityId,
+        Vec3 position,
+        float yaw,
+        float pitch
+    ) implements SceneEvent { }
+
+    /** Applies an absolute body rotation without changing position, velocity, or ground state. */
+    record EntityRotated(int entityId, float yaw, float pitch) implements SceneEvent { }
 
     record EntityVelocityChanged(int entityId, Vec3 velocity) implements SceneEvent { }
 
