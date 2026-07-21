@@ -129,20 +129,34 @@ contains player identity, optional connection join/end boundaries, replay
 format, `recording` or `saved` state, timestamps, host-local source/output
 locations, and `hotbar_snapshot_contract: "item_stack_copy_v1"` for captures
 whose replay packets freeze each mutable `ItemStack` at the synchronous record
-boundary. A saved row also includes the observed output size; host tooling must
+boundary. Flashback rows also contain
+`flashback_capture_contract: "client_visible_scene_v1"`. A saved row includes
+the observed output size; host tooling must
 still enforce replay-root containment and compute a stable SHA-256 before using
 the archive.
 
 Every saved replay embeds an `mc_recorder` metadata object in ServerReplay's
-`arcade_replay_meta.json` ZIP entry. Metadata schema v2 contains session ID,
+`arcade_replay_meta.json` ZIP entry. Metadata schema v3 contains session ID,
 segment ID/ordinal, player UUID, the connection ID when binding completed, and
-`hotbar_snapshot_contract: "item_stack_copy_v1"`. Schema-v1 archives lack that
-marker and must not be treated as proof of faithful unselected-hotbar history:
-the older recorder could retain a live mutable stack until asynchronous ZIP
-encoding and serialize its later value. This is distinct from Flashback's base
-`metadata.json`. The current and session-history segment ledgers are atomic
-runtime indexes, not substitutes for that archive metadata, timeline markers,
-or host integrity verification.
+both capture contract markers. Schema-v1/v2 archives lack the Flashback marker
+and cannot be used for scene extraction; schema v1 also lacks the hotbar marker
+and cannot prove faithful unselected-hotbar history. The
+`client_visible_scene_v1` contract changes only two upstream discard points:
+
+- Flashback's writer retains `ClientboundForgetLevelChunkPacket`,
+  `ClientboundPlayerPositionPacket`, and `ClientboundMoveMinecartPacket`; and
+- Arcade's entity optimizer retains all `ClientboundMoveEntityPacket`,
+  `ClientboundTeleportEntityPacket`, and `ClientboundSetEntityMotionPacket`
+  instances because the headless reducer does not simulate projectile or TNT
+  physics.
+
+Paused writers remain paused, and unrelated upstream exclusions remain in
+force. Mutable minecart step lists and relative-movement sets are frozen at the
+synchronous record boundary before asynchronous encoding. The session manifest
+and `session_start` source record carry the same Flashback contract marker.
+This metadata is distinct from Flashback's base `metadata.json`. The current
+and session-history segment ledgers are atomic runtime indexes, not substitutes
+for archive metadata, timeline markers, or host integrity verification.
 
 These files coordinate the dashboard; they are never source truth. Exporters
 must still validate the immutable source events and sealed epoch manifests.

@@ -395,10 +395,19 @@ not share `scene-extractor-mod/run` or conflict with the capture server.
 Every selected `player_state` tick must resolve. Segment overlaps must describe
 identical logical frames, while gaps, source mutation, unknown state-affecting
 packets, and identity mismatch fail the job. Before compaction the CLI verifies
-the terminal identity, policy, sources, frame/change counts, index sizes and
-SHA-256 hashes, and every referenced canonical blob's name, digest, count, and
-bytes. A frozen verification envelope is checked again before reads and before
-publication, then persisted with the store's extraction provenance.
+the terminal identity, policy, capture contract, sources, frame/change counts,
+index sizes and SHA-256 hashes, and every referenced canonical blob's name,
+digest, count, and bytes. The selected player's pose is copied from sealed,
+hash-verified `player_state` epochs into an owned integrity-enveloped stream and
+overlaid before each frame and overlap hash; ServerReplay's sampled local-player
+position is not treated as authoritative. A frozen verification envelope is
+checked again before reads and before publication, then persisted with the
+store's extraction provenance.
+
+Scene extraction accepts only schema-v3 Flashback archives whose embedded
+metadata and replay-segment ledger both declare
+`flashback_capture_contract: "client_visible_scene_v1"`. Older archives remain
+usable by RGB tooling but are rejected as scene sources.
 
 The output includes block states, entities, block entities, full captured
 metadata, exact source replay provenance, and a `sensitive: true` marker.

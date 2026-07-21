@@ -293,6 +293,10 @@ identity mismatch fail closed. `--from-tick`, `--to-tick`, and `--prepare-only`
 are available for bounded/manual operation. Output parents are created without
 accepting symlinked paths. Existing outputs fail by default; `--force` replaces
 only a scene store that already passes the complete owned-store validation.
+The canonical subject pose comes from sealed, hash-verified `player_state`
+records and is applied before snapshot hashing. Scene extraction requires new
+schema-v3 replay metadata with the `client_visible_scene_v1` capture contract;
+older replay archives are not accepted as scene sources.
 
 Attach manually completed RGB and scene results while exporting. Dashboard
 generation performs scene extraction and attachment automatically; dashboard

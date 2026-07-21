@@ -91,10 +91,24 @@ codecs. At every `mc_recorder:timeline` marker it applies all preceding replay
 actions and emits a frame. Segment overlap must resolve to identical state;
 gaps, source mutation, an unknown state-affecting packet, identity mismatch, or
 missing selected tick fail the extraction. Partial stores are never attached.
+The selected subject pose is not inferred from ServerReplay's sampled local
+player. It is copied from the exact sealed, hash-verified `player_state` epoch
+bytes into a job-owned bounded JSONL stream. Its envelope records the stream
+hash/size/tick range and every contributing epoch hash/size/count. The
+extractor requires contiguous identity-matched records, overlays that
+authoritative pose before frame and overlap hashing, and re-verifies the pose
+file before and after extraction.
+
+Every source archive and matching replay-segment ledger row must declare
+`flashback_capture_contract: "client_visible_scene_v1"`; archives from before
+that capture contract are not scene sources. The contract preserves explicit
+chunk unload, player correction, minecart movement, and entity motion packets
+that upstream replay optimizations otherwise omit.
 The terminal result must exactly match the job identity, policy, replay
-envelopes, selected frame count, frames/changes byte sizes and SHA-256 hashes,
-and referenced canonical blob count/bytes/digests. Compaction accepts a frozen
-verified envelope and rechecks the spool before reading and before publication.
+envelopes, subject-pose envelope, capture contract, selected frame count,
+frames/changes byte sizes and SHA-256 hashes, and referenced canonical blob
+count/bytes/digests. Compaction accepts a frozen verified envelope and rechecks
+the spool before reading and before publication.
 
 The default and currently supported scope is `client_visible`; no source world
 is mounted. Scene V1 includes block states, entities, block entities, and full
