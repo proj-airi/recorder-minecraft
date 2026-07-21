@@ -49,7 +49,27 @@ def _write_viewer_dataset(exports: Path) -> None:
             "dimension": "minecraft:overworld",
             "position": {"x": 1, "y": 64, "z": 2},
         },
-        "action": {"ordered_packets": [], "reconstructed_control": None},
+        "action": {
+            "ordered_packets": [],
+            "reconstructed_control": {
+                "server_tick": 21,
+                "action_type": "control_state",
+                "payload": {
+                    "forward": True,
+                    "backward": False,
+                    "left": False,
+                    "right": True,
+                    "jump": False,
+                    "sneak": False,
+                    "sprint": True,
+                    "camera_yaw": 90.0,
+                    "camera_pitch": 5.0,
+                    "camera_delta_yaw": 2.0,
+                    "camera_delta_pitch": -1.0,
+                    "selected_slot": 2,
+                },
+            },
+        },
         "next_state": {"player_name": "HTTP Player"},
         "next_server_tick": 21,
         "peers": {"state": [], "next_state": []},
@@ -138,7 +158,10 @@ class DashboardHTTPTest(unittest.TestCase):
         raised.exception.close()
 
         response = self._request("/")
-        self.assertIn(b"Recorder control room", response.read())
+        body = response.read()
+        self.assertIn(b"Recorder control room", body)
+        self.assertIn(b"Player trajectory", body)
+        self.assertIn(b"SERVER-RECONSTRUCTED", body)
         self.assertEqual("no-store", response.headers["Cache-Control"])
 
     def test_status_returns_csrf_and_mutations_enforce_it(self) -> None:
@@ -214,6 +237,13 @@ class DashboardHTTPTest(unittest.TestCase):
 
         metadata = json.load(self._request(f"/api/v1/datasets/{dataset_id}"))
         self.assertEqual("session-http", metadata["session_id"])
+        trajectory = json.load(
+            self._request(
+                f"/api/v1/datasets/{dataset_id}/trajectory?max_points=10"
+            )
+        )
+        self.assertEqual(1, trajectory["total_points"])
+        self.assertEqual(20, trajectory["tracks"][0]["points"][0]["server_tick"])
         page = json.load(
             self._request(f"/api/v1/datasets/{dataset_id}/samples?limit=1")
         )

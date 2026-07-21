@@ -95,6 +95,40 @@
                 <input id="sample-slider" type="range" min="0" max="0" value="0">
                 <span id="sample-position">0 / 0</span>
               </div>
+              <div class="observation-grid">
+                <section class="trajectory-card" aria-labelledby="trajectory-heading">
+                  <div class="observation-heading">
+                    <div><p class="eyebrow">NO GUI RENDER REQUIRED</p><h2 id="trajectory-heading">Player trajectory</h2></div>
+                    <span class="axis-note">top-down X / Z · N ↑</span>
+                  </div>
+                  <div class="trajectory-canvas-wrap">
+                    <canvas id="trajectory-canvas" role="img" aria-label="Top-down player trajectory"></canvas>
+                    <p id="trajectory-empty" class="empty">Loading indexed positions…</p>
+                  </div>
+                  <div id="trajectory-legend" class="trajectory-legend"></div>
+                  <p id="trajectory-note" class="muted trajectory-note"></p>
+                </section>
+                <section class="input-card" aria-labelledby="input-heading">
+                  <div class="observation-heading">
+                    <div><p class="eyebrow">SERVER-RECONSTRUCTED</p><h2 id="input-heading">Controls</h2></div>
+                    <span id="input-tick" class="axis-note">No sample</span>
+                  </div>
+                  <div class="input-pad" aria-label="Persistent movement controls">
+                    <button class="input-key key-forward" type="button" data-control="forward" tabindex="-1" aria-pressed="false"><kbd>W</kbd><span>Forward</span></button>
+                    <button class="input-key key-left" type="button" data-control="left" tabindex="-1" aria-pressed="false"><kbd>A</kbd><span>Left</span></button>
+                    <button class="input-key key-backward" type="button" data-control="backward" tabindex="-1" aria-pressed="false"><kbd>S</kbd><span>Back</span></button>
+                    <button class="input-key key-right" type="button" data-control="right" tabindex="-1" aria-pressed="false"><kbd>D</kbd><span>Right</span></button>
+                  </div>
+                  <div class="input-modifiers">
+                    <button class="input-key wide" type="button" data-control="jump" tabindex="-1" aria-pressed="false"><kbd>Space</kbd><span>Jump</span></button>
+                    <button class="input-key" type="button" data-control="sneak" tabindex="-1" aria-pressed="false"><kbd>⇧</kbd><span>Sneak</span></button>
+                    <button class="input-key" type="button" data-control="sprint" tabindex="-1" aria-pressed="false"><kbd>Ctrl</kbd><span>Sprint</span></button>
+                  </div>
+                  <dl id="camera-controls" class="control-metrics"></dl>
+                  <div><p class="input-section-label">Applied packet actions</p><div id="packet-actions" class="packet-actions"><span class="muted">No sample</span></div></div>
+                  <p id="input-note" class="muted input-note">These are server-observed persistent flags, not raw keyboard or mouse events.</p>
+                </section>
+              </div>
               <div class="sample-grid">
                 <div class="frame-wrap"><img id="sample-frame" alt="Rendered Minecraft frame"><div id="frame-missing">RGB unavailable</div></div>
                 <div id="sample-summary" class="sample-summary"></div>

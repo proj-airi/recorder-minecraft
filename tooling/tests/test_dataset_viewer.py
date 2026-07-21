@@ -406,6 +406,49 @@ class DatasetIndexTest(unittest.TestCase):
             )
             self.assertEqual((11.25, 64.0, -11.5), invalid.items[0].position)
 
+            trajectory = viewer.get_trajectory(summary.dataset_id, max_points=3)
+            self.assertEqual(4, trajectory.total_points)
+            self.assertEqual(3, trajectory.returned_points)
+            self.assertTrue(trajectory.downsampled)
+            self.assertEqual(0, trajectory.omitted_tracks)
+            self.assertEqual(
+                (10.25, 12.25),
+                (trajectory.bounds.min_x, trajectory.bounds.max_x),
+            )
+            primary_track = next(
+                track for track in trajectory.tracks if track.player_uuid == "player-a"
+            )
+            self.assertEqual(3, primary_track.point_count)
+            self.assertEqual(
+                [10, 12], [point.server_tick for point in primary_track.points]
+            )
+            self.assertEqual(
+                [False, False],
+                [point.continuous_from_previous for point in primary_track.points],
+            )
+            self.assertAlmostEqual(
+                2**0.5, primary_track.horizontal_distance_blocks
+            )
+
+            bounded_trajectory = viewer.get_trajectory(
+                summary.dataset_id, max_points=1
+            )
+            self.assertEqual(1, bounded_trajectory.returned_points)
+            self.assertEqual(1, bounded_trajectory.omitted_tracks)
+            self.assertEqual(1, len(bounded_trajectory.tracks))
+
+            invalid_trajectory = viewer.get_trajectory(
+                summary.dataset_id,
+                player_uuid="player-a",
+                from_tick=11,
+                to_tick=11,
+                transition_valid=False,
+            )
+            self.assertEqual(1, invalid_trajectory.total_points)
+            self.assertEqual(
+                11, invalid_trajectory.tracks[0].points[0].server_tick
+            )
+
             detail = viewer.get_sample_detail(
                 summary.dataset_id, invalid.items[0].sample_id
             )
@@ -549,6 +592,8 @@ class DatasetIndexTest(unittest.TestCase):
 
             with self.assertRaisesRegex(DatasetViewerError, "signed 64-bit"):
                 viewer.list_sample_summaries(dataset_id, from_tick=2**63)
+            with self.assertRaisesRegex(DatasetViewerError, "max_points"):
+                viewer.get_trajectory(dataset_id, max_points=10_001)
 
     def test_rejects_out_of_range_ticks_and_non_finite_positions_per_dataset(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

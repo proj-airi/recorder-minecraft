@@ -362,6 +362,36 @@ class DashboardHandler(BaseHTTPRequestHandler):
             ]
             self._json(HTTPStatus.OK, metadata)
             return
+        if len(parts) == 5 and parts[4] == "trajectory":
+            validity = self._query_one(query, "validity")
+            modality = self._query_one(query, "modality")
+            transition_valid = self._query_bool(query, "transition_valid")
+            rgb_available = self._query_bool(query, "rgb_available")
+            voxel_available = self._query_bool(query, "voxel_available")
+            if validity is not None:
+                if validity not in {"valid", "invalid"}:
+                    raise ValueError("validity must be valid or invalid")
+                transition_valid = validity == "valid"
+            if modality is not None:
+                if modality not in {"rgb", "voxels"}:
+                    raise ValueError("modality must be rgb or voxels")
+                if modality == "rgb":
+                    rgb_available = True
+                else:
+                    voxel_available = True
+            trajectory = viewer.get_trajectory(
+                dataset_id,
+                player_uuid=self._query_one(query, "player_uuid"),
+                connection_id=self._query_one(query, "connection_id"),
+                from_tick=self._query_optional_int(query, "from_tick"),
+                to_tick=self._query_optional_int(query, "to_tick"),
+                transition_valid=transition_valid,
+                rgb_available=rgb_available,
+                voxel_available=voxel_available,
+                max_points=self._query_int(query, "max_points", 2_400),
+            )
+            self._json(HTTPStatus.OK, asdict(trajectory))
+            return
         if len(parts) == 5 and parts[4] == "samples":
             validity = self._query_one(query, "validity")
             modality = self._query_one(query, "modality")

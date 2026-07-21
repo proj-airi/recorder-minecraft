@@ -112,6 +112,15 @@ verified export manifest and its declared file hashes, then exposes paginated
 summaries and on-demand sample details through opaque IDs. A changed manifest or
 declared hash invalidates that index.
 
+Indexed positions also back a bounded trajectory response. The dashboard draws
+the selected player/connection path directly in top-down X/Z space, separates
+dimension tracks, and breaks lines across missing or invalid transitions. The
+server streams the indexed positions while calculating exact travel distance
+and returns at most the requested display-point bound, so long captures are not
+loaded into browser memory. The synchronized controls panel renders
+`action.reconstructed_control.payload` as held buttons and camera/slot values.
+These remain server-reconstructed 20 Hz observations, not raw device events.
+
 RGB and voxel bytes are served only after their references remain contained
 within the configured export root and their declared size/hash still match.
 Symlinks, missing artifacts, and escaping paths are invalid. Voxel viewers must
