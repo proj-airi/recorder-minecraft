@@ -23,8 +23,7 @@ Install Pixi and proto, then install both locked environments from the
 repository root:
 
 ```sh
-proto install --config-mode local
-pixi install --locked
+./hack/install
 ```
 
 Verify the toolchain:
@@ -43,11 +42,20 @@ repository.
 ## Daily Commands
 
 ```sh
+./hack/start-minecraft-server
+./hack/restart-minecraft-server
+./hack/stop-minecraft-server
+./hack/start-dashboard
 pixi run test-python
 pixi run build-recorder-mod
 pixi run build-renderer-mod
 pixi run check
 ```
+
+The `hack/` scripts are thin wrappers around the same `pixi run mc-recorder`
+commands used by the dashboard and CI-oriented docs. They keep Compose behind
+the CLI so mod staging, generated configuration, EULA validation, and retention
+checks still run before Docker starts.
 
 `pixi run check` runs the Python test suite and both Gradle builds. Renderer
 builds normally resolve Flashback from the pinned Modrinth version ID in
