@@ -162,12 +162,10 @@ class DashboardHTTPTest(unittest.TestCase):
 
         response = self._request("/")
         body = response.read()
-        self.assertIn(b"Recorder control room", body)
-        self.assertIn(b"Player trajectory", body)
-        self.assertIn(b"Left click", body)
-        self.assertIn(b"Right click", body)
-        self.assertIn(b"Mouse delta", body)
-        self.assertIn(b"SERVER-RECONSTRUCTED", body)
+        self.assertIn(b"<title>MC Recorder</title>", body)
+        self.assertIn(b'<div id="app">', body)
+        self.assertIn(b'type="module"', body)
+        self.assertIn(b"requires JavaScript.", body)
         self.assertEqual("no-store", response.headers["Cache-Control"])
 
     def test_status_returns_csrf_and_mutations_enforce_it(self) -> None:

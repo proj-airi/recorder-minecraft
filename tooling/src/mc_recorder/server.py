@@ -15,7 +15,6 @@ from .errors import RecorderError
 from .operations import operation_lock
 from .storage import StorageReport, enforce_quota
 
-
 _IGNORED_JAR_SUFFIXES = ("-sources.jar", "-javadoc.jar", "-dev.jar", "-all-dev.jar")
 _MAX_STATUS_MESSAGE_CHARS = 2048
 
@@ -89,23 +88,12 @@ def _build_recorder_mod(config: RecorderConfig) -> None:
     project = config.mods.recorder_project
     if not project.is_dir():
         raise RecorderError(f"local capture mod project not found: {project}")
-    wrapper = project / "gradlew"
-    if wrapper.is_file():
-        command = [str(wrapper), "build"]
-        cwd = project
-    else:
-        shared_wrapper = config.paths.base / "gradlew"
-        if not shared_wrapper.is_file():
-            raise RecorderError(
-                f"Gradle wrapper not found at {wrapper} or shared fallback {shared_wrapper}"
-            )
-        command = [str(shared_wrapper), "--project-dir", str(project), "build"]
-        cwd = config.paths.base
+    command = ["gradle", "--project-dir", str(project), "build"]
     build_environment = dict(os.environ)
     gradle_cache = config.paths.runtime / "gradle-cache"
     gradle_cache.mkdir(parents=True, exist_ok=True)
     build_environment["GRADLE_USER_HOME"] = str(gradle_cache)
-    result = _run(command, cwd=cwd, env=build_environment)
+    result = _run(command, cwd=config.paths.base, env=build_environment)
     _ensure_success(result, "capture mod build")
 
 

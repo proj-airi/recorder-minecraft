@@ -17,8 +17,7 @@ from .exporter import CANONICAL_RENDER_RESULT_TYPE, export_episode
 from .operations import operation_lock
 from .render_contract import FULL_CLIENT_PRESENTATION_CONTRACT
 from .render_hud import validate_hud_result_envelope
-from .render_transfer import ImportedRenderResult, PORTABLE_REQUEST_TYPE, RENDER_IMPORT_TYPE
-
+from .render_transfer import PORTABLE_REQUEST_TYPE, RENDER_IMPORT_TYPE, ImportedRenderResult
 
 _DATASET_ID_RE = re.compile(r"^[0-9a-f]{32}$")
 _RECORDING_ID_RE = re.compile(r"^[0-9a-f]{24}$")

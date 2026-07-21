@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = [ "setuptools>=68" ]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -13,7 +13,7 @@ dependencies = []
 mc-recorder = "mc_recorder.cli:main"
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = [ "src" ]
 
 [tool.setuptools.package-data]
-mc_recorder = ["static/*"]
+mc_recorder = [ "dashboard_dist/**" ]

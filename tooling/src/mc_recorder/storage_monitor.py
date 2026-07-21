@@ -9,7 +9,6 @@ from pathlib import Path
 from .errors import RecorderError
 from .storage import enforce_quota, human_bytes
 
-
 _stopping = False
 
 

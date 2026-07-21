@@ -11,8 +11,8 @@
     "build:dashboard": "pnpm -r -F @mc-recorder/dashboard build",
     "dev": "pnpm -r -F @mc-recorder/dashboard dev",
     "dev:dashboard": "pnpm -r -F @mc-recorder/dashboard dev",
-    "lint": "pnpm -r -F=\"./apps/*\" --parallel lint",
-    "lint:fix": "pnpm -r -F=\"./apps/*\" --parallel lint --fix",
+    "lint": "moeru-lint .",
+    "lint:fix": "moeru-lint --fix .",
     "preview:dashboard": "pnpm -r -F @mc-recorder/dashboard preview",
     "typecheck": "pnpm -r -F=\"./apps/*\" --parallel typecheck"
   },
@@ -25,6 +25,8 @@
     "@unocss/preset-mini": "catalog:",
     "@unocss/preset-web-fonts": "catalog:",
     "eslint": "catalog:",
+    "eslint-plugin-oxlint": "catalog:",
+    "oxlint": "catalog:",
     "typescript": "catalog:",
     "unocss": "catalog:",
     "vite": "catalog:"

@@ -22,14 +22,13 @@ from .render_contract import (
     FULL_CLIENT_PRESENTATION_CAPABILITY_KEY,
     FULL_CLIENT_PRESENTATION_CONTRACT,
 )
-from .render_job import launch_render_job
 from .render_hud import MAX_HUD_SIDECAR_BYTES, validate_hud_sidecar_envelope
+from .render_job import launch_render_job
 from .render_transfer import (
     create_render_bundle,
     materialize_portable_render_job,
     write_portable_render_request,
 )
-
 
 MAX_RPC_BYTES = 8 * 1024 * 1024
 _SSH_HOST = re.compile(

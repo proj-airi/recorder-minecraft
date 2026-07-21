@@ -10,7 +10,6 @@ from typing import Any
 
 from .errors import RecorderError
 
-
 MAX_LEDGER_BYTES = 8 * 1024 * 1024
 MAX_ARCHIVE_METADATA_BYTES = 1024 * 1024
 HOTBAR_SNAPSHOT_CONTRACT = "item_stack_copy_v1"

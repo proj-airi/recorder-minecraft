@@ -3,9 +3,10 @@
 The Python 3.11+ CLI provisions the pinned Minecraft 1.21.8 Fabric server,
 inspects verified sidecar epochs, exports state/action JSONL, enforces combined
 capture/replay retention, and launches the local Flashback RGB/voxel renderer.
-Docker Compose is required on the recorder host. Java 21, a graphical desktop,
-OpenSSH, and `rsync` are required on a remote renderer; the recorder host also
-needs an SSH server and `rsync` for that workflow.
+Pixi owns the Python environment. proto owns OpenJDK 21 and Gradle. Docker
+Compose is required on the recorder host. A graphical desktop, OpenSSH, and
+`rsync` are required on a remote renderer; the recorder host also needs an SSH
+server and `rsync` for that workflow.
 
 V1 defaults to the exact `itzg/minecraft-server:2026.7.0-java21` image and the
 immutable ServerReplay Modrinth selector `server-replay:TbWIikrT`. The companion
@@ -16,8 +17,7 @@ storage monitor is pinned to `python:3.11.15-alpine3.24`.
 From the workspace root:
 
 ```sh
-python3 -m pip install -e tooling
-mc-recorder init
+./hack/install
 ```
 
 Initialization creates `recorder.toml` and workspace directories. It
@@ -26,7 +26,7 @@ deliberately writes `server.eula = false`. Review the
 field to `true`. Alternatively, after accepting it, use:
 
 ```sh
-mc-recorder init --accept-eula --force
+pixi run mc-recorder init --accept-eula --force
 ```
 
 The CLI never accepts the EULA implicitly, and `server start` refuses to run
@@ -37,11 +37,22 @@ All relative paths resolve from the directory containing `recorder.toml`. Use
 
 ## Server lifecycle
 
+For the default workspace, use the convenience scripts:
+
 ```sh
-mc-recorder server start --wait
-mc-recorder server status
-mc-recorder server logs --follow
-mc-recorder server stop
+./hack/start-minecraft-server
+./hack/restart-minecraft-server
+./hack/stop-minecraft-server
+```
+
+They are thin wrappers around the CLI below. Use the raw commands when passing
+`--config PATH` or when you need exact subcommand control:
+
+```sh
+pixi run mc-recorder server start --wait
+pixi run mc-recorder server status
+pixi run mc-recorder server logs --follow
+pixi run mc-recorder server stop
 ```
 
 `server start` builds and stages `recorder-mod`, writes the capture and
@@ -62,8 +73,13 @@ archives are independent of sidecar epochs.
 ```sh
 export MC_RECORDER_DASHBOARD_USERNAME=recorder
 export MC_RECORDER_DASHBOARD_PASSWORD='replace-with-a-long-password'
-mc-recorder dashboard serve
+./hack/start-dashboard
 ```
+
+`hack/start-dashboard` runs `pnpm install` and `pnpm build:dashboard` before
+serving. Set `MC_RECORDER_SKIP_DASHBOARD_BUILD=1` to reuse an existing
+dashboard build, or run `pixi run mc-recorder dashboard serve` directly for raw
+CLI control.
 
 The generated configuration contains the intended LAN defaults, which can be
 changed without altering the credential environment variables:
@@ -135,28 +151,29 @@ the server until a GUI-capable machine runs the foreground worker.
 Prepare that machine from the same project revision deployed on the server:
 
 ```sh
-python3 -m pip install -e tooling
-mc-recorder init
+proto install --config-mode local
+pixi install --locked
+pixi run mc-recorder init
 ssh -o BatchMode=yes mcdatacol true
-mc-recorder render-worker \
+pixi run mc-recorder render-worker \
   --host mcdatacol \
   --remote-root /srv/mc-play-recorder
 ```
 
-The local `recorder.toml` anchors `renderer-mod`, the Gradle wrapper, and the
-worker cache; it is not the remote server configuration. Java 21 and a working
-graphical desktop are required to launch the Minecraft client. `ssh` and
-`rsync` must be installed locally, and the Debian recorder host must run an SSH
-server and have `rsync`. Because the worker uses SSH batch mode, `mcdatacol`
-must resolve through the local SSH configuration and authenticate without an
-interactive password prompt. That SSH identity is the authority boundary: the
-remote account must be able to read the deployed Python tooling and replay
-sources, write the configured runtime/export roots, and run the tooling under
-`/srv/mc-play-recorder`. Dashboard Basic-auth credentials are not sent to the
-worker.
+The local `recorder.toml` anchors `renderer-mod`, the proto-managed Gradle
+toolchain, and the worker cache; it is not the remote server configuration.
+OpenJDK 21 and a working graphical desktop are required to launch the Minecraft
+client. `ssh` and `rsync` must be installed locally, and the Debian recorder
+host must run an SSH server and have `rsync`. Because the worker uses SSH batch
+mode, `mcdatacol` must resolve through the local SSH configuration and
+authenticate without an interactive password prompt. That SSH identity is the
+authority boundary: the remote account must be able to read the deployed Python
+tooling and replay sources, write the configured runtime/export roots, and run
+the tooling under `/srv/mc-play-recorder`. Dashboard Basic-auth credentials are
+not sent to the worker.
 
 The normal build resolves Flashback through immutable Modrinth version ID
-`X3J8u7wy`, which is the 0.39.1 artifact for Minecraft 1.21.8. No environment
+`9YgAwnpm`, which is the 0.39.5 artifact for Minecraft 1.21.8. No environment
 override is required. `MC_RECORDER_FLASHBACK_JAR` remains available only for
 offline builds and must point to that same Minecraft 1.21.8 artifact.
 
@@ -168,19 +185,19 @@ job. Keep the process running inside a logged-in graphical desktop session.
 There is no launchd service integration yet. Useful options are:
 
 ```sh
-mc-recorder render-worker --host mcdatacol \
+pixi run mc-recorder render-worker --host mcdatacol \
   --remote-root /srv/mc-play-recorder \
   --job JOB_UUID                 # claim only this queued job
 
-mc-recorder render-worker --host mcdatacol \
+pixi run mc-recorder render-worker --host mcdatacol \
   --remote-root /srv/mc-play-recorder \
   --once                         # make one claim attempt and exit
 
-mc-recorder render-worker --host mcdatacol \
+pixi run mc-recorder render-worker --host mcdatacol \
   --remote-root /srv/mc-play-recorder \
   --poll-interval 5              # continuous polling; allowed range is 1-30
 
-mc-recorder render-worker --host mcdatacol \
+pixi run mc-recorder render-worker --host mcdatacol \
   --remote-root /srv/mc-play-recorder \
   --cache /path/to/cache \
   --keep-workspace               # retain this attempt for diagnosis
@@ -262,9 +279,9 @@ The versioned HTTP interface includes:
 ## Inspect and export
 
 ```sh
-mc-recorder episodes list [--json]
-mc-recorder episodes validate [SESSION_ID] [--json]
-mc-recorder export SESSION_ID \
+pixi run mc-recorder episodes list [--json]
+pixi run mc-recorder episodes validate [SESSION_ID] [--json]
+pixi run mc-recorder export SESSION_ID \
   [--player UUID] [--connection UUID] \
   [--from-tick N] [--to-tick N] \
   [--frames RENDER_OUTPUT] [--voxels RENDER_OUTPUT] \
@@ -315,7 +332,7 @@ voxel capture. Dashboard RGB jobs use `render-worker` instead and attach their
 verified results automatically.
 
 ```sh
-mc-recorder render SESSION_ID \
+pixi run mc-recorder render SESSION_ID \
   --player UUID \
   [--connection ID] \
   [--replay PATH] \
@@ -367,7 +384,7 @@ Block entities are not materialized in voxel V1.
 Attach the completed artifacts during export:
 
 ```sh
-mc-recorder export SESSION_ID \
+pixi run mc-recorder export SESSION_ID \
   --frames artifacts/exports/render-jobs/JOB \
   --voxels artifacts/exports/render-jobs/JOB
 ```
@@ -375,8 +392,8 @@ mc-recorder export SESSION_ID \
 ## Retention
 
 ```sh
-mc-recorder storage status
-mc-recorder storage enforce
+pixi run mc-recorder storage status
+pixi run mc-recorder storage enforce
 ```
 
 The quota counts `paths.captures` plus `paths.replays`, but not world data or

@@ -9,11 +9,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
-from mc_recorder.config import initialize, load_config
-from mc_recorder.errors import RecorderError
 from unittest.mock import patch
 
+from mc_recorder.config import initialize, load_config
+from mc_recorder.errors import RecorderError
 from mc_recorder.server import (
+    _build_recorder_mod,
     compose_status,
     provision_local_mod,
     show_logs,
@@ -95,6 +96,32 @@ class ServerProvisioningTest(unittest.TestCase):
 
             env = write_compose_env(load_config(source)).read_text(encoding="utf-8")
             self.assertIn('MC_MODRINTH_PROJECTS=""', env)
+
+    def test_build_recorder_mod_uses_proto_managed_gradle(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            config = load_config(initialize(root / "recorder.toml", accept_eula=True))
+            config.mods.recorder_project.mkdir(parents=True)
+
+            with patch("mc_recorder.server._run") as run:
+                run.return_value = type(
+                    "Result",
+                    (),
+                    {"returncode": 0, "stdout": "", "stderr": ""},
+                )()
+
+                _build_recorder_mod(config)
+
+            command = run.call_args.args[0]
+            self.assertEqual(
+                ["gradle", "--project-dir", str(config.mods.recorder_project), "build"],
+                command,
+            )
+            self.assertEqual(config.paths.base, run.call_args.kwargs["cwd"])
+            self.assertEqual(
+                str(config.paths.runtime / "gradle-cache"),
+                run.call_args.kwargs["env"]["GRADLE_USER_HOME"],
+            )
 
     def test_compose_keeps_recorder_control_ticks_live_while_empty(self) -> None:
         compose = (Path(__file__).parents[2] / "deploy" / "docker-compose.yml").read_text(

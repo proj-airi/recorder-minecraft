@@ -16,7 +16,6 @@ from typing import Any, Iterator
 
 from .errors import RecorderError
 
-
 ACTIVE_JOB_STATES = frozenset(
     {"queued", "downloading", "rendering", "uploading", "verifying", "attaching"}
 )

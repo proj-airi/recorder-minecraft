@@ -1,0 +1,33 @@
+{
+  "name": "@mc-recorder/dashboard",
+  "type": "module",
+  "private": true,
+  "description": "MC Recorder LAN dashboard",
+  "license": "MIT",
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite --host 127.0.0.1",
+    "preview": "vite preview --host 127.0.0.1",
+    "typecheck": "vue-tsc --noEmit"
+  },
+  "dependencies": {
+    "@moeru/std": "catalog:",
+    "@proj-airi/ui": "catalog:",
+    "splitpanes": "catalog:",
+    "vue": "catalog:",
+    "vue-router": "catalog:"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "@types/splitpanes": "catalog:",
+    "@unocss/reset": "catalog:",
+    "@vitejs/plugin-vue": "catalog:",
+    "@vue-macros/volar": "catalog:",
+    "typescript": "catalog:",
+    "unocss": "catalog:",
+    "unplugin-vue-router": "catalog:",
+    "vite": "catalog:",
+    "vue-macros": "catalog:",
+    "vue-tsc": "catalog:"
+  }
+}

@@ -66,9 +66,7 @@ installation, and troubleshooting.
 From the workspace root:
 
 ```sh
-proto install --config-mode local
-pixi install --locked
-pixi run mc-recorder init
+./hack/install
 ```
 
 `mc-recorder init` always defaults to `server.eula = false`. Read the
@@ -86,8 +84,7 @@ accepted it, `mc-recorder init --accept-eula --force` is an explicit equivalent.
 Start the server and connect to `localhost:25565`:
 
 ```sh
-pixi run mc-recorder server start --wait
-pixi run mc-recorder server logs --follow
+./hack/start-minecraft-server
 ```
 
 Recording starts automatically when players join. The capture side requires no
@@ -95,7 +92,7 @@ client mod; a normal Minecraft 1.21.8 client can connect. Stop cleanly before
 consuming the latest files, then inspect and validate the capture:
 
 ```sh
-pixi run mc-recorder server stop
+./hack/stop-minecraft-server
 pixi run mc-recorder episodes list
 pixi run mc-recorder episodes validate SESSION_ID
 ```
@@ -112,12 +109,14 @@ or reboots.
 Set both required HTTP Basic credentials, then start the service:
 
 ```sh
-pnpm install
-pnpm build:dashboard
 export MC_RECORDER_DASHBOARD_USERNAME=recorder
 export MC_RECORDER_DASHBOARD_PASSWORD='replace-with-a-long-password'
-pixi run mc-recorder dashboard serve
+./hack/start-dashboard
 ```
+
+`hack/start-dashboard` installs workspace Node dependencies and builds the
+dashboard before serving it. Set `MC_RECORDER_SKIP_DASHBOARD_BUILD=1` when you
+want to reuse an existing `apps/dashboard/dist` build.
 
 The default `[dashboard]` listener is `0.0.0.0:8765`, so another trusted-LAN
 machine can open `http://SERVER_ADDRESS:8765/`. Basic authentication over plain

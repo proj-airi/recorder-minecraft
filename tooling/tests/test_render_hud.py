@@ -14,11 +14,9 @@ sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 from mc_recorder.dataset_viewer import DatasetValidationError, DatasetViewer, opaque_dataset_id
 from mc_recorder.errors import RecorderError
 from mc_recorder.render_hud import (
-    HUD_SIDECAR_TYPE,
     create_structured_hud_sidecar,
     validate_hud_sidecar_envelope,
 )
-
 
 PLAYER = "00000000-0000-4000-8000-000000000001"
 CONNECTION = "00000000-0000-4000-8000-000000000002"

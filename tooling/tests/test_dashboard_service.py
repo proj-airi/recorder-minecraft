@@ -18,7 +18,6 @@ from mc_recorder.dataset_viewer import DatasetCatalogResult
 from mc_recorder.errors import RecorderError
 from mc_recorder.render_contract import FULL_CLIENT_PRESENTATION_CONTRACT
 
-
 PLAYER = "00000000-0000-4000-8000-000000000001"
 ACTIVE = "00000000-0000-4000-8000-000000000002"
 ENDED = "00000000-0000-4000-8000-000000000003"

@@ -27,7 +27,6 @@ from mc_recorder.render_transfer import (
     write_portable_render_request,
 )
 
-
 PLAYER = "00000000-0000-4000-8000-000000000001"
 CONNECTION = "00000000-0000-4000-8000-000000000002"
 REQUEST_ID = "00000000-0000-4000-8000-000000000003"

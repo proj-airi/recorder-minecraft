@@ -24,7 +24,6 @@ from .errors import RecorderError
 from .render_contract import FULL_CLIENT_PRESENTATION_CONTRACT
 from .render_hud import validate_hud_result_envelope
 
-
 DATASET_SCHEMA_VERSION = 1
 DATASET_OWNER = "mc-recorder"
 DATASET_FORMAT = "mc-recorder-jsonl-v1"

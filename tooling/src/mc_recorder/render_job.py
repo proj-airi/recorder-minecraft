@@ -361,7 +361,7 @@ def prepare_render_job(
             },
             "renderer_contract": {
                 "minecraft_version": "1.21.8",
-                "flashback_version": "0.39.1",
+                "flashback_version": "0.39.5",
                 "implementation": "renderer-mod",
                 "job_property": "mc.recorder.renderJob",
                 "job_environment": "MC_RECORDER_RENDER_JOB",
@@ -392,9 +392,6 @@ def launch_render_job(config: RecorderConfig, job: RenderJobResult) -> dict[str,
     project = config.mods.renderer_project
     if not project.is_dir():
         raise RecorderError(f"renderer mod project not found: {project}")
-    wrapper = config.paths.base / "gradlew"
-    if not wrapper.is_file():
-        raise RecorderError(f"Gradle wrapper not found: {wrapper}")
 
     job_manifest = _read_job_manifest(job.manifest)
     declared_presentation = job_manifest.get("presentation_contract")
@@ -413,7 +410,7 @@ def launch_render_job(config: RecorderConfig, job: RenderJobResult) -> dict[str,
     try:
         process = subprocess.run(
             [
-                str(wrapper),
+                "gradle",
                 "--project-dir",
                 str(project),
                 "runClient",

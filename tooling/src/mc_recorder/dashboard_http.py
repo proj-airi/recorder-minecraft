@@ -3,8 +3,8 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
-import importlib.resources
 import json
+import mimetypes
 import os
 import re
 import sys
@@ -12,6 +12,7 @@ import threading
 from dataclasses import asdict
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
@@ -27,7 +28,6 @@ from .dataset_viewer import (
 )
 from .errors import RecorderError
 
-
 MAX_REQUEST_BYTES = 64 * 1024
 JOB_PATH = re.compile(r"^/api/v1/jobs/([0-9a-f-]{36})$")
 GENERATE_PATH = re.compile(r"^/api/v1/recordings/([0-9a-f]{24})/generate$")
@@ -41,12 +41,21 @@ OPAQUE_DATASET_ID = re.compile(r"^[0-9a-f]{32}$")
 OPAQUE_SAMPLE_ID = re.compile(r"^[0-9a-f]{32}$")
 
 
+def _dashboard_static_root() -> Path:
+    override = os.environ.get("MC_RECORDER_DASHBOARD_STATIC_ROOT")
+    if override:
+        return Path(override).expanduser().resolve()
+
+    repository_root = Path(__file__).resolve().parents[3]
+    return repository_root / "apps" / "dashboard" / "dist"
+
+
 class DashboardApplication:
     def __init__(self, config: RecorderConfig, username: str, password: str):
         self.config = config
         self.username = username
         self.password = password
-        self.static_root = importlib.resources.files("mc_recorder").joinpath("static")
+        self.static_root = _dashboard_static_root()
         self.service = DashboardService(config)
         self.dataset_viewer = self.service.dataset_viewer
         self.dataset_index = self.service.dataset_index
@@ -149,13 +158,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._dataset_route(path, parse_qs(route.query, max_num_fields=32))
                 return
             if path in {"/", "/index.html"}:
-                self._static("dashboard.html", "text/html; charset=utf-8")
+                self._static("index.html")
                 return
-            if path == "/app.js":
-                self._static("dashboard.js", "text/javascript; charset=utf-8")
-                return
-            if path == "/styles.css":
-                self._static("dashboard.css", "text/css; charset=utf-8")
+            if not path.startswith("/api/"):
+                self._static(path.removeprefix("/"))
                 return
             self._error(HTTPStatus.NOT_FOUND, "not found")
         except (DatasetNotFoundError, SampleNotFoundError, ArtifactUnavailableError) as exc:
@@ -504,13 +510,25 @@ class DashboardHandler(BaseHTTPRequestHandler):
         digest = hashlib.blake2s(str(block_state).encode("utf-8"), digest_size=3).digest()
         return [48 + component * 159 // 255 for component in digest]
 
-    def _static(self, name: str, content_type: str) -> None:
-        resource = self.application.static_root.joinpath(name)
+    def _static(self, name: str) -> None:
+        root = self.application.static_root.resolve()
+        resource = (root / name).resolve()
+        if root not in {resource, *resource.parents} or resource.is_dir():
+            self._error(HTTPStatus.NOT_FOUND, "static asset not found")
+            return
         try:
             data = resource.read_bytes()
         except (FileNotFoundError, OSError):
-            self._error(HTTPStatus.NOT_FOUND, "static asset not found")
+            self._error(
+                HTTPStatus.NOT_FOUND,
+                "dashboard static asset not found; run `pnpm build:dashboard` first",
+            )
             return
+        content_type = mimetypes.guess_type(resource.name)[0] or "application/octet-stream"
+        if content_type == "text/html":
+            content_type = "text/html; charset=utf-8"
+        elif content_type in {"text/css", "text/javascript"}:
+            content_type = f"{content_type}; charset=utf-8"
         self._bytes(HTTPStatus.OK, data, content_type)
 
     @staticmethod

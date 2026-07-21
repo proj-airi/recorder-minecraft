@@ -13,7 +13,6 @@ from typing import Any
 from .episodes import directory_size, inspect_epoch
 from .errors import RecorderError
 
-
 DEFAULT_REPLAY_STABLE_SECONDS = 300
 
 

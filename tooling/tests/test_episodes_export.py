@@ -15,12 +15,11 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
+from mc_recorder.cli import _parser
 from mc_recorder.episodes import inspect_episode, validate_episode
 from mc_recorder.errors import RecorderError
 from mc_recorder.exporter import _safe_replace_directory, export_episode
-from mc_recorder.cli import _parser
 from mc_recorder.render_job import prepare_render_job
-
 
 PLAYER = "00000000-0000-4000-8000-000000000001"
 CONNECTION = "00000000-0000-4000-8000-000000000002"

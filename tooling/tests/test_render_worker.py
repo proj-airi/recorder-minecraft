@@ -17,10 +17,10 @@ from mc_recorder.render_contract import (
     FULL_CLIENT_PRESENTATION_CONTRACT,
 )
 from mc_recorder.render_worker import (
+    RemoteRecorder,
     _ClaimedJobError,
     _IncompatibleServerError,
     _register_worker,
-    RemoteRecorder,
     call_remote_json,
     create_job_workspace,
     download_hud_sidecar,
@@ -32,7 +32,6 @@ from mc_recorder.render_worker import (
     run_render_worker,
     ssh_rpc_command,
 )
-
 
 SERVER_CAPABILITIES = {
     "structured_claim_failure": True,

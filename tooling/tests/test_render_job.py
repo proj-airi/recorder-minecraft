@@ -23,7 +23,6 @@ from mc_recorder.render_job import (
     resolve_replay,
 )
 
-
 PLAYER_UUID = "12345678-1234-5678-1234-567812345678"
 CONNECTION_UUID = "87654321-4321-4678-9234-567812345678"
 
@@ -140,7 +139,6 @@ class ReplayResolutionTest(unittest.TestCase):
             root = Path(temporary)
             project = root / "renderer-mod"
             project.mkdir()
-            (root / "gradlew").write_text("wrapper", encoding="utf-8")
             replay = root / "replay.zip"
             replay.write_bytes(b"replay")
             digest = hashlib.sha256(b"replay").hexdigest()
@@ -177,6 +175,17 @@ class ReplayResolutionTest(unittest.TestCase):
             )
 
             self.assertEqual("no_coverage", result["status"])
+            self.assertEqual(
+                [
+                    "gradle",
+                    "--project-dir",
+                    str(project),
+                    "runClient",
+                    "--no-daemon",
+                    "--console=plain",
+                ],
+                run.call_args.args[0],
+            )
 
             manifest_value = json.loads(manifest.read_text())
             manifest_value["no_gui"] = False
@@ -194,7 +203,6 @@ class ReplayResolutionTest(unittest.TestCase):
             root = Path(temporary)
             project = root / "renderer-mod"
             project.mkdir()
-            (root / "gradlew").write_text("wrapper", encoding="utf-8")
             replay = root / "replay.zip"
             replay.write_bytes(b"replay")
             digest = hashlib.sha256(b"replay").hexdigest()
@@ -288,7 +296,6 @@ class ReplayResolutionTest(unittest.TestCase):
             root = Path(temporary)
             project = root / "renderer-mod"
             project.mkdir()
-            (root / "gradlew").write_text("wrapper", encoding="utf-8")
             replay = root / "replay.zip"
             replay.write_bytes(b"replay")
             digest = hashlib.sha256(b"replay").hexdigest()

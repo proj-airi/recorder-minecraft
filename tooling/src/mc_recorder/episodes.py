@@ -9,7 +9,6 @@ from typing import Any, Iterator
 
 from .errors import RecorderError
 
-
 _EPOCH_RE = re.compile(r"^epoch-(\d+)$")
 _REQUIRED_EVENT_FIELDS = (
     "schema_version",

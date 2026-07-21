@@ -2,9 +2,12 @@
 name = "mc-play-recorder"
 version = "0.1.0"
 description = "Minecraft gameplay dataset recorder development workspace"
-authors = ["Project AIRI"]
-channels = ["conda-forge"]
-platforms = ["linux-64", "osx-arm64"]
+authors = [ "Project AIRI" ]
+channels = [ "conda-forge" ]
+platforms = [
+  "linux-64",
+  "osx-arm64"
+]
 requires-pixi = ">=0.73,<1"
 
 [dependencies]
@@ -20,9 +23,19 @@ setup-jvm = "proto install --config-mode local"
 test-python = "python -m unittest discover -s tooling/tests -v"
 build-recorder-mod = "gradle --project-dir recorder-mod build"
 build-renderer-mod = "gradle --project-dir renderer-mod build"
-build-mods = { depends-on = ["build-recorder-mod", "build-renderer-mod"] }
-check = { depends-on = ["test-python", "build-mods"] }
-py-check = { depends-on = ["py-lint", "py-format-check", "py-typecheck"] }
+build-mods = { depends-on = [
+  "build-recorder-mod",
+  "build-renderer-mod"
+] }
+check = { depends-on = [
+  "test-python",
+  "build-mods"
+] }
+py-check = { depends-on = [
+  "py-lint",
+  "py-format-check",
+  "py-typecheck"
+] }
 py-format = "ruff format ."
 py-format-check = "ruff format --check ."
 py-lint = "ruff check ."

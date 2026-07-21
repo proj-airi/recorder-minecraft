@@ -1,0 +1,20 @@
+target-version = "py314"
+line-length = 240
+src = [
+  "tooling/src",
+  "tooling/tests",
+]
+exclude = []
+
+[lint]
+select = [
+  "ANN",
+  "E4",
+  "E7",
+  "E9",
+  "F",
+  "I",
+]
+
+[lint.flake8-annotations]
+allow-star-arg-any = true

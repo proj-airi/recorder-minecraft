@@ -14,7 +14,6 @@ from typing import Any
 
 from .errors import RecorderError
 
-
 JobFunction = Callable[[], dict[str, Any]]
 MAX_JOB_ERROR_CHARS = 2048
 

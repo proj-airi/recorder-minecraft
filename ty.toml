@@ -1,0 +1,13 @@
+[environment]
+python-version = "3.14"
+root = [
+  "tooling/src",
+  "tooling/tests",
+]
+
+[src]
+include = [
+  "tooling/src",
+  "tooling/tests",
+]
+exclude = []

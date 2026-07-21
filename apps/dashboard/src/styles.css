@@ -15,6 +15,7 @@
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 body { margin: 0; min-height: 100vh; background: radial-gradient(circle at 15% -10%, #20382a 0, transparent 34rem), var(--bg); color: var(--text); }
+.dashboard-app { min-height: 100vh; }
 header { display: flex; align-items: end; justify-content: space-between; padding: 2.4rem clamp(1.2rem, 4vw, 4rem) 1.2rem; }
 h1, h2, p { margin-top: 0; }
 h1 { font-size: clamp(2rem, 5vw, 4.3rem); letter-spacing: -.055em; margin-bottom: 0; }
@@ -57,7 +58,10 @@ main { padding: 1.4rem clamp(1.2rem, 4vw, 4rem) 4rem; }
 .worker small { grid-column: 1 / -1; color: var(--muted); }
 .render-job small { display: block; color: var(--muted); margin-top: .25rem; }
 .jobs { display: grid; gap: .55rem; }.job { display: grid; grid-template-columns: 1fr auto; border-top: 1px solid var(--line); padding-top: .7rem; }.job:first-child { border: 0; }
-.dataset-layout { display: grid; grid-template-columns: minmax(16rem, 24rem) 1fr; gap: 1rem; }.dataset-list-panel, .inspector { margin-top: 0; }
+.dataset-layout { min-height: 42rem; gap: 1rem; background: transparent; }.dataset-list-panel, .inspector { height: 100%; margin-top: 0; }
+.dataset-layout.splitpanes--vertical > .splitpanes__splitter { width: .45rem; min-width: .45rem; border: 1px solid var(--line); border-radius: 99px; background: var(--panel-2); transition: background .15s; }
+.dataset-layout.splitpanes--vertical > .splitpanes__splitter:hover { background: var(--green); }
+.dataset-layout .splitpanes__pane { min-width: 0; }
 .dataset-item { width: 100%; text-align: left; background: transparent; margin-top: .5rem; }.dataset-item.active { border-color: var(--green); background: #183020; }.dataset-item small { display: block; color: var(--muted); margin-top: .3rem; }
 .dataset-issues { color: var(--red); font-size: .75rem; margin: .8rem 0 0; }
 .empty-state { min-height: 28rem; display: grid; place-content: center; text-align: center; color: var(--muted); }
@@ -111,6 +115,10 @@ main { padding: 1.4rem clamp(1.2rem, 4vw, 4rem) 4rem; }
 details { border-top: 1px solid var(--line); padding: .8rem 0; } summary { cursor: pointer; font-weight: 700; } pre { overflow: auto; max-height: 28rem; color: #c9dbce; white-space: pre-wrap; font-size: .75rem; }
 .voxel-tools { display: flex; gap: .5rem; margin: .8rem 0; } canvas { image-rendering: pixelated; max-width: 100%; border: 1px solid var(--line); }
 #toast { position: fixed; right: 1rem; bottom: 1rem; max-width: 28rem; background: #1f2922; border: 1px solid var(--line); border-radius: .7rem; padding: .8rem 1rem; opacity: 0; transform: translateY(1rem); transition: .2s; pointer-events: none; }#toast.show { opacity: 1; transform: translateY(0); }
+.confirm-backdrop { position: fixed; inset: 0; z-index: 10; display: grid; place-items: center; padding: 1rem; background: #0008; backdrop-filter: blur(6px); }
+.confirm-dialog { width: min(26rem, 100%); border: 1px solid var(--line); border-radius: .8rem; background: var(--panel); box-shadow: 0 24px 80px #0008; padding: 1rem; }
+.confirm-dialog p { color: var(--text); margin-bottom: 1rem; }
+.confirm-dialog .actions { justify-content: flex-end; margin-top: 0; }
 @media (max-width: 1100px) { .observation-grid { grid-template-columns: 1fr; } }
-@media (max-width: 900px) { .summary-grid, .dataset-layout, .sample-grid { grid-template-columns: 1fr; }.recording-row { grid-template-columns: 1fr 1fr; }.viewer-filters { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 900px) { .summary-grid, .sample-grid { grid-template-columns: 1fr; }.dataset-layout { min-height: 70rem; }.recording-row { grid-template-columns: 1fr 1fr; }.viewer-filters { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 520px) { .pointer-inputs { grid-template-columns: 1fr; } }

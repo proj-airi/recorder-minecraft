@@ -8,7 +8,6 @@ from typing import Any
 
 from .errors import RecorderError
 
-
 CONFIG_VERSION = 1
 DEFAULT_CONFIG_NAME = "recorder.toml"
 _MEMORY_RE = re.compile(r"^[1-9][0-9]*(?:[KMGTP]i?B?|%)$", re.IGNORECASE)
@@ -137,7 +136,7 @@ def load_config(path: str | Path = DEFAULT_CONFIG_NAME) -> RecorderConfig:
         eula=_value(server_raw, "eula", False, bool),
         image=_value(server_raw, "image", "itzg/minecraft-server:2026.7.0-java21", str),
         minecraft_version=_value(server_raw, "minecraft_version", "1.21.8", str),
-        fabric_loader_version=_value(server_raw, "fabric_loader_version", "0.17.2", str),
+        fabric_loader_version=_value(server_raw, "fabric_loader_version", "0.19.3", str),
         port=_value(server_raw, "port", 25565, int),
         memory=_value(server_raw, "memory", "4G", str),
         seed=_value(server_raw, "seed", "", str),
@@ -262,7 +261,7 @@ def default_config_text(*, accept_eula: bool = False) -> str:
 eula = {eula}
 image = "itzg/minecraft-server:2026.7.0-java21"
 minecraft_version = "1.21.8"
-fabric_loader_version = "0.17.2"
+fabric_loader_version = "0.19.3"
 port = 25565
 memory = "4G"
 seed = ""

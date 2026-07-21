@@ -23,7 +23,6 @@ from .errors import RecorderError
 from .render_contract import FULL_CLIENT_PRESENTATION_CONTRACT
 from .render_hud import validate_hud_result_envelope
 
-
 EXPORT_SCHEMA_VERSION = 1
 EXPORT_FORMAT = "mc-recorder-jsonl-v1"
 CANONICAL_RENDER_RESULT_TYPE = "mc-recorder-render-result-v2"

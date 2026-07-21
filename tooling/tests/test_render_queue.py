@@ -14,7 +14,6 @@ sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 from mc_recorder.errors import RecorderError
 from mc_recorder.render_queue import RenderQueueStore
 
-
 RECORDING_ID = "a" * 24
 WORKER_ONE = "11111111-1111-4111-8111-111111111111"
 WORKER_TWO = "22222222-2222-4222-8222-222222222222"

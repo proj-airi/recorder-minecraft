@@ -19,10 +19,9 @@ from .episodes import directory_size, inspect_epoch, resolve_episode
 from .errors import RecorderError
 from .exporter import export_episode
 from .operations import operation_lock
-from .render_queue import RenderQueueStore
 from .render_contract import FULL_CLIENT_PRESENTATION_CONTRACT
+from .render_queue import RenderQueueStore
 from .server import compose_status, start_server, stop_server
-
 
 MAX_CONTROL_JSON_BYTES = 8 * 1024 * 1024
 HEARTBEAT_STALE_SECONDS = 5.0

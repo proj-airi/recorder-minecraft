@@ -13,7 +13,6 @@ sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 from mc_recorder.errors import RecorderError
 from mc_recorder.render_sources import resolve_replay_segments
 
-
 SESSION = "20260721T000000.000Z-deadbeef"
 PLAYER = "00000000-0000-4000-8000-000000000001"
 CONNECTION = "00000000-0000-4000-8000-000000000002"

@@ -21,7 +21,6 @@ from mc_recorder.render_rpc import RenderRpcService, _PlanLeaseKeeper
 from mc_recorder.render_sources import ReplayNotReadyError, ReplaySegmentSource
 from mc_recorder.render_transfer import ImportedRenderResult
 
-
 WORKER_ID = "11111111-1111-4111-8111-111111111111"
 PLAYER_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 CONNECTION_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"

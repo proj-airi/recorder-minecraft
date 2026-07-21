@@ -19,15 +19,15 @@ from .render_contract import (
     FULL_CLIENT_PRESENTATION_CAPABILITY_KEY,
     FULL_CLIENT_PRESENTATION_CONTRACT,
 )
+from .render_hud import (
+    create_structured_hud_sidecar,
+    validate_hud_sidecar_envelope,
+)
 from .render_queue import (
     DEFAULT_DEFER_COOLDOWN_SECONDS,
     MAX_LEASE_SECONDS,
     MIN_LEASE_SECONDS,
     RenderQueueStore,
-)
-from .render_hud import (
-    create_structured_hud_sidecar,
-    validate_hud_sidecar_envelope,
 )
 from .render_sources import (
     ReplayNotReadyError,
@@ -40,7 +40,6 @@ from .render_transfer import (
     import_render_bundle,
     write_portable_render_request,
 )
-
 
 PLAN_OWNER = "mc-recorder"
 PLAN_TYPE = "mc-recorder-remote-render-plan-v1"

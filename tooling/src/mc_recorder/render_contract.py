@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-
 FULL_CLIENT_PRESENTATION_CONTRACT = "flashback_server_spectate_structured_hud_v1"
 FULL_CLIENT_PRESENTATION_CAPABILITY_KEY = "full_client_presentation_contract"
 

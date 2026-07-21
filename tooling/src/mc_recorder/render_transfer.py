@@ -36,7 +36,6 @@ from .render_job import (
     _stable_file_digest,
 )
 
-
 PORTABLE_REQUEST_TYPE = "mc-recorder-portable-render-request-v1"
 RENDER_BUNDLE_TYPE = "mc-recorder-render-bundle-v1"
 RENDER_IMPORT_TYPE = "mc-recorder-render-import-v1"
@@ -675,7 +674,7 @@ def materialize_portable_render_job(
             },
             "renderer_contract": {
                 "minecraft_version": "1.21.8",
-                "flashback_version": "0.39.1",
+                "flashback_version": "0.39.5",
                 "implementation": "renderer-mod",
                 "job_property": "mc.recorder.renderJob",
                 "job_environment": "MC_RECORDER_RENDER_JOB",
