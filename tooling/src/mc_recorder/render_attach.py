@@ -35,7 +35,7 @@ class RenderAttachmentResult:
     state_count: int
     action_count: int
     rgb_sample_count: int
-    voxel_sample_count: int
+    scene_sample_count: int
     requested_start_tick: int
     requested_end_tick: int
     rendered_tick_count: int
@@ -53,7 +53,7 @@ class RenderAttachmentResult:
             "state_count": self.state_count,
             "action_count": self.action_count,
             "rgb_sample_count": self.rgb_sample_count,
-            "voxel_sample_count": self.voxel_sample_count,
+            "scene_sample_count": self.scene_sample_count,
             "requested_start_tick": self.requested_start_tick,
             "requested_end_tick": self.requested_end_tick,
             "rendered_tick_count": self.rendered_tick_count,
@@ -86,7 +86,6 @@ class _CompleteImport:
     request_id: str
     start_tick: int
     end_tick: int
-    has_voxels: bool
 
 
 @dataclass(frozen=True)
@@ -416,19 +415,12 @@ def _validate_import(
     frames_index = directory / "frames" / "frames.jsonl"
     if frames_index.is_symlink() or not frames_index.is_file():
         raise RecorderError("complete render import has no regular frame index")
-    voxel_index = directory / "frames" / "voxels.jsonl"
-    has_voxels = voxel_index.is_file() and not voxel_index.is_symlink()
-    if voxel_index.exists() and not has_voxels:
-        raise RecorderError("render import voxel index is not a regular file")
-    if has_voxels != (result.get("voxel_index") == "frames/voxels.jsonl"):
-        raise RecorderError("canonical render result voxel reference is inconsistent")
     return _CompleteImport(
         directory=directory,
         segment_id=segment_id,
         request_id=request_id,
         start_tick=first_tick,
         end_tick=last_tick,
-        has_voxels=has_voxels,
     )
 
 
@@ -462,7 +454,7 @@ def _result(
         state_count=metadata.state_count,
         action_count=metadata.action_count,
         rgb_sample_count=metadata.rgb_samples,
-        voxel_sample_count=metadata.voxel_samples,
+        scene_sample_count=metadata.scene_samples,
         requested_start_tick=identity.start_tick,
         requested_end_tick=identity.end_tick,
         rendered_tick_count=rendered,
@@ -518,6 +510,7 @@ def attach_imported_renders(
                 "refusing to attach RGB because the structured dataset changed during verification"
             )
         episode = resolve_episode(config.paths.captures, identity.session_id)
+        scene_store = identity.output / "scene" / "scene-v1.sqlite3"
         export_episode(
             episode,
             identity.output,
@@ -526,7 +519,7 @@ def attach_imported_renders(
             first_tick=identity.selection_start_tick,
             last_tick=identity.selection_end_tick,
             frames=[item.directory for item in complete],
-            voxels=[item.directory for item in complete if item.has_voxels],
+            scenes=[scene_store] if scene_store.is_file() and not scene_store.is_symlink() else [],
             force=True,
         )
         verified = _verify_dataset(config, identity)

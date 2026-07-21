@@ -30,7 +30,6 @@ if TYPE_CHECKING:
 RENDER_JOB_TYPE = "mc-recorder-first-person-render-v1"
 OWNER = "mc-recorder"
 _FRAME_ARTIFACT_RE = re.compile(r"^frame_[0-9]+\.png$")
-_VOXEL_ARTIFACT_RE = re.compile(r"^voxel_[0-9]+\.json\.gz(?:\.inprogress)?$")
 
 
 @dataclass(frozen=True)
@@ -191,8 +190,6 @@ def _owned_render_artifacts(frames: Path) -> bool:
     allowed_indexes = {
         "frames.jsonl",
         "frames.jsonl.inprogress",
-        "voxels.jsonl",
-        "voxels.jsonl.inprogress",
     }
     try:
         for entry in frames.iterdir():
@@ -202,15 +199,7 @@ def _owned_render_artifacts(frames: Path) -> bool:
                 if entry.name not in allowed_indexes and _FRAME_ARTIFACT_RE.fullmatch(entry.name) is None:
                     return False
                 continue
-            if entry.name != "voxels" or not entry.is_dir():
-                return False
-            for voxel in entry.iterdir():
-                if (
-                    voxel.is_symlink()
-                    or not voxel.is_file()
-                    or _VOXEL_ARTIFACT_RE.fullmatch(voxel.name) is None
-                ):
-                    return False
+            return False
         return True
     except OSError:
         return False
@@ -229,8 +218,6 @@ def prepare_render_job(
     first_tick: int | None,
     last_tick: int | None,
     force: bool,
-    voxel_horizontal_radius: int = 0,
-    voxel_vertical_radius: int = 0,
     no_gui: bool = False,
 ) -> RenderJobResult:
     try:
@@ -243,17 +230,6 @@ def prepare_render_job(
         raise RecorderError("renderer v1 supports exactly 20 FPS")
     if not isinstance(no_gui, bool):
         raise RecorderError("no_gui must be a boolean")
-    if (voxel_horizontal_radius == 0) != (voxel_vertical_radius == 0):
-        raise RecorderError("voxel radii must both be zero or both be positive")
-    if not 0 <= voxel_horizontal_radius <= 64 or not 0 <= voxel_vertical_radius <= 64:
-        raise RecorderError("voxel radii must be between 0 and 64 blocks")
-    voxel_cells = (
-        (voxel_horizontal_radius * 2 + 1)
-        * (voxel_horizontal_radius * 2 + 1)
-        * (voxel_vertical_radius * 2 + 1)
-    )
-    if voxel_horizontal_radius and voxel_cells > 2_000_000:
-        raise RecorderError("voxel crop is too large; maximum is 2,000,000 cells per tick")
     validation = validate_episode(episode)
     if not validation.valid or validation.sealed_epochs == 0:
         raise RecorderError("episode must have at least one valid sealed epoch before rendering")
@@ -310,8 +286,6 @@ def prepare_render_job(
             "width": width,
             "height": height,
             "fps": fps,
-            "voxel_horizontal_radius": voxel_horizontal_radius,
-            "voxel_vertical_radius": voxel_vertical_radius,
             "no_gui": no_gui,
             "stop_when_done": True,
             "episode": {
@@ -345,19 +319,10 @@ def prepare_render_job(
                 "width": width,
                 "height": height,
             },
-            "voxel_crop": {
-                "enabled": voxel_horizontal_radius > 0,
-                "horizontal_radius": voxel_horizontal_radius,
-                "vertical_radius": voxel_vertical_radius,
-                "cells_per_tick": voxel_cells if voxel_horizontal_radius > 0 else 0,
-                "format": "mc-recorder-voxel-palette-v1",
-                "coverage": "explicit bitset; uncovered cells are unknown, not air",
-            },
             "output_metadata": {
                 "frames_directory": str((output / "frames").resolve()),
                 "frame_index": str((output / "frames" / "frames.jsonl").resolve()),
                 "result_manifest": str((output / "result.json").resolve()),
-                "voxel_index": str((output / "frames" / "voxels.jsonl").resolve()),
             },
             "renderer_contract": {
                 "minecraft_version": "1.21.8",
@@ -370,7 +335,6 @@ def prepare_render_job(
             "limitations": [
                 "The rendered view is reconstructed from server-visible packets, not original client pixels.",
                 "A five-minute ServerReplay segment may cover only part of a longer player connection.",
-                "Voxel V1 materializes block states but not block-entity data; the replay remains source.",
             ],
         }
         manifest = staging / "render-job.json"

@@ -124,9 +124,13 @@ class ReplayResolutionTest(unittest.TestCase):
                 encoding="utf-8",
             )
             (frames / "frame_000001.png").write_bytes(b"owned")
+            self.assertTrue(_owned_render_directory(job))
+
             (frames / "voxels").mkdir()
             (frames / "voxels" / "voxel_000000000001.json.gz").write_bytes(b"owned")
-            self.assertTrue(_owned_render_directory(job))
+            self.assertFalse(_owned_render_directory(job))
+            (frames / "voxels" / "voxel_000000000001.json.gz").unlink()
+            (frames / "voxels").rmdir()
 
             (frames / "personal-notes.txt").write_text("do not delete", encoding="utf-8")
             self.assertFalse(_owned_render_directory(job))
