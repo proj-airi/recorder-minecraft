@@ -591,6 +591,57 @@ class DashboardServiceTest(unittest.TestCase):
             finally:
                 service.close()
 
+    def test_scene_jobs_are_cleaned_after_success_and_bounded_after_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            config = load_config(initialize(root / "recorder.toml", accept_eula=True))
+            service = DashboardService(config)
+            row = {"id": "a" * 24, "start_tick": 1, "end_tick": 2}
+            scene_job = mock.sentinel.scene_job
+            try:
+                for outcome in ({"output": "dataset"}, RecorderError("compaction failed")):
+                    with self.subTest(outcome=type(outcome).__name__), mock.patch(
+                        "mc_recorder.dashboard_service.prepare_scene_job",
+                        return_value=scene_job,
+                    ), mock.patch(
+                        "mc_recorder.dashboard_service.cleanup_scene_job"
+                    ) as cleanup, mock.patch(
+                        "mc_recorder.dashboard_service.cleanup_stale_scene_jobs"
+                    ) as cleanup_stale, mock.patch.object(
+                        service,
+                        "_publish_prepared_scene_job",
+                        side_effect=outcome if isinstance(outcome, Exception) else None,
+                        return_value=outcome if isinstance(outcome, dict) else None,
+                    ):
+                        if isinstance(outcome, Exception):
+                            with self.assertRaisesRegex(RecorderError, "compaction failed"):
+                                service._extract_and_publish_dataset(
+                                    row,
+                                    episode=root / "episode",
+                                    output=root / "dataset",
+                                    player_uuid=PLAYER,
+                                    connection_id=ENDED,
+                                )
+                        else:
+                            self.assertEqual(
+                                outcome,
+                                service._extract_and_publish_dataset(
+                                    row,
+                                    episode=root / "episode",
+                                    output=root / "dataset",
+                                    player_uuid=PLAYER,
+                                    connection_id=ENDED,
+                                ),
+                            )
+                        if isinstance(outcome, Exception):
+                            cleanup.assert_not_called()
+                            self.assertEqual(2, cleanup_stale.call_count)
+                        else:
+                            cleanup.assert_called_once_with(scene_job)
+                            cleanup_stale.assert_called_once_with(config.paths.runtime, keep=1)
+            finally:
+                service.close()
+
     def test_render_jobs_are_connection_scoped_bounded_and_lifecycle_independent(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

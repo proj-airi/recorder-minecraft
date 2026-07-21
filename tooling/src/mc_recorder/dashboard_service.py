@@ -22,9 +22,16 @@ from .operations import operation_lock
 from .render_queue import RenderQueueStore
 from .render_contract import FULL_CLIENT_PRESENTATION_CONTRACT
 from .render_sources import ReplayNotReadyError
-from .scene_job import launch_scene_job, prepare_scene_job
+from .scene_job import (
+    SceneJob,
+    cleanup_scene_job,
+    cleanup_stale_scene_jobs,
+    launch_scene_job,
+    prepare_scene_job,
+)
 from .scene_store import compact_scene_stream, validate_scene_store
 from .server import compose_status, start_server, stop_server
+from .storage import pin_sealed_epochs
 
 
 MAX_CONTROL_JSON_BYTES = 8 * 1024 * 1024
@@ -759,70 +766,121 @@ class DashboardService:
             with self._state_lock:
                 self._recording_phases[str(row["id"])] = "waiting_replay"
             episode = resolve_episode(self.config.paths.captures, session_id)
-            deadline = time.monotonic() + REPLAY_READY_TIMEOUT_SECONDS
-            while True:
-                try:
-                    scene_job = prepare_scene_job(
-                        self.config,
-                        episode,
-                        player_uuid=player_uuid,
-                        connection_id=connection_id,
-                        first_tick=row.get("start_tick"),
-                        last_tick=row.get("end_tick"),
+            # Retention takes an exclusive lock on these same manifest files.
+            # Keep the exact canonical epochs alive from replay wait through
+            # the final atomic dataset publication.
+            with pin_sealed_epochs(episode):
+                return self._extract_and_publish_dataset(
+                    row,
+                    episode=episode,
+                    output=output,
+                    player_uuid=player_uuid,
+                    connection_id=connection_id,
+                )
+
+    def _extract_and_publish_dataset(
+        self,
+        row: dict[str, Any],
+        *,
+        episode: Path,
+        output: Path,
+        player_uuid: str,
+        connection_id: str,
+    ) -> dict[str, Any]:
+        cleanup_stale_scene_jobs(self.config.paths.runtime, keep=1)
+        deadline = time.monotonic() + REPLAY_READY_TIMEOUT_SECONDS
+        while True:
+            try:
+                scene_job = prepare_scene_job(
+                    self.config,
+                    episode,
+                    player_uuid=player_uuid,
+                    connection_id=connection_id,
+                    first_tick=row.get("start_tick"),
+                    last_tick=row.get("end_tick"),
+                )
+                break
+            except ReplayNotReadyError:
+                if time.monotonic() >= deadline:
+                    raise RecorderError(
+                        "timed out waiting for the connection replay to become immutable"
                     )
-                    break
-                except ReplayNotReadyError:
-                    if time.monotonic() >= deadline:
-                        raise RecorderError(
-                            "timed out waiting for the connection replay to become immutable"
-                        )
-                    time.sleep(1.0)
-            with self._state_lock:
-                self._recording_phases[str(row["id"])] = "extracting"
-            launch_scene_job(self.config, scene_job, capture_output=True)
-            with self._state_lock:
-                self._recording_phases[str(row["id"])] = "compacting"
-            scene_store = scene_job.directory / "scene-v1.sqlite3"
-            compact_scene_stream(
-                scene_job.stream,
-                scene_store,
-                expected_session_id=scene_job.session_id,
-                expected_player_uuid=scene_job.player_uuid,
-                expected_connection_id=scene_job.connection_id,
-                expected_ticks=scene_job.state_ticks,
+                time.sleep(1.0)
+        try:
+            result = self._publish_prepared_scene_job(
+                row,
+                episode=episode,
+                output=output,
+                player_uuid=player_uuid,
+                connection_id=connection_id,
+                scene_job=scene_job,
             )
-            with self._state_lock:
-                self._recording_phases[str(row["id"])] = "verifying"
-            validate_scene_store(
-                scene_store,
-                expected_session_id=scene_job.session_id,
-                expected_player_uuid=scene_job.player_uuid,
-                expected_connection_id=scene_job.connection_id,
-                expected_ticks=scene_job.state_ticks,
-            )
-            with self._state_lock:
-                self._recording_phases[str(row["id"])] = "attaching"
-            result = export_episode(
-                episode,
-                output,
-                players=[player_uuid],
-                connections=[connection_id],
-                first_tick=row.get("start_tick"),
-                last_tick=row.get("end_tick"),
-                scenes=[scene_store],
-            )
-            self._dataset_cache.pop(result.output, None)
-            self.dataset_viewer.get_dataset_metadata(self._dataset_id(result.output))
-            self.dataset_index.request_refresh()
-            return {
-                "output": str(result.output),
-                "reused": False,
-                "dataset_id": self._dataset_id(result.output),
-                "sample_count": result.sample_count,
-                "state_count": result.state_count,
-                "action_count": result.action_count,
-                "scene_count": result.scene_count,
-            }
+        except BaseException:
+            # Keep only the newest failed job for bounded diagnostics; older
+            # crash/failure intermediates are marker-checked before deletion.
+            cleanup_stale_scene_jobs(self.config.paths.runtime, keep=1)
+            raise
+        # The published dataset contains its own verified scene-store copy.
+        cleanup_scene_job(scene_job)
+        return result
+
+    def _publish_prepared_scene_job(
+        self,
+        row: dict[str, Any],
+        *,
+        episode: Path,
+        output: Path,
+        player_uuid: str,
+        connection_id: str,
+        scene_job: SceneJob,
+    ) -> dict[str, Any]:
+        with self._state_lock:
+            self._recording_phases[str(row["id"])] = "extracting"
+        verified_stream = launch_scene_job(self.config, scene_job, capture_output=True)
+        with self._state_lock:
+            self._recording_phases[str(row["id"])] = "compacting"
+        scene_store = scene_job.directory / "scene-v1.sqlite3"
+        compact_scene_stream(
+            scene_job.stream,
+            scene_store,
+            expected_session_id=scene_job.session_id,
+            expected_player_uuid=scene_job.player_uuid,
+            expected_connection_id=scene_job.connection_id,
+            expected_ticks=scene_job.state_ticks,
+            verified_stream=verified_stream,
+        )
+        with self._state_lock:
+            self._recording_phases[str(row["id"])] = "verifying"
+        validate_scene_store(
+            scene_store,
+            expected_session_id=scene_job.session_id,
+            expected_player_uuid=scene_job.player_uuid,
+            expected_connection_id=scene_job.connection_id,
+            expected_ticks=scene_job.state_ticks,
+        )
+        with self._state_lock:
+            self._recording_phases[str(row["id"])] = "attaching"
+        result = export_episode(
+            episode,
+            output,
+            players=[player_uuid],
+            connections=[connection_id],
+            first_tick=row.get("start_tick"),
+            last_tick=row.get("end_tick"),
+            scenes=[scene_store],
+        )
+        self._dataset_cache.pop(result.output, None)
+        self.dataset_viewer.get_dataset_metadata(self._dataset_id(result.output))
+        self.dataset_index.request_refresh()
+        return {
+            "output": str(result.output),
+            "reused": False,
+            "dataset_id": self._dataset_id(result.output),
+            "sample_count": result.sample_count,
+            "state_count": result.state_count,
+            "action_count": result.action_count,
+            "scene_count": result.scene_count,
+        }
 
     def _request_seal(self, row: dict[str, Any]) -> None:
         capture = self.capture_status()
