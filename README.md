@@ -139,8 +139,8 @@ On a GUI-capable machine, use the same project revision as the recorder host,
 install the Python tooling, initialize a local `recorder.toml`, and make Java 21
 the active JVM. The machine must have `ssh` and `rsync`, while the recorder host
 must have an SSH server and `rsync`. The SSH alias must authenticate
-non-interactively to the account that owns the remote recorder workspace. Run
-one queued job with:
+non-interactively to the account that owns the remote recorder workspace. From
+a logged-in graphical desktop session, start the foreground worker with:
 
 ```sh
 mc-recorder render-worker \
@@ -148,11 +148,25 @@ mc-recorder render-worker \
   --remote-root /srv/mc-play-recorder
 ```
 
-The worker registers, claims at most one job, downloads its exact replay
-segments, launches the local Java GUI renderer, uploads integrity-bound bundles,
-asks the server to verify/import/re-export the dataset, and exits. It is not a
-daemon or persistent poller; running the command with no ready job is also a
-successful no-op. Use `--job JOB_UUID` to select a particular queued job.
+The worker registers one process identity, polls continuously, and processes
+jobs sequentially until interrupted with Ctrl-C. Each job downloads its exact
+replay segments, launches one local Java GUI renderer, uploads integrity-bound
+bundles, asks the server to verify/import/re-export the dataset, and then closes
+that Java client before claiming another job. The default poll interval is 10
+seconds; `--poll-interval SECONDS` accepts values from 1 through 30. Use
+`--once` for the previous single-claim behavior, or `--job JOB_UUID` for a
+targeted one-shot claim. Keep the foreground process inside a logged-in GUI
+session; launchd integration is not provided yet.
+
+If a claimed job fails, the worker reports/fences that attempt and stops before
+claiming another job. This avoids consuming the queue when Java, Gradle, disk,
+or another machine-wide renderer dependency is broken; fix the local problem
+and restart the foreground worker. Transient registration failures use bounded
+retry backoff without failing queue jobs. A lost or invalid `claim` response
+instead stops the worker because the server may already have leased work;
+inspect the dashboard queue before restarting. Continuous mode requires the
+matching upgraded server tooling, while `--once` remains available for an
+intentional one-shot against older tooling.
 
 Downloaded replays persist in a content-addressed cache under
 `$XDG_CACHE_HOME/mc-recorder/replays/` when that variable is set, or
@@ -160,12 +174,14 @@ Downloaded replays persist in a content-addressed cache under
 SHA-256 verification. Per-attempt workspaces under the cache are removed after
 success or failure; `--keep-workspace` retains one for diagnosis, and
 `--cache PATH` moves both areas. If the worker disappears, its fenced lease
-expires and the job returns to the queue for a later one-shot worker without
-trusting the abandoned attempt.
+expires and the job returns to the queue for a later worker attempt without
+trusting the abandoned attempt. The long-running process does not make job
+workspaces or Minecraft clients persistent.
 
 If ServerReplay is still finalizing the disconnected player's archive, the
-attempt is deferred without failing the job. The worker reports that no job is
-ready and exits; running it again later claims the same queued job.
+attempt is deferred without failing the job and becomes eligible again after a
+30-second server-side cooldown. The worker keeps polling and may process later
+ready jobs before retrying it.
 
 For connections spanning several ServerReplay archives, the worker processes
 segments newest-to-oldest. Newer coverage owns overlapping ticks; older segments

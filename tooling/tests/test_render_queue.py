@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import sqlite3
 import sys
 import tempfile
 import time
 import unittest
+from contextlib import closing
 from pathlib import Path
 from unittest import mock
 
@@ -51,6 +53,45 @@ class RenderQueueStoreTest(unittest.TestCase):
         self.assertEqual("queued", restored["state"])
         self.assertEqual(_payload(), restored["payload"])
         self.assertIsNone(restored["active_attempt"])
+
+    def test_existing_database_is_migrated_with_immediate_queue_eligibility(self) -> None:
+        legacy_path = Path(self.temporary.name) / "legacy-render.sqlite3"
+        with closing(sqlite3.connect(legacy_path)) as connection:
+            connection.execute(
+                """
+                CREATE TABLE render_jobs (
+                    id TEXT PRIMARY KEY,
+                    fingerprint TEXT NOT NULL,
+                    recording_id TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    state TEXT NOT NULL,
+                    progress_json TEXT,
+                    result_json TEXT,
+                    error TEXT,
+                    created_at REAL NOT NULL,
+                    updated_at REAL NOT NULL,
+                    started_at REAL,
+                    completed_at REAL,
+                    active_attempt_id TEXT,
+                    attempt_count INTEGER NOT NULL DEFAULT 0,
+                    retry_of TEXT
+                )
+                """
+            )
+            connection.commit()
+
+        migrated = RenderQueueStore(legacy_path)
+        with closing(sqlite3.connect(legacy_path)) as connection:
+            columns = {
+                str(row[1]) for row in connection.execute("PRAGMA table_info(render_jobs)")
+            }
+        self.assertIn("eligible_at", columns)
+
+        job = migrated.create(_payload())
+        migrated.register_worker("worker", worker_id=WORKER_ONE)
+        claimed = migrated.claim(WORKER_ONE)
+        assert claimed is not None
+        self.assertEqual(job["id"], claimed["job"]["id"])
 
     def test_dashboard_restart_preserves_a_live_worker_lease(self) -> None:
         job = self.store.create(_payload())
@@ -134,12 +175,46 @@ class RenderQueueStoreTest(unittest.TestCase):
                     phase="rendering",
                 )
 
+    def test_expired_scoped_lease_clears_an_earlier_defer_cooldown(self) -> None:
+        base_time = 2_000_000.0
+        with mock.patch("mc_recorder.render_queue.time.time", return_value=base_time):
+            job = self.store.create(_payload())
+            self.store.register_worker("first", worker_id=WORKER_ONE)
+            self.store.register_worker("second", worker_id=WORKER_TWO)
+            initial = self.store.claim(WORKER_ONE, job_id=job["id"], lease_seconds=10)
+            assert initial is not None
+            initial_attempt = initial["attempt"]
+            self.store.defer_attempt(
+                WORKER_ONE,
+                initial_attempt["id"],
+                initial_attempt["lease_token"],
+                "replay is still being saved",
+            )
+
+        with mock.patch("mc_recorder.render_queue.time.time", return_value=base_time + 1):
+            forced = self.store.claim(WORKER_ONE, job_id=job["id"], lease_seconds=10)
+        assert forced is not None
+        with mock.patch("mc_recorder.render_queue.time.time", return_value=base_time + 12):
+            reclaimed = self.store.claim(WORKER_TWO, lease_seconds=10)
+        assert reclaimed is not None
+        self.assertEqual(job["id"], reclaimed["job"]["id"])
+        self.assertEqual(3, reclaimed["attempt"]["generation"])
+
     def test_not_ready_input_defers_without_failing_the_job(self) -> None:
         job = self.store.create(_payload())
         self.store.register_worker("first", worker_id=WORKER_ONE)
         claimed = self.store.claim(WORKER_ONE, job_id=job["id"])
         assert claimed is not None
         attempt = claimed["attempt"]
+
+        with self.assertRaisesRegex(RecorderError, "defer cooldown"):
+            self.store.defer_attempt(
+                WORKER_ONE,
+                attempt["id"],
+                attempt["lease_token"],
+                "replay is still being saved",
+                cooldown_seconds=301,
+            )
 
         deferred = self.store.defer_attempt(
             WORKER_ONE,
@@ -163,6 +238,44 @@ class RenderQueueStoreTest(unittest.TestCase):
                 phase="downloading",
             )
 
+    def test_deferred_oldest_job_does_not_block_later_ready_work(self) -> None:
+        base_time = 1_000_000.0
+        later_payload = _payload()
+        later_payload["dataset_id"] = "d" * 32
+        with mock.patch("mc_recorder.render_queue.time.time", return_value=base_time):
+            oldest = self.store.create(_payload())
+        with mock.patch("mc_recorder.render_queue.time.time", return_value=base_time + 1):
+            later = self.store.create(later_payload)
+            self.store.register_worker("worker", worker_id=WORKER_ONE)
+        with mock.patch("mc_recorder.render_queue.time.time", return_value=base_time + 2):
+            claimed_oldest = self.store.claim(WORKER_ONE, job_id=oldest["id"])
+            assert claimed_oldest is not None
+            attempt = claimed_oldest["attempt"]
+            self.store.defer_attempt(
+                WORKER_ONE,
+                attempt["id"],
+                attempt["lease_token"],
+                "replay is still being saved",
+            )
+
+        with mock.patch("mc_recorder.render_queue.time.time", return_value=base_time + 3):
+            claimed_later = self.store.claim(WORKER_ONE)
+        assert claimed_later is not None
+        self.assertEqual(later["id"], claimed_later["job"]["id"])
+
+        with mock.patch("mc_recorder.render_queue.time.time", return_value=base_time + 4):
+            later_attempt = claimed_later["attempt"]
+            self.store.fail_attempt(
+                WORKER_ONE,
+                later_attempt["id"],
+                later_attempt["lease_token"],
+                "test cleanup",
+            )
+        with mock.patch("mc_recorder.render_queue.time.time", return_value=base_time + 33):
+            reclaimed_oldest = self.store.claim(WORKER_ONE)
+        assert reclaimed_oldest is not None
+        self.assertEqual(oldest["id"], reclaimed_oldest["job"]["id"])
+
     def test_cancel_and_retry_create_a_new_provenance_row(self) -> None:
         original = self.store.create(_payload())
         canceled = self.store.cancel(original["id"])
@@ -173,8 +286,12 @@ class RenderQueueStoreTest(unittest.TestCase):
         self.assertNotEqual(canceled["id"], retried["id"])
         self.assertEqual(canceled["id"], retried["retry_of"])
         self.assertEqual("queued", retried["state"])
+        self.store.register_worker("worker", worker_id=WORKER_ONE)
+        claimed = self.store.claim(WORKER_ONE)
+        assert claimed is not None
+        self.assertEqual(retried["id"], claimed["job"]["id"])
         with self.assertRaisesRegex(RecorderError, "cannot be retried"):
-            self.store.retry(retried["id"])
+            self.store.retry(claimed["job"]["id"])
 
     def test_worker_updates_are_bounded_and_monotonic(self) -> None:
         self.store.create(_payload())

@@ -56,7 +56,10 @@ class RenderRpcServiceTest(unittest.TestCase):
             {
                 "worker_id": WORKER_ID,
                 "name": "ephemeral-test",
-                "capabilities": {"portable_request_no_gui": True},
+                "capabilities": {
+                    "portable_request_no_gui": True,
+                    "structured_claim_failure": True,
+                },
             },
         )
         self.job = self.service.queue.create(
@@ -203,10 +206,60 @@ class RenderRpcServiceTest(unittest.TestCase):
         self.assertIsNone(result["claim"])
         self.assertEqual("replay_pending", result["reason"])
         self.assertEqual(self.job["id"], result["pending_job"]["id"])
+        self.assertEqual(30, result["deferred_job_cooldown_seconds"])
         queued = self.service.queue.get(self.job["id"])
         self.assertEqual("queued", queued["state"])
         self.assertEqual(1, queued["attempt_count"])
         self.assertIsNone(queued["active_attempt"])
+
+    def test_replay_pending_oldest_job_does_not_block_later_ready_job(self) -> None:
+        created = time.time()
+        pending_jobs = [self.job]
+        for offset, width in enumerate((700, 720), 1):
+            payload = dict(self.job["payload"])
+            payload["render"] = {**payload["render"], "width": width}
+            with mock.patch(
+                "mc_recorder.render_queue.time.time", return_value=created + offset
+            ):
+                pending_jobs.append(self.service.queue.create(payload))
+        later_payload = dict(self.job["payload"])
+        later_payload["render"] = {**later_payload["render"], "width": 800}
+        with mock.patch(
+            "mc_recorder.render_queue.time.time", return_value=created + 3
+        ):
+            later = self.service.queue.create(later_payload)
+        source = self._source(NEW_SEGMENT, 5, b"new replay")
+
+        with mock.patch(
+            "mc_recorder.render_rpc.resolve_replay_segments",
+            side_effect=[
+                ReplayNotReadyError("the exact replay segment is still being saved"),
+                ReplayNotReadyError("the exact replay segment is still being saved"),
+                ReplayNotReadyError("the exact replay segment is still being saved"),
+                [source],
+            ],
+        ):
+            pending = [
+                self.service.dispatch(
+                    "claim",
+                    {"worker_id": WORKER_ID, "lease_seconds": 120},
+                )
+                for _job in pending_jobs
+            ]
+            claimed = self.service.dispatch(
+                "claim",
+                {"worker_id": WORKER_ID, "lease_seconds": 120},
+            )
+
+        self.assertEqual(
+            [job["id"] for job in pending_jobs],
+            [response["pending_job"]["id"] for response in pending],
+        )
+        self.assertTrue(all(response["reason"] == "replay_pending" for response in pending))
+        self.assertTrue(
+            all(response["deferred_job_cooldown_seconds"] == 30 for response in pending)
+        )
+        self.assertEqual(later["id"], claimed["claim"]["job"]["id"])
 
     def test_old_worker_cannot_claim_gui_mode_bound_requests(self) -> None:
         old_worker = "99999999-9999-4999-8999-999999999999"
@@ -227,6 +280,55 @@ class RenderRpcServiceTest(unittest.TestCase):
 
         self.assertEqual("queued", self.service.queue.get(self.job["id"])["state"])
 
+    def test_old_worker_receives_nonzero_error_for_a_failed_claim_plan(self) -> None:
+        self.service.dispatch(
+            "register",
+            {
+                "worker_id": WORKER_ID,
+                "name": "pre-persistent-worker",
+                "capabilities": {"portable_request_no_gui": True},
+            },
+        )
+
+        with (
+            mock.patch.object(
+                self.service,
+                "_create_plan",
+                side_effect=RecorderError("plan preparation broke"),
+            ),
+            self.assertRaisesRegex(
+                RecorderError, "failed claimed render job.*plan preparation broke"
+            ),
+        ):
+            self.service.dispatch(
+                "claim",
+                {
+                    "worker_id": WORKER_ID,
+                    "job_id": self.job["id"],
+                    "lease_seconds": 120,
+                },
+            )
+
+        self.assertEqual("failed", self.service.queue.get(self.job["id"])["state"])
+
+    def test_process_presence_heartbeat_keeps_a_registered_worker_online(self) -> None:
+        result = self.service.dispatch(
+            "worker-heartbeat",
+            {"worker_id": WORKER_ID},
+        )
+
+        self.assertEqual(WORKER_ID, result["worker"]["id"])
+        self.assertEqual("online", result["worker"]["state"])
+        workers = self.service.queue.workers()
+        self.assertEqual([WORKER_ID], [worker["id"] for worker in workers])
+        self.assertEqual("online", workers[0]["state"])
+        self.assertLessEqual(workers[0]["heartbeat_age_seconds"], 1.0)
+        with self.assertRaisesRegex(RecorderError, "unsupported fields: job_id"):
+            self.service.dispatch(
+                "worker-heartbeat",
+                {"worker_id": WORKER_ID, "job_id": self.job["id"]},
+            )
+
     def test_claim_validates_optional_dataset_selection_bounds(self) -> None:
         base = dict(self.job["payload"])
         cases = (
@@ -246,11 +348,10 @@ class RenderRpcServiceTest(unittest.TestCase):
         for payload, message in cases:
             with self.subTest(message=message):
                 job = self.service.queue.create(payload)
-                with (
-                    mock.patch("mc_recorder.render_rpc.resolve_replay_segments", return_value=[]),
-                    self.assertRaisesRegex(RecorderError, message),
+                with mock.patch(
+                    "mc_recorder.render_rpc.resolve_replay_segments", return_value=[]
                 ):
-                    self.service.dispatch(
+                    result = self.service.dispatch(
                         "claim",
                         {
                             "worker_id": WORKER_ID,
@@ -258,6 +359,9 @@ class RenderRpcServiceTest(unittest.TestCase):
                             "lease_seconds": 120,
                         },
                     )
+                self.assertEqual("claim_failed", result["reason"])
+                self.assertIn(message, result["error"])
+                self.assertEqual(job["id"], result["failed_job"]["id"])
 
     def test_requests_are_idempotent_newest_first_and_bound_older_range(self) -> None:
         old = self._source(OLD_SEGMENT, 2, b"old replay")
@@ -288,15 +392,16 @@ class RenderRpcServiceTest(unittest.TestCase):
                     "render": {**base["render"], "no_gui": invalid},
                 }
                 job = self.service.queue.create(payload)
-                with self.assertRaisesRegex(RecorderError, "no_gui must be a boolean"):
-                    self.service.dispatch(
-                        "claim",
-                        {
-                            "worker_id": WORKER_ID,
-                            "job_id": job["id"],
-                            "lease_seconds": 120,
-                        },
-                    )
+                result = self.service.dispatch(
+                    "claim",
+                    {
+                        "worker_id": WORKER_ID,
+                        "job_id": job["id"],
+                        "lease_seconds": 120,
+                    },
+                )
+                self.assertEqual("claim_failed", result["reason"])
+                self.assertIn("no_gui must be a boolean", result["error"])
 
         self.job = self.service.queue.create(
             {

@@ -130,7 +130,7 @@ not make the dataset invalid.
 Rendering stays outside the dashboard process because the recorder server may
 be headless. After **Seal & Generate Dataset** completes, choose a resolution in
 the recording row and click **Render RGB**. The resulting job remains queued on
-the server until a GUI-capable machine runs the one-shot worker.
+the server until a GUI-capable machine runs the foreground worker.
 
 Prepare that machine from the same project revision deployed on the server:
 
@@ -155,10 +155,12 @@ sources, write the configured runtime/export roots, and run the tooling under
 `/srv/mc-play-recorder`. Dashboard Basic-auth credentials are not sent to the
 worker.
 
-Each invocation registers a fresh ephemeral worker, claims at most one queued
-job, renders it, finalizes it on the server, and exits. It does not stay resident
-or poll for another job. If nothing is ready, it prints a no-job message and
-exits successfully. Useful options are:
+By default, one foreground process registers one worker UUID, polls every 10
+seconds, and processes queued jobs sequentially until Ctrl-C. Each claimed job
+still has an ephemeral workspace and launches exactly one Java client; that
+client exits and the workspace is removed before the worker claims another
+job. Keep the process running inside a logged-in graphical desktop session.
+There is no launchd service integration yet. Useful options are:
 
 ```sh
 mc-recorder render-worker --host mcdatacol \
@@ -167,9 +169,27 @@ mc-recorder render-worker --host mcdatacol \
 
 mc-recorder render-worker --host mcdatacol \
   --remote-root /srv/mc-play-recorder \
+  --once                         # make one claim attempt and exit
+
+mc-recorder render-worker --host mcdatacol \
+  --remote-root /srv/mc-play-recorder \
+  --poll-interval 5              # continuous polling; allowed range is 1-30
+
+mc-recorder render-worker --host mcdatacol \
+  --remote-root /srv/mc-play-recorder \
   --cache /path/to/cache \
   --keep-workspace               # retain this attempt for diagnosis
 ```
+
+A claimed-job failure fences/fails that attempt and stops the worker before it
+can touch later queued jobs. After correcting the local Java, Gradle, disk, or
+renderer problem, restart the command. Failures reaching the server before a
+claim during worker registration use bounded retry backoff and leave the queue
+unchanged. A failed, timed-out, or invalid `claim` response stops the worker:
+the server may already have leased work, so automatically claiming again would
+be unsafe. Inspect the dashboard queue before restarting. Persistent mode also
+requires upgraded server tooling; use `--once` only when deliberately working
+with a pre-extension server.
 
 The default cache is `$XDG_CACHE_HOME/mc-recorder` when that variable is set,
 or `~/.cache/mc-recorder` otherwise. Replay archives live under
@@ -178,12 +198,13 @@ their byte size and SHA-256 are verified. Owned per-attempt directories under
 `jobs/` are deleted after both success and failure unless `--keep-workspace` is
 set. A heartbeat renews a fenced lease while the GUI is active; a killed worker
 cannot finalize after its lease is reclaimed. Its job returns to `queued`, and
-a later one-shot worker creates a new attempt.
+a later worker claim creates a new attempt.
 
 An exact replay archive may still be saving after the player disconnects. In
-that case the server immediately defers the attempt back to `queued`, the
-one-shot worker exits successfully with no ready job, and a later invocation
-can claim it without using partial replay bytes.
+that case the server immediately defers the attempt back to `queued` with a
+30-second eligibility cooldown. The worker continues polling and can process a
+later ready job instead of repeatedly reclaiming the deferred oldest job.
+`--once` and `--job` retain the successful no-ready-job exit.
 
 The server pins every saved replay archive for the exact player connection and
 authors path-free requests. The worker downloads the pinned archives, verifies

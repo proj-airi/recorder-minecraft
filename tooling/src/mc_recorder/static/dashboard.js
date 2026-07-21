@@ -197,7 +197,7 @@ async function queueRender(recordingId) {
       method: "POST",
       body: JSON.stringify({ width, height, fps: 20 }),
     });
-    toast(`RGB render ${job.state}; run the ephemeral GUI worker to claim it.`);
+    toast(`RGB render ${job.state}; the foreground GUI worker will claim it when online.`);
     await Promise.all([refreshRecordings(), refreshRenders()]);
   } catch (error) {
     toast(error.message);
@@ -235,7 +235,7 @@ async function refreshRenders() {
     const workers = workerData.workers || [];
     $("#render-workers").innerHTML = workers.length
       ? workers.map((worker) => `<div class="worker"><span class="status ${badgeClass(worker.state)}">${escapeHtml(worker.state)}</span><strong>${escapeHtml(worker.name)}</strong><small>${worker.state === "offline" ? `last seen ${escapeHtml(worker.heartbeat_at)}` : escapeHtml(worker.current_job_id || "ready")}</small></div>`).join("")
-      : '<p class="empty">No GUI renderer registered. Queued jobs remain safe until an ephemeral worker runs.</p>';
+      : '<p class="empty">No GUI renderer online. Start mc-recorder render-worker in a logged-in graphical session; queued jobs remain safe.</p>';
     const jobs = jobData.jobs || [];
     $("#render-jobs").innerHTML = jobs.length
       ? jobs.map((job) => `<div class="job render-job"><div><strong>${escapeHtml(job.payload?.session_id || job.recording_id)}</strong><small>${escapeHtml(job.payload?.render?.width)}×${escapeHtml(job.payload?.render?.height)} @ ${escapeHtml(job.payload?.render?.fps)} fps · ${escapeHtml(renderProgress(job) || "waiting for worker")}</small></div><span class="status ${badgeClass(job.state)}">${escapeHtml(job.state)}</span></div>`).join("")

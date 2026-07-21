@@ -85,18 +85,26 @@ class RenderCliTest(unittest.TestCase):
         dispatch.assert_called_once_with(config, "register", body)
         self.assertEqual({"worker": {"state": "ready"}}, json.loads(output.getvalue()))
 
-    def test_render_worker_claims_at_most_one_job_and_exits(self) -> None:
+    def test_targeted_render_worker_processes_one_job_and_exits(self) -> None:
         config = object()
         remote = object()
         output = io.StringIO()
         job_id = "22222222-2222-4222-8222-222222222222"
+
+        def run_worker(*_args: object, **kwargs: object) -> dict[str, object]:
+            result: dict[str, object] = {
+                "job": {"id": job_id, "state": "complete"}
+            }
+            kwargs["on_result"](result)
+            return result
+
         with (
             mock.patch.object(cli, "load_config", return_value=config),
             mock.patch.object(cli.RemoteRecorder, "parse", return_value=remote) as parse,
             mock.patch.object(
                 cli,
-                "run_ephemeral_worker",
-                return_value={"job": {"id": job_id, "state": "complete"}},
+                "run_render_worker",
+                side_effect=run_worker,
             ) as worker,
             mock.patch.object(cli.sys, "stdout", output),
         ):
@@ -110,18 +118,86 @@ class RenderCliTest(unittest.TestCase):
                     "--job",
                     job_id,
                 ]
-            )
+        )
 
         self.assertEqual(0, code)
         parse.assert_called_once_with("mcdatacol", "/srv/mc-play-recorder")
-        worker.assert_called_once_with(
-            config,
-            remote,
-            job_id=job_id,
-            cache_root=None,
-            keep_workspace=False,
-        )
+        worker.assert_called_once()
+        self.assertEqual((config, remote), worker.call_args.args)
+        self.assertEqual(job_id, worker.call_args.kwargs["job_id"])
+        self.assertFalse(worker.call_args.kwargs["once"])
+        self.assertEqual(10.0, worker.call_args.kwargs["poll_interval"])
         self.assertIn(f"RGB render job {job_id} is complete", output.getvalue())
+
+    def test_render_worker_polls_until_interrupted_by_default(self) -> None:
+        config = object()
+        remote = object()
+        output = io.StringIO()
+        error = io.StringIO()
+        with (
+            mock.patch.object(cli, "load_config", return_value=config),
+            mock.patch.object(cli.RemoteRecorder, "parse", return_value=remote),
+            mock.patch.object(
+                cli,
+                "run_render_worker",
+                side_effect=KeyboardInterrupt,
+            ) as worker,
+            mock.patch.object(cli.sys, "stdout", output),
+            mock.patch.object(cli.sys, "stderr", error),
+        ):
+            code = cli.main(
+                [
+                    "render-worker",
+                    "--host",
+                    "mcdatacol",
+                    "--poll-interval",
+                    "7.5",
+                ]
+            )
+
+        self.assertEqual(130, code)
+        self.assertIn("waiting for server jobs", output.getvalue())
+        self.assertIn("interrupted", error.getvalue())
+        self.assertFalse(worker.call_args.kwargs["once"])
+        self.assertEqual(7.5, worker.call_args.kwargs["poll_interval"])
+
+    def test_render_worker_once_preserves_no_job_exit(self) -> None:
+        output = io.StringIO()
+        with (
+            mock.patch.object(cli, "load_config", return_value=object()),
+            mock.patch.object(cli.RemoteRecorder, "parse", return_value=object()),
+            mock.patch.object(cli, "run_render_worker", return_value=None) as worker,
+            mock.patch.object(cli.sys, "stdout", output),
+        ):
+            code = cli.run(
+                ["render-worker", "--host", "mcdatacol", "--once"]
+            )
+
+        self.assertEqual(0, code)
+        self.assertTrue(worker.call_args.kwargs["once"])
+        self.assertIn("No queued RGB render job", output.getvalue())
+
+    def test_render_worker_rejects_an_offline_poll_interval(self) -> None:
+        error = io.StringIO()
+        with (
+            mock.patch.object(cli, "load_config", return_value=object()),
+            mock.patch.object(cli.RemoteRecorder, "parse", return_value=object()),
+            mock.patch.object(cli, "run_render_worker") as worker,
+            mock.patch.object(cli.sys, "stderr", error),
+        ):
+            code = cli.main(
+                [
+                    "render-worker",
+                    "--host",
+                    "mcdatacol",
+                    "--poll-interval",
+                    "31",
+                ]
+            )
+
+        self.assertEqual(2, code)
+        worker.assert_not_called()
+        self.assertIn("between 1 and 30", error.getvalue())
 
     def test_finalize_attaches_then_completes_the_server_queue_job(self) -> None:
         job_id = "33333333-3333-4333-8333-333333333333"

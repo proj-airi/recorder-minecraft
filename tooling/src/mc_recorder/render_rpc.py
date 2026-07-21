@@ -13,7 +13,12 @@ from typing import Any, Mapping
 
 from .config import RecorderConfig
 from .errors import RecorderError
-from .render_queue import MAX_LEASE_SECONDS, MIN_LEASE_SECONDS, RenderQueueStore
+from .render_queue import (
+    DEFAULT_DEFER_COOLDOWN_SECONDS,
+    MAX_LEASE_SECONDS,
+    MIN_LEASE_SECONDS,
+    RenderQueueStore,
+)
 from .render_sources import (
     ReplayNotReadyError,
     ReplaySegmentSource,
@@ -37,6 +42,7 @@ MAX_FINALIZE_BYTES = 4 * 1024 * 1024
 MAX_SEGMENTS = 1024
 MAX_ERROR_CHARS = 2048
 PORTABLE_NO_GUI_CAPABILITY = "portable_request_no_gui"
+STRUCTURED_CLAIM_FAILURE_CAPABILITY = "structured_claim_failure"
 _HEX_24_RE = re.compile(r"^[0-9a-f]{24}$")
 _HEX_32_RE = re.compile(r"^[0-9a-f]{32}$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -377,7 +383,7 @@ def _validate_plan(value: object) -> dict[str, Any]:
 
 
 class RenderRpcService:
-    """Path-free SSH RPC boundary for one-shot GUI render workers."""
+    """Path-free SSH RPC boundary for persistent and one-shot GUI workers."""
 
     def __init__(self, config: RecorderConfig):
         self.config = config
@@ -405,6 +411,7 @@ class RenderRpcService:
             raise RecorderError("render RPC body exceeds the size limit")
         handlers = {
             "register": self._register,
+            "worker-heartbeat": self._worker_heartbeat,
             "claim": self._claim,
             "request": self._request,
             "heartbeat": self._heartbeat,
@@ -436,7 +443,23 @@ class RenderRpcService:
         worker = self.queue.register_worker(
             name, worker_id=worker_id, capabilities=request["capabilities"]
         )
-        return {"worker": worker}
+        return {
+            "worker": worker,
+            "server_capabilities": {
+                STRUCTURED_CLAIM_FAILURE_CAPABILITY: True,
+                "worker_presence_heartbeat": True,
+                "deferred_job_cooldown": True,
+            },
+        }
+
+    def _worker_heartbeat(self, body: dict[str, Any]) -> dict[str, Any]:
+        request = _strict_object(
+            body,
+            required={"worker_id"},
+            label="worker heartbeat request",
+        )
+        worker_id = _canonical_uuid(request["worker_id"], "render worker ID")
+        return {"worker": self.queue.worker_heartbeat(worker_id)}
 
     def _claim(self, body: dict[str, Any]) -> dict[str, Any]:
         request = _strict_object(
@@ -492,18 +515,31 @@ class RenderRpcService:
                 "upload_directory": None,
                 "pending_job": queued,
                 "reason": "replay_pending",
+                "deferred_job_cooldown_seconds": DEFAULT_DEFER_COOLDOWN_SECONDS,
             }
         except Exception as exc:
             try:
-                self.queue.fail_attempt(
+                failed = self.queue.fail_attempt(
                     worker_id,
                     attempt["id"],
                     attempt["lease_token"],
                     str(exc),
                 )
             except Exception:
-                pass
-            raise
+                raise exc
+            detail = (str(exc) or type(exc).__name__)[:MAX_ERROR_CHARS]
+            if capabilities.get(STRUCTURED_CLAIM_FAILURE_CAPABILITY) is not True:
+                raise RecorderError(
+                    f"server failed claimed render job {failed['id']} before transfer: {detail}"
+                ) from exc
+            return {
+                "claim": None,
+                "sources": [],
+                "upload_directory": None,
+                "failed_job": failed,
+                "reason": "claim_failed",
+                "error": detail,
+            }
         return {
             "claim": claim,
             "sources": [self._source_response(plan_root, source) for source in plan["sources"]],

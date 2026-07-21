@@ -23,7 +23,7 @@ from .render_attach import attach_imported_renders
 from .render_job import launch_render_job, prepare_render_job, resolve_replay
 from .render_queue import RenderQueueStore
 from .render_rpc import dispatch_render_rpc
-from .render_worker import RemoteRecorder, run_ephemeral_worker
+from .render_worker import RemoteRecorder, run_render_worker
 from .server import show_logs, show_status, start_server, stop_server
 from .storage import StorageReport, enforce_quota, human_bytes
 
@@ -131,7 +131,7 @@ def _parser() -> argparse.ArgumentParser:
 
     worker = commands.add_parser(
         "render-worker",
-        help="run one ephemeral local GUI renderer job and exit",
+        help="poll and process RGB jobs with the local GUI renderer",
     )
     worker.add_argument("--host", required=True, help="SSH host or alias of the recorder server")
     worker.add_argument(
@@ -139,8 +139,22 @@ def _parser() -> argparse.ArgumentParser:
         default="/srv/mc-play-recorder",
         help="absolute mc-recorder workspace on the SSH host",
     )
-    worker.add_argument("--job", help="claim one exact queued render job UUID")
+    worker.add_argument(
+        "--job",
+        help="claim one exact queued render job UUID and exit afterward",
+    )
     worker.add_argument("--cache", type=Path, help="local replay cache and temporary workspace")
+    worker.add_argument(
+        "--once",
+        action="store_true",
+        help="make one claim attempt and exit instead of polling continuously",
+    )
+    worker.add_argument(
+        "--poll-interval",
+        type=float,
+        default=10.0,
+        help="seconds between empty queue checks in continuous mode (1-30; default: 10)",
+    )
     worker.add_argument(
         "--keep-workspace",
         action="store_true",
@@ -150,7 +164,15 @@ def _parser() -> argparse.ArgumentParser:
     rpc = commands.add_parser("render-rpc", help=argparse.SUPPRESS)
     rpc.add_argument(
         "render_rpc_action",
-        choices=("register", "claim", "request", "heartbeat", "finalize", "fail"),
+        choices=(
+            "register",
+            "worker-heartbeat",
+            "claim",
+            "request",
+            "heartbeat",
+            "finalize",
+            "fail",
+        ),
     )
     return parser
 
@@ -353,21 +375,48 @@ def run(argv: Sequence[str] | None = None) -> int:
     if args.command == "render-worker":
         config = load_config(args.config)
         remote = RemoteRecorder.parse(args.host, args.remote_root)
-        result = run_ephemeral_worker(
+        if not 1.0 <= args.poll_interval <= 30.0:
+            raise RecorderError("--poll-interval must be between 1 and 30 seconds")
+        stop_after_one = args.once or args.job is not None
+        if not stop_after_one:
+            print(
+                "RGB render worker is running; waiting for server jobs. Press Ctrl-C to stop.",
+                flush=True,
+            )
+
+        def report_result(result: dict[str, object]) -> None:
+            job = result.get("job") if isinstance(result.get("job"), dict) else {}
+            state = job.get("state", "processed")
+            print(
+                f"RGB render job {job.get('id', args.job or '')} is {state}.",
+                flush=True,
+            )
+            if result.get("local_workspace"):
+                print(
+                    f"Retained local render workspace: {result['local_workspace']}",
+                    flush=True,
+                )
+
+        def report_error(message: str, retry_seconds: float) -> None:
+            print(
+                f"mc-recorder: render worker error: {message}; retrying in {retry_seconds:g}s",
+                file=sys.stderr,
+                flush=True,
+            )
+
+        result = run_render_worker(
             config,
             remote,
             job_id=args.job,
             cache_root=args.cache,
             keep_workspace=args.keep_workspace,
+            once=args.once,
+            poll_interval=args.poll_interval,
+            on_result=report_result,
+            on_error=report_error,
         )
-        if result is None:
+        if stop_after_one and result is None:
             print("No queued RGB render job is ready on the server.")
-            return 0
-        job = result.get("job") if isinstance(result.get("job"), dict) else {}
-        state = job.get("state", "processed")
-        print(f"RGB render job {job.get('id', args.job or '')} is {state}.")
-        if result.get("local_workspace"):
-            print(f"Retained local render workspace: {result['local_workspace']}")
         return 0
 
     config = load_config(args.config)

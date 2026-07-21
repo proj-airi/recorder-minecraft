@@ -5,7 +5,7 @@ worker and moves verified derivative artifacts back to the recorder host. The
 server-authored request is immutable and path-free. A worker's filesystem paths
 are provenance only and are never authoritative after import.
 
-## Dashboard queue and ephemeral worker
+## Dashboard queue and persistent foreground worker
 
 The dashboard creates one durable RGB queue job only after the deterministic
 structured dataset for a disconnected connection is verified. The job fixes the
@@ -16,14 +16,49 @@ the ledger's join/disconnect selection bounds; attachment preserves those
 original selection bounds. A worker receives none of those values from
 browser-controlled paths or command strings.
 
-`mc-recorder render-worker` registers a fresh worker identity, claims at most one
-job under a fenced lease, and exits after finalization or failure. It is not a
-daemon and does not claim another job in the same invocation. The worker
-heartbeats while downloading, rendering, and uploading. A reclaimed or canceled
-lease cannot publish a result, even if an older client later resumes.
-Workers advertise `portable_request_no_gui: true` before claiming. The server
-rejects workers without that capability so a strict pre-extension V1 worker
-cannot claim a request containing the optional `render.no_gui` field.
+By default, `mc-recorder render-worker` registers one process UUID and polls the
+queue continuously in a logged-in graphical session. It claims and completes
+jobs sequentially: each job owns an ephemeral workspace and one Java client,
+and that client exits before another claim begins. Ctrl-C stops the foreground
+process. The default empty-queue poll interval is 10 seconds and may be set from
+1 through 30 seconds. `--once` retains a single claim attempt, while `--job`
+targets one job and exits without falling through to unrelated work. No launchd
+service contract is defined yet.
+
+The worker heartbeats while downloading, rendering, and uploading. A reclaimed
+or canceled lease cannot publish a result, even if an older client later
+resumes. A persistent process also sends the path-free `worker-heartbeat` RPC
+under its registered UUID, independently of an attempt lease, so it stays
+visibly online during a long server-side import/re-export finalize call. If a
+replay input is not yet immutable, the server defers that job for a 30-second
+eligibility cooldown; polling may claim later ready work meanwhile.
+That response includes `deferred_job_cooldown_seconds`, scoped to the exact
+deferred job. Its presence tells a continuous worker that it may immediately
+issue another generic claim to scan other eligible jobs; it is not a request to
+pause the entire queue. Pre-extension servers omit the field, so upgraded
+workers use their normal poll delay instead of repeatedly reclaiming the same
+job.
+
+A failure after a claim marks/fences that attempt and stops the foreground
+worker before another job is claimed. This fail-stop boundary prevents a broken
+Java runtime, Gradle installation, disk, or renderer build from failing the
+remaining queue. If server-side plan preparation fails after leasing, `claim`
+returns `reason: "claim_failed"`, the failed job identity, and a bounded error
+instead of making that failure indistinguishable from a pre-claim SSH outage.
+Registration failures use bounded retry backoff. A lost or invalid `claim` RPC
+response is fail-stop because the server may already have leased or failed a
+job even when the worker did not receive the response.
+
+Workers advertise `portable_request_no_gui: true` and
+`structured_claim_failure: true` before claiming. The server rejects workers
+without the portable-request capability so a strict pre-extension V1 worker
+cannot claim a request containing the optional `render.no_gui` field. The
+`register` response advertises
+`server_capabilities.structured_claim_failure: true`; continuous workers fail
+closed with upgrade guidance when that marker is absent. For a worker that
+does not advertise structured claim failures, a server-side plan failure still
+fences the attempt but returns a nonzero RPC error so an older one-shot worker
+cannot misreport it as an empty queue.
 
 The SSH connection is the worker's authority boundary. RPC calls invoke only the
 deployed `mc-recorder render-rpc` actions beneath the configured remote recorder

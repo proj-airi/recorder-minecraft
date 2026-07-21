@@ -29,6 +29,9 @@ MAX_PROGRESS_TOTAL = 2**63 - 1
 DEFAULT_LEASE_SECONDS = 60
 MIN_LEASE_SECONDS = 10
 MAX_LEASE_SECONDS = 300
+DEFAULT_DEFER_COOLDOWN_SECONDS = 30
+MIN_DEFER_COOLDOWN_SECONDS = 1
+MAX_DEFER_COOLDOWN_SECONDS = 300
 
 
 def _now_iso(timestamp: float | None) -> str | None:
@@ -147,7 +150,8 @@ class RenderQueueStore:
                     completed_at REAL,
                     active_attempt_id TEXT,
                     attempt_count INTEGER NOT NULL DEFAULT 0,
-                    retry_of TEXT
+                    retry_of TEXT,
+                    eligible_at REAL NOT NULL DEFAULT 0
                 );
 
                 CREATE INDEX IF NOT EXISTS render_jobs_recent
@@ -180,6 +184,27 @@ class RenderQueueStore:
                     ON render_attempts(job_id, generation DESC);
                 CREATE INDEX IF NOT EXISTS render_attempts_lease
                     ON render_attempts(state, lease_expires_at);
+                """
+            )
+            job_columns = {
+                str(row["name"])
+                for row in connection.execute("PRAGMA table_info(render_jobs)").fetchall()
+            }
+            if "eligible_at" not in job_columns:
+                try:
+                    connection.execute(
+                        "ALTER TABLE render_jobs "
+                        "ADD COLUMN eligible_at REAL NOT NULL DEFAULT 0"
+                    )
+                except sqlite3.OperationalError as exc:
+                    # Separate dashboard/RPC processes can both observe the
+                    # legacy schema before either migration commits.
+                    if "duplicate column name" not in str(exc).lower():
+                        raise
+            connection.execute(
+                """
+                CREATE INDEX IF NOT EXISTS render_jobs_claimable
+                    ON render_jobs(state, eligible_at, created_at, id)
                 """
             )
             self._reclaim_expired(connection, time.time())
@@ -238,8 +263,8 @@ class RenderQueueStore:
                 """
                 INSERT INTO render_jobs(
                     id, fingerprint, recording_id, payload_json, state,
-                    created_at, updated_at, retry_of
-                ) VALUES (?, ?, ?, ?, 'queued', ?, ?, ?)
+                    created_at, updated_at, retry_of, eligible_at
+                ) VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, 0)
                 """,
                 (job_id, fingerprint, recording_id, encoded, now, now, retry_id),
             )
@@ -363,9 +388,11 @@ class RenderQueueStore:
             if selected_job is None:
                 row = connection.execute(
                     """
-                    SELECT * FROM render_jobs WHERE state = 'queued'
+                    SELECT * FROM render_jobs
+                     WHERE state = 'queued' AND eligible_at <= ?
                      ORDER BY created_at, id LIMIT 1
-                    """
+                    """,
+                    (now,),
                 ).fetchone()
             else:
                 row = connection.execute(
@@ -411,7 +438,7 @@ class RenderQueueStore:
                 UPDATE render_jobs
                    SET state = 'downloading', progress_json = ?, updated_at = ?,
                        started_at = COALESCE(started_at, ?), active_attempt_id = ?,
-                       attempt_count = ?
+                       attempt_count = ?, eligible_at = 0
                  WHERE id = ? AND state = 'queued'
                 """,
                 (progress_json, now, now, attempt_id, generation, job["id"]),
@@ -572,13 +599,27 @@ class RenderQueueStore:
         attempt_id: str,
         lease_token: str,
         reason: str,
+        *,
+        cooldown_seconds: int = DEFAULT_DEFER_COOLDOWN_SECONDS,
     ) -> dict[str, Any]:
         """Return a leased job to the queue when an immutable input is not ready yet."""
 
         worker = _uuid(worker_id, "render worker ID")
         attempt = _uuid(attempt_id, "render attempt ID")
+        if (
+            not isinstance(cooldown_seconds, int)
+            or isinstance(cooldown_seconds, bool)
+            or not MIN_DEFER_COOLDOWN_SECONDS
+            <= cooldown_seconds
+            <= MAX_DEFER_COOLDOWN_SECONDS
+        ):
+            raise RecorderError(
+                "render defer cooldown must be between "
+                f"{MIN_DEFER_COOLDOWN_SECONDS} and {MAX_DEFER_COOLDOWN_SECONDS} seconds"
+            )
         message = str(reason)[:MAX_ERROR_CHARS] or "render input is not ready"
         now = time.time()
+        eligible_at = now + cooldown_seconds
         with self._lock, self._session(immediate=True) as connection:
             _, job = self._leased_attempt(connection, worker, attempt, lease_token, now)
             connection.execute(
@@ -594,10 +635,10 @@ class RenderQueueStore:
                 """
                 UPDATE render_jobs
                    SET state = 'queued', progress_json = NULL, error = NULL,
-                       updated_at = ?, active_attempt_id = NULL
+                       updated_at = ?, active_attempt_id = NULL, eligible_at = ?
                  WHERE id = ? AND active_attempt_id = ?
                 """,
-                (now, job["id"], attempt),
+                (now, eligible_at, job["id"], attempt),
             )
             connection.execute(
                 """
@@ -811,7 +852,7 @@ class RenderQueueStore:
                 """
                 UPDATE render_jobs
                    SET state = 'queued', progress_json = NULL, updated_at = ?,
-                       active_attempt_id = NULL
+                       active_attempt_id = NULL, eligible_at = 0
                  WHERE id = ? AND active_attempt_id = ?
                 """,
                 (now, row["job_id"], row["id"]),
