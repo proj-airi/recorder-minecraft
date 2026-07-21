@@ -2,8 +2,9 @@
 
 This workspace provisions a Minecraft 1.21.8 Fabric server that records every
 connected player's server-observed gameplay, seals durable five-minute capture
-epochs, exports canonical state/action transitions, and reconstructs first-
-person RGB frames plus local voxel crops in a Flashback client.
+epochs, exports canonical state/action transitions, reconstructs a random-access
+client-visible world scene for every selected tick without a GUI, and can render
+first-person RGB frames in a Flashback client.
 
 It combines three pieces:
 
@@ -15,9 +16,9 @@ It combines three pieces:
    barriers, and replay timeline markers.
 3. **`mc-recorder` tooling** provisions Docker, validates immutable epochs,
    enforces capture/replay retention, exports trainable samples, and launches
-   deterministic RGB/voxel render jobs through `renderer-mod`.
+   headless scene extraction plus deterministic RGB jobs through `renderer-mod`.
 
-## Current V1 capabilities
+## Current capabilities
 
 - Minecraft 1.21.8 on `itzg/minecraft-server:2026.7.0-java21`, with
   ServerReplay pinned by immutable Modrinth selector `server-replay:TbWIikrT`.
@@ -39,16 +40,21 @@ It combines three pieces:
   for Minecraft 1.21.8 before running `mc-recorder render-worker`.
 - Canonical `state + action -> next_state` JSONL samples with provenance and
   exact-key modality attachment.
-- First-person 20 FPS RGB PNG rendering and optional coverage-aware voxel crops
-  in a local Flashback client.
+- Dataset V2 exports with a contained SQLite scene store that supports direct
+  lookup of block, entity, and block-entity state at every selected tick.
+- Server-only scene extraction from client-visible replay packets; no Minecraft
+  window, graphics stack, source world mount, or forward replay is needed by
+  the dataset viewer.
+- Optional first-person 20 FPS RGB PNG rendering in a local Flashback client.
 - Capture/replay-volume warnings and oldest-first eviction of only verified,
   sealed sidecar epochs or stable, completed replay archives.
 
-Voxel conversion is optional because it requires replaying the server capture
-in a graphics client. V1 writes palette-indexed block-state crops plus an
-explicit coverage bitset for every requested replay tick. Unloaded cells remain
-unknown rather than becoming valid air. Block entities are not materialized in
-V1; the immutable replay remains their source when they were client-visible.
+Scene extraction replays the recorded network stream through Minecraft's server
+packet codecs, materializes the logical client-visible scene, and structurally
+shares unchanged values in `scene-v1.sqlite3`. Unloaded cells remain unknown
+rather than becoming valid air. The default `client_visible` scope includes
+entities and block entities and is marked sensitive when full captured metadata
+is retained.
 
 ## Requirements
 
@@ -131,15 +137,17 @@ players continue recording in the next epoch. Repeated generation reuses a
 matching verified deterministic export and does not overwrite a conflicting
 dataset.
 
-Generation is structured-first: it writes JSONL immediately and treats missing
-RGB/voxel modalities as explicit, non-fatal metadata. Once the structured
-dataset is complete, choose a resolution and click **Render RGB**. This queues a
-leased job on the recorder host; it does not attempt to start a graphics client
-on the headless server. The host streams the verified dataset into a compact,
-hash-bound structured-HUD sidecar, and the worker applies its exact inventory,
-selected slot, health, food, air, and experience state before each frame. GUI
-renders that complete this path are versioned with the
-`flashback_server_spectate_structured_hud_v1` presentation contract. Older GUI
+Generation waits for the connection's replay archive, extracts every selected
+scene tick on the server, compacts and verifies one immutable scene store, then
+publishes Dataset V2 atomically. A failed or incomplete extraction never leaves
+a partial dataset attached. RGB remains optional and explicitly unavailable
+until requested. Choose a resolution and click **Render RGB** to queue a leased
+GUI job; the headless server never attempts to start a graphics client. The host
+streams the verified dataset into a compact, hash-bound structured-HUD sidecar,
+and the worker applies its exact inventory, selected slot, health, food, air,
+and experience state before each frame. GUI renders that complete this path are
+versioned with the `flashback_server_spectate_structured_hud_v1` presentation
+contract. Older GUI
 renders, including the spectate-only v1 contract, are shown as unsynchronized
 legacy RGB and can be replaced explicitly with **Re-render RGB**; each verified
 original import remains preserved for audit.
@@ -211,8 +219,9 @@ held-key and observed-click indicators, an accepted yaw/pitch delta vector,
 player/connection filters, live server-reconstructed control buttons,
 state-to-next-state differences, ordered packet actions, peers, transition
 validity, and provenance. The trajectory and control HUD need no GUI renderer.
-Validated voxel artifacts are shown as axis-selectable 2D slices; uncovered
-cells remain unknown. Interactive 3D voxels are outside V1.
+The contained scene store adds axis-selectable block slices at arbitrary
+coordinates with projected entity and block-entity overlays. Reads are exact
+random access by `frame_id`; the browser never replays earlier ticks.
 
 Export all recorded subjects, or add repeatable player and connection UUID filters:
 
@@ -238,16 +247,13 @@ connection from a completed Flashback archive:
 mc-recorder render SESSION_ID \
   --player PLAYER_UUID \
   --connection CONNECTION_ID \
-  --replay artifacts/replays/players/PLAYER_UUID/REPLAY.zip \
-  --voxel-horizontal-radius 16 \
-  --voxel-vertical-radius 8
+  --replay artifacts/replays/players/PLAYER_UUID/REPLAY.zip
 ```
 
 `--connection` may be omitted when the selected player has exactly one recorded
 connection. `--replay` may be omitted only when exactly one completed archive is
-available for that player. Omit both voxel-radius options for RGB only. The
-command launches the local client renderer by default; `--prepare-only` writes
-the validated render job without launching it.
+available for that player. The command launches the local client renderer by
+default; `--prepare-only` writes the validated render job without launching it.
 
 Standalone RGB jobs render the first-person hand/item and Minecraft HUD by
 default, including the hotbar, crosshair, health, hunger, titles, boss bars,
@@ -260,18 +266,33 @@ reconstructed. Pass `--no-gui` to a standalone manual render when a HUD-free
 first-person image is explicitly required.
 
 Render preparation records a stable replay byte size and SHA-256. The client
-verifies both before opening the archive and again after RGB/voxel generation;
+verifies both before opening the archive and again after RGB generation;
 after the client exits, the CLI rehashes the archive and accepts the atomic
 complete result only when all three checks match the prepared envelope.
 
-Attach a manually completed render while exporting. Dashboard RGB jobs perform
-this verified re-export automatically. Both options remain repeatable for
-manual jobs spanning multiple players, connections, or replay segments:
+Extract a random-access scene store directly from the immutable replay, without
+a GUI client:
+
+```sh
+mc-recorder scene extract SESSION_ID \
+  --player PLAYER_UUID \
+  --connection CONNECTION_ID \
+  --output artifacts/scenes/SESSION_ID.sqlite3
+```
+
+The output must cover every selected `player_state` tick. Segment gaps,
+non-identical overlap, unknown state-affecting packets, source mutation, or
+identity mismatch fail closed. `--from-tick`, `--to-tick`, and `--prepare-only`
+are available for bounded/manual operation.
+
+Attach manually completed RGB and scene results while exporting. Dashboard
+generation performs scene extraction and attachment automatically; dashboard
+RGB jobs perform the verified RGB re-export automatically:
 
 ```sh
 mc-recorder export SESSION_ID \
   --frames artifacts/exports/render-jobs/SESSION_ID-PLAYER_UUID \
-  --voxels artifacts/exports/render-jobs/SESSION_ID-PLAYER_UUID \
+  --scene artifacts/scenes/SESSION_ID.sqlite3 \
   --force
 ```
 
@@ -289,11 +310,11 @@ keys. Every recorded connection receives a timeline marker each server tick.
 The renderer uses the marker's session ID, connection ID, and global server tick
 to derive the replay-tick offset.
 
-Open-world coverage is best effort and client-visible. The recorder does not
-force chunk generation. A `player_state.replay_coverage` hint records the center
-chunk and view distance with `complete: false`. The replay converter centers a
-requested crop on the recorded player and emits an explicit bit per cell, so an
-unloaded position is distinguishable from a covered `minecraft:air` block.
+Open-world coverage is client-visible. The recorder does not force chunk
+generation. A `player_state.replay_coverage` hint records the center chunk and
+view distance with `complete: false`; the scene store records only loaded
+sections and represents every other position as unknown, so missing data is
+distinguishable from a covered `minecraft:air` block.
 
 ## Storage safety
 
@@ -320,7 +341,7 @@ mc-recorder storage enforce
 ## Configuration and contracts
 
 `mc-recorder init` generates `recorder.toml`; [`recorder.example.toml`](recorder.example.toml)
-documents every V1 option with EULA acceptance disabled. Relative paths resolve
+documents every option with EULA acceptance disabled. Relative paths resolve
 from the configuration file's directory.
 
 For an API-independent local deployment, stage ServerReplay, Fabric API, and
@@ -330,8 +351,8 @@ version selector.
 
 - [`schemas/source-record-v1.md`](schemas/source-record-v1.md) defines the
   combined capture stream, barriers, identity, replay alignment, and coverage.
-- [`schemas/dataset-v1.md`](schemas/dataset-v1.md) defines canonical samples and
-  current modality support.
+- [`schemas/dataset-v2.md`](schemas/dataset-v2.md) defines canonical samples,
+  exact modality envelopes, and the random-access scene store.
 - [`tooling/README.md`](tooling/README.md) documents all CLI commands.
 
 ## Workspace layout
@@ -339,8 +360,9 @@ version selector.
 ```text
 deploy/         Docker Compose deployment
 recorder-mod/   server-side Fabric capture sidecar
-renderer-mod/   local Flashback first-person RGB/voxel renderer
-schemas/        source and dataset V1 contracts
+scene-extractor-mod/ headless replay-to-scene Fabric server
+renderer-mod/   local Flashback first-person RGB renderer
+schemas/        source and Dataset V2 contracts
 tooling/        Python provisioning/export CLI
 ServerReplay/   upstream server replay mod source
 ```

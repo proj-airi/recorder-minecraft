@@ -77,8 +77,8 @@ inside its independently rotated Flashback archive; the local renderer uses it f
   fields are normalized, and unknown packet types retain class/type/order metadata.
 - Chat, commands, and custom payload contents are redacted by default.
 - `player_state.replay_coverage` is only a best-effort client-visible center/view-distance hint and
-  declares `complete=false`. The local renderer can materialize coverage-masked voxel crops from
-  replay state, but block entities are not materialized in voxel V1.
+  declares `complete=false`. The headless scene extractor materializes loaded block sections,
+  entities, and block entities from replay state; unloaded positions remain explicitly unknown.
 - Storage quota warnings and eviction of verified sealed epochs or stable completed replay archives
   are orchestrator responsibilities; the recorder itself only seals immutable sidecar units.
 

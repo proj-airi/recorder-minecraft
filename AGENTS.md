@@ -4,7 +4,7 @@
 
 - `tooling/src/mc_recorder/` contains the Python provisioning, validation, export, retention, and render-job CLI. Its tests live in `tooling/tests/`.
 - `recorder-mod/` is the Kotlin/Java Fabric server mod; production code is under `src/main/` and JUnit tests under `src/test/`.
-- `renderer-mod/` is the Java Fabric client mod that replays Flashback archives into RGB frames and optional voxel crops.
+- `scene-extractor-mod/` is the Java Fabric dedicated-server extractor for random-access block/entity scene stores; `renderer-mod/` is the client-only first-person RGB renderer.
 - `schemas/` defines the source JSONL and dataset contracts. Update these documents when changing persisted fields or invariants.
 - `deploy/` contains Docker Compose configuration. `ServerReplay/` is upstream source; avoid unrelated edits there.
 - `artifacts/`, `.mc-recorder/`, `runtime/`, and renderer `run/` directories are generated and must not be committed.

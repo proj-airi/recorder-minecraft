@@ -230,14 +230,14 @@ Joins must therefore use both player UUID and connection ID, never filename or
 archive mtime. Independent archive rotation does not change the sample
 timeline.
 
-Open-world data is intentionally best effort. Each `player_state` contains a
+Open-world capture coverage is intentionally client-visible. Each `player_state` contains a
 `replay_coverage` hint with `kind: "client_visible_best_effort"`, the player's
 center chunk, server view distance, and `complete: false`. It does not force
-chunk generation and does not claim that a requested voxel crop is complete.
-Missing world data must remain unknown rather than being encoded as air.
+chunk generation. Missing world data must remain unknown rather than being
+encoded as air.
 
 Current implementation status: the structured sidecar, replay markers, RGB
-renderer, and optional coverage-aware replay-to-voxel crop converter are
-implemented. Voxel crops are a local replay-client derivative, not an
-authoritative world stream in the sidecar. Block entities are not materialized
-in voxel V1; the immutable replay remains their source when client-visible.
+renderer, and headless replay-to-scene extractor are implemented. The extractor
+materializes random-access block, entity, and block-entity state for every
+selected Dataset V2 tick. The immutable replay remains the scene's
+integrity-bound source.
