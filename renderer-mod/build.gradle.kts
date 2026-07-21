@@ -1,5 +1,5 @@
 plugins {
-    id("fabric-loom") version "1.11-SNAPSHOT"
+    id("fabric-loom") version "1.11.8"
     `maven-publish`
 }
 
@@ -26,8 +26,12 @@ dependencies {
 
     val localFlashbackJar = providers.environmentVariable("MC_RECORDER_FLASHBACK_JAR").orNull
     if (localFlashbackJar.isNullOrBlank()) {
-        modCompileOnly("maven.modrinth:flashback:${property("flashback_version")}")
-        modLocalRuntime("maven.modrinth:flashback:${property("flashback_version")}")
+        // Modrinth reuses the display version across Minecraft variants. The
+        // immutable version ID prevents 0.39.1 for a newer game from replacing
+        // the pinned Minecraft 1.21.8 artifact in Maven resolution.
+        val flashbackVersionId = property("flashback_version_id")
+        modCompileOnly("maven.modrinth:flashback:$flashbackVersionId")
+        modLocalRuntime("maven.modrinth:flashback:$flashbackVersionId")
     } else {
         val nestedJarDirectory = layout.buildDirectory.dir("local-flashback-nested").get().asFile
         project.sync {

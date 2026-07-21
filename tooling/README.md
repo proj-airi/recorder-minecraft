@@ -155,6 +155,11 @@ sources, write the configured runtime/export roots, and run the tooling under
 `/srv/mc-play-recorder`. Dashboard Basic-auth credentials are not sent to the
 worker.
 
+The normal build resolves Flashback through immutable Modrinth version ID
+`X3J8u7wy`, which is the 0.39.1 artifact for Minecraft 1.21.8. No environment
+override is required. `MC_RECORDER_FLASHBACK_JAR` remains available only for
+offline builds and must point to that same Minecraft 1.21.8 artifact.
+
 By default, one foreground process registers one worker UUID, polls every 10
 seconds, and processes queued jobs sequentially until Ctrl-C. Each claimed job
 still has an ephemeral workspace and launches exactly one Java client; that

@@ -30,11 +30,13 @@ It combines three pieces:
 - Independent ServerReplay archives aligned exactly through embedded
   `mc_recorder:timeline/v1` markers.
 - Standard Flashback archives that can also be inspected interactively in a
-  Minecraft 1.21.8 client with Flashback 0.39.1.
+  Minecraft 1.21.8 client with Flashback 0.39.1. The renderer pins immutable
+  Modrinth version ID `X3J8u7wy`, because the display version is reused across
+  incompatible Minecraft variants.
 
   If Modrinth's Maven endpoint is unavailable, set
-  `MC_RECORDER_FLASHBACK_JAR` to an installed Flashback 0.39.1 JAR before
-  running `mc-recorder render`.
+  `MC_RECORDER_FLASHBACK_JAR` to the Flashback 0.39.1 JAR specifically built
+  for Minecraft 1.21.8 before running `mc-recorder render-worker`.
 - Canonical `state + action -> next_state` JSONL samples with provenance and
   exact-key modality attachment.
 - First-person 20 FPS RGB PNG rendering and optional coverage-aware voxel crops
