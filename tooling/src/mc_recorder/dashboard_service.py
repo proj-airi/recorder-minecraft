@@ -310,10 +310,13 @@ class DashboardService:
             dataset_ready = dataset_status == "matching"
             render_job = self.render_queue.latest_for_recording(recording_id)
             sample_count = rgb_samples = None
+            sample_start_tick = sample_end_tick = None
             if dataset_ready:
                 metadata = self.dataset_viewer.get_dataset_metadata(self._dataset_id(output))
                 sample_count = metadata.sample_count
                 rgb_samples = metadata.rgb_samples
+                sample_start_tick = metadata.first_tick
+                sample_end_tick = metadata.last_tick
             rgb_complete = (
                 sample_count is not None
                 and rgb_samples is not None
@@ -370,10 +373,14 @@ class DashboardService:
                     and (sealed_sequence >= end_sequence or capture_recording),
                     "dataset_id": self._dataset_id(output) if dataset_ready else None,
                     "sample_count": sample_count,
+                    "sample_start_tick": sample_start_tick,
+                    "sample_end_tick": sample_end_tick,
                     "rgb_samples": rgb_samples,
                     "rgb_complete": rgb_complete,
                     "can_render": dataset_ready
                     and not rgb_complete
+                    and sample_start_tick is not None
+                    and sample_end_tick is not None
                     and (
                         render_job is None
                         or render_job["state"] in {"failed", "partial", "canceled"}
@@ -416,17 +423,46 @@ class DashboardService:
             raise RecorderError("a structured dataset must be complete before RGB rendering")
         if row.get("rgb_complete"):
             raise RecorderError("the dataset already has complete RGB coverage")
-        payload = {
-            "recording_id": recording_id,
+        payload = self._render_job_payload(row, width=width, height=height, fps=fps)
+        return self.render_queue.create(payload)
+
+    def _render_job_payload(
+        self,
+        row: dict[str, Any],
+        *,
+        width: int,
+        height: int,
+        fps: int,
+    ) -> dict[str, Any]:
+        self._validate_render_settings(width, height, fps)
+        selection_start = row.get("start_tick")
+        selection_end = row.get("end_tick")
+        render_start = row.get("sample_start_tick")
+        render_end = row.get("sample_end_tick")
+        ticks = (selection_start, selection_end, render_start, render_end)
+        if any(
+            not isinstance(value, int) or isinstance(value, bool) or value < 0
+            for value in ticks
+        ):
+            raise RecorderError("the dataset has no bounded renderable sample tick range")
+        assert isinstance(selection_start, int)
+        assert isinstance(selection_end, int)
+        assert isinstance(render_start, int)
+        assert isinstance(render_end, int)
+        if not selection_start <= render_start <= render_end <= selection_end:
+            raise RecorderError("the dataset sample tick range is outside its connection selection")
+        return {
+            "recording_id": row["id"],
             "session_id": row["session_id"],
             "player_uuid": _required_uuid(row["player_uuid"], "player UUID"),
             "connection_id": _required_uuid(row["connection_id"], "connection UUID"),
             "dataset_id": row["dataset_id"],
-            "start_tick": row.get("start_tick"),
-            "end_tick": row.get("end_tick"),
+            "start_tick": render_start,
+            "end_tick": render_end,
+            "selection_start_tick": selection_start,
+            "selection_end_tick": selection_end,
             "render": {"width": width, "height": height, "fps": fps},
         }
-        return self.render_queue.create(payload)
 
     def render_jobs(self, limit: int = 50) -> list[dict[str, Any]]:
         return self.render_queue.recent(limit)
@@ -439,6 +475,8 @@ class DashboardService:
 
     def retry_render_job(self, job_id: str) -> dict[str, Any]:
         original = self.render_queue.get(job_id)
+        if original["state"] not in {"failed", "partial", "canceled"}:
+            raise RecorderError(f"render job cannot be retried while {original['state']}")
         recording_id = original["recording_id"]
         row = next((item for item in self.recordings() if item["id"] == recording_id), None)
         if (
@@ -449,7 +487,16 @@ class DashboardService:
             raise RecorderError("the source dataset is no longer available for this render job")
         if row.get("rgb_complete"):
             raise RecorderError("the dataset already has complete RGB coverage")
-        return self.render_queue.retry(job_id)
+        render = original["payload"].get("render")
+        if not isinstance(render, dict):
+            raise RecorderError("the original render job has invalid settings")
+        payload = self._render_job_payload(
+            row,
+            width=render.get("width"),
+            height=render.get("height"),
+            fps=render.get("fps"),
+        )
+        return self.render_queue.create(payload, retry_of=original["id"])
 
     def register_render_worker(
         self,

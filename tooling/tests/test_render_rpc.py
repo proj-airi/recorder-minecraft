@@ -204,6 +204,38 @@ class RenderRpcServiceTest(unittest.TestCase):
         self.assertEqual(1, queued["attempt_count"])
         self.assertIsNone(queued["active_attempt"])
 
+    def test_claim_validates_optional_dataset_selection_bounds(self) -> None:
+        base = dict(self.job["payload"])
+        cases = (
+            (
+                {**base, "selection_start_tick": 9},
+                "selection tick bounds must be supplied together",
+            ),
+            (
+                {
+                    **base,
+                    "selection_start_tick": 11,
+                    "selection_end_tick": 41,
+                },
+                "outside its dataset selection",
+            ),
+        )
+        for payload, message in cases:
+            with self.subTest(message=message):
+                job = self.service.queue.create(payload)
+                with (
+                    mock.patch("mc_recorder.render_rpc.resolve_replay_segments", return_value=[]),
+                    self.assertRaisesRegex(RecorderError, message),
+                ):
+                    self.service.dispatch(
+                        "claim",
+                        {
+                            "worker_id": WORKER_ID,
+                            "job_id": job["id"],
+                            "lease_seconds": 120,
+                        },
+                    )
+
     def test_requests_are_idempotent_newest_first_and_bound_older_range(self) -> None:
         old = self._source(OLD_SEGMENT, 2, b"old replay")
         new = self._source(NEW_SEGMENT, 5, b"new replay")
@@ -222,6 +254,30 @@ class RenderRpcServiceTest(unittest.TestCase):
         self.assertEqual(older["request"], repeated["request"])
         self.assertEqual(older["request_sha256"], repeated["request_sha256"])
         self.assertEqual(older_calls[0]["request_id"], repeated_calls[0]["request_id"])
+
+    def test_wider_dataset_selection_authors_only_the_renderable_sample_range(self) -> None:
+        payload = {
+            **self.job["payload"],
+            "selection_start_tick": 9,
+            "selection_end_tick": 41,
+        }
+        job = self.service.queue.create(payload)
+        source = self._source(NEW_SEGMENT, 5, b"new replay")
+        with mock.patch(
+            "mc_recorder.render_rpc.resolve_replay_segments", return_value=[source]
+        ):
+            claimed = self.service.dispatch(
+                "claim",
+                {
+                    "worker_id": WORKER_ID,
+                    "job_id": job["id"],
+                    "lease_seconds": 120,
+                },
+            )
+
+        _request, calls = self._request(claimed, NEW_SEGMENT)
+
+        self.assertEqual((10, 40), (calls[0]["first_tick"], calls[0]["last_tick"]))
 
     def test_request_rejects_out_of_order_conflicts_and_path_fields(self) -> None:
         old = self._source(OLD_SEGMENT, 2, b"old replay")

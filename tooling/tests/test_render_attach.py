@@ -214,6 +214,8 @@ def _import(
     status: str = "complete",
     voxels: bool = False,
     segment_id: str = "segment-0001",
+    first_tick: int = 10,
+    last_tick: int = 12,
 ) -> dict[str, object]:
     request = create_portable_render_request(
         episode,
@@ -224,8 +226,8 @@ def _import(
         connection_id=CONNECTION,
         width=64,
         height=64,
-        first_tick=10,
-        last_tick=12,
+        first_tick=first_tick,
+        last_tick=last_tick,
         voxel_horizontal_radius=1 if voxels else 0,
         voxel_vertical_radius=1 if voxels else 0,
         request_id=str(uuid.uuid5(uuid.NAMESPACE_DNS, segment_id)),
@@ -249,7 +251,7 @@ def _import(
         voxel_rows: list[dict[str, object]] = []
         if voxels:
             (frames / "voxels").mkdir()
-        for number, tick in enumerate((10, 11, 12), 1):
+        for number, tick in enumerate(range(first_tick, last_tick + 1), 1):
             name = f"frame_{number:06d}.png"
             (frames / name).write_bytes(_png())
             frame_rows.append(
@@ -284,15 +286,15 @@ def _import(
             "session_id": SESSION,
             "connection_id": CONNECTION,
             "player_uuid": PLAYER,
-            "global_start_tick": 10,
-            "global_end_tick": 12,
+            "global_start_tick": first_tick,
+            "global_end_tick": last_tick,
             "replay_start_tick": 0,
-            "replay_end_tick": 2,
-            "global_tick_offset": 10,
+            "replay_end_tick": last_tick - first_tick,
+            "global_tick_offset": first_tick,
             "fps": 20,
             "width": 64,
             "height": 64,
-            "voxel_snapshots": 3 if voxels else 0,
+            "voxel_snapshots": last_tick - first_tick + 1 if voxels else 0,
             "voxel_horizontal_radius": 1 if voxels else 0,
             "voxel_vertical_radius": 1 if voxels else 0,
         }
@@ -352,6 +354,28 @@ class RenderAttachmentTest(unittest.TestCase):
             self.assertEqual(1, result.no_coverage_import_count)
             self.assertEqual(0, result.rgb_sample_count)
             self.assertEqual(before, {path.name: path.read_bytes() for path in output.iterdir()})
+
+    def test_render_range_can_be_narrower_than_the_preserved_dataset_selection(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            config, episode, replay, output, job = self._fixture(Path(temporary))
+            job["payload"].update(
+                {
+                    "start_tick": 10,
+                    "end_tick": 11,
+                    "selection_start_tick": 10,
+                    "selection_end_tick": 12,
+                }
+            )
+            imported = _import(config, episode, replay, first_tick=10, last_tick=11)
+
+            result = attach_imported_renders(config, job, [imported])
+
+            self.assertFalse(result.partial)
+            self.assertEqual(2, result.rendered_tick_count)
+            self.assertEqual((10, 11), (result.requested_start_tick, result.requested_end_tick))
+            manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(10, manifest["selection"]["from_tick"])
+            self.assertEqual(12, manifest["selection"]["to_tick"])
 
     def test_refuses_missing_conflicting_and_tampered_existing_datasets(self) -> None:
         for case in ("missing", "conflicting", "tampered"):

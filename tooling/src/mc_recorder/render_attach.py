@@ -72,6 +72,8 @@ class _JobIdentity:
     dataset_id: str
     start_tick: int
     end_tick: int
+    selection_start_tick: int
+    selection_end_tick: int
     output: Path
 
 
@@ -159,6 +161,16 @@ def _job_identity(config: RecorderConfig, job: Mapping[str, Any]) -> _JobIdentit
     end_tick = _required_tick(payload.get("end_tick"), "end tick")
     if start_tick > end_tick:
         raise RecorderError("render queue job start tick exceeds its end tick")
+    if ("selection_start_tick" in payload) != ("selection_end_tick" in payload):
+        raise RecorderError("render queue job selection tick bounds must be supplied together")
+    selection_start_tick = _required_tick(
+        payload.get("selection_start_tick", start_tick), "selection start tick"
+    )
+    selection_end_tick = _required_tick(
+        payload.get("selection_end_tick", end_tick), "selection end tick"
+    )
+    if not selection_start_tick <= start_tick <= end_tick <= selection_end_tick:
+        raise RecorderError("render queue job range is outside its dataset selection")
     output = (
         config.paths.exports
         / f"{session_id}-{player_uuid}-{connection_id}.dataset"
@@ -174,6 +186,8 @@ def _job_identity(config: RecorderConfig, job: Mapping[str, Any]) -> _JobIdentit
         dataset_id=dataset_id,
         start_tick=start_tick,
         end_tick=end_tick,
+        selection_start_tick=selection_start_tick,
+        selection_end_tick=selection_end_tick,
         output=output,
     )
 
@@ -200,8 +214,8 @@ def _verify_dataset(
         or not isinstance(selection, dict)
         or selection.get("players") != [identity.player_uuid]
         or selection.get("connections") != [identity.connection_id]
-        or selection.get("from_tick") != identity.start_tick
-        or selection.get("to_tick") != identity.end_tick
+        or selection.get("from_tick") != identity.selection_start_tick
+        or selection.get("to_tick") != identity.selection_end_tick
     ):
         raise RecorderError(
             "refusing to overwrite dataset with a conflicting session or connection selection"
@@ -450,8 +464,8 @@ def attach_imported_renders(
             identity.output,
             players=[identity.player_uuid],
             connections=[identity.connection_id],
-            first_tick=identity.start_tick,
-            last_tick=identity.end_tick,
+            first_tick=identity.selection_start_tick,
+            last_tick=identity.selection_end_tick,
             frames=[item.directory for item in complete],
             voxels=[item.directory for item in complete if item.has_voxels],
             force=True,

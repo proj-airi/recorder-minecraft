@@ -9,8 +9,11 @@ are provenance only and are never authoritative after import.
 
 The dashboard creates one durable RGB queue job only after the deterministic
 structured dataset for a disconnected connection is verified. The job fixes the
-recording, session, player, connection, observed tick range, dataset identity,
-resolution, and 20 Hz output rate. A worker receives none of those values from
+recording, session, player, connection, dataset selection, renderable sample
+tick range, dataset identity, resolution, and 20 Hz output rate. The renderable
+range is the dataset's first through last sample tick and may be narrower than
+the ledger's join/disconnect selection bounds; attachment preserves those
+original selection bounds. A worker receives none of those values from
 browser-controlled paths or command strings.
 
 `mc-recorder render-worker` registers a fresh worker identity, claims at most one

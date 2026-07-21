@@ -232,6 +232,7 @@ def _validate_job_payload(value: object) -> dict[str, Any]:
             "end_tick",
             "render",
         },
+        optional={"selection_start_tick", "selection_end_tick"},
         label="render job payload",
     )
     if not isinstance(payload["recording_id"], str) or not _HEX_24_RE.fullmatch(
@@ -249,6 +250,22 @@ def _validate_job_payload(value: object) -> dict[str, Any]:
     last_tick = _bounded_integer(payload["end_tick"], "end tick", 0, 2**63 - 1)
     if first_tick > last_tick:
         raise RecorderError("render job tick range is reversed")
+    if ("selection_start_tick" in payload) != ("selection_end_tick" in payload):
+        raise RecorderError("render job selection tick bounds must be supplied together")
+    selection_first = _bounded_integer(
+        payload.get("selection_start_tick", first_tick),
+        "selection start tick",
+        0,
+        2**63 - 1,
+    )
+    selection_last = _bounded_integer(
+        payload.get("selection_end_tick", last_tick),
+        "selection end tick",
+        0,
+        2**63 - 1,
+    )
+    if not selection_first <= first_tick <= last_tick <= selection_last:
+        raise RecorderError("render job tick range is outside its dataset selection")
     render = _strict_object(
         payload["render"], required={"width", "height", "fps"}, label="render settings"
     )

@@ -468,6 +468,8 @@ class DashboardServiceTest(unittest.TestCase):
                 "dataset_id": "b" * 32,
                 "start_tick": 5,
                 "end_tick": 10,
+                "sample_start_tick": 6,
+                "sample_end_tick": 9,
                 "rgb_complete": False,
             }
             try:
@@ -480,6 +482,14 @@ class DashboardServiceTest(unittest.TestCase):
                     )
                     self.assertEqual("queued", job["state"])
                     self.assertEqual(ENDED, job["payload"]["connection_id"])
+                    self.assertEqual((6, 9), (job["payload"]["start_tick"], job["payload"]["end_tick"]))
+                    self.assertEqual(
+                        (5, 10),
+                        (
+                            job["payload"]["selection_start_tick"],
+                            job["payload"]["selection_end_tick"],
+                        ),
+                    )
                     self.assertEqual(
                         {"width": 1280, "height": 720, "fps": 20},
                         job["payload"]["render"],
@@ -490,10 +500,13 @@ class DashboardServiceTest(unittest.TestCase):
                         service.create_render_job(recording_id, fps=30)
                     with self.assertRaisesRegex(RecorderError, "width"):
                         service.create_render_job(recording_id, width=True)
+                    with self.assertRaisesRegex(RecorderError, "retried while queued"):
+                        service.retry_render_job(job["id"])
                     service.cancel_render_job(job["id"])
                     retry = service.retry_render_job(job["id"])
                     self.assertEqual(job["id"], retry["retry_of"])
                     self.assertNotEqual(job["id"], retry["id"])
+                    self.assertEqual((6, 9), (retry["payload"]["start_tick"], retry["payload"]["end_tick"]))
                 missing_row = {**row, "dataset_id": "c" * 32}
                 service.cancel_render_job(retry["id"])
                 with mock.patch.object(service, "recordings", return_value=[missing_row]):
