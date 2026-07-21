@@ -1368,7 +1368,7 @@ def export_episode(
 ) -> ExportResult:
     """Validate, read, and atomically publish while source epochs are pinned."""
 
-    with pin_sealed_epochs(episode):
+    with pin_sealed_epochs(episode) as pinned_epochs:
         return _export_episode_pinned(
             episode,
             output,
@@ -1379,6 +1379,7 @@ def export_episode(
             frames=frames,
             scenes=scenes,
             force=force,
+            pinned_epochs=pinned_epochs,
         )
 
 
@@ -1393,6 +1394,7 @@ def _export_episode_pinned(
     frames: Iterable[Path] = (),
     scenes: Iterable[Path] = (),
     force: bool = False,
+    pinned_epochs: tuple[Path, ...],
 ) -> ExportResult:
     if first_tick is not None and last_tick is not None and first_tick > last_tick:
         raise RecorderError("--from-tick cannot be greater than --to-tick")
@@ -1407,6 +1409,8 @@ def _export_episode_pinned(
         raise RecorderError("episode has no explicitly sealed, hash-verified epochs to export")
     if len(verified_epochs) != validation.sealed_epochs:
         raise RecorderError("sealed epoch set changed during validation; retry the export")
+    if {epoch.info.path.resolve() for epoch in verified_epochs} != set(pinned_epochs):
+        raise RecorderError("sealed epoch set changed while it was being pinned; retry the export")
     epoch_hashes = {epoch.info.index: epoch for epoch in verified_epochs}
     frame_attachments, frame_sources = _load_frame_attachments(frames, validation.session_id)
     selected_players = _normalize_players(players)
