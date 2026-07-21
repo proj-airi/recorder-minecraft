@@ -2,6 +2,7 @@ package dev.mcdata.recorder.io
 
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
+import dev.mcdata.recorder.capture.ReplayScenePacketContract
 import dev.mcdata.recorder.config.RecorderConfig
 import net.fabricmc.loader.api.FabricLoader
 import java.nio.file.AtomicMoveNotSupportedException
@@ -37,6 +38,10 @@ data class SessionFiles(val sessionId: String, val directory: Path) {
                 addProperty("schema_version", 1)
                 addProperty("source_format", "mc-recorder-jsonl-v1")
                 addProperty("session_id", sessionId)
+                addProperty(
+                    "flashback_capture_contract",
+                    ReplayScenePacketContract.FLASHBACK_CAPTURE_CONTRACT
+                )
                 addProperty("created_at", Instant.now().toString())
                 addProperty("minecraft_version", "1.21.8")
                 loader.getModContainer("server-replay").ifPresent { container ->

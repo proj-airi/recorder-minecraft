@@ -12,7 +12,7 @@ import org.spongepowered.asm.mixin.injection.ModifyVariable;
  * writer can encode them asynchronously after the live game state has changed.
  */
 @Mixin(value = ReplayRecorder.class, remap = false)
-public abstract class ReplayInventorySnapshotMixin {
+public abstract class ReplayPacketSnapshotMixin {
     @ModifyVariable(
         method = "record",
         at = @At("HEAD"),

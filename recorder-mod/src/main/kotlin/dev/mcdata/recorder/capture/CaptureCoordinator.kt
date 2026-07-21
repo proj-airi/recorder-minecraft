@@ -40,6 +40,10 @@ class CaptureCoordinator(
             emit("session_start") {
                 addProperty("epoch_ticks", config.epochTicks)
                 addProperty("capture_root", config.capturePath().toString())
+                addProperty(
+                    "flashback_capture_contract",
+                    ReplayScenePacketContract.FLASHBACK_CAPTURE_CONTRACT
+                )
             }
             publishStatus(force = true)
         }

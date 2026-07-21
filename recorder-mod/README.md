@@ -70,6 +70,13 @@ Once per player per tick the mod also sends `mc_recorder:timeline/v1` with the s
 connection ID, global server tick, and matching event sequence. ServerReplay records this payload
 inside its independently rotated Flashback archive; the local renderer uses it for exact alignment.
 
+Scene-capable captures declare
+`flashback_capture_contract: "client_visible_scene_v1"` in the session manifest, `session_start`,
+replay-segment ledgers, and embedded Flashback `mc_recorder` metadata. The recorder narrowly
+overrides upstream packet exclusions for chunk unloads, player corrections, minecart steps, and
+explicit entity movement/teleport/velocity. It does not override pause state or unrelated capture
+settings. Mutable packet collections are copied before ServerReplay's asynchronous encoding.
+
 ## Intentional limitations
 
 - The decoded packet object is available, but canonical raw bytes are not: re-encoding requires the
