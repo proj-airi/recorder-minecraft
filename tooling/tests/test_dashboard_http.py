@@ -155,7 +155,9 @@ def _write_viewer_dataset(exports: Path) -> None:
         "player_uuid": "player-http",
         "connection_id": "connection-http",
         "state": {
+            "player_uuid": "player-http",
             "player_name": "HTTP Player",
+            "connection_id": "connection-http",
             "dimension": "minecraft:overworld",
             "position": {"x": 1, "y": 64, "z": 2},
         },
@@ -202,11 +204,35 @@ def _write_viewer_dataset(exports: Path) -> None:
         "source": {},
         "source_manifest_sha256": "0" * 64,
     }
+    state = {
+        **sample["state"],
+        "schema_version": 2,
+        "source_schema_version": 1,
+        "session_id": sample["session_id"],
+        "epoch_index": sample["epoch_index"],
+        "server_tick": sample["server_tick"],
+        "sequence": 1,
+        "recorded_at_ns": 1,
+        "player_uuid": sample["player_uuid"],
+        "connection_id": sample["connection_id"],
+        "source": {},
+    }
+    modality = {
+        "schema_version": 2,
+        "session_id": sample["session_id"],
+        "epoch_index": sample["epoch_index"],
+        "server_tick": sample["server_tick"],
+        "player_uuid": sample["player_uuid"],
+        "connection_id": sample["connection_id"],
+        "scene": sample["modalities"]["scene"],
+        "rgb": sample["modalities"]["rgb"],
+        "source": {},
+    }
     streams = {
         "samples.jsonl": (json.dumps(sample, separators=(",", ":")) + "\n").encode(),
-        "states.jsonl": b"",
+        "states.jsonl": (json.dumps(state, separators=(",", ":")) + "\n").encode(),
         "actions.jsonl": b"",
-        "modalities.jsonl": b"",
+        "modalities.jsonl": (json.dumps(modality, separators=(",", ":")) + "\n").encode(),
     }
     for name, data in streams.items():
         (directory / name).write_bytes(data)
@@ -224,6 +250,26 @@ def _write_viewer_dataset(exports: Path) -> None:
             "scene_attachment": None,
         },
         "modalities": {
+            "samples": {
+                "available": True,
+                "records": 1,
+                "file": "samples.jsonl",
+            },
+            "state": {
+                "available": True,
+                "records": 1,
+                "file": "states.jsonl",
+            },
+            "actions": {
+                "available": True,
+                "records": 0,
+                "file": "actions.jsonl",
+            },
+            "rgb": {
+                "availability": "per-sample",
+                "records_attached": 0,
+                "index": "modalities.jsonl",
+            },
             "scene": {
                 "availability": "per-sample",
                 "records_attached": 1,
