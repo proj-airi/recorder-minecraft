@@ -345,9 +345,9 @@ class DashboardServiceTest(unittest.TestCase):
             (output / "manifest.json").write_text(
                 json.dumps(
                     {
-                        "schema_version": 1,
+                        "schema_version": 2,
                         "owner": "mc-recorder",
-                        "format": "mc-recorder-jsonl-v1",
+                        "format": "mc-recorder-jsonl-v2",
                         "session_id": session,
                         "selection": {
                             "players": [PLAYER],
@@ -394,9 +394,9 @@ class DashboardServiceTest(unittest.TestCase):
             (output / "manifest.json").write_text(
                 json.dumps(
                     {
-                        "schema_version": 1,
+                        "schema_version": 2,
                         "owner": "mc-recorder",
-                        "format": "mc-recorder-jsonl-v1",
+                        "format": "mc-recorder-jsonl-v2",
                         "session_id": session,
                         "selection": {
                             "players": [PLAYER],

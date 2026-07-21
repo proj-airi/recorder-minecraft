@@ -1,15 +1,10 @@
 from __future__ import annotations
 
-import array
-import base64
-import binascii
-import gzip
 import json
 import os
 import re
 import shutil
 import struct
-import sys
 import tempfile
 import uuid
 import zlib
@@ -24,23 +19,18 @@ from .render_contract import FULL_CLIENT_PRESENTATION_CONTRACT
 from .render_hud import validate_hud_result_envelope
 
 
-EXPORT_SCHEMA_VERSION = 1
-EXPORT_FORMAT = "mc-recorder-jsonl-v1"
+EXPORT_SCHEMA_VERSION = 2
+EXPORT_FORMAT = "mc-recorder-jsonl-v2"
 CANONICAL_RENDER_RESULT_TYPE = "mc-recorder-render-result-v2"
 OWNER = "mc-recorder"
 TICK_RATE_HZ = 20
 MAX_PNG_BYTES_PER_PIXEL = 8
 MIN_PNG_SIZE_LIMIT = 16 * 1024 * 1024
-MAX_VOXEL_COMPRESSED_BYTES = 64 * 1024 * 1024
-MAX_VOXEL_JSON_BYTES = 64 * 1024 * 1024
-MAX_VOXEL_CELLS = 2_000_000
-MAX_VOXEL_AXIS = 129
 MAX_ATTACHMENT_INDEX_BYTES = 64 * 1024 * 1024
 MAX_ATTACHMENT_INDEX_LINE_CHARS = 64 * 1024
 MAX_ATTACHMENT_TICKS = 100_000
 MAX_JSON_OBJECT_BYTES = 16 * 1024 * 1024
 _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
-_RESOURCE_LOCATION = re.compile(r"^[a-z0-9_.-]+:[a-z0-9/._-]+$")
 _ENVELOPE_FIELDS = {
     "schema_version",
     "record_type",
@@ -64,7 +54,7 @@ class ExportResult:
     action_count: int
     modality_count: int
     rgb_count: int
-    voxel_count: int
+    scene_count: int
 
 
 @dataclass
@@ -107,17 +97,31 @@ class AttachedFrame:
 
 
 @dataclass(frozen=True)
-class AttachedVoxel:
+class AttachedScene:
     reference: str
-    row: dict[str, Any]
-    index_sha256: str
-    artifact_sha256: str
-    artifact_bytes: int
-    dimension: str
+    frame_id: str
+    coverage_complete: bool
+
+
+@dataclass(frozen=True)
+class VerifiedSceneAttachment:
+    path: Path
+    sha256: str
+    size_bytes: int
+    frames: dict[FrameKey, AttachedScene]
+    provenance: dict[str, Any]
 
 
 def _json_line(value: dict[str, Any]) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False) + "\n"
+
+
+def _plain_json(value: Any) -> Any:
+    if isinstance(value, dict) or hasattr(value, "items"):
+        return {str(key): _plain_json(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_plain_json(item) for item in value]
+    return value
 
 
 def _required_int(mapping: dict[str, Any], key: str, context: Path | str) -> int:
@@ -457,12 +461,10 @@ def _frame_key(record: dict[str, Any]) -> FrameKey | None:
 def _modality_entry(
     record: dict[str, Any],
     frames: dict[FrameKey, AttachedFrame],
-    voxels: dict[FrameKey, AttachedVoxel],
+    scenes: dict[FrameKey, AttachedScene],
     epoch_hashes: dict[int, VerifiedEpoch],
 ) -> dict[str, Any]:
-    voxel_ref = record.get("voxel_ref")
-    voxel_mask = record.get("voxel_coverage_mask_ref") or record.get("coverage_mask_ref")
-    attached_voxel = voxels.get(_frame_key(record))
+    attached_scene = scenes.get(_frame_key(record))
     attached = frames.get(_frame_key(record))
     rgb: dict[str, Any]
     if attached is None:
@@ -487,37 +489,23 @@ def _modality_entry(
             "width": attached.width,
             "height": attached.height,
         }
-    if attached_voxel is not None:
-        voxel = {
+    if attached_scene is not None:
+        scene = {
             "available": True,
-            "reference": attached_voxel.reference,
-            "coverage_mask_reference": attached_voxel.reference,
             "valid": True,
+            "coverage_complete": attached_scene.coverage_complete,
+            "reference": attached_scene.reference,
+            "frame_id": attached_scene.frame_id,
             "reason": None,
-            "replay_tick": attached_voxel.row.get("replay_tick"),
-            "origin": attached_voxel.row.get("origin"),
-            "shape": attached_voxel.row.get("shape"),
-            "covered_cells": attached_voxel.row.get("covered_cells"),
-            "total_cells": attached_voxel.row.get("total_cells"),
-            "coverage_complete": attached_voxel.row.get("coverage_complete"),
-            "voxels_index_sha256": attached_voxel.index_sha256,
-            "artifact_sha256": attached_voxel.artifact_sha256,
-            "artifact_bytes": attached_voxel.artifact_bytes,
-            "dimension": attached_voxel.dimension,
         }
     else:
-        voxel = {
+        scene = {
             "available": False,
-            "reference": None,
-            "coverage_mask_reference": None,
             "valid": False,
-            "reason": (
-                "source-provided voxel references are unvalidated; attach voxels.jsonl explicitly"
-                if voxel_ref is not None
-                else "no voxel converter artifact is attached"
-            ),
-            "unvalidated_source_reference": voxel_ref,
-            "unvalidated_source_coverage_mask_reference": voxel_mask,
+            "coverage_complete": False,
+            "reference": None,
+            "frame_id": None,
+            "reason": "scene_not_attached",
         }
     return {
         "schema_version": EXPORT_SCHEMA_VERSION,
@@ -526,7 +514,7 @@ def _modality_entry(
         "server_tick": record.get("server_tick"),
         "player_uuid": _player_uuid(record),
         "connection_id": record.get("connection_id"),
-        "voxels": voxel,
+        "scene": scene,
         "rgb": rgb,
         "source": _source_ref(record, epoch_hashes),
     }
@@ -602,7 +590,7 @@ def _sample_row(
     session_manifest_sha: str,
     epoch_hashes: dict[int, VerifiedEpoch],
     frames: dict[FrameKey, AttachedFrame],
-    voxels: dict[FrameKey, AttachedVoxel],
+    scenes: dict[FrameKey, AttachedScene],
 ) -> dict[str, Any]:
     previous_state = previous.states[key]
     current_state = current.states[key]
@@ -638,7 +626,7 @@ def _sample_row(
     invalid_reasons = _transition_invalid_reasons(
         previous, current, previous_state, current_state, control, assigned_packets
     )
-    modality = _modality_entry(previous_state, frames, voxels, epoch_hashes)
+    modality = _modality_entry(previous_state, frames, scenes, epoch_hashes)
     control_row = _action_row(control, epoch_hashes) if control is not None else None
     packet_rows = [_action_row(packet, epoch_hashes) for packet in packets]
     return {
@@ -670,7 +658,7 @@ def _sample_row(
             "state": _peer_rows(previous.states, key, epoch_hashes),
             "next_state": _peer_rows(current.states, key, epoch_hashes),
         },
-        "modalities": {"voxels": modality["voxels"], "rgb": modality["rgb"]},
+        "modalities": {"scene": modality["scene"], "rgb": modality["rgb"]},
         "transition_valid": not invalid_reasons,
         "transition_invalid_reasons": invalid_reasons,
         "source_manifest_sha256": session_manifest_sha,
@@ -697,26 +685,37 @@ def _owned_export_directory(path: Path) -> bool:
         or value.get("format") != EXPORT_FORMAT
     ):
         return False
-    expected_names = {
-        "manifest.json",
+    required_files = {
         "samples.jsonl",
         "states.jsonl",
         "actions.jsonl",
         "modalities.jsonl",
     }
     try:
-        entries = list(path.iterdir())
-        if {entry.name for entry in entries} != expected_names:
+        if path.is_symlink() or manifest.is_symlink() or not manifest.is_file():
             return False
-        if any(entry.is_symlink() or not entry.is_file() for entry in entries):
-            return False
+        actual_files: set[str] = set()
+        for entry in path.rglob("*"):
+            if entry.is_symlink():
+                return False
+            if entry.is_file():
+                actual_files.add(entry.relative_to(path).as_posix())
+            elif not entry.is_dir():
+                return False
         files = value.get("files")
-        if not isinstance(files, dict) or set(files) != expected_names - {"manifest.json"}:
+        if (
+            not isinstance(files, dict)
+            or not required_files <= set(files)
+            or set(files) != actual_files - {"manifest.json"}
+            or not actual_files <= required_files | {"manifest.json", "scene/scene-v1.sqlite3"}
+        ):
             return False
         for name, metadata in files.items():
             if not isinstance(metadata, dict):
                 return False
             artifact = path / name
+            if artifact.is_symlink() or not artifact.is_file():
+                return False
             if metadata.get("size_bytes") != artifact.stat().st_size:
                 return False
             if metadata.get("sha256") != sha256_file(artifact):
@@ -971,173 +970,6 @@ def _validate_png(path: Path, expected_width: int, expected_height: int, context
                 if handle.read(1):
                     raise RecorderError(f"{context}: trailing bytes after PNG IEND")
                 return
-
-
-def _decode_base64(value: Any, maximum_encoded: int, context: str, field: str) -> bytes:
-    if not isinstance(value, str):
-        raise RecorderError(f"{context}: voxel {field} must be a base64 string")
-    if len(value) > maximum_encoded:
-        raise RecorderError(f"{context}: voxel {field} exceeds its size bound")
-    try:
-        return base64.b64decode(value, validate=True)
-    except (binascii.Error, ValueError) as exc:
-        raise RecorderError(f"{context}: voxel {field} is not valid base64") from exc
-
-
-def _validate_voxel_artifact(
-    path: Path,
-    index_row: dict[str, Any],
-    expected_shape: tuple[int, int, int] | None,
-    context: str,
-) -> str:
-    try:
-        compressed_bytes = path.stat().st_size
-    except OSError as exc:
-        raise RecorderError(f"{context}: cannot stat voxel artifact") from exc
-    if compressed_bytes > MAX_VOXEL_COMPRESSED_BYTES:
-        raise RecorderError(f"{context}: compressed voxel artifact exceeds the size limit")
-    try:
-        with gzip.open(path, "rb") as handle:
-            raw = handle.read(MAX_VOXEL_JSON_BYTES + 1)
-    except (gzip.BadGzipFile, EOFError, OSError) as exc:
-        raise RecorderError(f"{context}: voxel artifact is not a valid complete gzip stream") from exc
-    if len(raw) > MAX_VOXEL_JSON_BYTES:
-        raise RecorderError(f"{context}: decompressed voxel JSON exceeds the size limit")
-    try:
-        snapshot = json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, ValueError, RecursionError) as exc:
-        raise RecorderError(f"{context}: voxel artifact is not valid UTF-8 JSON") from exc
-    if not isinstance(snapshot, dict):
-        raise RecorderError(f"{context}: voxel snapshot must be a JSON object")
-    if snapshot.get("schema_version") != 1 or isinstance(snapshot.get("schema_version"), bool):
-        raise RecorderError(f"{context}: unsupported voxel schema_version")
-    if snapshot.get("format") != "mc-recorder-voxel-palette-v1":
-        raise RecorderError(f"{context}: unsupported voxel format")
-    for field_name in ("session_id", "connection_id", "player_uuid"):
-        if not isinstance(snapshot.get(field_name), str):
-            raise RecorderError(f"{context}: voxel snapshot {field_name} must be a string")
-        if snapshot.get(field_name) != index_row.get(field_name):
-            raise RecorderError(
-                f"{context}: voxel snapshot {field_name} does not match its index row"
-            )
-    for field_name in ("server_tick", "replay_tick"):
-        if _required_int(snapshot, field_name, context) != index_row.get(field_name):
-            raise RecorderError(
-                f"{context}: voxel snapshot {field_name} does not match its index row"
-            )
-
-    dimension = snapshot.get("dimension")
-    if not isinstance(dimension, str) or _RESOURCE_LOCATION.fullmatch(dimension) is None:
-        raise RecorderError(f"{context}: voxel dimension is not a valid resource location")
-    origin = _voxel_vector(snapshot, "origin", context)
-    shape = _voxel_vector(snapshot, "shape", context)
-    center = _voxel_vector(snapshot, "center", context)
-    if origin != _voxel_vector(index_row, "origin", context):
-        raise RecorderError(f"{context}: voxel origin does not match its index row")
-    if shape != _voxel_vector(index_row, "shape", context):
-        raise RecorderError(f"{context}: voxel shape does not match its index row")
-    if expected_shape is not None and shape != expected_shape:
-        raise RecorderError(
-            f"{context}: voxel shape {shape} does not match renderer result {expected_shape}"
-        )
-    if any(size <= 0 or size > MAX_VOXEL_AXIS or size % 2 == 0 for size in shape):
-        raise RecorderError(f"{context}: voxel shape must contain bounded odd positive axes")
-    if any(value < -(2**31) or value > 2**31 - 1 for value in origin + center):
-        raise RecorderError(f"{context}: voxel origin or center is outside signed 32-bit bounds")
-    expected_center = tuple(origin[axis] + (shape[axis] - 1) // 2 for axis in range(3))
-    if center != expected_center:
-        raise RecorderError(f"{context}: voxel center is inconsistent with origin and shape")
-
-    total = shape[0] * shape[1] * shape[2]
-    if total > MAX_VOXEL_CELLS:
-        raise RecorderError(f"{context}: voxel crop exceeds the v1 cell limit")
-    snapshot_total = _required_int(snapshot, "total_cells", context)
-    index_total = _required_int(index_row, "total_cells", context)
-    if snapshot_total != total or index_total != total:
-        raise RecorderError(f"{context}: voxel total_cells does not match shape")
-    covered = _required_int(snapshot, "covered_cells", context)
-    if covered != _required_int(index_row, "covered_cells", context) or not 0 <= covered <= total:
-        raise RecorderError(f"{context}: voxel covered_cells does not match its index row")
-    coverage_complete = snapshot.get("coverage_complete")
-    if (
-        not isinstance(coverage_complete, bool)
-        or coverage_complete != index_row.get("coverage_complete")
-        or coverage_complete != (covered == total)
-    ):
-        raise RecorderError(f"{context}: voxel coverage_complete is inconsistent")
-
-    if snapshot.get("linear_order") != "x_fastest_then_z_then_y":
-        raise RecorderError(f"{context}: unsupported voxel linear_order")
-    if snapshot.get("index_byte_order") != "little_endian":
-        raise RecorderError(f"{context}: unsupported voxel index byte order")
-    dtype = snapshot.get("index_dtype")
-    if dtype not in {"uint16", "uint32"}:
-        raise RecorderError(f"{context}: unsupported voxel index dtype")
-    palette = snapshot.get("palette")
-    if not isinstance(palette, list) or not palette or len(palette) > total + 1:
-        raise RecorderError(f"{context}: voxel palette is missing or implausibly large")
-    if palette[0] != "minecraft:air":
-        raise RecorderError(f"{context}: voxel palette entry zero must be minecraft:air")
-    seen_palette: set[str] = set()
-    for entry in palette:
-        if not isinstance(entry, str) or not entry or len(entry) > 4096:
-            raise RecorderError(f"{context}: voxel palette contains an invalid entry")
-        block_id = entry.split("[", 1)[0]
-        if _RESOURCE_LOCATION.fullmatch(block_id) is None:
-            raise RecorderError(f"{context}: voxel palette contains an invalid block resource")
-        if "[" in entry and not entry.endswith("]"):
-            raise RecorderError(f"{context}: voxel palette contains a malformed block state")
-        if entry in seen_palette:
-            raise RecorderError(f"{context}: voxel palette contains duplicate entries")
-        seen_palette.add(entry)
-    if (len(palette) <= 65_536) != (dtype == "uint16"):
-        raise RecorderError(f"{context}: voxel index dtype does not match palette size")
-
-    index_width = 2 if dtype == "uint16" else 4
-    expected_index_bytes = total * index_width
-    expected_index_encoded = 4 * ((expected_index_bytes + 2) // 3)
-    indices = _decode_base64(
-        snapshot.get("indices_base64"), expected_index_encoded, context, "indices_base64"
-    )
-    if len(indices) != expected_index_bytes:
-        raise RecorderError(f"{context}: voxel index buffer length does not match shape and dtype")
-
-    maximum_coverage_bytes = (total + 7) // 8
-    maximum_coverage_encoded = 4 * ((maximum_coverage_bytes + 2) // 3)
-    coverage = _decode_base64(
-        snapshot.get("coverage_bitset_base64"),
-        maximum_coverage_encoded,
-        context,
-        "coverage_bitset_base64",
-    )
-    if len(coverage) > maximum_coverage_bytes or (coverage and coverage[-1] == 0):
-        raise RecorderError(f"{context}: voxel coverage bitset is not minimally encoded")
-    if (
-        len(coverage) == maximum_coverage_bytes
-        and coverage
-        and total % 8
-        and coverage[-1] >> (total % 8)
-    ):
-        raise RecorderError(f"{context}: voxel coverage bitset has bits beyond the crop")
-    if snapshot.get("coverage_bit_order") != "lsb0":
-        raise RecorderError(f"{context}: unsupported voxel coverage bit order")
-    actual_covered = sum(byte.bit_count() for byte in coverage)
-    if actual_covered != covered:
-        raise RecorderError(f"{context}: voxel coverage bitset count does not match metadata")
-
-    palette_indices = array.array("H" if index_width == 2 else "I")
-    palette_indices.frombytes(indices)
-    if sys.byteorder != "little":
-        palette_indices.byteswap()
-    if palette_indices and max(palette_indices) >= len(palette):
-        raise RecorderError(f"{context}: voxel index references outside the palette")
-
-    if snapshot.get("block_entities_included") is not False:
-        raise RecorderError(f"{context}: voxel v1 must explicitly exclude block entities")
-    note = snapshot.get("block_entities_note")
-    if not isinstance(note, str) or not note:
-        raise RecorderError(f"{context}: voxel block entity limitation note is missing")
-    return dimension
 
 
 def _resolve_frame_artifacts(path: Path) -> tuple[Path, Path]:
@@ -1435,317 +1267,76 @@ def _load_frame_attachments(
     return attachments, sources
 
 
-def _resolve_voxel_artifacts(path: Path) -> tuple[Path | None, Path]:
-    source = _attachment_input(path, "voxel attachment")
-    if source.is_dir():
-        index_candidates = (source / "voxels.jsonl", source / "frames" / "voxels.jsonl")
-        index = next((candidate for candidate in index_candidates if candidate.is_file()), None)
-        if index is None:
-            raise RecorderError(f"render directory has no voxels.jsonl: {source}")
-        result_candidates = (source / "result.json", source.parent / "result.json")
-        result = next((candidate for candidate in result_candidates if candidate.is_file()), None)
-        if result is None:
-            raise RecorderError(f"render directory has no associated result.json: {source}")
-        return result, index
-    if not source.is_file() or source.is_symlink() or source.name != "voxels.jsonl":
-        raise RecorderError(f"--voxels expects a render job directory or voxels.jsonl: {source}")
-    result_candidates = (source.parent / "result.json", source.parent.parent / "result.json")
-    result = next((candidate for candidate in result_candidates if candidate.is_file()), None)
-    return result, source
+def _load_scene_attachment(
+    supplied_paths: Iterable[Path], expected_session: str
+) -> VerifiedSceneAttachment | None:
+    supplied = list(supplied_paths)
+    if not supplied:
+        return None
+    if len(supplied) != 1:
+        raise RecorderError("Dataset V2 accepts exactly one scene store per dataset")
 
+    source = _attachment_input(supplied[0], "scene attachment")
+    if source.is_symlink() or not source.is_file():
+        raise RecorderError(f"scene attachment must be a regular SQLite store: {source}")
+    from .scene_store import SceneStore, validate_scene_store
 
-def _voxel_vector(row: dict[str, Any], key: str, context: str) -> tuple[int, int, int]:
-    value = row.get(key)
-    if not isinstance(value, dict):
-        raise RecorderError(f"{context}: voxel {key} must be an object")
-    coordinates: list[int] = []
-    for axis in ("x", "y", "z"):
-        coordinate = value.get(axis)
-        if not isinstance(coordinate, int) or isinstance(coordinate, bool):
-            raise RecorderError(f"{context}: voxel {key}.{axis} must be an integer")
-        coordinates.append(coordinate)
-    return coordinates[0], coordinates[1], coordinates[2]
-
-
-def _load_voxel_attachments(
-    paths: Iterable[Path], expected_session: str
-) -> tuple[dict[FrameKey, AttachedVoxel], list[dict[str, Any]]]:
-    attachments: dict[FrameKey, AttachedVoxel] = {}
-    sources: list[dict[str, Any]] = []
-    seen_indexes: set[Path] = set()
-    for supplied in paths:
-        result_path, index_path = _resolve_voxel_artifacts(supplied)
-        if index_path.is_symlink() or (result_path is not None and result_path.is_symlink()):
-            raise RecorderError("renderer result and voxels.jsonl may not be symlinks")
-        index_path = index_path.resolve()
-        if index_path in seen_indexes:
-            continue
-        seen_indexes.add(index_path)
-
-        result: dict[str, Any] | None = None
-        result_sha: str | None = None
-        result_identity: tuple[str, str, str] | None = None
-        expected_ticks: set[int] | None = None
-        expected_shape: tuple[int, int, int] | None = None
-        replay_start: int | None = None
-        global_offset: int | None = None
-        expected_voxel_count: int | None = None
-        replay_sha: str | None = None
-        replay_bytes: int | None = None
-        replay_path: str | None = None
-        if result_path is not None:
-            result_path = result_path.resolve()
-            result_sha = sha256_file(result_path)
-            result = _read_object(result_path, "renderer result")
-            if result.get("status") != "complete":
-                raise RecorderError(f"renderer result is not complete: {result_path}")
-            no_gui = result.get("no_gui", True)
-            if not isinstance(no_gui, bool):
-                raise RecorderError(f"renderer result no_gui must be a boolean: {result_path}")
-            replay_sha, replay_bytes, replay_path = _renderer_replay_integrity(
-                result, result_path
+    info = validate_scene_store(source, expected_session_id=expected_session)
+    identity = info.identity
+    ticks = tuple(info.ticks)
+    if not ticks:
+        raise RecorderError("scene attachment contains no frames")
+    if not info.coverage_complete:
+        raise RecorderError("refusing to attach an incomplete scene store")
+    if not info.sensitive:
+        raise RecorderError("full-metadata scene stores must be marked sensitive")
+    frames: dict[FrameKey, AttachedScene] = {}
+    with SceneStore(source) as store:
+        for tick in ticks:
+            frame = store.frame(tick)
+            key = (identity.session_id, identity.player_uuid, identity.connection_id, tick)
+            frames[key] = AttachedScene(
+                reference="scene/scene-v1.sqlite3",
+                frame_id=frame.frame_id,
+                coverage_complete=frame.coverage_complete,
             )
-            session = result.get("session_id")
-            player = result.get("player_uuid")
-            connection = result.get("connection_id")
-            if session != expected_session:
-                raise RecorderError(
-                    f"renderer result session {session!r} does not match episode {expected_session!r}"
-                )
-            if not isinstance(player, str) or not isinstance(connection, str):
-                raise RecorderError(f"renderer result lacks player_uuid or connection_id: {result_path}")
-            if _required_int(result, "fps", result_path) != TICK_RATE_HZ:
-                raise RecorderError(f"renderer result must be exactly {TICK_RATE_HZ} FPS: {result_path}")
-            first_tick = _required_int(result, "global_start_tick", result_path)
-            last_tick = _required_int(result, "global_end_tick", result_path)
-            if first_tick > last_tick:
-                raise RecorderError(f"renderer result has an invalid global tick range: {result_path}")
-            if last_tick - first_tick + 1 > MAX_ATTACHMENT_TICKS:
-                raise RecorderError(f"renderer result exceeds the attachment tick limit: {result_path}")
-            replay_start = _required_int(result, "replay_start_tick", result_path)
-            replay_end = _required_int(result, "replay_end_tick", result_path)
-            global_offset = _required_int(result, "global_tick_offset", result_path)
-            if first_tick < 0 or replay_start < 0 or replay_end < replay_start:
-                raise RecorderError(
-                    f"renderer result contains a negative or reversed timeline: {result_path}"
-                )
-            if replay_end - replay_start != last_tick - first_tick:
-                raise RecorderError(
-                    f"renderer result replay/global ranges have different lengths: {result_path}"
-                )
-            if global_offset + replay_start != first_tick or global_offset + replay_end != last_tick:
-                raise RecorderError(f"renderer result global tick offset is inconsistent: {result_path}")
-            horizontal_radius = _required_int(result, "voxel_horizontal_radius", result_path)
-            vertical_radius = _required_int(result, "voxel_vertical_radius", result_path)
-            if not 1 <= horizontal_radius <= 64 or not 1 <= vertical_radius <= 64:
-                raise RecorderError(f"renderer result voxel radii are outside v1 bounds: {result_path}")
-            expected_shape = (
-                horizontal_radius * 2 + 1,
-                vertical_radius * 2 + 1,
-                horizontal_radius * 2 + 1,
-            )
-            expected_voxel_count = _required_int(result, "voxel_snapshots", result_path)
-            expected_ticks = set(range(first_tick, last_tick + 1))
-            result_identity = (session, player, connection)
-            result_index = result.get("voxel_index")
-            canonical_index = _canonical_result_reference(
-                result, result_path, "voxel_index", "voxel index"
-            )
-            if canonical_index is not None:
-                resolved_result_index = canonical_index
-            else:
-                if not isinstance(result_index, str):
-                    raise RecorderError(f"renderer result lacks voxel_index: {result_path}")
-                resolved_result_index = Path(result_index).expanduser().resolve()
-            if resolved_result_index != index_path:
-                raise RecorderError(
-                    f"voxel index {index_path} does not match renderer result {result_index}"
-                )
 
-        if not index_path.is_file() or index_path.is_symlink():
-            raise RecorderError(f"voxel index does not exist or is symlinked: {index_path}")
-        if index_path.stat().st_size > MAX_ATTACHMENT_INDEX_BYTES:
-            raise RecorderError(f"voxel index exceeds the size limit: {index_path}")
-        index_sha = sha256_file(index_path)
-        ticks_by_identity: dict[tuple[str, str, str], set[int]] = {}
-        offsets_by_identity: dict[tuple[str, str, str], set[int]] = {}
-        row_count = 0
-        try:
-            handle = index_path.open("rb")
-        except OSError as exc:
-            raise RecorderError(f"cannot read voxel index: {index_path}") from exc
-        with handle:
-            for line_number, line in enumerate(handle, 1):
-                if not line.strip():
-                    continue
-                if len(line) > MAX_ATTACHMENT_INDEX_LINE_CHARS:
-                    raise RecorderError(f"{index_path}:{line_number}: voxel row exceeds the size limit")
-                context = f"{index_path}:{line_number}"
-                try:
-                    row = json.loads(line)
-                except (ValueError, RecursionError) as exc:
-                    raise RecorderError(f"{context}: invalid voxel JSON: {exc}") from exc
-                if not isinstance(row, dict):
-                    raise RecorderError(f"{context}: voxel row must be an object")
-                session = row.get("session_id")
-                player = row.get("player_uuid")
-                connection = row.get("connection_id")
-                tick = row.get("server_tick")
-                if row.get("schema_version") != 1 or isinstance(row.get("schema_version"), bool):
-                    raise RecorderError(f"{context}: unsupported voxel index schema_version")
-                if session != expected_session:
-                    raise RecorderError(f"{context}: session_id does not match episode")
-                if not isinstance(player, str) or not isinstance(connection, str):
-                    raise RecorderError(f"{context}: player_uuid or connection_id is missing")
-                if not isinstance(tick, int) or isinstance(tick, bool):
-                    raise RecorderError(f"{context}: server_tick must be an integer")
-                replay_tick = row.get("replay_tick")
-                if not isinstance(replay_tick, int) or isinstance(replay_tick, bool):
-                    raise RecorderError(f"{context}: replay_tick must be an integer")
-                identity = (session, player, connection)
-                if result_identity is not None and identity != result_identity:
-                    raise RecorderError(f"{context}: voxel identity does not match renderer result")
-                ticks = ticks_by_identity.setdefault(identity, set())
-                if tick in ticks:
-                    raise RecorderError(f"{context}: duplicate server_tick {tick}")
-                ticks.add(tick)
-                offsets_by_identity.setdefault(identity, set()).add(tick - replay_tick)
-                if replay_start is not None and global_offset is not None:
-                    if replay_tick != replay_start + tick - first_tick:
-                        raise RecorderError(f"{context}: replay_tick is inconsistent with renderer result")
-                    if global_offset + replay_tick != tick:
-                        raise RecorderError(f"{context}: global tick offset is inconsistent")
-
-                _voxel_vector(row, "origin", context)
-                shape = _voxel_vector(row, "shape", context)
-                if any(size <= 0 for size in shape):
-                    raise RecorderError(f"{context}: voxel shape dimensions must be positive")
-                covered = row.get("covered_cells")
-                total = row.get("total_cells")
-                complete = row.get("coverage_complete")
-                if (
-                    not isinstance(covered, int)
-                    or isinstance(covered, bool)
-                    or not isinstance(total, int)
-                    or isinstance(total, bool)
-                    or covered < 0
-                    or total <= 0
-                    or covered > total
-                ):
-                    raise RecorderError(f"{context}: voxel coverage counts are invalid")
-                if total != shape[0] * shape[1] * shape[2]:
-                    raise RecorderError(f"{context}: total_cells does not match voxel shape")
-                if not isinstance(complete, bool) or complete != (covered == total):
-                    raise RecorderError(f"{context}: coverage_complete disagrees with coverage counts")
-
-                relative = row.get("reference")
-                if not isinstance(relative, str) or not relative:
-                    raise RecorderError(f"{context}: voxel reference is missing")
-                artifact = _artifact_inside(index_path.parent, relative, context, "voxel")
-                artifact_bytes = artifact.stat().st_size
-                artifact_sha = sha256_file(artifact)
-                dimension = _validate_voxel_artifact(artifact, row, expected_shape, context)
-                if artifact.stat().st_size != artifact_bytes or sha256_file(artifact) != artifact_sha:
-                    raise RecorderError(f"{context}: voxel artifact changed during validation")
-
-                key = (session, player, connection, tick)
-                attached = AttachedVoxel(
-                    reference=str(artifact),
-                    row=row,
-                    index_sha256=index_sha,
-                    artifact_sha256=artifact_sha,
-                    artifact_bytes=artifact_bytes,
-                    dimension=dimension,
-                )
-                existing = attachments.get(key)
-                if existing is not None:
-                    raise RecorderError(
-                        f"multiple voxel attachments claim {session}/{player}/{connection}/tick-{tick}"
-                    )
-                attachments[key] = attached
-                row_count += 1
-
-        if not ticks_by_identity:
-            raise RecorderError(f"voxel index is empty: {index_path}")
-        if result_identity is not None:
-            actual_ticks = ticks_by_identity.get(result_identity, set())
-            assert expected_ticks is not None
-            if actual_ticks != expected_ticks:
-                missing = sorted(expected_ticks - actual_ticks)
-                preview = ", ".join(str(tick) for tick in missing[:5])
-                raise RecorderError(
-                    f"completed voxel index is not contiguous; missing global ticks {preview}"
-                )
-            if expected_voxel_count != row_count:
-                raise RecorderError(
-                    f"voxel index row count {row_count} does not match renderer result "
-                    f"{expected_voxel_count}"
-                )
-        else:
-            if len(ticks_by_identity) != 1:
-                raise RecorderError(
-                    f"standalone voxel index must contain exactly one player connection: {index_path}"
-                )
-            actual_ticks = next(iter(ticks_by_identity.values()))
-            if max(actual_ticks) - min(actual_ticks) + 1 > MAX_ATTACHMENT_TICKS:
-                raise RecorderError(f"standalone voxel index exceeds the tick limit: {index_path}")
-            contiguous = set(range(min(actual_ticks), max(actual_ticks) + 1))
-            if actual_ticks != contiguous:
-                raise RecorderError(f"standalone voxel index has a non-contiguous global timeline: {index_path}")
-            identity = next(iter(ticks_by_identity))
-            if len(offsets_by_identity[identity]) != 1:
-                raise RecorderError(f"standalone voxel index has an inconsistent replay timeline: {index_path}")
-
-        if sha256_file(index_path) != index_sha:
-            raise RecorderError(f"voxel index changed while attaching: {index_path}")
-        if result_path is not None and result_sha is not None:
-            if sha256_file(result_path) != result_sha:
-                raise RecorderError(f"renderer result changed while attaching voxels: {result_path}")
-
-        identity = result_identity or next(iter(ticks_by_identity))
-        actual_ticks = ticks_by_identity[identity]
-        source: dict[str, Any] = {
-            "voxels_index": str(index_path),
-            "voxels_index_sha256": index_sha,
-            "session_id": identity[0],
-            "player_uuid": identity[1],
-            "connection_id": identity[2],
-            "global_start_tick": min(actual_ticks),
-            "global_end_tick": max(actual_ticks),
-            "voxel_count": row_count,
-        }
-        if result_path is not None:
-            source["result"] = str(result_path)
-            source["result_sha256"] = result_sha
-            source["replay"] = replay_path
-            source["replay_sha256"] = replay_sha
-            source["replay_bytes"] = replay_bytes
-            assert result is not None
-            source["no_gui"] = result.get("no_gui", True)
-            if result is not None and result.get("result_type") == CANONICAL_RENDER_RESULT_TYPE:
-                source["portable_request"] = result.get("portable_request")
-                source["source_replay"] = result.get("source_replay")
-                source["range_policy"] = result.get("range_policy")
-                source["newer_cutoff"] = result.get("newer_cutoff")
-        sources.append(source)
-    return attachments, sources
+    size_bytes = source.stat().st_size
+    digest = sha256_file(source)
+    if source.stat().st_size != size_bytes or sha256_file(source) != digest:
+        raise RecorderError("scene store changed while it was validated")
+    provenance = {
+        "format": "mc-recorder-scene-store-v1",
+        "path": str(source),
+        "sha256": digest,
+        "size_bytes": size_bytes,
+        "session_id": identity.session_id,
+        "player_uuid": identity.player_uuid,
+        "connection_id": identity.connection_id,
+        "global_start_tick": ticks[0],
+        "global_end_tick": ticks[-1],
+        "frame_count": len(ticks),
+        "scope": "client_visible",
+        "metadata_policy": "full_packet_metadata",
+        "sensitive": True,
+        "source_replays": _plain_json(info.source_replays),
+    }
+    return VerifiedSceneAttachment(
+        path=source,
+        sha256=digest,
+        size_bytes=size_bytes,
+        frames=frames,
+        provenance=provenance,
+    )
 
 
-def _assert_attachments_unchanged(
-    frames: dict[FrameKey, AttachedFrame], voxels: dict[FrameKey, AttachedVoxel]
-) -> None:
+def _assert_attachments_unchanged(frames: dict[FrameKey, AttachedFrame]) -> None:
     expected: dict[Path, tuple[int, str, str]] = {}
     for attached in frames.values():
         expected[Path(attached.reference)] = (
             attached.artifact_bytes,
             attached.artifact_sha256,
             "frame",
-        )
-    for attached in voxels.values():
-        expected[Path(attached.reference)] = (
-            attached.artifact_bytes,
-            attached.artifact_sha256,
-            "voxel",
         )
     for path, (size, digest, kind) in expected.items():
         try:
@@ -1765,7 +1356,7 @@ def export_episode(
     first_tick: int | None = None,
     last_tick: int | None = None,
     frames: Iterable[Path] = (),
-    voxels: Iterable[Path] = (),
+    scenes: Iterable[Path] = (),
     force: bool = False,
 ) -> ExportResult:
     if first_tick is not None and last_tick is not None and first_tick > last_tick:
@@ -1783,16 +1374,23 @@ def export_episode(
         raise RecorderError("sealed epoch set changed during validation; retry the export")
     epoch_hashes = {epoch.info.index: epoch for epoch in verified_epochs}
     frame_attachments, frame_sources = _load_frame_attachments(frames, validation.session_id)
-    voxel_attachments, voxel_sources = _load_voxel_attachments(voxels, validation.session_id)
     selected_players = _normalize_players(players)
     selected_connections = _normalize_connections(connections)
+    scene_attachment = _load_scene_attachment(scenes, validation.session_id)
+    scene_frames = scene_attachment.frames if scene_attachment is not None else {}
+    if scene_attachment is not None and scene_frames:
+        _session, scene_player, scene_connection, _tick = next(iter(scene_frames))
+        if selected_players and scene_player not in selected_players:
+            raise RecorderError("scene attachment player is outside the export selection")
+        if selected_connections and scene_connection not in selected_connections:
+            raise RecorderError("scene attachment connection is outside the export selection")
     requested_output = output.expanduser()
     if requested_output.is_symlink():
         raise RecorderError(f"refusing symlinked export output: {requested_output}")
     output = requested_output.resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(prefix=f".{output.name}.tmp-", dir=output.parent))
-    sample_count = state_count = action_count = modality_count = rgb_count = voxel_count = 0
+    sample_count = state_count = action_count = modality_count = rgb_count = scene_count = 0
     session_manifest = episode / "manifest.json"
     session_manifest_sha = sha256_file(session_manifest)
 
@@ -1804,7 +1402,6 @@ def export_episode(
         previous: TickBundle | None = None
         current: TickBundle | None = None
         observed_state_keys: set[FrameKey] = set()
-        observed_states: dict[FrameKey, dict[str, Any]] = {}
 
         with (
             states_path.open("w", encoding="utf-8", newline="\n") as states_file,
@@ -1835,7 +1432,7 @@ def export_episode(
                                     session_manifest_sha,
                                     epoch_hashes,
                                     frame_attachments,
-                                    voxel_attachments,
+                                    scene_frames,
                                 )
                             )
                         )
@@ -1864,7 +1461,6 @@ def export_episode(
                         state_key = _frame_key(record)
                         if state_key is not None:
                             observed_state_keys.add(state_key)
-                            observed_states[state_key] = record
                         if _selected(
                             record,
                             selected_players,
@@ -1873,7 +1469,7 @@ def export_episode(
                             last_tick,
                         ):
                             modality = _modality_entry(
-                                record, frame_attachments, voxel_attachments, epoch_hashes
+                                record, frame_attachments, scene_frames, epoch_hashes
                             )
                             states_file.write(_json_line(_state_row(record, epoch_hashes)))
                             modalities_file.write(_json_line(modality))
@@ -1881,8 +1477,8 @@ def export_episode(
                             modality_count += 1
                             if modality["rgb"]["available"]:
                                 rgb_count += 1
-                            if modality["voxels"]["available"]:
-                                voxel_count += 1
+                            if modality["scene"]["available"]:
+                                scene_count += 1
                     elif record_type == "control_state" and key is not None:
                         if key in current.controls:
                             raise RecorderError(
@@ -1934,26 +1530,31 @@ def export_episode(
                 finish_bundle(current)
 
         unmatched_frames = set(frame_attachments) - observed_state_keys
-        unmatched_voxels = set(voxel_attachments) - observed_state_keys
+        unmatched_scenes = set(scene_frames) - observed_state_keys
         if unmatched_frames:
             raise RecorderError(
                 "frame attachment contains a key with no matching episode player_state: "
                 f"{next(iter(sorted(unmatched_frames)))}"
             )
-        if unmatched_voxels:
+        if unmatched_scenes:
             raise RecorderError(
-                "voxel attachment contains a key with no matching episode player_state: "
-                f"{next(iter(sorted(unmatched_voxels)))}"
+                "scene attachment contains a frame with no matching episode player_state: "
+                f"{next(iter(sorted(unmatched_scenes)))}"
             )
-        for key, attached in voxel_attachments.items():
-            state_dimension = observed_states[key].get("dimension")
-            if state_dimension != attached.dimension:
-                raise RecorderError(
-                    "voxel attachment dimension does not match episode player_state for "
-                    f"{key}: {attached.dimension!r} != {state_dimension!r}"
-                )
 
-        _assert_attachments_unchanged(frame_attachments, voxel_attachments)
+        _assert_attachments_unchanged(frame_attachments)
+        if scene_attachment is not None:
+            scene_directory = staging / "scene"
+            scene_directory.mkdir()
+            scene_destination = scene_directory / "scene-v1.sqlite3"
+            shutil.copyfile(scene_attachment.path, scene_destination)
+            if (
+                scene_destination.stat().st_size != scene_attachment.size_bytes
+                or sha256_file(scene_destination) != scene_attachment.sha256
+                or scene_attachment.path.stat().st_size != scene_attachment.size_bytes
+                or sha256_file(scene_attachment.path) != scene_attachment.sha256
+            ):
+                raise RecorderError("scene store changed while it was attached")
         _assert_sources_unchanged(verified_epochs)
         if sha256_file(session_manifest) != session_manifest_sha:
             raise RecorderError(f"session manifest changed during export: {session_manifest}")
@@ -1963,6 +1564,12 @@ def export_episode(
             files[path.name] = {
                 "sha256": sha256_file(path),
                 "size_bytes": path.stat().st_size,
+            }
+        if scene_attachment is not None:
+            scene_path = staging / "scene" / "scene-v1.sqlite3"
+            files["scene/scene-v1.sqlite3"] = {
+                "sha256": sha256_file(scene_path),
+                "size_bytes": scene_path.stat().st_size,
             }
         manifest = {
             "schema_version": EXPORT_SCHEMA_VERSION,
@@ -1984,7 +1591,9 @@ def export_episode(
                 "from_tick": first_tick,
                 "to_tick": last_tick,
                 "frame_attachments": frame_sources,
-                "voxel_attachments": voxel_sources,
+                "scene_attachment": (
+                    scene_attachment.provenance if scene_attachment is not None else None
+                ),
             },
             "timeline": {
                 "tick_rate_hz": TICK_RATE_HZ,
@@ -1999,12 +1608,13 @@ def export_episode(
                 "samples": {"available": True, "records": sample_count, "file": "samples.jsonl"},
                 "state": {"available": True, "records": state_count, "file": "states.jsonl"},
                 "actions": {"available": True, "records": action_count, "file": "actions.jsonl"},
-                "voxels": {
+                "scene": {
                     "availability": "per-sample",
-                    "records_attached": voxel_count,
+                    "records_attached": scene_count,
                     "index": "modalities.jsonl",
+                    "store": "scene/scene-v1.sqlite3" if scene_attachment is not None else None,
                     "note": (
-                        "references include an embedded coverage bitset and are joined only by exact "
+                        "immutable random-access frames are joined only by exact "
                         "session/player/connection/global-server-tick identity"
                     ),
                 },
@@ -2024,9 +1634,15 @@ def export_episode(
         manifest_path.write_text(
             json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
         )
-        for path in (samples_path, states_path, actions_path, modalities_path, manifest_path):
+        durable_paths = [samples_path, states_path, actions_path, modalities_path, manifest_path]
+        if scene_attachment is not None:
+            durable_paths.append(staging / "scene" / "scene-v1.sqlite3")
+        for path in durable_paths:
             with path.open("rb") as handle:
                 os.fsync(handle.fileno())
+        if scene_attachment is not None:
+            _fsync_directory(staging / "scene")
+        _fsync_directory(staging)
         _safe_replace_directory(staging, output, force)
     except Exception:
         if staging.exists():
@@ -2040,5 +1656,5 @@ def export_episode(
         action_count=action_count,
         modality_count=modality_count,
         rgb_count=rgb_count,
-        voxel_count=voxel_count,
+        scene_count=scene_count,
     )

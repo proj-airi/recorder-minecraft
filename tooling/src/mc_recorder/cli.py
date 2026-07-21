@@ -24,6 +24,8 @@ from .render_job import launch_render_job, prepare_render_job, resolve_replay
 from .render_queue import RenderQueueStore
 from .render_rpc import dispatch_render_rpc
 from .render_worker import RemoteRecorder, run_render_worker
+from .scene_job import launch_scene_job, prepare_scene_job
+from .scene_store import compact_scene_stream
 from .server import show_logs, show_status, start_server, stop_server
 from .storage import StorageReport, enforce_quota, human_bytes
 
@@ -79,11 +81,11 @@ def _parser() -> argparse.ArgumentParser:
         help="completed render job, result.json, or frames.jsonl to attach; repeatable",
     )
     export.add_argument(
-        "--voxels",
+        "--scene",
         action="append",
         type=Path,
         default=[],
-        help="render job directory or voxels.jsonl to attach; repeatable",
+        help="verified scene-v1 SQLite store to attach; at most one",
     )
     export.add_argument("--force", action="store_true", help="replace an existing output directory")
 
@@ -96,18 +98,6 @@ def _parser() -> argparse.ArgumentParser:
     render.add_argument("--width", type=int, default=640)
     render.add_argument("--height", type=int, default=360)
     render.add_argument("--fps", type=int, default=20)
-    render.add_argument(
-        "--voxel-horizontal-radius",
-        type=int,
-        default=0,
-        help="capture block states this many blocks around X/Z; 0 disables voxel conversion",
-    )
-    render.add_argument(
-        "--voxel-vertical-radius",
-        type=int,
-        default=0,
-        help="capture block states this many blocks above/below Y; 0 disables voxel conversion",
-    )
     render.add_argument("--from-tick", type=int)
     render.add_argument("--to-tick", type=int)
     render.add_argument(
@@ -118,6 +108,23 @@ def _parser() -> argparse.ArgumentParser:
     render.add_argument("--force", action="store_true")
     render.add_argument(
         "--prepare-only", action="store_true", help="write render-job.json without launching the local client"
+    )
+
+    scene = commands.add_parser(
+        "scene", help="extract random-access world scenes without a GUI client"
+    )
+    scene_commands = scene.add_subparsers(dest="scene_command", required=True)
+    scene_extract = scene_commands.add_parser(
+        "extract", help="replay one connection headlessly and compact a scene store"
+    )
+    scene_extract.add_argument("episode", help="session id")
+    scene_extract.add_argument("--player", required=True, help="recorded player UUID")
+    scene_extract.add_argument("--connection", required=True, help="recorded connection UUID")
+    scene_extract.add_argument("--from-tick", type=int)
+    scene_extract.add_argument("--to-tick", type=int)
+    scene_extract.add_argument("--output", "-o", type=Path, required=True)
+    scene_extract.add_argument(
+        "--prepare-only", action="store_true", help="write scene-job.json without launching the server"
     )
 
     storage = commands.add_parser("storage", help="inspect or enforce capture retention")
@@ -302,7 +309,7 @@ def run(argv: Sequence[str] | None = None) -> int:
                 first_tick=args.from_tick,
                 last_tick=args.to_tick,
                 frames=args.frames,
-                voxels=args.voxels,
+                scenes=args.scene,
                 force=args.force,
             )
         print(
@@ -312,8 +319,8 @@ def run(argv: Sequence[str] | None = None) -> int:
         if result.action_count == 0:
             print("WARNING: no applied serverbound action records matched the selection", file=sys.stderr)
         print(
-            f"Attached RGB for {result.rgb_count} state(s) and voxels for "
-            f"{result.voxel_count} state(s); modalities.jsonl marks all missing references explicitly."
+            f"Attached RGB for {result.rgb_count} state(s) and scene frames for "
+            f"{result.scene_count} state(s); modalities.jsonl marks all missing references explicitly."
         )
         return 0
 
@@ -337,8 +344,6 @@ def run(argv: Sequence[str] | None = None) -> int:
                 first_tick=args.from_tick,
                 last_tick=args.to_tick,
                 force=args.force,
-                voxel_horizontal_radius=args.voxel_horizontal_radius,
-                voxel_vertical_radius=args.voxel_vertical_radius,
                 no_gui=args.no_gui,
             )
         print(f"Prepared render job {result.manifest}")
@@ -352,6 +357,36 @@ def run(argv: Sequence[str] | None = None) -> int:
         print(
             f"Rendered global ticks {completed['global_start_tick']}..{completed['global_end_tick']} "
             f"to {completed['output']}"
+        )
+        return 0
+
+    if args.command == "scene":
+        config = load_config(args.config)
+        episode = resolve_episode(config.paths.captures, args.episode)
+        with operation_lock(config.paths.runtime, "scene_extract"):
+            job = prepare_scene_job(
+                config,
+                episode,
+                player_uuid=args.player,
+                connection_id=args.connection,
+                first_tick=args.from_tick,
+                last_tick=args.to_tick,
+            )
+            print(f"Prepared scene extraction job {job.manifest}")
+            if args.prepare_only:
+                return 0
+            launch_scene_job(config, job)
+            info = compact_scene_stream(
+                job.stream,
+                args.output,
+                expected_session_id=job.session_id,
+                expected_player_uuid=job.player_uuid,
+                expected_connection_id=job.connection_id,
+                expected_ticks=job.state_ticks,
+            )
+        print(
+            f"Extracted {info.frame_count} random-access scene frames to "
+            f"{args.output.expanduser().resolve()}"
         )
         return 0
 

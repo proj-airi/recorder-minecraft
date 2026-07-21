@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import base64
-import gzip
 import hashlib
 import json
 import struct
@@ -20,6 +18,7 @@ from mc_recorder.errors import RecorderError
 from mc_recorder.exporter import _safe_replace_directory, export_episode
 from mc_recorder.cli import _parser
 from mc_recorder.render_job import prepare_render_job
+from mc_recorder.scene_store import SceneIdentity, SceneStoreBuilder, validate_scene_store
 
 
 PLAYER = "00000000-0000-4000-8000-000000000001"
@@ -296,47 +295,11 @@ def _png(width: int, height: int) -> bytes:
     )
 
 
-def _voxel_snapshot(tick: int) -> dict[str, object]:
-    total = 27
-    coverage = ((1 << 26) - 1).to_bytes(4, "little")
-    return {
-        "schema_version": 1,
-        "format": "mc-recorder-voxel-palette-v1",
-        "session_id": "session-a",
-        "connection_id": CONNECTION,
-        "player_uuid": PLAYER,
-        "server_tick": tick,
-        "replay_tick": tick - 10,
-        "dimension": "minecraft:overworld",
-        "center": {"x": 1, "y": 64, "z": 2},
-        "origin": {"x": 0, "y": 63, "z": 1},
-        "shape": {"x": 3, "y": 3, "z": 3},
-        "linear_order": "x_fastest_then_z_then_y",
-        "index_dtype": "uint16",
-        "index_byte_order": "little_endian",
-        "indices_base64": base64.b64encode(b"\x00\x00" * total).decode("ascii"),
-        "coverage_bitset_base64": base64.b64encode(coverage).decode("ascii"),
-        "coverage_bit_order": "lsb0",
-        "covered_cells": 26,
-        "total_cells": total,
-        "coverage_complete": False,
-        "palette": ["minecraft:air"],
-        "block_entities_included": False,
-        "block_entities_note": "not materialized in v1",
-    }
-
-
-def _write_voxel(path: Path, snapshot: dict[str, object]) -> None:
-    path.write_bytes(gzip.compress(json.dumps(snapshot).encode("utf-8"), mtime=0))
-
-
 def _render_artifacts(root: Path, *, status: str = "complete") -> Path:
     job = root / "render-job"
     frames = job / "frames"
-    voxel_dir = frames / "voxels"
-    voxel_dir.mkdir(parents=True)
+    frames.mkdir(parents=True)
     frame_rows: list[dict[str, object]] = []
-    voxel_rows: list[dict[str, object]] = []
     for frame_number, tick in enumerate((10, 11), 1):
         image_name = f"frame_{frame_number:06d}.png"
         (frames / image_name).write_bytes(_png(RENDER_WIDTH, RENDER_HEIGHT))
@@ -352,29 +315,8 @@ def _render_artifacts(root: Path, *, status: str = "complete") -> Path:
                 "path": image_name,
             }
         )
-        voxel_name = f"voxel_{tick:012d}.json.gz"
-        _write_voxel(voxel_dir / voxel_name, _voxel_snapshot(tick))
-        voxel_rows.append(
-            {
-                "schema_version": 1,
-                "session_id": "session-a",
-                "connection_id": CONNECTION,
-                "player_uuid": PLAYER,
-                "server_tick": tick,
-                "replay_tick": tick - 10,
-                "reference": f"voxels/{voxel_name}",
-                "origin": {"x": 0, "y": 63, "z": 1},
-                "shape": {"x": 3, "y": 3, "z": 3},
-                "covered_cells": 26,
-                "total_cells": 27,
-                "coverage_complete": False,
-            }
-        )
     (frames / "frames.jsonl").write_text(
         "".join(json.dumps(row) + "\n" for row in frame_rows), encoding="utf-8"
-    )
-    (frames / "voxels.jsonl").write_text(
-        "".join(json.dumps(row) + "\n" for row in voxel_rows), encoding="utf-8"
     )
     (job / "result.json").write_text(
         json.dumps(
@@ -395,15 +337,51 @@ def _render_artifacts(root: Path, *, status: str = "complete") -> Path:
                 "fps": 20,
                 "width": RENDER_WIDTH,
                 "height": RENDER_HEIGHT,
-                "voxel_snapshots": 2,
-                "voxel_index": str((frames / "voxels.jsonl").resolve()),
-                "voxel_horizontal_radius": 1,
-                "voxel_vertical_radius": 1,
             }
         ),
         encoding="utf-8",
     )
     return job
+
+
+def _scene_store(root: Path, *, coverage_complete: bool = True) -> Path:
+    output = root / "source-scene.sqlite3"
+    builder = SceneStoreBuilder(
+        SceneIdentity("session-a", PLAYER, CONNECTION),
+        start_tick=10,
+        end_tick=11,
+        source_replays=(
+            {
+                "segment_id": "00000000-0000-4000-8000-000000000010",
+                "segment_ordinal": 0,
+                "format": "flashback",
+                "sha256": "ab" * 32,
+                "size_bytes": 123,
+            },
+        ),
+        sensitive=True,
+    )
+    try:
+        builder.set_section(
+            10,
+            "minecraft:overworld",
+            (0, 4, 0),
+            ({"name": "minecraft:air", "properties": {}},),
+            (0,) * 4096,
+        )
+        for tick in (10, 11):
+            builder.add_frame(
+                tick,
+                frame_id=f"frame-{tick}",
+                replay_tick=tick - 10,
+                dimension="minecraft:overworld",
+                subject_position=(1.0, 64.0, 2.0),
+                coverage_complete=coverage_complete,
+            )
+        builder.publish(output, expected_ticks=(10, 11))
+    finally:
+        builder.close()
+    return output
 
 
 class EpisodeExportTest(unittest.TestCase):
@@ -550,7 +528,7 @@ class EpisodeExportTest(unittest.TestCase):
                     connections=["not-a-connection-uuid"],
                 )
 
-    def test_attaches_completed_rgb_and_voxels_by_exact_sample_key(self) -> None:
+    def test_attaches_completed_rgb_and_marks_scene_unavailable(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             episode = _episode(root)
@@ -561,10 +539,9 @@ class EpisodeExportTest(unittest.TestCase):
                 output,
                 players=[PLAYER],
                 frames=[render],
-                voxels=[render],
             )
             self.assertEqual(2, result.rgb_count)
-            self.assertEqual(2, result.voxel_count)
+            self.assertEqual(0, result.scene_count)
 
             modalities = [
                 json.loads(line) for line in (output / "modalities.jsonl").read_text().splitlines()
@@ -574,28 +551,63 @@ class EpisodeExportTest(unittest.TestCase):
             self.assertEqual(64, len(modalities[0]["rgb"]["artifact_sha256"]))
             self.assertEqual(RENDER_WIDTH, modalities[0]["rgb"]["width"])
             self.assertEqual(RENDER_HEIGHT, modalities[0]["rgb"]["height"])
-            self.assertTrue(modalities[0]["voxels"]["valid"])
-            self.assertFalse(modalities[0]["voxels"]["coverage_complete"])
-            self.assertEqual({"x": 3, "y": 3, "z": 3}, modalities[0]["voxels"]["shape"])
-            self.assertEqual(64, len(modalities[0]["voxels"]["artifact_sha256"]))
-            self.assertEqual("minecraft:overworld", modalities[0]["voxels"]["dimension"])
+            self.assertFalse(modalities[0]["scene"]["available"])
+            self.assertEqual("scene_not_attached", modalities[0]["scene"]["reason"])
 
             sample = json.loads((output / "samples.jsonl").read_text().splitlines()[0])
             self.assertTrue(sample["modalities"]["rgb"]["available"])
-            self.assertTrue(sample["modalities"]["voxels"]["available"])
+            self.assertFalse(sample["modalities"]["scene"]["available"])
             manifest = json.loads((output / "manifest.json").read_text())
+            self.assertEqual(2, manifest["schema_version"])
+            self.assertEqual("mc-recorder-jsonl-v2", manifest["format"])
             self.assertEqual(2, manifest["modalities"]["rgb"]["records_attached"])
-            self.assertEqual(2, manifest["modalities"]["voxels"]["records_attached"])
+            self.assertEqual(0, manifest["modalities"]["scene"]["records_attached"])
             self.assertEqual(1, len(manifest["selection"]["frame_attachments"]))
-            self.assertEqual(1, len(manifest["selection"]["voxel_attachments"]))
+            self.assertIsNone(manifest["selection"]["scene_attachment"])
             self.assertEqual(
                 "ab" * 32,
                 manifest["selection"]["frame_attachments"][0]["replay_sha256"],
             )
-            self.assertEqual(
-                123,
-                manifest["selection"]["voxel_attachments"][0]["replay_bytes"],
+
+    def test_attaches_contained_random_access_scene_by_exact_sample_key(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            output = root / "dataset"
+            result = export_episode(
+                _episode(root),
+                output,
+                players=[PLAYER],
+                connections=[CONNECTION],
+                scenes=[_scene_store(root)],
             )
+
+            self.assertEqual(2, result.scene_count)
+            contained = output / "scene" / "scene-v1.sqlite3"
+            info = validate_scene_store(
+                contained,
+                expected_session_id="session-a",
+                expected_player_uuid=PLAYER,
+                expected_connection_id=CONNECTION,
+                expected_ticks=(10, 11),
+            )
+            self.assertEqual(2, info.frame_count)
+            modality = json.loads((output / "modalities.jsonl").read_text().splitlines()[0])
+            self.assertEqual("frame-10", modality["scene"]["frame_id"])
+            self.assertEqual("scene/scene-v1.sqlite3", modality["scene"]["reference"])
+            self.assertTrue(modality["scene"]["coverage_complete"])
+            manifest = json.loads((output / "manifest.json").read_text())
+            self.assertIn("scene/scene-v1.sqlite3", manifest["files"])
+            self.assertTrue(manifest["selection"]["scene_attachment"]["sensitive"])
+
+    def test_rejects_incomplete_scene_store(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with self.assertRaisesRegex(RecorderError, "incomplete scene store"):
+                export_episode(
+                    _episode(root),
+                    root / "dataset",
+                    scenes=[_scene_store(root, coverage_complete=False)],
+                )
 
     def test_rejects_incomplete_or_identity_mismatched_render_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -628,28 +640,6 @@ class EpisodeExportTest(unittest.TestCase):
             with self.assertRaisesRegex(RecorderError, "valid replay_sha256"):
                 export_episode(episode, root / "dataset", frames=[render])
 
-    def test_never_trusts_unattached_source_voxel_references(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            episode = _episode(root)
-            epoch = episode / "epochs" / "epoch-000000"
-            records = [
-                json.loads(line) for line in (epoch / "events.jsonl").read_text().splitlines()
-            ]
-            records[1]["voxel_ref"] = "/unvalidated/voxel.json.gz"
-            records[1]["coverage_mask_ref"] = "/unvalidated/mask.bin"
-            _seal_epoch(epoch, records)
-            output = root / "dataset"
-            export_episode(episode, output, players=[PLAYER])
-            modality = json.loads((output / "modalities.jsonl").read_text().splitlines()[0])
-            self.assertFalse(modality["voxels"]["available"])
-            self.assertFalse(modality["voxels"]["valid"])
-            self.assertIsNone(modality["voxels"]["reference"])
-            self.assertEqual(
-                "/unvalidated/voxel.json.gz",
-                modality["voxels"]["unvalidated_source_reference"],
-            )
-
     def test_rejects_png_signature_and_result_dimension_mismatch(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -667,43 +657,6 @@ class EpisodeExportTest(unittest.TestCase):
             result_path.write_text(json.dumps(result), encoding="utf-8")
             with self.assertRaisesRegex(RecorderError, "PNG dimensions .* do not match"):
                 export_episode(episode, root / "dataset-b", frames=[render])
-
-    def test_rejects_corrupt_and_semantically_invalid_voxel_artifacts(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            episode = _episode(root)
-            render = _render_artifacts(root)
-            first_voxel = render / "frames" / "voxels" / "voxel_000000000010.json.gz"
-            first_voxel.write_bytes(b"not-gzip")
-            with self.assertRaisesRegex(RecorderError, "not a valid complete gzip stream"):
-                export_episode(episode, root / "dataset-a", voxels=[render])
-
-            snapshot = _voxel_snapshot(10)
-            indices = bytearray(base64.b64decode(snapshot["indices_base64"]))
-            indices[0:2] = (1).to_bytes(2, "little")
-            snapshot["indices_base64"] = base64.b64encode(indices).decode("ascii")
-            _write_voxel(first_voxel, snapshot)
-            with self.assertRaisesRegex(RecorderError, "references outside the palette"):
-                export_episode(episode, root / "dataset-b", voxels=[render])
-
-            snapshot = _voxel_snapshot(10)
-            snapshot["coverage_bitset_base64"] = base64.b64encode(
-                ((1 << 25) - 1).to_bytes(4, "little")
-            ).decode("ascii")
-            _write_voxel(first_voxel, snapshot)
-            with self.assertRaisesRegex(RecorderError, "bitset count does not match"):
-                export_episode(episode, root / "dataset-c", voxels=[render])
-
-            snapshot = _voxel_snapshot(10)
-            snapshot["dimension"] = "minecraft:the_nether"
-            _write_voxel(first_voxel, snapshot)
-            with self.assertRaisesRegex(RecorderError, "dimension does not match"):
-                export_episode(episode, root / "dataset-d", voxels=[render])
-
-            _write_voxel(first_voxel, _voxel_snapshot(10))
-            with mock.patch("mc_recorder.exporter.MAX_VOXEL_JSON_BYTES", 128):
-                with self.assertRaisesRegex(RecorderError, "decompressed voxel JSON exceeds"):
-                    export_episode(episode, root / "dataset-e", voxels=[render])
 
     def test_rejects_symlinked_attached_artifact(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -755,7 +708,7 @@ class EpisodeExportTest(unittest.TestCase):
                 sample["transition_invalid_reasons"],
             )
 
-    def test_cli_accepts_repeatable_frame_and_voxel_attachments(self) -> None:
+    def test_cli_accepts_rgb_and_one_scene_attachment(self) -> None:
         args = _parser().parse_args(
             [
                 "export",
@@ -768,27 +721,21 @@ class EpisodeExportTest(unittest.TestCase):
                 "one",
                 "--frames",
                 "two",
-                "--voxels",
+                "--scene",
                 "three",
             ]
         )
         self.assertEqual([CONNECTION, PEER_CONNECTION], args.connection)
         self.assertEqual([Path("one"), Path("two")], args.frames)
-        self.assertEqual([Path("three")], args.voxels)
+        self.assertEqual([Path("three")], args.scene)
         render = _parser().parse_args(
             [
                 "render",
                 "session-a",
                 "--player",
                 PLAYER,
-                "--voxel-horizontal-radius",
-                "12",
-                "--voxel-vertical-radius",
-                "6",
             ]
         )
-        self.assertEqual(12, render.voxel_horizontal_radius)
-        self.assertEqual(6, render.voxel_vertical_radius)
         self.assertFalse(render.no_gui)
         no_gui_render = _parser().parse_args(
             ["render", "session-a", "--player", PLAYER, "--no-gui"]
@@ -929,8 +876,6 @@ class EpisodeExportTest(unittest.TestCase):
                 first_tick=None,
                 last_tick=None,
                 force=False,
-                voxel_horizontal_radius=2,
-                voxel_vertical_radius=1,
             )
             manifest = json.loads(result.manifest.read_text())
             self.assertEqual("prepared", manifest["status"])
@@ -943,10 +888,7 @@ class EpisodeExportTest(unittest.TestCase):
             self.assertEqual(11, manifest["global_end_tick"])
             self.assertFalse(manifest["no_gui"])
             self.assertTrue(manifest["stop_when_done"])
-            self.assertEqual(2, manifest["voxel_horizontal_radius"])
-            self.assertEqual(1, manifest["voxel_vertical_radius"])
-            self.assertTrue(manifest["voxel_crop"]["enabled"])
-            self.assertEqual(75, manifest["voxel_crop"]["cells_per_tick"])
+            self.assertNotIn("voxel_crop", manifest)
             self.assertEqual("mc.recorder.renderJob", manifest["renderer_contract"]["job_property"])
             self.assertFalse((result.directory / "result.json").exists())
             with self.assertRaisesRegex(RecorderError, "no_gui must be a boolean"):

@@ -36,7 +36,7 @@ def _sample(tick: int, *, with_snbt: bool = True) -> dict[str, object]:
     if with_snbt:
         stack["stack_snbt"] = '{id:"minecraft:dandelion",count:1}'
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "sample_key": {
             "session_id": SESSION,
             "server_tick": tick,
@@ -94,9 +94,9 @@ def _dataset(exports: Path, samples: list[dict[str, object]]) -> tuple[Path, str
     for name, data in streams.items():
         (directory / name).write_bytes(data)
     manifest = {
-        "schema_version": 1,
+        "schema_version": 2,
         "owner": "mc-recorder",
-        "format": "mc-recorder-jsonl-v1",
+        "format": "mc-recorder-jsonl-v2",
         "session_id": SESSION,
         "selection": {
             "players": [PLAYER],

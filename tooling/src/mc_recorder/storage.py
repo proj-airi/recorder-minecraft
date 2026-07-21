@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import fcntl
 import os
 import shutil
 import time
@@ -187,7 +188,9 @@ def _evict_epoch(captures_root: Path, epoch: Path) -> EvictedEpoch:
     )
 
 
-def _evict_replay(replays_root: Path, replay: Path, *, stable_seconds: int) -> EvictedEpoch:
+def _evict_replay(
+    replays_root: Path, replay: Path, *, stable_seconds: int
+) -> EvictedEpoch | None:
     root = replays_root.resolve()
     if replay.is_symlink():
         raise RecorderError(f"refusing to evict symlinked replay: {replay}")
@@ -196,23 +199,36 @@ def _evict_replay(replays_root: Path, replay: Path, *, stable_seconds: int) -> E
         relative = candidate.relative_to(root)
     except ValueError as exc:
         raise RecorderError(f"refusing to evict replay outside replay root: {replay}") from exc
-    if not _completed_replay(
-        candidate,
-        root,
-        stable_before_ns=time.time_ns() - stable_seconds * 1_000_000_000,
-    ):
-        raise RecorderError(f"refusing to evict active or incomplete replay: {replay}")
-
     try:
-        size = candidate.stat().st_size
+        handle = candidate.open("rb")
     except OSError as exc:
-        raise RecorderError(f"could not stat replay before eviction: {replay}") from exc
-    trash = root / f".evicting-replay-{uuid.uuid4().hex}"
-    candidate.rename(trash)
+        raise RecorderError(f"could not open replay before eviction: {replay}") from exc
     try:
-        trash.unlink()
-    except OSError as exc:
-        raise RecorderError(f"failed to remove evicted replay staged at {trash}: {exc}") from exc
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return None
+        if not _completed_replay(
+            candidate,
+            root,
+            stable_before_ns=time.time_ns() - stable_seconds * 1_000_000_000,
+        ):
+            raise RecorderError(f"refusing to evict active or incomplete replay: {replay}")
+        try:
+            size = candidate.stat().st_size
+        except OSError as exc:
+            raise RecorderError(f"could not stat replay before eviction: {replay}") from exc
+        trash = root / f".evicting-replay-{uuid.uuid4().hex}"
+        candidate.rename(trash)
+        try:
+            trash.unlink()
+        except OSError as exc:
+            raise RecorderError(f"failed to remove evicted replay staged at {trash}: {exc}") from exc
+    finally:
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        finally:
+            handle.close()
     parent = str(relative.parent) if relative.parent != Path(".") else "replays"
     return EvictedEpoch(
         session_id=parent,
@@ -294,9 +310,11 @@ def enforce_quota(
             if candidate.source_kind == "capture_epoch":
                 evicted.append(_evict_epoch(capture_root, candidate.path))
             else:
-                evicted.append(
-                    _evict_replay(replay_root, candidate.path, stable_seconds=replay_stable_seconds)
+                replay_eviction = _evict_replay(
+                    replay_root, candidate.path, stable_seconds=replay_stable_seconds
                 )
+                if replay_eviction is not None:
+                    evicted.append(replay_eviction)
 
     after = used_bytes()
     if after >= quota_bytes:

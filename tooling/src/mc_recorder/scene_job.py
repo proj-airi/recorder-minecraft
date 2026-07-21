@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import json
+import fcntl
 import os
 import shutil
 import subprocess
 import tempfile
 import uuid
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -20,7 +21,6 @@ from .render_sources import ReplaySegmentSource, resolve_replay_segments
 SCENE_JOB_TYPE = "mc-recorder-scene-extraction-job-v1"
 SCENE_RESULT_TYPE = "mc-recorder-scene-extraction-result-v1"
 SCENE_STREAM_FORMAT = "mc-recorder-scene-stream-v1"
-OWNER = "mc-recorder"
 MAX_RESULT_BYTES = 8 * 1024 * 1024
 
 
@@ -99,8 +99,8 @@ def _owned_scene_job(path: Path) -> bool:
         not path.is_symlink()
         and not manifest.is_symlink()
         and isinstance(value, dict)
-        and value.get("owner") == OWNER
-        and value.get("job_type") == SCENE_JOB_TYPE
+        and value.get("schema_version") == 1
+        and isinstance(value.get("job_id"), str)
         and names <= {"scene-job.json", "stream", "result.json", "result.json.inprogress"}
     )
 
@@ -130,10 +130,6 @@ def prepare_scene_job(
     )
     selected_first = ticks[0]
     selected_last = ticks[-1]
-    if first_tick is not None and first_tick > selected_first:
-        raise RecorderError("scene start tick has no exact player_state")
-    if last_tick is not None and last_tick < selected_last:
-        raise RecorderError("scene end tick has no exact player_state")
 
     sources = tuple(
         resolve_replay_segments(
@@ -160,16 +156,10 @@ def prepare_scene_job(
 
     staging = Path(tempfile.mkdtemp(prefix=f".{directory.name}.tmp-", dir=directory.parent))
     try:
-        stream = staging / "stream"
-        stream.mkdir()
         final_stream = directory / "stream"
         result_path = directory / "result.json"
         manifest_value = {
             "schema_version": 1,
-            "owner": OWNER,
-            "job_type": SCENE_JOB_TYPE,
-            "status": "prepared",
-            "created_at": datetime.now(UTC).isoformat(),
             "job_id": job_id,
             "session_id": validation.session_id,
             "subject": {
@@ -192,7 +182,6 @@ def prepare_scene_job(
                 for source in sources
             ],
             "output": str(final_stream),
-            "result": str(result_path),
             "stop_when_done": True,
         }
         manifest = staging / "scene-job.json"
@@ -276,6 +265,31 @@ def _assert_sources_unchanged(sources: Iterable[ReplaySegmentSource]) -> None:
             raise RecorderError(f"source replay changed during extraction: {source.path}")
 
 
+@contextmanager
+def _locked_sources(sources: Iterable[ReplaySegmentSource]):
+    handles = []
+    try:
+        for source in sources:
+            handle = None
+            try:
+                handle = source.path.open("rb")
+                fcntl.flock(handle.fileno(), fcntl.LOCK_SH | fcntl.LOCK_NB)
+            except (OSError, BlockingIOError) as exc:
+                if handle is not None:
+                    handle.close()
+                raise RecorderError(
+                    f"source replay is being retained or evicted by another operation: {source.path}"
+                ) from exc
+            handles.append(handle)
+        yield
+    finally:
+        for handle in reversed(handles):
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            finally:
+                handle.close()
+
+
 def launch_scene_job(
     config: RecorderConfig,
     job: SceneJob,
@@ -288,44 +302,54 @@ def launch_scene_job(
     wrapper = config.paths.base / "gradlew"
     if not wrapper.is_file():
         raise RecorderError(f"Gradle wrapper not found: {wrapper}")
+    if not config.server.eula:
+        raise RecorderError("scene extraction requires the configured Minecraft EULA acceptance")
+    run_directory = project / "run"
+    run_directory.mkdir(parents=True, exist_ok=True)
+    eula = run_directory / "eula.txt"
+    if eula.is_symlink():
+        raise RecorderError(f"scene extractor EULA file may not be a symlink: {eula}")
+    eula.write_text("eula=true\n", encoding="utf-8")
 
     environment = dict(os.environ)
     environment["MC_RECORDER_SCENE_JOB"] = str(job.manifest)
     gradle_cache = config.paths.runtime / "gradle-cache"
     gradle_cache.mkdir(parents=True, exist_ok=True)
     environment["GRADLE_USER_HOME"] = str(gradle_cache)
-    try:
-        process = subprocess.run(
-            [
-                str(wrapper),
-                "--project-dir",
-                str(project),
-                "runServer",
-                "--no-daemon",
-                "--console=plain",
-            ],
-            cwd=config.paths.base,
-            env=environment,
-            check=False,
-            text=True,
-            stdout=subprocess.PIPE if capture_output else None,
-            stderr=subprocess.PIPE if capture_output else None,
-        )
-    except FileNotFoundError as exc:
-        raise RecorderError(f"cannot launch scene extractor with {wrapper}") from exc
+    with _locked_sources(job.sources):
+        _assert_sources_unchanged(job.sources)
+        try:
+            process = subprocess.run(
+                [
+                    str(wrapper),
+                    "--project-dir",
+                    str(project),
+                    "runServer",
+                    "--no-daemon",
+                    "--console=plain",
+                ],
+                cwd=config.paths.base,
+                env=environment,
+                check=False,
+                text=True,
+                stdout=subprocess.PIPE if capture_output else None,
+                stderr=subprocess.PIPE if capture_output else None,
+            )
+        except FileNotFoundError as exc:
+            raise RecorderError(f"cannot launch scene extractor with {wrapper}") from exc
 
-    value = _read_terminal_result(job.result)
-    if process.returncode != 0:
-        detail = value.get("error")
-        if not detail and capture_output and process.stderr:
-            detail = process.stderr.strip()[-2048:]
-        raise RecorderError(
-            f"scene extractor exited with code {process.returncode}"
-            + (f": {detail}" if detail else "")
-        )
-    _validate_result(job, value)
-    _assert_sources_unchanged(job.sources)
-    return value
+        value = _read_terminal_result(job.result)
+        if process.returncode != 0:
+            detail = value.get("error")
+            if not detail and capture_output and process.stderr:
+                detail = process.stderr.strip()[-2048:]
+            raise RecorderError(
+                f"scene extractor exited with code {process.returncode}"
+                + (f": {detail}" if detail else "")
+            )
+        _validate_result(job, value)
+        _assert_sources_unchanged(job.sources)
+        return value
 
 
 __all__ = [
