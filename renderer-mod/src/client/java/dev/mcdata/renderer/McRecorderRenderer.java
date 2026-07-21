@@ -66,6 +66,7 @@ public final class McRecorderRenderer implements ClientModInitializer {
     private int anchorScanTick;
     private boolean anchorScanRequested;
     private int anchorSettleTicks;
+    private int targetSeekSettleTicks;
     private volatile TimelineObservation timelineObservation;
     private TimelineObservation firstTimelineObservation;
     private TimelineObservation lastTimelineObservation;
@@ -75,6 +76,8 @@ public final class McRecorderRenderer implements ClientModInitializer {
     private boolean voxelsComplete;
     private boolean clientPresentationRequested;
     private boolean clientPresentationActive;
+    private boolean clientPresentationNeedsServerRebind;
+    private AbstractClientPlayer clientPresentationTarget;
     private Entity previousCameraEntity;
     private CameraType previousCameraType;
     private boolean previousHideGui;
@@ -89,15 +92,23 @@ public final class McRecorderRenderer implements ClientModInitializer {
             ReplayServer replayServer = Flashback.getReplayServer();
             if (replayServer != null && this.job != null && this.matchesJob(payload)) {
                 this.timelineObservation = new TimelineObservation(payload, replayServer.getReplayTick());
-                if (this.structuredHud != null && this.structuredHud.isPrepared()) {
-                    try {
-                        this.structuredHud.apply(
-                            context.client(), payload.serverTick(), this.phase == Phase.EXPORTING
+                try {
+                    boolean countsTowardRender = this.phase == Phase.EXPORTING
+                        && payload.serverTick() >= this.resolvedGlobalStartTick
+                        && payload.serverTick() <= this.resolvedGlobalEndTick;
+                    if (countsTowardRender) {
+                        this.maintainClientPresentation(
+                            context.client(), payload.serverTick(), true
                         );
-                    } catch (Throwable throwable) {
-                        this.startupFailure = throwable;
-                        this.phase = Phase.STARTUP_FAILED;
                     }
+                    if (this.structuredHud != null && this.structuredHud.isPrepared()) {
+                        this.structuredHud.apply(
+                            context.client(), payload.serverTick(), countsTowardRender
+                        );
+                    }
+                } catch (Throwable throwable) {
+                    this.startupFailure = throwable;
+                    this.phase = Phase.STARTUP_FAILED;
                 }
             }
         });
@@ -341,10 +352,18 @@ public final class McRecorderRenderer implements ClientModInitializer {
         }
         this.resolvedStartTick = resolution.replayStartTick();
         this.resolvedEndTick = resolution.replayEndTick();
+        if (!TimelineRangeResolver.matchesResolvedStart(
+            this.timelineObservation == null ? null : marker(this.timelineObservation),
+            this.resolvedStartTick,
+            this.resolvedGlobalStartTick
+        )) {
+            this.timelineObservation = null;
+        }
         replayServer.goToReplayTick(this.resolvedStartTick);
         replayServer.replayPaused = true;
         this.phase = Phase.WAIT_TARGET;
         this.waitTicks = 0;
+        this.targetSeekSettleTicks = 0;
         LOGGER.info(
             "Aligned segment coverage {}..{} to requested {}..{}; rendering global ticks {}..{} for connection {}",
             this.segmentCoverageStartTick, this.segmentCoverageEndTick,
@@ -382,13 +401,28 @@ public final class McRecorderRenderer implements ClientModInitializer {
             this.checkTimeout("client level");
             return;
         }
-        Entity target = null;
-        for (Entity candidate : minecraft.level.entitiesForRendering()) {
-            if (candidate.getUUID().equals(this.job.playerId())) {
-                target = candidate;
-                break;
+        if (TimelineRangeResolver.requiresResolvedStartMarker(this.job.rangePolicy())) {
+            TimelineObservation observation = this.timelineObservation;
+            if (!TimelineRangeResolver.matchesResolvedStart(
+                observation == null ? null : marker(observation),
+                this.resolvedStartTick,
+                this.resolvedGlobalStartTick
+            )) {
+                this.checkTimeout("resolved start timeline marker");
+                return;
+            }
+        } else {
+            ReplayServer replayServer = Flashback.getReplayServer();
+            if (replayServer == null || replayServer.getReplayTick() != this.resolvedStartTick) {
+                this.targetSeekSettleTicks = 0;
+                this.checkTimeout("resolved legacy start replay tick");
+                return;
+            }
+            if (++this.targetSeekSettleTicks < ANCHOR_SETTLE_CLIENT_TICKS) {
+                return;
             }
         }
+        AbstractClientPlayer target = this.findPresentPresentationTarget(minecraft);
         if (target == null) {
             this.checkTimeout("target player " + this.job.playerId());
             return;
@@ -575,6 +609,7 @@ public final class McRecorderRenderer implements ClientModInitializer {
                 "Recorded player cannot be used as the first-person replay camera: " + this.job.playerId()
             );
         }
+        this.clientPresentationTarget = replayPlayer;
         if (!this.clientPresentationRequested) {
             if (minecraft.getConnection() == null) {
                 throw new IllegalStateException("Flashback replay connection is unavailable");
@@ -613,6 +648,115 @@ public final class McRecorderRenderer implements ClientModInitializer {
         return true;
     }
 
+    private void maintainClientPresentation(
+        Minecraft minecraft, long serverTick, boolean countsTowardRender
+    ) throws IOException {
+        if (!ReplayPresentation.useSpectatedPlayerCamera(this.job.noGui())) {
+            return;
+        }
+        if (minecraft.level == null || minecraft.player == null) {
+            throw new IOException("Replay client world is unavailable for a counted render frame");
+        }
+
+        AbstractClientPlayer presentTarget = this.findPresentPresentationTarget(minecraft);
+        Entity currentCamera = minecraft.getCameraEntity();
+        AbstractClientPlayer currentRequestedPlayer = null;
+        if (currentCamera instanceof AbstractClientPlayer player
+            && player != minecraft.player
+            && player.getUUID().equals(this.job.playerId())) {
+            currentRequestedPlayer = player;
+        }
+
+        boolean authoritativelyDead = this.structuredHud != null
+            && this.structuredHud.isAuthoritativelyDead(serverTick);
+        boolean targetReplaced = presentTarget != null
+            && this.clientPresentationTarget != null
+            && presentTarget != this.clientPresentationTarget;
+        ReplayPresentation.CameraContinuity continuity = ReplayPresentation.decideCameraContinuity(
+            currentCamera == presentTarget,
+            currentRequestedPlayer != null,
+            presentTarget != null,
+            this.clientPresentationTarget != null,
+            authoritativelyDead,
+            countsTowardRender
+        );
+        AbstractClientPlayer resolvedTarget;
+        switch (continuity) {
+            case KEEP -> resolvedTarget = presentTarget != null
+                ? presentTarget : currentRequestedPlayer;
+            case REBIND_PRESENT -> {
+                resolvedTarget = presentTarget;
+                minecraft.setCameraEntity(resolvedTarget);
+                LOGGER.info(
+                    "Rebound first-person render camera to replay player {} after a replay lifecycle transition",
+                    this.job.playerId()
+                );
+            }
+            case REBIND_DEATH_CAMERA -> {
+                resolvedTarget = this.clientPresentationTarget;
+                minecraft.setCameraEntity(resolvedTarget);
+                LOGGER.info(
+                    "Holding detached death camera for replay player {} until its respawn entity appears",
+                    this.job.playerId()
+                );
+            }
+            case WAIT -> {
+                return;
+            }
+            case REJECT -> throw new IOException(
+                "Requested replay player is unavailable for healthy counted frame "
+                    + this.job.playerId()
+            );
+            default -> throw new IllegalStateException("Unhandled camera continuity decision");
+        }
+
+        boolean cameraRecovered = targetReplaced
+            || continuity == ReplayPresentation.CameraContinuity.REBIND_PRESENT
+            || continuity == ReplayPresentation.CameraContinuity.REBIND_DEATH_CAMERA
+            || (continuity == ReplayPresentation.CameraContinuity.KEEP && presentTarget == null);
+        ReplayPresentation.ServerSpectateRecovery serverRecovery =
+            ReplayPresentation.planServerSpectateRecovery(
+                this.clientPresentationNeedsServerRebind,
+                cameraRecovered,
+                authoritativelyDead
+            );
+        this.clientPresentationNeedsServerRebind = serverRecovery.pending();
+        if (presentTarget != null && serverRecovery.requestNow()) {
+            if (minecraft.getConnection() == null) {
+                throw new IOException("Flashback replay connection disappeared during camera recovery");
+            }
+            minecraft.getConnection().sendCommand(
+                ReplayPresentation.startSpectatingCommand(this.job.playerId())
+            );
+            LOGGER.info(
+                "Reactivated replay-server spectating for respawned player {}",
+                this.job.playerId()
+            );
+        }
+        this.clientPresentationTarget = resolvedTarget;
+        minecraft.options.setCameraType(CameraType.FIRST_PERSON);
+        minecraft.options.hideGui = false;
+        if (countsTowardRender
+            && (minecraft.getCameraEntity() != resolvedTarget
+                || Flashback.getSpectatingPlayer() != resolvedTarget)) {
+            throw new IOException(
+                "Unable to retain requested replay player as the counted render camera "
+                    + this.job.playerId()
+            );
+        }
+    }
+
+    private AbstractClientPlayer findPresentPresentationTarget(Minecraft minecraft) {
+        Entity target = minecraft.level == null
+            ? null : minecraft.level.getEntity(this.job.playerId());
+        if (target instanceof AbstractClientPlayer replayPlayer
+            && replayPlayer != minecraft.player
+            && !replayPlayer.isRemoved()) {
+            return replayPlayer;
+        }
+        return null;
+    }
+
     private void restoreClientPresentation(Minecraft minecraft) {
         if (!this.clientPresentationRequested && !this.clientPresentationActive) {
             return;
@@ -622,6 +766,8 @@ public final class McRecorderRenderer implements ClientModInitializer {
         }
         this.clientPresentationRequested = false;
         this.clientPresentationActive = false;
+        this.clientPresentationNeedsServerRebind = false;
+        this.clientPresentationTarget = null;
         minecraft.setCameraEntity(
             this.previousCameraEntity != null ? this.previousCameraEntity : minecraft.player
         );

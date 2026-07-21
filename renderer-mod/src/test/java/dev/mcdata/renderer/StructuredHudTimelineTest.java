@@ -10,7 +10,9 @@ import java.security.MessageDigest;
 import java.util.HexFormat;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class StructuredHudTimelineTest {
     @TempDir
@@ -64,10 +66,18 @@ final class StructuredHudTimelineTest {
 
     @Test
     void keepsReplayViewerVitalsOutOfTheProjectionPlan() {
+        StructuredHudTimeline.ProjectionPlan requestedPlayer =
+            new StructuredHudTimeline.ProjectionPlan(true, true, false);
         assertEquals(
-            new StructuredHudTimeline.ProjectionPlan(true, true, false),
+            requestedPlayer,
             StructuredHudTimeline.decideProjection(
                 StructuredHudTimeline.CameraKind.REQUESTED_PLAYER, true
+            )
+        );
+        assertEquals(
+            requestedPlayer,
+            StructuredHudTimeline.decideProjection(
+                StructuredHudTimeline.CameraKind.REQUESTED_PLAYER, false
             )
         );
         assertEquals(
@@ -94,6 +104,19 @@ final class StructuredHudTimelineTest {
                 StructuredHudTimeline.CameraKind.OTHER, true
             )
         );
+    }
+
+    @Test
+    void exposesZeroHealthAsAuthorityForTheDetachedDeathCamera() throws Exception {
+        RenderJobSpec job = writeJob(
+            sidecar(10, 11).replaceFirst("\"health\":20", "\"health\":0")
+        );
+
+        StructuredHudTimeline timeline = StructuredHudTimeline.load(job);
+
+        assertTrue(timeline.isAuthoritativelyDead(10));
+        assertFalse(timeline.isAuthoritativelyDead(11));
+        assertThrows(IllegalArgumentException.class, () -> timeline.isAuthoritativelyDead(12));
     }
 
     private String sidecar(long... ticks) {

@@ -186,6 +186,14 @@ final class StructuredHudTimeline {
         return serverTick >= this.spec.startServerTick() && serverTick <= this.spec.endServerTick();
     }
 
+    boolean isAuthoritativelyDead(long serverTick) {
+        if (!this.covers(serverTick)) {
+            throw new IllegalArgumentException("Server tick is outside the structured HUD sidecar");
+        }
+        int index = Math.toIntExact(serverTick - this.startTick);
+        return this.states.get(index).health() == 0.0f;
+    }
+
     boolean isPrepared() {
         return this.prepared;
     }

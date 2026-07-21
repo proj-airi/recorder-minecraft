@@ -11,6 +11,17 @@ final class ReplayPresentation {
     private ReplayPresentation() {
     }
 
+    enum CameraContinuity {
+        KEEP,
+        REBIND_PRESENT,
+        REBIND_DEATH_CAMERA,
+        WAIT,
+        REJECT
+    }
+
+    record ServerSpectateRecovery(boolean pending, boolean requestNow) {
+    }
+
     static void configureClientGui(ReplayVisuals visuals, boolean noGui) {
         if (noGui) {
             return;
@@ -37,6 +48,36 @@ final class ReplayPresentation {
 
     static String stopSpectatingCommand() {
         return "spectate";
+    }
+
+    static CameraContinuity decideCameraContinuity(
+        boolean currentCameraMatchesPresent,
+        boolean currentCameraIsRequestedPlayer,
+        boolean requestedPlayerPresent,
+        boolean heldDeathCameraAvailable,
+        boolean authoritativelyDead,
+        boolean countsTowardRender
+    ) {
+        if (requestedPlayerPresent) {
+            return currentCameraMatchesPresent ? CameraContinuity.KEEP : CameraContinuity.REBIND_PRESENT;
+        }
+        if (authoritativelyDead) {
+            if (currentCameraIsRequestedPlayer) {
+                return CameraContinuity.KEEP;
+            }
+            if (heldDeathCameraAvailable) {
+                return CameraContinuity.REBIND_DEATH_CAMERA;
+            }
+        }
+        return countsTowardRender ? CameraContinuity.REJECT : CameraContinuity.WAIT;
+    }
+
+    static ServerSpectateRecovery planServerSpectateRecovery(
+        boolean pending, boolean cameraRecovered, boolean authoritativelyDead
+    ) {
+        boolean nextPending = pending || cameraRecovered;
+        boolean requestNow = nextPending && !authoritativelyDead;
+        return new ServerSpectateRecovery(requestNow ? false : nextPending, requestNow);
     }
 
     static String resultPresentationContract(boolean noGui, String requestedContract) {

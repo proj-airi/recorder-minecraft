@@ -58,4 +58,51 @@ final class ReplayPresentationTest {
         assertNull(ReplayPresentation.resultPresentationContract(true, null));
         assertNull(ReplayPresentation.resultPresentationContract(false, null));
     }
+
+    @Test
+    void rebindsRequestedPlayerAcrossDeathCameraLossAndRespawnReplacement() {
+        assertEquals(
+            ReplayPresentation.CameraContinuity.KEEP,
+            ReplayPresentation.decideCameraContinuity(true, true, true, true, false, true)
+        );
+        assertEquals(
+            ReplayPresentation.CameraContinuity.REBIND_PRESENT,
+            ReplayPresentation.decideCameraContinuity(false, false, true, true, false, true)
+        );
+        assertEquals(
+            ReplayPresentation.CameraContinuity.KEEP,
+            ReplayPresentation.decideCameraContinuity(false, true, false, true, true, true)
+        );
+        assertEquals(
+            ReplayPresentation.CameraContinuity.REBIND_DEATH_CAMERA,
+            ReplayPresentation.decideCameraContinuity(false, false, false, true, true, true)
+        );
+        assertEquals(
+            ReplayPresentation.CameraContinuity.REBIND_PRESENT,
+            ReplayPresentation.decideCameraContinuity(false, true, true, true, false, true)
+        );
+        assertEquals(
+            ReplayPresentation.CameraContinuity.WAIT,
+            ReplayPresentation.decideCameraContinuity(false, false, false, true, false, false)
+        );
+        assertEquals(
+            ReplayPresentation.CameraContinuity.REJECT,
+            ReplayPresentation.decideCameraContinuity(false, false, false, true, false, true)
+        );
+        assertEquals(
+            ReplayPresentation.CameraContinuity.REJECT,
+            ReplayPresentation.decideCameraContinuity(false, false, false, false, true, true)
+        );
+
+        ReplayPresentation.ServerSpectateRecovery deadReplacement =
+            ReplayPresentation.planServerSpectateRecovery(false, true, true);
+        assertTrue(deadReplacement.pending());
+        assertFalse(deadReplacement.requestNow());
+        assertEquals(
+            new ReplayPresentation.ServerSpectateRecovery(false, true),
+            ReplayPresentation.planServerSpectateRecovery(
+                deadReplacement.pending(), false, false
+            )
+        );
+    }
 }

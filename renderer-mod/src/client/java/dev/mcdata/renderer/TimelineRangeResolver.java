@@ -88,6 +88,18 @@ final class TimelineRangeResolver {
         return candidate;
     }
 
+    static boolean matchesResolvedStart(
+        Marker observation, int expectedReplayTick, long expectedServerTick
+    ) {
+        return observation != null
+            && observation.replayTick() == expectedReplayTick
+            && observation.serverTick() == expectedServerTick;
+    }
+
+    static boolean requiresResolvedStartMarker(RenderJobSpec.RangePolicy policy) {
+        return policy != RenderJobSpec.RangePolicy.LEGACY_STRICT;
+    }
+
     private static Resolution ready(
         long globalStart,
         long globalEnd,

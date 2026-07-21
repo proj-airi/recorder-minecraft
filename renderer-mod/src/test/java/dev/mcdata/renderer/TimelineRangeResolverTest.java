@@ -3,9 +3,34 @@ package dev.mcdata.renderer;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class TimelineRangeResolverTest {
+    @Test
+    void waitsForTheResolvedStartMarkerAfterSeekingBackFromTheCoverageScan() {
+        assertTrue(TimelineRangeResolver.requiresResolvedStartMarker(
+            RenderJobSpec.RangePolicy.INTERSECTION
+        ));
+        assertFalse(TimelineRangeResolver.requiresResolvedStartMarker(
+            RenderJobSpec.RangePolicy.LEGACY_STRICT
+        ));
+        assertFalse(TimelineRangeResolver.matchesResolvedStart(null, 3, 1200));
+        assertFalse(TimelineRangeResolver.matchesResolvedStart(
+            new TimelineRangeResolver.Marker(1890, 693), 3, 1200
+        ));
+        assertFalse(TimelineRangeResolver.matchesResolvedStart(
+            new TimelineRangeResolver.Marker(1200, 4), 3, 1200
+        ));
+        assertTrue(TimelineRangeResolver.matchesResolvedStart(
+            new TimelineRangeResolver.Marker(1200, 3), 3, 1200
+        ));
+        assertTrue(TimelineRangeResolver.matchesResolvedStart(
+            new TimelineRangeResolver.Marker(1200, 3, 2419), 3, 1200
+        ));
+    }
+
     @Test
     void intersectsRequestedRangeWithExactMarkerCoverage() {
         TimelineRangeResolver.Resolution resolution = TimelineRangeResolver.resolve(
