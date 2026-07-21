@@ -1,5 +1,5 @@
 plugins {
-    id("fabric-loom") version "1.11.8"
+    id("fabric-loom") version "1.17.16"
     `maven-publish`
 }
 
@@ -20,7 +20,7 @@ repositories {
 
 val localFlashbackJar = providers.environmentVariable("MC_RECORDER_FLASHBACK_JAR").orNull
 // Modrinth reuses the display version across Minecraft variants. The immutable
-// version ID prevents 0.39.1 for a newer game from replacing the pinned
+// version ID prevents 0.39.5 for a newer game from replacing the pinned
 // Minecraft 1.21.8 artifact in Maven resolution.
 val flashbackVersionId = property("flashback_version_id")
 val flashbackDownload = configurations.detachedConfiguration(
@@ -57,7 +57,7 @@ dependencies {
     modLocalRuntime(files(flashbackJar))
     modLocalRuntime(nestedFlashbackJars)
 
-    testImplementation("org.junit.jupiter:junit-jupiter:5.11.4")
+    testImplementation("org.junit.jupiter:junit-jupiter:6.1.2")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
@@ -67,12 +67,6 @@ loom {
     mods {
         create("mc-recorder-renderer") {
             sourceSet(sourceSets["client"])
-        }
-    }
-
-    runs {
-        named("client") {
-            runDir = "run"
         }
     }
 }

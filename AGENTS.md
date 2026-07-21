@@ -11,23 +11,22 @@
 
 ## Build, Test, and Development Commands
 
-Create a local CLI environment:
+Install the pinned Python and JVM toolchains:
 
 ```sh
-python3 -m venv .venv
-. .venv/bin/activate
-python -m pip install -e tooling
+proto install --config-mode local
+pixi install --locked
 ```
 
 Run the automated checks:
 
 ```sh
-python -m unittest discover -s tooling/tests -v
-./gradlew --project-dir recorder-mod build
-./gradlew --project-dir renderer-mod build
+pixi run test-python
+pixi run build-recorder-mod
+pixi run build-renderer-mod
 ```
 
-Use `MC_RECORDER_FLASHBACK_JAR=/path/to/Flashback-0.39.1.jar` for renderer builds when Modrinth is unavailable. For an end-to-end capture, use `mc-recorder server start --wait`, join `localhost:25565`, then run `mc-recorder server stop` and `mc-recorder episodes validate SESSION_ID`.
+Use `MC_RECORDER_FLASHBACK_JAR=/path/to/Flashback-0.39.5.jar` for renderer builds when Modrinth is unavailable. For an end-to-end capture, use `pixi run mc-recorder server start --wait`, join `localhost:25565`, then run `pixi run mc-recorder server stop` and `pixi run mc-recorder episodes validate SESSION_ID`.
 
 ## Coding Style & Naming Conventions
 

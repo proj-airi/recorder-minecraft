@@ -30,13 +30,13 @@ It combines three pieces:
 - Independent ServerReplay archives aligned exactly through embedded
   `mc_recorder:timeline/v1` markers.
 - Standard Flashback archives that can also be inspected interactively in a
-  Minecraft 1.21.8 client with Flashback 0.39.1. The renderer pins immutable
-  Modrinth version ID `X3J8u7wy`, because the display version is reused across
+  Minecraft 1.21.8 client with Flashback 0.39.5. The renderer pins immutable
+  Modrinth version ID `9YgAwnpm`, because the display version is reused across
   incompatible Minecraft variants.
 
   If Modrinth's Maven endpoint is unavailable, set
-  `MC_RECORDER_FLASHBACK_JAR` to the Flashback 0.39.1 JAR specifically built
-  for Minecraft 1.21.8 before running `mc-recorder render-worker`.
+  `MC_RECORDER_FLASHBACK_JAR` to the Flashback 0.39.5 JAR specifically built
+  for Minecraft 1.21.8 before running `pixi run mc-recorder render-worker`.
 - Canonical `state + action -> next_state` JSONL samples with provenance and
   exact-key modality attachment.
 - First-person 20 FPS RGB PNG rendering and optional coverage-aware voxel crops
@@ -52,21 +52,23 @@ V1; the immutable replay remains their source when they were client-visible.
 
 ## Requirements
 
-- Python 3.11 or newer;
+- Pixi for the Python CLI workspace;
+- proto for OpenJDK 21 and Gradle 9.6.1;
 - Docker with Docker Compose;
-- Java 21 for building the Fabric mods and running the local renderer;
 - OpenSSH and `rsync` on both the recorder host and any remote GUI renderer; and
 - a normal Minecraft client account for joining the capture server.
+
+See [Development Environment](docs/environment.md) for tool ownership,
+installation, and troubleshooting.
 
 ## Quickstart
 
 From the workspace root:
 
 ```sh
-python3 -m venv .venv
-. .venv/bin/activate
-python -m pip install -e tooling
-mc-recorder init
+proto install --config-mode local
+pixi install --locked
+pixi run mc-recorder init
 ```
 
 `mc-recorder init` always defaults to `server.eula = false`. Read the
@@ -84,8 +86,8 @@ accepted it, `mc-recorder init --accept-eula --force` is an explicit equivalent.
 Start the server and connect to `localhost:25565`:
 
 ```sh
-mc-recorder server start --wait
-mc-recorder server logs --follow
+pixi run mc-recorder server start --wait
+pixi run mc-recorder server logs --follow
 ```
 
 Recording starts automatically when players join. The capture side requires no
@@ -93,9 +95,9 @@ client mod; a normal Minecraft 1.21.8 client can connect. Stop cleanly before
 consuming the latest files, then inspect and validate the capture:
 
 ```sh
-mc-recorder server stop
-mc-recorder episodes list
-mc-recorder episodes validate SESSION_ID
+pixi run mc-recorder server stop
+pixi run mc-recorder episodes list
+pixi run mc-recorder episodes validate SESSION_ID
 ```
 
 ### LAN dashboard
@@ -110,9 +112,11 @@ or reboots.
 Set both required HTTP Basic credentials, then start the service:
 
 ```sh
+pnpm install
+pnpm build:dashboard
 export MC_RECORDER_DASHBOARD_USERNAME=recorder
 export MC_RECORDER_DASHBOARD_PASSWORD='replace-with-a-long-password'
-mc-recorder dashboard serve
+pixi run mc-recorder dashboard serve
 ```
 
 The default `[dashboard]` listener is `0.0.0.0:8765`, so another trusted-LAN
@@ -145,14 +149,15 @@ legacy RGB and can be replaced explicitly with **Re-render RGB**; each verified
 original import remains preserved for audit.
 
 On a GUI-capable machine, use the same project revision as the recorder host,
-install the Python tooling, initialize a local `recorder.toml`, and make Java 21
-the active JVM. The machine must have `ssh` and `rsync`, while the recorder host
-must have an SSH server and `rsync`. The SSH alias must authenticate
-non-interactively to the account that owns the remote recorder workspace. From
-a logged-in graphical desktop session, start the foreground worker with:
+run `proto install --config-mode local` and `pixi install --locked`, and
+initialize a local `recorder.toml`. The machine must have `ssh` and `rsync`,
+while the recorder host must have an SSH server and `rsync`. The SSH alias must
+authenticate non-interactively to the account that owns the remote recorder
+workspace. From a logged-in graphical desktop session, start the foreground
+worker with:
 
 ```sh
-mc-recorder render-worker \
+pixi run mc-recorder render-worker \
   --host mcdatacol \
   --remote-root /srv/mc-play-recorder
 ```
@@ -217,7 +222,7 @@ cells remain unknown. Interactive 3D voxels are outside V1.
 Export all recorded subjects, or add repeatable player and connection UUID filters:
 
 ```sh
-mc-recorder export SESSION_ID \
+pixi run mc-recorder export SESSION_ID \
   --player PLAYER_UUID \
   --connection CONNECTION_ID
 ```
@@ -235,7 +240,7 @@ For a standalone manual render outside the dashboard queue, render one recorded
 connection from a completed Flashback archive:
 
 ```sh
-mc-recorder render SESSION_ID \
+pixi run mc-recorder render SESSION_ID \
   --player PLAYER_UUID \
   --connection CONNECTION_ID \
   --replay artifacts/replays/players/PLAYER_UUID/REPLAY.zip \
@@ -269,7 +274,7 @@ this verified re-export automatically. Both options remain repeatable for
 manual jobs spanning multiple players, connections, or replay segments:
 
 ```sh
-mc-recorder export SESSION_ID \
+pixi run mc-recorder export SESSION_ID \
   --frames artifacts/exports/render-jobs/SESSION_ID-PLAYER_UUID \
   --voxels artifacts/exports/render-jobs/SESSION_ID-PLAYER_UUID \
   --force
@@ -313,8 +318,8 @@ and unexpected paths are ineligible. Sidecar and replay units are independently
 evicted; do not assume coupled retention.
 
 ```sh
-mc-recorder storage status
-mc-recorder storage enforce
+pixi run mc-recorder storage status
+pixi run mc-recorder storage enforce
 ```
 
 ## Configuration and contracts
@@ -343,6 +348,7 @@ renderer-mod/   local Flashback first-person RGB/voxel renderer
 schemas/        source and dataset V1 contracts
 tooling/        Python provisioning/export CLI
 ServerReplay/   upstream server replay mod source
+docs/           development environment notes
 ```
 
 Chat, command text, and custom payload contents are redacted by the sidecar.

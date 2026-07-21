@@ -1,0 +1,7 @@
+openjdk = "21"
+gradle = "9.6.1"
+node = "26.5.0"
+
+[plugins.tools]
+openjdk = "github://eplightning/openjdk-adoptium-proto-plugin"
+gradle = "https://raw.githubusercontent.com/eplightning/openjdk-adoptium-proto-plugin/main/build-plugins/gradle.toml"

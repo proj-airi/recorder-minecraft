@@ -84,8 +84,9 @@ inside its independently rotated Flashback archive; the local renderer uses it f
 
 ## Build
 
-This module intentionally has no duplicate wrapper. From the workspace root, use the shared wrapper:
+This module intentionally has no Gradle wrapper. From the workspace root, use
+the proto-managed Gradle task:
 
 ```sh
-./gradlew --project-dir recorder-mod test build
+gradle --project-dir recorder-mod test build
 ```
