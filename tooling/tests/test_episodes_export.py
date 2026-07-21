@@ -344,20 +344,68 @@ def _render_artifacts(root: Path, *, status: str = "complete") -> Path:
     return job
 
 
-def _scene_store(root: Path, *, coverage_complete: bool = True) -> Path:
+def _scene_store(
+    root: Path,
+    *,
+    coverage_complete: bool = True,
+    authenticated: bool = True,
+) -> Path:
     output = root / "source-scene.sqlite3"
+    identity = SceneIdentity("session-a", PLAYER, CONNECTION)
+    sources = (
+        {
+            "segment_id": "00000000-0000-4000-8000-000000000010",
+            "segment_ordinal": 0,
+            "path": "/sealed/replay-0.zip",
+            "format": "flashback",
+            "sha256": "ab" * 32,
+            "size_bytes": 123,
+        },
+    )
+    result = {
+        "schema_version": 1,
+        "result_type": "mc-recorder-scene-extraction-result-v1",
+        "status": "complete",
+        "job_id": "job-export-test",
+        "session_id": identity.session_id,
+        "player_uuid": identity.player_uuid,
+        "connection_id": identity.connection_id,
+        "global_start_tick": 10,
+        "global_end_tick": 11,
+        "scope": "client_visible",
+        "metadata_policy": "full_packet_metadata",
+        "source_replays": list(sources),
+        "stream": {
+            "format": "mc-recorder-scene-stream-v1",
+            "path": "/verified/export-test-stream",
+            "frames_index": "frames.jsonl",
+            "changes_index": "changes.jsonl",
+            "blobs_directory": "blobs",
+            "frame_count": 2,
+            "change_count": 1,
+            "blob_count": 1,
+            "blob_bytes": 1,
+            "frames_sha256": "cd" * 32,
+            "frames_size_bytes": 1,
+            "changes_sha256": "ef" * 32,
+            "changes_size_bytes": 1,
+        },
+        "ignored_packet_counts": {},
+        "covered_tick_count": 2,
+    }
     builder = SceneStoreBuilder(
-        SceneIdentity("session-a", PLAYER, CONNECTION),
+        identity,
         start_tick=10,
         end_tick=11,
-        source_replays=(
+        source_replays=sources if authenticated else (),
+        provenance=(
             {
-                "segment_id": "00000000-0000-4000-8000-000000000010",
-                "segment_ordinal": 0,
-                "format": "flashback",
-                "sha256": "ab" * 32,
-                "size_bytes": 123,
-            },
+                "scope": "client_visible",
+                "metadata_policy": "full_packet_metadata",
+                "result": result,
+            }
+            if authenticated
+            else {}
         ),
         sensitive=True,
     )
@@ -597,7 +645,28 @@ class EpisodeExportTest(unittest.TestCase):
             self.assertTrue(modality["scene"]["coverage_complete"])
             manifest = json.loads((output / "manifest.json").read_text())
             self.assertIn("scene/scene-v1.sqlite3", manifest["files"])
-            self.assertTrue(manifest["selection"]["scene_attachment"]["sensitive"])
+            attachment = manifest["selection"]["scene_attachment"]
+            self.assertTrue(attachment["sensitive"])
+            self.assertEqual("client_visible", attachment["scope"])
+            self.assertEqual(
+                "full_packet_metadata", attachment["metadata_policy"]
+            )
+            self.assertEqual("job-export-test", attachment["result"]["job_id"])
+            self.assertEqual(
+                "/sealed/replay-0.zip", attachment["source_replays"][0]["path"]
+            )
+
+    def test_rejects_scene_store_without_authenticated_extraction(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with self.assertRaisesRegex(
+                RecorderError, "authenticated extraction provenance"
+            ):
+                export_episode(
+                    _episode(root),
+                    root / "dataset",
+                    scenes=[_scene_store(root, authenticated=False)],
+                )
 
     def test_rejects_incomplete_scene_store(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

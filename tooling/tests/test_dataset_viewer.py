@@ -230,12 +230,66 @@ def _write_dataset(
     return directory
 
 
-def _scene_store_bytes(root: Path, *, tick: int = 7) -> bytes:
+def _scene_store_bytes(
+    root: Path, *, tick: int = 7, authenticated: bool = True
+) -> bytes:
     output = root / "source-scene.sqlite3"
+    identity = SceneIdentity("session-test", "player-a", "connection-a")
+    sources = (
+        {
+            "segment_id": "segment-viewer",
+            "segment_ordinal": 0,
+            "path": "/sealed/viewer-replay.zip",
+            "sha256": "ab" * 32,
+            "size_bytes": 123,
+            "format": "flashback",
+        },
+    )
+    result = {
+        "schema_version": 1,
+        "result_type": "mc-recorder-scene-extraction-result-v1",
+        "status": "complete",
+        "job_id": "job-viewer-test",
+        "session_id": identity.session_id,
+        "player_uuid": identity.player_uuid,
+        "connection_id": identity.connection_id,
+        "global_start_tick": tick,
+        "global_end_tick": tick,
+        "scope": "client_visible",
+        "metadata_policy": "full_packet_metadata",
+        "source_replays": list(sources),
+        "stream": {
+            "format": "mc-recorder-scene-stream-v1",
+            "path": "/verified/viewer-test-stream",
+            "frames_index": "frames.jsonl",
+            "changes_index": "changes.jsonl",
+            "blobs_directory": "blobs",
+            "frame_count": 1,
+            "change_count": 1,
+            "blob_count": 1,
+            "blob_bytes": 1,
+            "frames_sha256": "cd" * 32,
+            "frames_size_bytes": 1,
+            "changes_sha256": "ef" * 32,
+            "changes_size_bytes": 1,
+        },
+        "ignored_packet_counts": {},
+        "covered_tick_count": 1,
+    }
     builder = SceneStoreBuilder(
-        SceneIdentity("session-test", "player-a", "connection-a"),
+        identity,
         start_tick=tick,
         end_tick=tick,
+        source_replays=sources if authenticated else (),
+        provenance=(
+            {
+                "scope": "client_visible",
+                "metadata_policy": "full_packet_metadata",
+                "result": result,
+            }
+            if authenticated
+            else {}
+        ),
         sensitive=True,
     )
     try:
@@ -762,6 +816,32 @@ class DatasetArtifactTest(unittest.TestCase):
             self.assertEqual("minecraft:pig", plane.entities[0].type_id)
             self.assertEqual("minecraft:chest", plane.block_entities[0].type_id)
             self.assertFalse(plane.coverage_complete)
+
+    def test_rejects_scene_store_without_authenticated_extraction(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            exports = root / "exports"
+            exports.mkdir()
+            scene = {
+                "available": True,
+                "valid": True,
+                "coverage_complete": True,
+                "reference": "scene/scene-v1.sqlite3",
+                "frame_id": "scene-frame-7",
+                "reason": None,
+            }
+            _write_dataset(
+                exports,
+                [_sample(7, scene=scene)],
+                scene_store=_scene_store_bytes(root, authenticated=False),
+            )
+
+            catalog = DatasetViewer(exports, root / "runtime").catalog()
+
+            self.assertEqual((), catalog.datasets)
+            self.assertIn(
+                "authenticated extraction provenance", catalog.rejected[0].message
+            )
 
     def test_resolves_only_contained_hash_verified_rgb(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

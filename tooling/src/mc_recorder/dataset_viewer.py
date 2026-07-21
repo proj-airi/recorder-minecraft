@@ -1042,7 +1042,10 @@ class DatasetViewer:
 
             scene_identity: tuple[str, str, str] | None = None
             if SCENE_STORE_REFERENCE in verified:
-                from .scene_store import validate_scene_store
+                from .scene_store import (
+                    validate_scene_attachment_provenance,
+                    validate_scene_store,
+                )
 
                 expected_session = _required_string(
                     manifest, "session_id", "dataset manifest"
@@ -1052,6 +1055,7 @@ class DatasetViewer:
                         verified[SCENE_STORE_REFERENCE].path,
                         expected_session_id=expected_session,
                     )
+                    validate_scene_attachment_provenance(scene_info)
                 except RecorderError as exc:
                     raise DatasetValidationError(
                         f"dataset scene store is invalid: {exc}"

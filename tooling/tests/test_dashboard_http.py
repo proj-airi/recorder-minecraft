@@ -37,10 +37,58 @@ def _write_viewer_dataset(exports: Path) -> None:
     scene_directory = directory / "scene"
     scene_directory.mkdir()
     scene_path = scene_directory / "scene-v1.sqlite3"
+    identity = SceneIdentity("session-http", "player-http", "connection-http")
+    sources = (
+        {
+            "segment_id": "segment-http",
+            "segment_ordinal": 0,
+            "path": "/sealed/http-replay.zip",
+            "sha256": "ab" * 32,
+            "size_bytes": 123,
+            "format": "flashback",
+        },
+    )
+    result = {
+        "schema_version": 1,
+        "result_type": "mc-recorder-scene-extraction-result-v1",
+        "status": "complete",
+        "job_id": "job-http-test",
+        "session_id": identity.session_id,
+        "player_uuid": identity.player_uuid,
+        "connection_id": identity.connection_id,
+        "global_start_tick": 20,
+        "global_end_tick": 20,
+        "scope": "client_visible",
+        "metadata_policy": "full_packet_metadata",
+        "source_replays": list(sources),
+        "stream": {
+            "format": "mc-recorder-scene-stream-v1",
+            "path": "/verified/http-test-stream",
+            "frames_index": "frames.jsonl",
+            "changes_index": "changes.jsonl",
+            "blobs_directory": "blobs",
+            "frame_count": 1,
+            "change_count": 1,
+            "blob_count": 1,
+            "blob_bytes": 1,
+            "frames_sha256": "cd" * 32,
+            "frames_size_bytes": 1,
+            "changes_sha256": "ef" * 32,
+            "changes_size_bytes": 1,
+        },
+        "ignored_packet_counts": {},
+        "covered_tick_count": 1,
+    }
     builder = SceneStoreBuilder(
-        SceneIdentity("session-http", "player-http", "connection-http"),
+        identity,
         start_tick=20,
         end_tick=20,
+        source_replays=sources,
+        provenance={
+            "scope": "client_visible",
+            "metadata_policy": "full_packet_metadata",
+            "result": result,
+        },
     )
     try:
         builder.set_section(

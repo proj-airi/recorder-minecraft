@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sqlite3
@@ -7,11 +8,16 @@ import sys
 import tempfile
 import unittest
 import zlib
+from contextlib import closing
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
+import mc_recorder.scene_store as scene_store_module
 from mc_recorder.scene_store import (
+    _BLOCK_ENTITY_BOX_SQL,
+    _ENTITY_BOX_SQL,
     DEFAULT_MAX_CROP_CELLS,
     SceneIdentity,
     SceneStore,
@@ -22,7 +28,13 @@ from mc_recorder.scene_store import (
     canonical_section_blob,
     compact_scene_stream,
     scene_slice_to_json,
+    validate_scene_attachment_provenance,
     validate_scene_store,
+)
+from mc_recorder.scene_integrity import (
+    SceneStreamIntegrity,
+    VerifiedSceneStream,
+    freeze_json_value,
 )
 
 
@@ -31,6 +43,135 @@ DIMENSION = "minecraft:overworld"
 AIR = {"name": "minecraft:air", "properties": {}}
 STONE = {"name": "minecraft:stone", "properties": {}}
 DIRT = {"name": "minecraft:dirt", "properties": {}}
+
+
+def _sources(count: int = 1) -> tuple[dict[str, object], ...]:
+    return tuple(
+        {
+            "segment_id": f"segment-{index}",
+            "segment_ordinal": index,
+            "path": f"/sealed/segment-{index}.zip",
+            "sha256": f"{index + 1:02x}" * 32,
+            "size_bytes": 100 + index,
+            "format": "flashback",
+        }
+        for index in range(count)
+    )
+
+
+def _result(
+    identity: SceneIdentity,
+    ticks: tuple[int, ...],
+    sources: tuple[dict[str, object], ...],
+    stream: Path,
+    integrity: SceneStreamIntegrity,
+    *,
+    job_id: str = "job-test",
+) -> dict[str, object]:
+    return {
+        "schema_version": 1,
+        "result_type": "mc-recorder-scene-extraction-result-v1",
+        "status": "complete",
+        "job_id": job_id,
+        "session_id": identity.session_id,
+        "player_uuid": identity.player_uuid,
+        "connection_id": identity.connection_id,
+        "global_start_tick": ticks[0],
+        "global_end_tick": ticks[-1],
+        "scope": "client_visible",
+        "metadata_policy": "full_packet_metadata",
+        "source_replays": list(sources),
+        "stream": {"path": str(stream.resolve()), **integrity.as_dict()},
+        "ignored_packet_counts": {},
+        "covered_tick_count": len(ticks),
+    }
+
+
+def _provenance(
+    identity: SceneIdentity,
+    ticks: tuple[int, ...],
+    sources: tuple[dict[str, object], ...],
+) -> dict[str, object]:
+    integrity = SceneStreamIntegrity(
+        format="mc-recorder-scene-stream-v1",
+        frames_index="frames.jsonl",
+        frames_size_bytes=1,
+        frames_sha256="1" * 64,
+        frame_count=len(ticks),
+        changes_index="changes.jsonl",
+        changes_size_bytes=1,
+        changes_sha256="2" * 64,
+        change_count=0,
+        blobs_directory="blobs",
+        blob_count=0,
+        blob_bytes=0,
+    )
+    return {
+        "scope": "client_visible",
+        "metadata_policy": "full_packet_metadata",
+        "result": _result(identity, ticks, sources, Path("/verified/stream"), integrity),
+    }
+
+
+def _verified_stream(
+    stream: Path,
+    ticks: tuple[int, ...],
+    sources: tuple[dict[str, object], ...],
+    *,
+    job_id: str = "job-test",
+) -> VerifiedSceneStream:
+    frames = (stream / "frames.jsonl").read_bytes()
+    changes = (stream / "changes.jsonl").read_bytes()
+    blob_entries = list((stream / "blobs").iterdir())
+    integrity = SceneStreamIntegrity(
+        format="mc-recorder-scene-stream-v1",
+        frames_index="frames.jsonl",
+        frames_size_bytes=len(frames),
+        frames_sha256=hashlib.sha256(frames).hexdigest(),
+        frame_count=len(frames.splitlines()),
+        changes_index="changes.jsonl",
+        changes_size_bytes=len(changes),
+        changes_sha256=hashlib.sha256(changes).hexdigest(),
+        change_count=len(changes.splitlines()),
+        blobs_directory="blobs",
+        blob_count=len(blob_entries),
+        blob_bytes=sum(entry.stat().st_size for entry in blob_entries),
+    )
+    result = _result(IDENTITY, ticks, sources, stream, integrity, job_id=job_id)
+    result_bytes = json.dumps(result, sort_keys=True, separators=(",", ":")).encode()
+    return VerifiedSceneStream(
+        job_id=job_id,
+        stream_path=stream,
+        result=freeze_json_value(result),
+        result_sha256=hashlib.sha256(result_bytes).hexdigest(),
+        integrity=integrity,
+    )
+
+
+def _placeholder_verified_stream(stream: Path, ticks: tuple[int, ...]) -> VerifiedSceneStream:
+    integrity = SceneStreamIntegrity(
+        format="mc-recorder-scene-stream-v1",
+        frames_index="frames.jsonl",
+        frames_size_bytes=0,
+        frames_sha256=hashlib.sha256(b"").hexdigest(),
+        frame_count=0,
+        changes_index="changes.jsonl",
+        changes_size_bytes=0,
+        changes_sha256=hashlib.sha256(b"").hexdigest(),
+        change_count=0,
+        blobs_directory="blobs",
+        blob_count=0,
+        blob_bytes=0,
+    )
+    sources = _sources()
+    result = _result(IDENTITY, ticks, sources, stream, integrity)
+    return VerifiedSceneStream(
+        job_id="job-test",
+        stream_path=stream,
+        result=freeze_json_value(result),
+        result_sha256="3" * 64,
+        integrity=integrity,
+    )
 
 
 def _indices(fill: int = 0) -> list[int]:
@@ -68,12 +209,13 @@ class SceneStoreBuilderTest(unittest.TestCase):
             first[0] = 1
             second = _indices(1)
             second[0] = 0
+            sources = _sources()
             with SceneStoreBuilder(
                 IDENTITY,
                 start_tick=1,
                 end_tick=2,
-                source_replays=({"path": "replay.zip", "sha256": "a" * 64},),
-                provenance={"decoder": "test"},
+                source_replays=sources,
+                provenance=_provenance(IDENTITY, (1, 2), sources),
             ) as builder:
                 _add_frames(builder, (1, 2))
                 builder.set_section(1, DIMENSION, (0, 4, 0), (AIR, STONE), first)
@@ -87,8 +229,12 @@ class SceneStoreBuilderTest(unittest.TestCase):
             self.assertEqual(info.frame_count, 2)
             self.assertTrue(info.coverage_complete)
             self.assertTrue(info.sensitive)
-            self.assertEqual(info.source_replays[0]["path"], "replay.zip")
-            with sqlite3.connect(path) as connection:
+            self.assertEqual(info.source_replays[0]["path"], "/sealed/segment-0.zip")
+            self.assertEqual(
+                validate_scene_attachment_provenance(info).scope,
+                "client_visible",
+            )
+            with closing(sqlite3.connect(path)) as connection:
                 section_blobs = connection.execute(
                     "SELECT COUNT(*) FROM blobs WHERE kind = 'section'"
                 ).fetchone()[0]
@@ -283,20 +429,21 @@ class SceneStoreValidationTest(unittest.TestCase):
     def test_rejects_corrupt_content_addressed_blob(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             path = self._store(Path(temporary))
-            with sqlite3.connect(path) as connection:
+            with closing(sqlite3.connect(path)) as connection:
                 connection.execute(
                     "UPDATE blobs SET zlib_data = ? WHERE kind = 'section'", (b"broken",)
                 )
                 connection.execute(
                     "UPDATE blobs SET compressed_size = 6 WHERE kind = 'section'"
                 )
+                connection.commit()
             with self.assertRaisesRegex(SceneStoreValidationError, "zlib"):
                 validate_scene_store(path)
 
     def test_rejects_persisted_interval_overlap(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             path = self._store(Path(temporary))
-            with sqlite3.connect(path) as connection:
+            with closing(sqlite3.connect(path)) as connection:
                 digest = connection.execute(
                     "SELECT blob_sha256 FROM section_versions LIMIT 1"
                 ).fetchone()[0]
@@ -304,6 +451,7 @@ class SceneStoreValidationTest(unittest.TestCase):
                     "INSERT INTO section_versions VALUES (?, ?, ?, ?, ?, ?, ?)",
                     (DIMENSION, 0, 0, 0, 2, 3, digest),
                 )
+                connection.commit()
             with self.assertRaisesRegex(SceneStoreValidationError, "overlapping"):
                 validate_scene_store(path)
 
@@ -330,8 +478,195 @@ class SceneStoreValidationTest(unittest.TestCase):
             self.assertEqual(path.read_bytes(), original)
             self.assertEqual(validate_scene_store(path).ticks, (1, 2))
 
+    def test_attachment_rejects_store_without_extraction_provenance(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            info = validate_scene_store(self._store(Path(temporary)))
+            self.assertIsNone(info.extraction)
+            with self.assertRaisesRegex(
+                SceneStoreValidationError, "authenticated extraction provenance"
+            ):
+                validate_scene_attachment_provenance(info)
+
+
+class SceneStoreLongHistoryTest(unittest.TestCase):
+    def _store(self, root: Path, interval_count: int = 6_000) -> Path:
+        path = root / "long-scene.sqlite3"
+        last_tick = interval_count - 1
+        with SceneStoreBuilder(
+            IDENTITY, start_tick=0, end_tick=last_tick
+        ) as builder:
+            _add_frames(builder, (0, last_tick))
+            builder.set_entity(
+                0,
+                "history-0",
+                {
+                    "dimension": DIMENSION,
+                    "type_id": "minecraft:pig",
+                    "network_id": 77,
+                    "position": [0.5, 64.0, 0.5],
+                    "aabb": [0.1, 64.0, 0.1, 0.9, 64.9, 0.9],
+                },
+            )
+            builder.set_block_entity(
+                0,
+                DIMENSION,
+                (0, 64, 0),
+                {"type_id": "minecraft:chest"},
+            )
+            builder.remove_entity(1, "history-0")
+            builder.remove_block_entity(1, DIMENSION, (0, 64, 0))
+            builder.publish(path, expected_ticks=(0, last_tick))
+
+        with closing(sqlite3.connect(path)) as connection:
+            entity_digest = connection.execute(
+                "SELECT blob_sha256 FROM entity_versions LIMIT 1"
+            ).fetchone()[0]
+            block_entity_digest = connection.execute(
+                "SELECT blob_sha256 FROM block_entity_versions LIMIT 1"
+            ).fetchone()[0]
+            connection.executemany(
+                "INSERT INTO entity_versions VALUES "
+                "(?, 77, ?, 'minecraft:pig', ?, ?, 0.1, 64.0, 0.1, "
+                "0.9, 64.9, 0.9, ?)",
+                (
+                    (f"history-{tick}", DIMENSION, tick, tick + 1, entity_digest)
+                    for tick in range(1, interval_count)
+                ),
+            )
+            connection.commit()
+            connection.executemany(
+                "INSERT INTO block_entity_versions VALUES "
+                "(?, 0, 64, 0, 'minecraft:chest', ?, ?, ?)",
+                (
+                    (DIMENSION, tick, tick + 1, block_entity_digest)
+                    for tick in range(1, interval_count)
+                ),
+            )
+            connection.commit()
+        return path
+
+    def test_validation_is_bounded_for_long_nonoverlapping_network_history(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = self._store(Path(temporary))
+            original_connect = scene_store_module._connect_read_only
+            callbacks = 0
+
+            def bounded_connect(candidate: Path) -> sqlite3.Connection:
+                connection = original_connect(candidate)
+
+                def progress() -> int:
+                    nonlocal callbacks
+                    callbacks += 1
+                    return int(callbacks > 20_000)
+
+                connection.set_progress_handler(progress, 1_000)
+                return connection
+
+            with mock.patch.object(
+                scene_store_module, "_connect_read_only", bounded_connect
+            ):
+                info = validate_scene_store(path)
+
+            self.assertEqual(info.ticks, (0, 5_999))
+            self.assertLess(callbacks, 20_000)
+
+    def test_random_access_entity_queries_use_temporal_spatial_indexes(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = self._store(Path(temporary))
+            query_parameters = (
+                5_999,
+                5_999,
+                0,
+                1,
+                64,
+                65,
+                0,
+                1,
+                DIMENSION,
+                5_999,
+                5_999,
+                0,
+                1,
+                64,
+                65,
+                0,
+                1,
+            )
+            with closing(sqlite3.connect(path)) as connection:
+                entity_plan = connection.execute(
+                    "EXPLAIN QUERY PLAN " + _ENTITY_BOX_SQL, query_parameters
+                ).fetchall()
+                block_entity_plan = connection.execute(
+                    "EXPLAIN QUERY PLAN " + _BLOCK_ENTITY_BOX_SQL,
+                    query_parameters,
+                ).fetchall()
+
+            self.assertTrue(
+                any("VIRTUAL TABLE INDEX" in row[3] for row in entity_plan),
+                entity_plan,
+            )
+            self.assertTrue(
+                any("VIRTUAL TABLE INDEX" in row[3] for row in block_entity_plan),
+                block_entity_plan,
+            )
+            with SceneStore(path, validate=False) as store:
+                crop = store.materialize_crop(5_999, (0, 64, 0), (1, 1, 1))
+            self.assertEqual(
+                [entity.instance_id for entity in crop.entities],
+                ["history-5999"],
+            )
+            self.assertEqual(len(crop.block_entities), 1)
+
 
 class SceneStreamCompactorTest(unittest.TestCase):
+    def test_output_requires_force_and_force_preserves_a_valid_store_on_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            stream = root / "stream"
+            stream.mkdir()
+            verified = _placeholder_verified_stream(stream, (1,))
+            output = root / "scene.sqlite3"
+            output.write_bytes(b"not a scene store")
+            with self.assertRaisesRegex(SceneStoreError, "pass --force"):
+                compact_scene_stream(
+                    stream,
+                    output,
+                    expected_session_id=IDENTITY.session_id,
+                    expected_player_uuid=IDENTITY.player_uuid,
+                    expected_connection_id=IDENTITY.connection_id,
+                    expected_ticks=(1,),
+                    verified_stream=verified,
+                )
+            with self.assertRaisesRegex(SceneStoreError, "validate scene store"):
+                compact_scene_stream(
+                    stream,
+                    output,
+                    expected_session_id=IDENTITY.session_id,
+                    expected_player_uuid=IDENTITY.player_uuid,
+                    expected_connection_id=IDENTITY.connection_id,
+                    expected_ticks=(1,),
+                    verified_stream=verified,
+                    force=True,
+                )
+
+            output.unlink()
+            with SceneStoreBuilder(IDENTITY, start_tick=1, end_tick=1) as builder:
+                _add_frames(builder, (1,))
+                builder.publish(output, expected_ticks=(1,))
+            original = output.read_bytes()
+            with self.assertRaises(SceneStoreError):
+                compact_scene_stream(
+                    stream,
+                    output,
+                    expected_session_id=IDENTITY.session_id,
+                    expected_player_uuid=IDENTITY.player_uuid,
+                    expected_connection_id=IDENTITY.connection_id,
+                    expected_ticks=(1,),
+                    verified_stream=verified,
+                    force=True,
+                )
+            self.assertEqual(original, output.read_bytes())
+
     def test_compacts_frames_changes_and_verified_external_blobs(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -542,40 +877,25 @@ class SceneStreamCompactorTest(unittest.TestCase):
             (stream / "changes.jsonl").write_text(
                 "".join(json.dumps(row) + "\n" for row in changes), encoding="utf-8"
             )
-            (job / "scene-job.json").write_text(
-                json.dumps(
-                    {
-                        "schema_version": 1,
-                        "job_id": "job-test",
-                        "session_id": IDENTITY.session_id,
-                        "subject": {
-                            "player_uuid": IDENTITY.player_uuid,
-                            "connection_id": IDENTITY.connection_id,
-                        },
-                        "global_start_tick": 5,
-                        "global_end_tick": 7,
-                        "scope": "client_visible",
-                        "metadata_policy": "full_packet_metadata",
-                        "source_replays": [
-                            {
-                                "segment_id": "segment-a",
-                                "segment_ordinal": 0,
-                                "path": "sealed/a.zip",
-                                "sha256": "a" * 64,
-                                "size_bytes": 100,
-                            },
-                            {
-                                "segment_id": "segment-b",
-                                "segment_ordinal": 1,
-                                "path": "sealed/b.zip",
-                                "sha256": "b" * 64,
-                                "size_bytes": 200,
-                            },
-                        ],
-                    }
-                ),
-                encoding="utf-8",
+            sources = (
+                {
+                    "segment_id": "segment-a",
+                    "segment_ordinal": 0,
+                    "path": "/sealed/a.zip",
+                    "sha256": "a" * 64,
+                    "size_bytes": 100,
+                    "format": "flashback",
+                },
+                {
+                    "segment_id": "segment-b",
+                    "segment_ordinal": 1,
+                    "path": "/sealed/b.zip",
+                    "sha256": "b" * 64,
+                    "size_bytes": 200,
+                    "format": "flashback",
+                },
             )
+            verified = _verified_stream(stream, (5, 7), sources)
             output = root / "scene.sqlite3"
 
             info = compact_scene_stream(
@@ -585,11 +905,13 @@ class SceneStreamCompactorTest(unittest.TestCase):
                 expected_player_uuid=IDENTITY.player_uuid,
                 expected_connection_id=IDENTITY.connection_id,
                 expected_ticks=(5, 7),
+                verified_stream=verified,
             )
 
             self.assertEqual(info.ticks, (5, 7))
             self.assertEqual(info.source_replays[0]["sha256"], "a" * 64)
             self.assertEqual(info.source_replays[1]["sha256"], "b" * 64)
+            self.assertEqual(info.extraction.result, verified.result)
             with SceneStore(output) as store:
                 at_five = store.materialize_crop(
                     "segment-a:50", (0, 0, 0), (2, 2, 2)
@@ -645,7 +967,8 @@ class SceneStreamCompactorTest(unittest.TestCase):
                 + "\n",
                 encoding="utf-8",
             )
-            with self.assertRaisesRegex(SceneStoreError, "symlinked"):
+            verified = _verified_stream(stream, (1,), _sources())
+            with self.assertRaisesRegex(SceneStoreError, "non-symlink"):
                 compact_scene_stream(
                     stream,
                     root / "output.sqlite3",
@@ -653,6 +976,7 @@ class SceneStreamCompactorTest(unittest.TestCase):
                     expected_player_uuid=IDENTITY.player_uuid,
                     expected_connection_id=IDENTITY.connection_id,
                     expected_ticks=(1,),
+                    verified_stream=verified,
                 )
 
 

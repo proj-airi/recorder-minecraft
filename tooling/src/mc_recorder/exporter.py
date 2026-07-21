@@ -1279,9 +1279,14 @@ def _load_scene_attachment(
     source = _attachment_input(supplied[0], "scene attachment")
     if source.is_symlink() or not source.is_file():
         raise RecorderError(f"scene attachment must be a regular SQLite store: {source}")
-    from .scene_store import SceneStore, validate_scene_store
+    from .scene_store import (
+        SceneStore,
+        validate_scene_attachment_provenance,
+        validate_scene_store,
+    )
 
     info = validate_scene_store(source, expected_session_id=expected_session)
+    extraction = validate_scene_attachment_provenance(info)
     identity = info.identity
     ticks = tuple(info.ticks)
     if not ticks:
@@ -1316,9 +1321,10 @@ def _load_scene_attachment(
         "global_start_tick": ticks[0],
         "global_end_tick": ticks[-1],
         "frame_count": len(ticks),
-        "scope": "client_visible",
-        "metadata_policy": "full_packet_metadata",
-        "sensitive": True,
+        "scope": extraction.scope,
+        "metadata_policy": extraction.metadata_policy,
+        "result": _plain_json(extraction.result),
+        "sensitive": info.sensitive,
         "source_replays": _plain_json(info.source_replays),
     }
     return VerifiedSceneAttachment(

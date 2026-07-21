@@ -17,10 +17,18 @@ from typing import Any, Iterable, Mapping, Sequence
 from urllib.parse import quote
 
 from .errors import RecorderError
+from .scene_integrity import (
+    SceneStreamIntegrityError,
+    VerifiedSceneStream,
+    verify_scene_stream,
+)
 
 
 SCENE_STORE_SCHEMA = "mc-recorder-scene-store-v1"
 SCENE_STREAM_SCHEMA = "mc-recorder-scene-stream-v1"
+SCENE_EXTRACTION_RESULT_TYPE = "mc-recorder-scene-extraction-result-v1"
+SCENE_SCOPE_CLIENT_VISIBLE = "client_visible"
+SCENE_METADATA_POLICY_FULL = "full_packet_metadata"
 SCENE_STORE_USER_VERSION = 1
 SECTION_EDGE = 16
 SECTION_CELL_COUNT = SECTION_EDGE**3
@@ -30,6 +38,49 @@ MAX_SLICE_RADIUS = 64
 MAX_BLOB_UNCOMPRESSED_BYTES = 64 * 1024 * 1024
 MAX_JSONL_LINE_BYTES = 64 * 1024 * 1024
 UNKNOWN_PALETTE_INDEX = -1
+
+_SOURCE_REPLAY_FIELDS = frozenset(
+    {"segment_id", "segment_ordinal", "path", "sha256", "size_bytes", "format"}
+)
+_EXTRACTION_PROVENANCE_FIELDS = frozenset(
+    {"scope", "metadata_policy", "result"}
+)
+_EXTRACTION_RESULT_FIELDS = frozenset(
+    {
+        "schema_version",
+        "result_type",
+        "status",
+        "job_id",
+        "session_id",
+        "player_uuid",
+        "connection_id",
+        "global_start_tick",
+        "global_end_tick",
+        "scope",
+        "metadata_policy",
+        "source_replays",
+        "stream",
+        "ignored_packet_counts",
+        "covered_tick_count",
+    }
+)
+_EXTRACTION_STREAM_FIELDS = frozenset(
+    {
+        "format",
+        "path",
+        "frames_index",
+        "changes_index",
+        "blobs_directory",
+        "frame_count",
+        "change_count",
+        "blob_count",
+        "blob_bytes",
+        "frames_sha256",
+        "frames_size_bytes",
+        "changes_sha256",
+        "changes_size_bytes",
+    }
+)
 
 
 class SceneStoreError(RecorderError):
@@ -48,6 +99,13 @@ class SceneIdentity:
 
 
 @dataclass(frozen=True)
+class SceneExtractionProvenance:
+    scope: str
+    metadata_policy: str
+    result: Mapping[str, Any]
+
+
+@dataclass(frozen=True)
 class SceneStoreInfo:
     identity: SceneIdentity
     start_tick: int
@@ -56,6 +114,7 @@ class SceneStoreInfo:
     ticks: tuple[int, ...]
     coverage_complete: bool
     source_replays: tuple[Mapping[str, Any], ...]
+    extraction: SceneExtractionProvenance | None
     sensitive: bool
     sha256: str
     size_bytes: int
@@ -490,6 +549,40 @@ CREATE TABLE entity_versions (
 );
 CREATE INDEX entity_versions_tick_idx
     ON entity_versions(dimension, start_tick, end_tick);
+CREATE INDEX entity_versions_network_interval_idx
+    ON entity_versions(network_id, start_tick, end_tick, instance_id)
+    WHERE network_id IS NOT NULL;
+CREATE VIRTUAL TABLE entity_versions_rtree USING rtree(
+    version_rowid,
+    min_tick, max_tick,
+    min_x, max_x,
+    min_y, max_y,
+    min_z, max_z
+);
+CREATE TRIGGER entity_versions_rtree_insert AFTER INSERT ON entity_versions BEGIN
+    INSERT INTO entity_versions_rtree VALUES (
+        new.rowid,
+        new.start_tick, new.end_tick,
+        new.min_x, new.max_x,
+        new.min_y, new.max_y,
+        new.min_z, new.max_z
+    );
+END;
+CREATE TRIGGER entity_versions_rtree_delete AFTER DELETE ON entity_versions BEGIN
+    DELETE FROM entity_versions_rtree WHERE version_rowid = old.rowid;
+END;
+CREATE TRIGGER entity_versions_rtree_update
+AFTER UPDATE OF start_tick, end_tick, min_x, max_x, min_y, max_y, min_z, max_z
+ON entity_versions BEGIN
+    DELETE FROM entity_versions_rtree WHERE version_rowid = old.rowid;
+    INSERT INTO entity_versions_rtree VALUES (
+        new.rowid,
+        new.start_tick, new.end_tick,
+        new.min_x, new.max_x,
+        new.min_y, new.max_y,
+        new.min_z, new.max_z
+    );
+END;
 CREATE TABLE block_entity_versions (
     dimension TEXT NOT NULL,
     block_x INTEGER NOT NULL,
@@ -504,6 +597,73 @@ CREATE TABLE block_entity_versions (
 );
 CREATE INDEX block_entity_versions_tick_idx
     ON block_entity_versions(dimension, start_tick, end_tick);
+CREATE VIRTUAL TABLE block_entity_versions_rtree USING rtree(
+    version_rowid,
+    min_tick, max_tick,
+    min_x, max_x,
+    min_y, max_y,
+    min_z, max_z
+);
+CREATE TRIGGER block_entity_versions_rtree_insert
+AFTER INSERT ON block_entity_versions BEGIN
+    INSERT INTO block_entity_versions_rtree VALUES (
+        new.rowid,
+        new.start_tick, new.end_tick,
+        new.block_x, new.block_x + 1,
+        new.block_y, new.block_y + 1,
+        new.block_z, new.block_z + 1
+    );
+END;
+CREATE TRIGGER block_entity_versions_rtree_delete
+AFTER DELETE ON block_entity_versions BEGIN
+    DELETE FROM block_entity_versions_rtree WHERE version_rowid = old.rowid;
+END;
+CREATE TRIGGER block_entity_versions_rtree_update
+AFTER UPDATE OF start_tick, end_tick, block_x, block_y, block_z
+ON block_entity_versions BEGIN
+    DELETE FROM block_entity_versions_rtree WHERE version_rowid = old.rowid;
+    INSERT INTO block_entity_versions_rtree VALUES (
+        new.rowid,
+        new.start_tick, new.end_tick,
+        new.block_x, new.block_x + 1,
+        new.block_y, new.block_y + 1,
+        new.block_z, new.block_z + 1
+    );
+END;
+"""
+
+
+_ENTITY_BOX_SQL = """
+SELECT source.*
+FROM entity_versions_rtree AS search
+JOIN entity_versions AS source ON source.rowid = search.version_rowid
+WHERE search.min_tick <= ? AND search.max_tick > ?
+  AND search.max_x > ? AND search.min_x < ?
+  AND search.max_y > ? AND search.min_y < ?
+  AND search.max_z > ? AND search.min_z < ?
+  AND source.dimension = ?
+  AND source.start_tick <= ? AND source.end_tick > ?
+  AND source.max_x > ? AND source.min_x < ?
+  AND source.max_y > ? AND source.min_y < ?
+  AND source.max_z > ? AND source.min_z < ?
+ORDER BY source.instance_id
+"""
+
+
+_BLOCK_ENTITY_BOX_SQL = """
+SELECT source.*
+FROM block_entity_versions_rtree AS search
+JOIN block_entity_versions AS source ON source.rowid = search.version_rowid
+WHERE search.min_tick <= ? AND search.max_tick > ?
+  AND search.max_x > ? AND search.min_x < ?
+  AND search.max_y > ? AND search.min_y < ?
+  AND search.max_z > ? AND search.min_z < ?
+  AND source.dimension = ?
+  AND source.start_tick <= ? AND source.end_tick > ?
+  AND source.block_x >= ? AND source.block_x < ?
+  AND source.block_y >= ? AND source.block_y < ?
+  AND source.block_z >= ? AND source.block_z < ?
+ORDER BY source.block_y, source.block_z, source.block_x
 """
 
 
@@ -575,6 +735,199 @@ def _json_array_from_text(value: str, description: str) -> list[Any]:
     return decoded
 
 
+def _validated_nonnegative_int(value: object, description: str) -> int:
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        raise SceneStoreValidationError(
+            f"{description} must be a non-negative integer"
+        )
+    return value
+
+
+def _validated_source_replays(
+    value: object, description: str = "scene source_replays"
+) -> tuple[dict[str, Any], ...]:
+    if not isinstance(value, (list, tuple)) or not value:
+        raise SceneStoreValidationError(
+            f"{description} must be a non-empty array"
+        )
+    normalized: list[dict[str, Any]] = []
+    segment_ids: set[str] = set()
+    previous_ordinal = -1
+    for index, raw in enumerate(value):
+        context = f"{description}[{index}]"
+        if not isinstance(raw, Mapping) or set(raw) != _SOURCE_REPLAY_FIELDS:
+            raise SceneStoreValidationError(
+                f"{context} fields do not match the source replay contract"
+            )
+        segment_id = _required_text(raw.get("segment_id"), f"{context} segment_id")
+        ordinal = _validated_nonnegative_int(
+            raw.get("segment_ordinal"), f"{context} segment_ordinal"
+        )
+        path = _required_text(raw.get("path"), f"{context} path")
+        digest = _required_sha256(raw.get("sha256"), f"{context} sha256")
+        size_bytes = _validated_nonnegative_int(
+            raw.get("size_bytes"), f"{context} size_bytes"
+        )
+        if size_bytes == 0:
+            raise SceneStoreValidationError(f"{context} size_bytes must be positive")
+        if raw.get("format") != "flashback":
+            raise SceneStoreValidationError(f"{context} format must be flashback")
+        if ordinal <= previous_ordinal or segment_id in segment_ids:
+            raise SceneStoreValidationError(
+                f"{description} must have unique IDs and strictly increasing ordinals"
+            )
+        previous_ordinal = ordinal
+        segment_ids.add(segment_id)
+        normalized.append(
+            {
+                "segment_id": segment_id,
+                "segment_ordinal": ordinal,
+                "path": path,
+                "sha256": digest,
+                "size_bytes": size_bytes,
+                "format": "flashback",
+            }
+        )
+    return tuple(normalized)
+
+
+def _validated_extraction_provenance(
+    source_replays: object,
+    provenance: object,
+    *,
+    identity: SceneIdentity,
+    start_tick: int,
+    end_tick: int,
+    frame_count: int,
+) -> SceneExtractionProvenance:
+    sources = _validated_source_replays(source_replays)
+    if not isinstance(provenance, Mapping) or set(provenance) != _EXTRACTION_PROVENANCE_FIELDS:
+        raise SceneStoreValidationError(
+            "scene extraction provenance fields do not match the contract"
+        )
+    scope = provenance.get("scope")
+    metadata_policy = provenance.get("metadata_policy")
+    if scope != SCENE_SCOPE_CLIENT_VISIBLE:
+        raise SceneStoreValidationError(
+            "scene extraction scope must be client_visible"
+        )
+    if metadata_policy != SCENE_METADATA_POLICY_FULL:
+        raise SceneStoreValidationError(
+            "scene extraction metadata_policy must be full_packet_metadata"
+        )
+    result = provenance.get("result")
+    if not isinstance(result, Mapping) or set(result) != _EXTRACTION_RESULT_FIELDS:
+        raise SceneStoreValidationError(
+            "scene extraction result fields do not match the complete contract"
+        )
+    if (
+        result.get("schema_version") != 1
+        or isinstance(result.get("schema_version"), bool)
+        or result.get("result_type") != SCENE_EXTRACTION_RESULT_TYPE
+        or result.get("status") != "complete"
+    ):
+        raise SceneStoreValidationError(
+            "scene extraction result contract is unsupported or incomplete"
+        )
+    expected_identity = {
+        "session_id": identity.session_id,
+        "player_uuid": identity.player_uuid,
+        "connection_id": identity.connection_id,
+        "global_start_tick": start_tick,
+        "global_end_tick": end_tick,
+    }
+    if any(result.get(key) != expected for key, expected in expected_identity.items()):
+        raise SceneStoreValidationError(
+            "scene extraction result identity or tick range does not match the store"
+        )
+    _required_text(result.get("job_id"), "scene extraction result job_id")
+    if result.get("scope") != scope or result.get("metadata_policy") != metadata_policy:
+        raise SceneStoreValidationError(
+            "scene extraction result policy does not match persisted provenance"
+        )
+    result_sources = _validated_source_replays(
+        result.get("source_replays"), "scene extraction result source_replays"
+    )
+    if result_sources != sources:
+        raise SceneStoreValidationError(
+            "scene extraction result source replays do not match the store"
+        )
+    ignored = result.get("ignored_packet_counts")
+    if not isinstance(ignored, Mapping) or any(
+        not isinstance(name, str)
+        or not name
+        or not isinstance(count, int)
+        or isinstance(count, bool)
+        or count < 0
+        for name, count in ignored.items()
+    ):
+        raise SceneStoreValidationError(
+            "scene extraction result ignored_packet_counts is invalid"
+        )
+    if _validated_nonnegative_int(
+        result.get("covered_tick_count"),
+        "scene extraction result covered_tick_count",
+    ) != frame_count:
+        raise SceneStoreValidationError(
+            "scene extraction result does not cover every stored frame"
+        )
+    stream = result.get("stream")
+    if not isinstance(stream, Mapping) or set(stream) != _EXTRACTION_STREAM_FIELDS:
+        raise SceneStoreValidationError(
+            "scene extraction result stream fields do not match the contract"
+        )
+    if (
+        stream.get("format") != SCENE_STREAM_SCHEMA
+        or stream.get("frames_index") != "frames.jsonl"
+        or stream.get("changes_index") != "changes.jsonl"
+        or stream.get("blobs_directory") != "blobs"
+    ):
+        raise SceneStoreValidationError(
+            "scene extraction result stream layout is unsupported"
+        )
+    _required_text(stream.get("path"), "scene extraction result stream path")
+    for key in ("frames_sha256", "changes_sha256"):
+        _required_sha256(stream.get(key), f"scene extraction result stream {key}")
+    counts = {
+        key: _validated_nonnegative_int(
+            stream.get(key), f"scene extraction result stream {key}"
+        )
+        for key in (
+            "frame_count",
+            "change_count",
+            "blob_count",
+            "blob_bytes",
+            "frames_size_bytes",
+            "changes_size_bytes",
+        )
+    }
+    if counts["frame_count"] < frame_count:
+        raise SceneStoreValidationError(
+            "scene extraction stream frame_count cannot cover the store"
+        )
+    if counts["frames_size_bytes"] == 0 or counts["changes_size_bytes"] == 0:
+        raise SceneStoreValidationError(
+            "scene extraction result stream indexes must be non-empty"
+        )
+    return SceneExtractionProvenance(
+        scope=scope,
+        metadata_policy=metadata_policy,
+        result=_freeze_json(_thaw_json(result)),
+    )
+
+
+def validate_scene_attachment_provenance(
+    info: SceneStoreInfo,
+) -> SceneExtractionProvenance:
+    """Require extraction-authenticated provenance before dataset attachment."""
+
+    if info.extraction is None:
+        raise SceneStoreValidationError(
+            "scene store lacks authenticated extraction provenance"
+        )
+    return info.extraction
+
+
 def _store_info(
     connection: sqlite3.Connection, path: Path, *, include_hash: bool
 ) -> SceneStoreInfo:
@@ -586,12 +939,28 @@ def _store_info(
     source_replays = _json_array_from_text(
         meta["source_replays_json"], "scene source_replays"
     )
+    provenance = _json_object_from_text(
+        meta["provenance_json"], "scene provenance"
+    )
+    identity = SceneIdentity(
+        session_id=meta["session_id"],
+        player_uuid=meta["player_uuid"],
+        connection_id=meta["connection_id"],
+    )
+    extraction = (
+        None
+        if not source_replays and not provenance
+        else _validated_extraction_provenance(
+            source_replays,
+            provenance,
+            identity=identity,
+            start_tick=meta["start_tick"],
+            end_tick=meta["end_tick"],
+            frame_count=len(ticks),
+        )
+    )
     return SceneStoreInfo(
-        identity=SceneIdentity(
-            session_id=meta["session_id"],
-            player_uuid=meta["player_uuid"],
-            connection_id=meta["connection_id"],
-        ),
+        identity=identity,
         start_tick=meta["start_tick"],
         end_tick=meta["end_tick"],
         frame_count=len(ticks),
@@ -601,6 +970,7 @@ def _store_info(
         ).fetchone()[0]
         == 1,
         source_replays=tuple(_freeze_json(item) for item in source_replays),
+        extraction=extraction,
         sensitive=bool(meta["sensitive"]),
         sha256=_sha256_file(path) if include_hash else "",
         size_bytes=path.stat().st_size if include_hash else 0,
@@ -625,17 +995,78 @@ def _validate_interval_bounds(
 
 
 def _validate_no_overlap(
-    connection: sqlite3.Connection, table: str, key_columns: Sequence[str]
+    connection: sqlite3.Connection,
+    table: str,
+    key_columns: Sequence[str],
+    *,
+    where: str | None = None,
+    description: str | None = None,
 ) -> None:
-    equality = " AND ".join(f"left_row.{key} = right_row.{key}" for key in key_columns)
+    partition = ", ".join(key_columns)
+    filter_sql = "" if where is None else f"WHERE {where}"
     overlap = connection.execute(
-        f"SELECT 1 FROM {table} AS left_row JOIN {table} AS right_row "
-        f"ON left_row.rowid < right_row.rowid AND {equality} "
-        "AND left_row.start_tick < right_row.end_tick "
-        "AND right_row.start_tick < left_row.end_tick LIMIT 1"
+        "SELECT 1 FROM ("
+        "SELECT start_tick, MAX(end_tick) OVER ("
+        f"PARTITION BY {partition} "
+        "ORDER BY start_tick, end_tick, rowid "
+        "ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING"
+        f") AS prior_max_end FROM {table} {filter_sql}"
+        ") WHERE prior_max_end > start_tick LIMIT 1"
     ).fetchone()
     if overlap is not None:
-        raise SceneStoreValidationError(f"{table} contains overlapping intervals")
+        raise SceneStoreValidationError(
+            description or f"{table} contains overlapping intervals"
+        )
+
+
+def _validate_entity_rtree(connection: sqlite3.Connection) -> None:
+    mismatched = connection.execute(
+        "SELECT 1 FROM entity_versions AS source "
+        "LEFT JOIN entity_versions_rtree AS search "
+        "ON search.version_rowid = source.rowid "
+        "WHERE search.version_rowid IS NULL "
+        "OR search.min_tick > source.start_tick "
+        "OR search.max_tick < source.end_tick "
+        "OR search.min_x > source.min_x OR search.max_x < source.max_x "
+        "OR search.min_y > source.min_y OR search.max_y < source.max_y "
+        "OR search.min_z > source.min_z OR search.max_z < source.max_z "
+        "LIMIT 1"
+    ).fetchone()
+    extra = connection.execute(
+        "SELECT 1 FROM entity_versions_rtree AS search "
+        "LEFT JOIN entity_versions AS source "
+        "ON source.rowid = search.version_rowid "
+        "WHERE source.rowid IS NULL LIMIT 1"
+    ).fetchone()
+    if mismatched is not None or extra is not None:
+        raise SceneStoreValidationError(
+            "entity temporal/spatial index does not match entity versions"
+        )
+
+
+def _validate_block_entity_rtree(connection: sqlite3.Connection) -> None:
+    mismatched = connection.execute(
+        "SELECT 1 FROM block_entity_versions AS source "
+        "LEFT JOIN block_entity_versions_rtree AS search "
+        "ON search.version_rowid = source.rowid "
+        "WHERE search.version_rowid IS NULL "
+        "OR search.min_tick > source.start_tick "
+        "OR search.max_tick < source.end_tick "
+        "OR search.min_x > source.block_x OR search.max_x < source.block_x + 1 "
+        "OR search.min_y > source.block_y OR search.max_y < source.block_y + 1 "
+        "OR search.min_z > source.block_z OR search.max_z < source.block_z + 1 "
+        "LIMIT 1"
+    ).fetchone()
+    extra = connection.execute(
+        "SELECT 1 FROM block_entity_versions_rtree AS search "
+        "LEFT JOIN block_entity_versions AS source "
+        "ON source.rowid = search.version_rowid "
+        "WHERE source.rowid IS NULL LIMIT 1"
+    ).fetchone()
+    if mismatched is not None or extra is not None:
+        raise SceneStoreValidationError(
+            "block-entity temporal/spatial index does not match block-entity versions"
+        )
 
 
 def _validate_connection(connection: sqlite3.Connection, path: Path) -> None:
@@ -694,20 +1125,15 @@ def _validate_connection(connection: sqlite3.Connection, path: Path) -> None:
         "block_entity_versions",
         ("dimension", "block_x", "block_y", "block_z"),
     )
-    reused_network_id = connection.execute(
-        "SELECT 1 FROM entity_versions AS left_row "
-        "JOIN entity_versions AS right_row "
-        "ON left_row.rowid < right_row.rowid "
-        "AND left_row.network_id IS NOT NULL "
-        "AND left_row.network_id = right_row.network_id "
-        "AND left_row.instance_id != right_row.instance_id "
-        "AND left_row.start_tick < right_row.end_tick "
-        "AND right_row.start_tick < left_row.end_tick LIMIT 1"
-    ).fetchone()
-    if reused_network_id is not None:
-        raise SceneStoreValidationError(
-            "scene store contains overlapping entity network-id lifetimes"
-        )
+    _validate_no_overlap(
+        connection,
+        "entity_versions",
+        ("network_id",),
+        where="network_id IS NOT NULL",
+        description="scene store contains overlapping entity network-id lifetimes",
+    )
+    _validate_entity_rtree(connection)
+    _validate_block_entity_rtree(connection)
 
     references = (
         ("frames", "payload_sha256", "frame"),
@@ -786,6 +1212,7 @@ def validate_scene_store(
         ticks=info.ticks,
         coverage_complete=info.coverage_complete,
         source_replays=info.source_replays,
+        extraction=info.extraction,
         sensitive=info.sensitive,
         sha256=sha256,
         size_bytes=after.st_size,
@@ -1452,12 +1879,16 @@ class SceneStore:
         assert self._connection is not None
         maximum = tuple(origin[index] + shape[index] for index in range(3))
         rows = self._connection.execute(
-            "SELECT * FROM entity_versions WHERE dimension = ? "
-            "AND start_tick <= ? AND end_tick > ? "
-            "AND max_x > ? AND min_x < ? "
-            "AND max_y > ? AND min_y < ? "
-            "AND max_z > ? AND min_z < ? ORDER BY instance_id",
+            _ENTITY_BOX_SQL,
             (
+                tick,
+                tick,
+                origin[0],
+                maximum[0],
+                origin[1],
+                maximum[1],
+                origin[2],
+                maximum[2],
                 dimension,
                 tick,
                 tick,
@@ -1481,13 +1912,16 @@ class SceneStore:
         assert self._connection is not None
         maximum = tuple(origin[index] + shape[index] for index in range(3))
         rows = self._connection.execute(
-            "SELECT * FROM block_entity_versions WHERE dimension = ? "
-            "AND start_tick <= ? AND end_tick > ? "
-            "AND block_x >= ? AND block_x < ? "
-            "AND block_y >= ? AND block_y < ? "
-            "AND block_z >= ? AND block_z < ? "
-            "ORDER BY block_y, block_z, block_x",
+            _BLOCK_ENTITY_BOX_SQL,
             (
+                tick,
+                tick,
+                origin[0],
+                maximum[0],
+                origin[1],
+                maximum[1],
+                origin[2],
+                maximum[2],
                 dimension,
                 tick,
                 tick,
@@ -1823,77 +2257,60 @@ def _canonicalize_stream_section_blob(data: bytes) -> bytes:
     return canonical_section_blob(palette, indices)
 
 
-def _load_scene_stream_context(
-    directory: Path, identity: SceneIdentity
+def _verified_scene_stream_context(
+    directory: Path,
+    verified_stream: VerifiedSceneStream,
+    *,
+    identity: SceneIdentity,
+    ticks: tuple[int, ...],
 ) -> tuple[list[Mapping[str, Any]], bool, dict[str, Any]]:
-    stream_manifest = directory / "manifest.json"
-    job_manifest = directory.parent / "scene-job.json"
-    if stream_manifest.exists() or stream_manifest.is_symlink():
-        path = stream_manifest
-        kind = "stream"
-    elif job_manifest.exists() or job_manifest.is_symlink():
-        path = job_manifest
-        kind = "job"
-    else:
-        return [], True, {}
-    _reject_symlink(path, description=f"scene {kind} manifest", must_exist=True)
-    try:
-        manifest = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise SceneStoreError(f"scene {kind} manifest is not valid JSON") from exc
-    if not isinstance(manifest, dict):
-        raise SceneStoreError(f"scene {kind} manifest must contain an object")
-    if kind == "stream":
-        if manifest.get("schema") not in {SCENE_STREAM_SCHEMA, "scene-stream-v1"}:
-            raise SceneStoreError("scene stream manifest has an unsupported schema")
-        observed_identity = (
-            manifest.get("session_id"),
-            manifest.get("player_uuid"),
-            manifest.get("connection_id"),
-        )
-        sensitive = manifest.get("sensitive", True)
-        provenance = manifest.get("provenance", {})
-    else:
-        if manifest.get("schema_version") != 1:
-            raise SceneStoreError("scene job manifest has an unsupported schema")
-        subject = manifest.get("subject")
-        if not isinstance(subject, dict):
-            raise SceneStoreError("scene job manifest lacks its subject identity")
-        observed_identity = (
-            manifest.get("session_id"),
-            subject.get("player_uuid"),
-            subject.get("connection_id"),
-        )
-        sensitive = manifest.get("metadata_policy") == "full_packet_metadata"
-        provenance = {
-            key: manifest[key]
-            for key in (
-                "job_id",
-                "scope",
-                "metadata_policy",
-                "global_start_tick",
-                "global_end_tick",
-            )
-            if key in manifest
-        }
-    if observed_identity != (
-        identity.session_id,
-        identity.player_uuid,
-        identity.connection_id,
+    _required_sha256(
+        verified_stream.result_sha256, "verified scene result sha256"
+    )
+    result = _thaw_json(verified_stream.result)
+    if not isinstance(result, dict):
+        raise SceneStoreError("verified scene result must contain an object")
+    if result.get("job_id") != verified_stream.job_id:
+        raise SceneStoreError("verified scene result job_id is inconsistent")
+    stream = result.get("stream")
+    if not isinstance(stream, dict):
+        raise SceneStoreError("verified scene result lacks its stream envelope")
+    stream_path = stream.get("path")
+    if (
+        not isinstance(stream_path, str)
+        or Path(stream_path).resolve() != directory.resolve()
     ):
         raise SceneStoreError(
-            f"scene {kind} identity does not match the expected session/player/connection"
+            "verified scene result stream path does not match compaction input"
         )
-    source_replays = manifest.get("source_replays", [])
-    if not isinstance(source_replays, list) or not all(
-        isinstance(item, dict) for item in source_replays
-    ):
-        raise SceneStoreError(f"scene {kind} source_replays must be an array of objects")
-    if not isinstance(sensitive, bool):
-        raise SceneStoreError(f"scene {kind} sensitive flag must be boolean")
-    if not isinstance(provenance, dict):
-        raise SceneStoreError(f"scene {kind} provenance must be an object")
-    return source_replays, sensitive, provenance
+    integrity = dict(stream)
+    integrity.pop("path")
+    if integrity != verified_stream.integrity.as_dict():
+        raise SceneStoreError(
+            "verified scene result stream envelope does not match its integrity snapshot"
+        )
+    provenance = {
+        "scope": result.get("scope"),
+        "metadata_policy": result.get("metadata_policy"),
+        "result": result,
+    }
+    extraction = _validated_extraction_provenance(
+        result.get("source_replays"),
+        provenance,
+        identity=identity,
+        start_tick=ticks[0],
+        end_tick=ticks[-1],
+        frame_count=len(ticks),
+    )
+    return (
+        list(_thaw_json(result["source_replays"])),
+        extraction.metadata_policy == SCENE_METADATA_POLICY_FULL,
+        {
+            "scope": extraction.scope,
+            "metadata_policy": extraction.metadata_policy,
+            "result": _thaw_json(extraction.result),
+        },
+    )
 
 
 def _frame_logical_value(frame: Mapping[str, Any], line_number: int) -> dict[str, Any]:
@@ -1992,6 +2409,8 @@ def compact_scene_stream(
     expected_player_uuid: str,
     expected_connection_id: str,
     expected_ticks: Iterable[int],
+    verified_stream: VerifiedSceneStream,
+    force: bool = False,
 ) -> SceneStoreInfo:
     """Compact a verified ``scene-stream-v1`` spool into an atomic store.
 
@@ -2003,6 +2422,29 @@ def compact_scene_stream(
     directory = Path(stream_dir)
     if directory.is_symlink() or not directory.is_dir():
         raise SceneStoreError(f"scene stream is not a safe directory: {directory}")
+    output = Path(output_path)
+    if not output.parent.is_dir() or output.parent.is_symlink():
+        raise SceneStoreError(f"scene store parent is not a safe directory: {output.parent}")
+    existing_output: tuple[int, int, int, int] | None = None
+    if output.exists() or output.is_symlink():
+        if not force:
+            raise SceneStoreError(
+                f"scene store output exists: {output}; pass --force to replace it"
+            )
+        validate_scene_store(output)
+        output_stat = output.stat()
+        existing_output = (
+            output_stat.st_dev,
+            output_stat.st_ino,
+            output_stat.st_size,
+            output_stat.st_mtime_ns,
+        )
+    if verified_stream.stream_path.resolve() != directory.resolve():
+        raise SceneStoreError("verified scene stream path does not match compaction input")
+    try:
+        verify_scene_stream(directory, verified_stream.integrity)
+    except SceneStreamIntegrityError as exc:
+        raise SceneStoreError(f"verified scene stream is invalid: {exc}") from exc
     ticks = _validated_ticks(expected_ticks)
     tick_set = set(ticks)
     identity = SceneIdentity(
@@ -2010,8 +2452,11 @@ def compact_scene_stream(
         _required_text(expected_player_uuid, "expected player_uuid"),
         _required_text(expected_connection_id, "expected connection_id"),
     )
-    source_replays, sensitive, provenance = _load_scene_stream_context(
-        directory, identity
+    source_replays, sensitive, provenance = _verified_scene_stream_context(
+        directory,
+        verified_stream,
+        identity=identity,
+        ticks=ticks,
     )
     frames: dict[int, tuple[dict[str, Any], dict[str, Any]]] = {}
     for line_number, frame in _read_jsonl(directory / "frames.jsonl", "scene frames"):
@@ -2022,6 +2467,15 @@ def compact_scene_stream(
                 f"scene frames line {line_number} has unexpected tick {tick}"
             )
         logical = _frame_logical_value(frame, line_number)
+        if (
+            logical["metadata"].get("scope") != provenance["scope"]
+            or logical["metadata"].get("metadata_policy")
+            != provenance["metadata_policy"]
+        ):
+            raise SceneStoreError(
+                f"scene frames line {line_number} policy does not match "
+                "the verified extraction result"
+            )
         existing = frames.get(tick)
         if existing is not None:
             if existing[1] != logical:
@@ -2058,9 +2512,6 @@ def compact_scene_stream(
     if tuple(sorted(frames)) != ticks:
         raise SceneStoreError("scene stream frame coverage does not match expected ticks")
 
-    output = Path(output_path)
-    if not output.parent.is_dir() or output.parent.is_symlink():
-        raise SceneStoreError(f"scene store parent is not a safe directory: {output.parent}")
     stage_descriptor, stage_name = tempfile.mkstemp(
         prefix="mc-recorder-scene-events-", suffix=".sqlite3", dir=output.parent
     )
@@ -2157,29 +2608,26 @@ def compact_scene_stream(
                 )
             stage.commit()
 
-            if segment_begins:
-                known_sources = {
-                    source.get("segment_id"): source
-                    for source in source_replays
-                    if isinstance(source.get("segment_id"), str)
-                }
-                for segment_id, begin in segment_begins.items():
-                    known = known_sources.get(segment_id)
-                    if known is not None and any(
-                        known.get(key) != begin[key]
-                        for key in ("segment_ordinal", "sha256", "size_bytes")
-                    ):
-                        raise SceneStoreError(
-                            f"segment_begin does not match source replay {segment_id}"
-                        )
-                if not source_replays:
-                    source_replays = sorted(
-                        segment_begins.values(), key=lambda item: item["segment_ordinal"]
+            if not segment_begins:
+                raise SceneStoreError(
+                    "scene stream lacks segment_begin source replay provenance"
+                )
+            known_sources = {
+                source["segment_id"]: source for source in source_replays
+            }
+            if set(segment_begins) != set(known_sources):
+                raise SceneStoreError(
+                    "scene segment_begin records do not exactly match source replays"
+                )
+            for segment_id, begin in segment_begins.items():
+                known = known_sources[segment_id]
+                if any(
+                    known[key] != begin[key]
+                    for key in ("segment_ordinal", "sha256", "size_bytes")
+                ):
+                    raise SceneStoreError(
+                        f"segment_begin does not match source replay {segment_id}"
                     )
-            provenance = dict(provenance)
-            provenance["segment_begins"] = sorted(
-                segment_begins.values(), key=lambda item: item["segment_ordinal"]
-            )
 
             builder = SceneStoreBuilder(
                 identity,
@@ -2306,6 +2754,33 @@ def compact_scene_stream(
                             payload["dimension"],
                             (payload["x"], payload["y"], payload["z"]),
                         )
+                if existing_output is None:
+                    if output.exists() or output.is_symlink():
+                        raise SceneStoreError(
+                            "scene store output appeared while compaction was running"
+                        )
+                else:
+                    try:
+                        output_stat = output.stat()
+                    except OSError as exc:
+                        raise SceneStoreError(
+                            "existing scene store changed while compaction was running"
+                        ) from exc
+                    if output.is_symlink() or (
+                        output_stat.st_dev,
+                        output_stat.st_ino,
+                        output_stat.st_size,
+                        output_stat.st_mtime_ns,
+                    ) != existing_output:
+                        raise SceneStoreError(
+                            "existing scene store changed while compaction was running"
+                        )
+                try:
+                    verify_scene_stream(directory, verified_stream.integrity)
+                except SceneStreamIntegrityError as exc:
+                    raise SceneStoreError(
+                        f"scene stream changed during compaction: {exc}"
+                    ) from exc
                 return builder.publish(output, expected_ticks=ticks)
             finally:
                 builder.close()
