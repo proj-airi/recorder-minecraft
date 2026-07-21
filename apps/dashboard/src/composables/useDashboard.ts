@@ -10,7 +10,7 @@ export function useDashboard() {
   const view = ref<ViewName>('operations')
   const toastMessage = ref('')
   const toastVisible = ref(false)
-  const confirmation = ref<{ message: string, resolve: (accepted: boolean) => void } | null>(null)
+  const confirmation = ref<null | { message: string, resolve: (accepted: boolean) => void }>(null)
   const status = ref<any>(null)
   const recordings = ref<any[]>([])
   const renderJobs = ref<any[]>([])
@@ -471,11 +471,11 @@ export function useDashboard() {
   })
 
   return {
+    answerConfirmation,
     applyFilters,
     canLoadVoxel,
     capture,
     captureMetrics,
-    answerConfirmation,
     confirmation,
     connections,
     currentRecord,
