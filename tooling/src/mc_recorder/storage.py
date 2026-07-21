@@ -7,9 +7,10 @@ import shutil
 import time
 import uuid
 import zipfile
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO, Iterator
 
 from .episodes import directory_size, inspect_epoch
 from .errors import RecorderError
@@ -156,7 +157,59 @@ def completed_replay_paths(
     return sorted(candidates, key=lambda path: (_modified_ns(path), str(path)))
 
 
-def _evict_epoch(captures_root: Path, epoch: Path) -> EvictedEpoch:
+@contextmanager
+def pin_sealed_epochs(episode: Path) -> Iterator[tuple[Path, ...]]:
+    """Hold shared locks on every sealed epoch needed by a dataset export."""
+
+    if episode.is_symlink() or not episode.is_dir():
+        raise RecorderError(f"episode is not a safe directory: {episode}")
+    root = episode.resolve()
+    epochs = root / "epochs"
+    if epochs.is_symlink() or not epochs.is_dir():
+        raise RecorderError(f"episode has no safe epochs directory: {episode}")
+
+    handles: list[BinaryIO] = []
+    pinned: list[Path] = []
+    try:
+        for candidate in sorted(epochs.iterdir()):
+            if candidate.is_symlink() or not candidate.is_dir():
+                continue
+            info = inspect_epoch(candidate)
+            if info is None or info.status != "sealed":
+                continue
+            manifest = candidate / "manifest.json"
+            if manifest.is_symlink():
+                raise RecorderError(f"sealed epoch manifest may not be a symlink: {manifest}")
+            try:
+                handle = manifest.open("rb")
+            except OSError as exc:
+                raise RecorderError(f"could not pin sealed epoch: {candidate}") from exc
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_SH | fcntl.LOCK_NB)
+            except BlockingIOError as exc:
+                handle.close()
+                raise RecorderError(f"sealed epoch is being retained or evicted: {candidate}") from exc
+            # Revalidate after acquiring the lock so retention cannot win the
+            # inspect/open race and replace the path beneath this operation.
+            current = inspect_epoch(candidate)
+            if current is None or current.status != "sealed":
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+                handle.close()
+                raise RecorderError(f"sealed epoch changed while being pinned: {candidate}")
+            handles.append(handle)
+            pinned.append(candidate)
+        if not pinned:
+            raise RecorderError(f"episode has no sealed epochs to pin: {episode}")
+        yield tuple(pinned)
+    finally:
+        for handle in reversed(handles):
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            finally:
+                handle.close()
+
+
+def _evict_epoch(captures_root: Path, epoch: Path) -> EvictedEpoch | None:
     root = captures_root.resolve()
     if epoch.is_symlink():
         raise RecorderError(f"refusing to evict symlinked epoch: {epoch}")
@@ -167,25 +220,42 @@ def _evict_epoch(captures_root: Path, epoch: Path) -> EvictedEpoch:
         raise RecorderError(f"refusing to evict path outside capture root: {epoch}") from exc
     if len(relative.parts) != 3 or relative.parts[1] != "epochs":
         raise RecorderError(f"refusing to evict unexpected path: {epoch}")
-    # Re-run the complete integrity check immediately before the atomic move.
-    info = inspect_epoch(candidate)
-    if info is None or info.status != "sealed":
-        raise RecorderError(f"refusing to evict unverified epoch: {epoch}")
-
-    size = info.size_bytes
-    trash = root / f".evicting-epoch-{uuid.uuid4().hex}"
-    candidate.rename(trash)
+    manifest = candidate / "manifest.json"
+    if manifest.is_symlink():
+        raise RecorderError(f"refusing to evict epoch with symlinked manifest: {epoch}")
     try:
-        shutil.rmtree(trash)
+        handle = manifest.open("rb")
     except OSError as exc:
-        raise RecorderError(f"failed to remove evicted epoch staged at {trash}: {exc}") from exc
-    return EvictedEpoch(
-        session_id=relative.parts[0],
-        epoch=relative.parts[2],
-        size_bytes=size,
-        source_kind="capture_epoch",
-        source_path=str(relative),
-    )
+        raise RecorderError(f"could not open epoch before eviction: {epoch}") from exc
+    try:
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return None
+        # Re-run the complete integrity check while holding the exclusive lock.
+        info = inspect_epoch(candidate)
+        if info is None or info.status != "sealed":
+            raise RecorderError(f"refusing to evict unverified epoch: {epoch}")
+
+        size = info.size_bytes
+        trash = root / f".evicting-epoch-{uuid.uuid4().hex}"
+        candidate.rename(trash)
+        try:
+            shutil.rmtree(trash)
+        except OSError as exc:
+            raise RecorderError(f"failed to remove evicted epoch staged at {trash}: {exc}") from exc
+        return EvictedEpoch(
+            session_id=relative.parts[0],
+            epoch=relative.parts[2],
+            size_bytes=size,
+            source_kind="capture_epoch",
+            source_path=str(relative),
+        )
+    finally:
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        finally:
+            handle.close()
 
 
 def _evict_replay(
@@ -308,7 +378,9 @@ def enforce_quota(
             if used_bytes() <= warn_bytes:
                 break
             if candidate.source_kind == "capture_epoch":
-                evicted.append(_evict_epoch(capture_root, candidate.path))
+                epoch_eviction = _evict_epoch(capture_root, candidate.path)
+                if epoch_eviction is not None:
+                    evicted.append(epoch_eviction)
             else:
                 replay_eviction = _evict_replay(
                     replay_root, candidate.path, stable_seconds=replay_stable_seconds

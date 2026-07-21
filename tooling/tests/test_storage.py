@@ -14,7 +14,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
 from mc_recorder.episodes import directory_size
-from mc_recorder.storage import enforce_quota
+from mc_recorder.storage import enforce_quota, pin_sealed_epochs
 
 
 def _epoch(root: Path, session: str, index: int, size: int, *, active: bool = False) -> Path:
@@ -155,6 +155,24 @@ class StorageTest(unittest.TestCase):
 
             self.assertEqual("full", report.status)
             self.assertTrue(replay.is_file())
+            self.assertEqual((), report.evicted)
+
+    def test_does_not_evict_an_epoch_pinned_by_dataset_generation(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "captures"
+            epoch = _epoch(root, "session-a", 0, 2000)
+
+            with pin_sealed_epochs(root / "session-a") as pinned:
+                self.assertEqual((epoch.resolve(),), pinned)
+                report = enforce_quota(
+                    root,
+                    quota_bytes=1,
+                    warn_percent=80,
+                    evict_oldest=True,
+                )
+
+            self.assertEqual("full", report.status)
+            self.assertTrue(epoch.is_dir())
             self.assertEqual((), report.evicted)
 
     def test_replay_bytes_trigger_warning_when_eviction_is_disabled(self) -> None:
