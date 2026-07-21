@@ -81,6 +81,23 @@ def _result(
         "scope": "client_visible",
         "metadata_policy": "full_packet_metadata",
         "source_replays": list(sources),
+        "subject_poses": {
+            "format": "mc-recorder-subject-poses-v1",
+            "path": "/verified/job/subject-poses.jsonl",
+            "sha256": "4" * 64,
+            "size_bytes": 100,
+            "record_count": len(ticks),
+            "first_tick": ticks[0],
+            "last_tick": ticks[-1],
+            "source_epochs": [
+                {
+                    "epoch_index": 0,
+                    "events_sha256": "5" * 64,
+                    "events_size_bytes": 1000,
+                    "record_count": 20,
+                }
+            ],
+        },
         "stream": {"path": str(stream.resolve()), **integrity.as_dict()},
         "ignored_packet_counts": {},
         "covered_tick_count": len(ticks),
@@ -518,6 +535,35 @@ class SceneStoreValidationTest(unittest.TestCase):
             ):
                 validate_scene_store(path)
 
+    def test_rejects_persisted_subject_pose_provenance_tampering(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "scene.sqlite3"
+            sources = _sources()
+            with SceneStoreBuilder(
+                IDENTITY,
+                start_tick=1,
+                end_tick=2,
+                source_replays=sources,
+                provenance=_provenance(IDENTITY, (1, 2), sources),
+            ) as builder:
+                _add_frames(builder, (1, 2))
+                builder.publish(path, expected_ticks=(1, 2))
+            with closing(sqlite3.connect(path)) as connection:
+                provenance = json.loads(
+                    connection.execute(
+                        "SELECT provenance_json FROM scene_meta"
+                    ).fetchone()[0]
+                )
+                provenance["result"]["subject_poses"]["record_count"] = 1
+                connection.execute(
+                    "UPDATE scene_meta SET provenance_json = ?",
+                    (json.dumps(provenance, sort_keys=True, separators=(",", ":")),),
+                )
+                connection.commit()
+
+            with self.assertRaisesRegex(SceneStoreValidationError, "subject_poses coverage"):
+                validate_scene_store(path)
+
 
 class SceneStoreLongHistoryTest(unittest.TestCase):
     def _store(self, root: Path, interval_count: int = 6_000) -> Path:
@@ -764,7 +810,7 @@ class SceneStreamCompactorTest(unittest.TestCase):
                 },
                 {
                     "frame_id": "segment-a:52",
-                    "server_tick": 7,
+                    "server_tick": 6,
                     "replay_tick": 52,
                     "segment_id": "segment-a",
                     "segment_ordinal": 0,
@@ -824,7 +870,7 @@ class SceneStreamCompactorTest(unittest.TestCase):
                     "schema_version": 1,
                     "sequence": 3,
                     "type": "entity_remove",
-                    "server_tick": 7,
+                    "server_tick": 6,
                     "replay_tick": 52,
                     "segment_id": "segment-a",
                     "segment_ordinal": 0,
@@ -870,7 +916,7 @@ class SceneStreamCompactorTest(unittest.TestCase):
                     "schema_version": 1,
                     "sequence": 7,
                     "type": "entity_remove",
-                    "server_tick": 7,
+                    "server_tick": 6,
                     "replay_tick": 3,
                     "segment_id": "segment-b",
                     "segment_ordinal": 1,
@@ -901,7 +947,7 @@ class SceneStreamCompactorTest(unittest.TestCase):
                     "format": "flashback",
                 },
             )
-            verified = _verified_stream(stream, (5, 7), sources)
+            verified = _verified_stream(stream, (5, 6), sources)
             output = root / "scene.sqlite3"
 
             info = compact_scene_stream(
@@ -910,11 +956,11 @@ class SceneStreamCompactorTest(unittest.TestCase):
                 expected_session_id=IDENTITY.session_id,
                 expected_player_uuid=IDENTITY.player_uuid,
                 expected_connection_id=IDENTITY.connection_id,
-                expected_ticks=(5, 7),
+                expected_ticks=(5, 6),
                 verified_stream=verified,
             )
 
-            self.assertEqual(info.ticks, (5, 7))
+            self.assertEqual(info.ticks, (5, 6))
             self.assertEqual(info.source_replays[0]["sha256"], "a" * 64)
             self.assertEqual(info.source_replays[1]["sha256"], "b" * 64)
             self.assertEqual(info.extraction.result, verified.result)

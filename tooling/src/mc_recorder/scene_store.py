@@ -59,10 +59,26 @@ _EXTRACTION_RESULT_FIELDS = frozenset(
         "scope",
         "metadata_policy",
         "source_replays",
+        "subject_poses",
         "stream",
         "ignored_packet_counts",
         "covered_tick_count",
     }
+)
+_SUBJECT_POSE_FIELDS = frozenset(
+    {
+        "format",
+        "path",
+        "sha256",
+        "size_bytes",
+        "record_count",
+        "first_tick",
+        "last_tick",
+        "source_epochs",
+    }
+)
+_SUBJECT_POSE_EPOCH_FIELDS = frozenset(
+    {"epoch_index", "events_sha256", "events_size_bytes", "record_count"}
 )
 _EXTRACTION_STREAM_FIELDS = frozenset(
     {
@@ -793,6 +809,94 @@ def _validated_source_replays(
     return tuple(normalized)
 
 
+def _validated_subject_poses(
+    value: object,
+    *,
+    start_tick: int,
+    end_tick: int,
+    frame_count: int,
+) -> dict[str, Any]:
+    if not isinstance(value, Mapping) or set(value) != _SUBJECT_POSE_FIELDS:
+        raise SceneStoreValidationError(
+            "scene extraction subject_poses fields do not match the contract"
+        )
+    if value.get("format") != "mc-recorder-subject-poses-v1":
+        raise SceneStoreValidationError("scene extraction subject_poses format is unsupported")
+    path_text = _required_text(value.get("path"), "scene extraction subject_poses path")
+    path = Path(path_text)
+    if not path.is_absolute() or path != path.resolve() or path.name != "subject-poses.jsonl":
+        raise SceneStoreValidationError(
+            "scene extraction subject_poses path must be an absolute normalized subject-poses.jsonl"
+        )
+    digest = _required_sha256(value.get("sha256"), "scene extraction subject_poses sha256")
+    size_bytes = _validated_nonnegative_int(
+        value.get("size_bytes"), "scene extraction subject_poses size_bytes"
+    )
+    record_count = _validated_nonnegative_int(
+        value.get("record_count"), "scene extraction subject_poses record_count"
+    )
+    first_tick = _validated_nonnegative_int(
+        value.get("first_tick"), "scene extraction subject_poses first_tick"
+    )
+    last_tick = _validated_nonnegative_int(
+        value.get("last_tick"), "scene extraction subject_poses last_tick"
+    )
+    if (
+        size_bytes == 0
+        or record_count != frame_count
+        or first_tick != start_tick
+        or last_tick != end_tick
+        or end_tick - start_tick + 1 != frame_count
+    ):
+        raise SceneStoreValidationError(
+            "scene extraction subject_poses coverage does not match the store"
+        )
+    raw_epochs = value.get("source_epochs")
+    if not isinstance(raw_epochs, (list, tuple)) or not raw_epochs:
+        raise SceneStoreValidationError(
+            "scene extraction subject_poses source_epochs must be a non-empty array"
+        )
+    epochs: list[dict[str, Any]] = []
+    previous_index = -1
+    for index, raw in enumerate(raw_epochs):
+        context = f"scene extraction subject_poses source_epochs[{index}]"
+        if not isinstance(raw, Mapping) or set(raw) != _SUBJECT_POSE_EPOCH_FIELDS:
+            raise SceneStoreValidationError(f"{context} fields do not match the contract")
+        epoch_index = _validated_nonnegative_int(raw.get("epoch_index"), f"{context} epoch_index")
+        if epoch_index <= previous_index:
+            raise SceneStoreValidationError(
+                "scene extraction subject_poses source epochs must be strictly increasing"
+            )
+        previous_index = epoch_index
+        events_sha256 = _required_sha256(raw.get("events_sha256"), f"{context} events_sha256")
+        events_size_bytes = _validated_nonnegative_int(
+            raw.get("events_size_bytes"), f"{context} events_size_bytes"
+        )
+        source_record_count = _validated_nonnegative_int(
+            raw.get("record_count"), f"{context} record_count"
+        )
+        if events_size_bytes == 0 or source_record_count == 0:
+            raise SceneStoreValidationError(f"{context} integrity counts must be positive")
+        epochs.append(
+            {
+                "epoch_index": epoch_index,
+                "events_sha256": events_sha256,
+                "events_size_bytes": events_size_bytes,
+                "record_count": source_record_count,
+            }
+        )
+    return {
+        "format": "mc-recorder-subject-poses-v1",
+        "path": path_text,
+        "sha256": digest,
+        "size_bytes": size_bytes,
+        "record_count": record_count,
+        "first_tick": first_tick,
+        "last_tick": last_tick,
+        "source_epochs": epochs,
+    }
+
+
 def _validated_extraction_provenance(
     source_replays: object,
     provenance: object,
@@ -854,6 +958,12 @@ def _validated_extraction_provenance(
         raise SceneStoreValidationError(
             "scene extraction result source replays do not match the store"
         )
+    _validated_subject_poses(
+        result.get("subject_poses"),
+        start_tick=start_tick,
+        end_tick=end_tick,
+        frame_count=frame_count,
+    )
     ignored = result.get("ignored_packet_counts")
     if not isinstance(ignored, Mapping) or any(
         not isinstance(name, str)

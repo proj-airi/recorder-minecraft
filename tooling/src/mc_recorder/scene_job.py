@@ -3,7 +3,9 @@ from __future__ import annotations
 import fcntl
 import hashlib
 import json
+import math
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -18,7 +20,6 @@ from .episodes import (
     EpochInfo,
     inspect_epoch,
     iter_epochs,
-    iter_events,
     sha256_file,
     validate_episode,
 )
@@ -39,6 +40,57 @@ SCENE_RESULT_TYPE = "mc-recorder-scene-extraction-result-v1"
 SCENE_STREAM_FORMAT = "mc-recorder-scene-stream-v1"
 MAX_RESULT_BYTES = 8 * 1024 * 1024
 SCENE_JOB_OWNER_TYPE = "mc-recorder-owned-scene-job-v1"
+SUBJECT_POSE_FORMAT = "mc-recorder-subject-poses-v1"
+SUBJECT_POSE_FILE = "subject-poses.jsonl"
+MAX_SUBJECT_POSE_BYTES = 256 * 1024 * 1024
+MAX_SOURCE_EVENT_LINE_BYTES = 64 * 1024 * 1024
+_RESOURCE_LOCATION = re.compile(r"[a-z0-9_.-]+:[a-z0-9/._-]+")
+
+
+@dataclass(frozen=True)
+class SubjectPoseSourceEpoch:
+    epoch_index: int
+    events_sha256: str
+    events_size_bytes: int
+    record_count: int
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "epoch_index": self.epoch_index,
+            "events_sha256": self.events_sha256,
+            "events_size_bytes": self.events_size_bytes,
+            "record_count": self.record_count,
+        }
+
+
+@dataclass(frozen=True)
+class SubjectPoseEnvelope:
+    path: Path
+    sha256: str
+    size_bytes: int
+    record_count: int
+    first_tick: int
+    last_tick: int
+    source_epochs: tuple[SubjectPoseSourceEpoch, ...]
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "format": SUBJECT_POSE_FORMAT,
+            "path": str(self.path),
+            "sha256": self.sha256,
+            "size_bytes": self.size_bytes,
+            "record_count": self.record_count,
+            "first_tick": self.first_tick,
+            "last_tick": self.last_tick,
+            "source_epochs": [source.as_dict() for source in self.source_epochs],
+        }
+
+
+@dataclass(frozen=True)
+class _SubjectPoseSelection:
+    data: bytes
+    ticks: tuple[int, ...]
+    source_epochs: tuple[SubjectPoseSourceEpoch, ...]
 
 
 @dataclass(frozen=True)
@@ -55,6 +107,7 @@ class SceneJob:
     last_tick: int
     state_ticks: tuple[int, ...]
     sources: tuple[ReplaySegmentSource, ...]
+    subject_poses: SubjectPoseEnvelope
 
     @property
     def run_directory(self) -> Path:
@@ -77,6 +130,209 @@ def _canonical_uuid(value: object, label: str) -> str:
     return canonical
 
 
+def _finite_number(value: object, label: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise RecorderError(f"player_state {label} must be a finite number")
+    try:
+        normalized = float(value)
+    except (OverflowError, ValueError) as exc:
+        raise RecorderError(f"player_state {label} must be a finite number") from exc
+    if not math.isfinite(normalized):
+        raise RecorderError(f"player_state {label} must be a finite number")
+    return normalized
+
+
+def _vector(value: object, label: str) -> dict[str, float]:
+    if not isinstance(value, dict):
+        raise RecorderError(f"player_state {label} must be an object")
+    return {
+        axis: _finite_number(value.get(axis), f"{label}.{axis}")
+        for axis in ("x", "y", "z")
+    }
+
+
+def _subject_pose_record(
+    record: dict[str, Any],
+    *,
+    session_id: str,
+    player_uuid: str,
+    connection_id: str,
+) -> dict[str, object]:
+    if record.get("session_id") != session_id:
+        raise RecorderError("player_state session_id does not match the selected episode")
+    tick = record.get("server_tick")
+    if not isinstance(tick, int) or isinstance(tick, bool) or tick < 0:
+        raise RecorderError("player_state has an invalid server_tick")
+    entity_id = record.get("entity_id")
+    if (
+        not isinstance(entity_id, int)
+        or isinstance(entity_id, bool)
+        or entity_id < 0
+        or entity_id > 2_147_483_647
+    ):
+        raise RecorderError("player_state has an invalid entity_id")
+    dimension = record.get("dimension")
+    if (
+        not isinstance(dimension, str)
+        or len(dimension) > 32_767
+        or _RESOURCE_LOCATION.fullmatch(dimension) is None
+    ):
+        raise RecorderError("player_state has an invalid dimension")
+    rotation = record.get("rotation")
+    if not isinstance(rotation, dict):
+        raise RecorderError("player_state rotation must be an object")
+    on_ground = record.get("on_ground")
+    if not isinstance(on_ground, bool):
+        raise RecorderError("player_state on_ground must be boolean")
+    return {
+        "schema_version": 1,
+        "server_tick": tick,
+        "session_id": session_id,
+        "player_uuid": player_uuid,
+        "connection_id": connection_id,
+        "entity_id": entity_id,
+        "dimension": dimension,
+        "position": _vector(record.get("position"), "position"),
+        "velocity": _vector(record.get("velocity"), "velocity"),
+        "yaw": _finite_number(rotation.get("yaw"), "rotation.yaw"),
+        "pitch": _finite_number(rotation.get("pitch"), "rotation.pitch"),
+        "head_yaw": _finite_number(rotation.get("head_yaw"), "rotation.head_yaw"),
+        "on_ground": on_ground,
+    }
+
+
+def _epoch_subject_poses(
+    epoch: EpochInfo,
+    *,
+    session_id: str,
+    player_uuid: str,
+    connection_id: str,
+    first_tick: int | None,
+    last_tick: int | None,
+) -> tuple[list[dict[str, object]], SubjectPoseSourceEpoch]:
+    if (
+        epoch.status != "sealed"
+        or epoch.event_count is None
+        or epoch.events_bytes is None
+        or epoch.events_sha256 is None
+    ):
+        raise RecorderError(f"subject poses require a verified sealed epoch: {epoch.path}")
+    events = epoch.path / "events.jsonl"
+    if events.is_symlink() or not events.is_file():
+        raise RecorderError(f"sealed epoch events must be a regular non-symlink file: {events}")
+    digest = hashlib.sha256()
+    byte_count = 0
+    record_count = 0
+    poses: list[dict[str, object]] = []
+    try:
+        with events.open("rb") as handle:
+            before = os.fstat(handle.fileno())
+            for line_number, raw_line in enumerate(handle, 1):
+                if len(raw_line) > MAX_SOURCE_EVENT_LINE_BYTES:
+                    raise RecorderError(f"{events}:{line_number}: event exceeds the size limit")
+                digest.update(raw_line)
+                byte_count += len(raw_line)
+                if not raw_line.strip():
+                    raise RecorderError(f"{events}:{line_number}: sealed event cannot be empty")
+                record_count += 1
+                try:
+                    record = json.loads(raw_line)
+                except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                    raise RecorderError(f"{events}:{line_number}: invalid JSON") from exc
+                if not isinstance(record, dict):
+                    raise RecorderError(f"{events}:{line_number}: event must be an object")
+                if (
+                    record.get("record_type") != "player_state"
+                    or record.get("player_uuid") != player_uuid
+                    or record.get("connection_id") != connection_id
+                ):
+                    continue
+                tick = record.get("server_tick")
+                if not isinstance(tick, int) or isinstance(tick, bool) or tick < 0:
+                    raise RecorderError(f"{events}:{line_number}: player_state has an invalid server_tick")
+                if first_tick is not None and tick < first_tick:
+                    continue
+                if last_tick is not None and tick > last_tick:
+                    continue
+                poses.append(
+                    _subject_pose_record(
+                        record,
+                        session_id=session_id,
+                        player_uuid=player_uuid,
+                        connection_id=connection_id,
+                    )
+                )
+            after = os.fstat(handle.fileno())
+        path_after = events.stat()
+    except OSError as exc:
+        raise RecorderError(f"cannot read sealed epoch events: {events}") from exc
+    identities = {
+        (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns),
+        (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns),
+        (path_after.st_dev, path_after.st_ino, path_after.st_size, path_after.st_mtime_ns),
+    }
+    if len(identities) != 1:
+        raise RecorderError(f"sealed epoch events changed while reading subject poses: {events}")
+    if (
+        byte_count != epoch.events_bytes
+        or record_count != epoch.event_count
+        or digest.hexdigest() != epoch.events_sha256
+    ):
+        raise RecorderError(f"sealed epoch integrity changed while reading subject poses: {events}")
+    return poses, SubjectPoseSourceEpoch(
+        epoch_index=epoch.index,
+        events_sha256=epoch.events_sha256,
+        events_size_bytes=epoch.events_bytes,
+        record_count=epoch.event_count,
+    )
+
+
+def _select_subject_poses(
+    *,
+    session_id: str,
+    player_uuid: str,
+    connection_id: str,
+    first_tick: int | None = None,
+    last_tick: int | None = None,
+    epochs: Iterable[EpochInfo],
+) -> _SubjectPoseSelection:
+    """Build canonical pose values from one immutable, integrity-bound epoch snapshot."""
+
+    player = _canonical_uuid(player_uuid, "player UUID")
+    connection = _canonical_uuid(connection_id, "connection UUID")
+    encoded = bytearray()
+    ticks: list[int] = []
+    sources: list[SubjectPoseSourceEpoch] = []
+    for epoch in epochs:
+        if epoch.status != "sealed":
+            continue
+        poses, source = _epoch_subject_poses(
+            epoch,
+            session_id=session_id,
+            player_uuid=player,
+            connection_id=connection,
+            first_tick=first_tick,
+            last_tick=last_tick,
+        )
+        if poses:
+            for pose in poses:
+                line = _encode_subject_pose(pose)
+                if len(encoded) + len(line) > MAX_SUBJECT_POSE_BYTES:
+                    raise RecorderError(
+                        f"subject pose stream exceeds the {MAX_SUBJECT_POSE_BYTES}-byte safety limit"
+                    )
+                encoded.extend(line)
+                ticks.append(int(pose["server_tick"]))
+            sources.append(source)
+    if not ticks:
+        raise RecorderError("the selected subject has no player_state ticks in sealed epochs")
+    if ticks != sorted(set(ticks)):
+        raise RecorderError("the selected subject timeline is duplicated or out of order")
+    if ticks != list(range(ticks[0], ticks[-1] + 1)):
+        raise RecorderError("the selected subject timeline is not contiguous")
+    return _SubjectPoseSelection(bytes(encoded), tuple(ticks), tuple(sources))
+
+
 def subject_state_ticks(
     episode: Path,
     *,
@@ -88,32 +344,35 @@ def subject_state_ticks(
 ) -> tuple[int, ...]:
     """Return the exact selected player-state timeline from immutable epochs."""
 
-    player = _canonical_uuid(player_uuid, "player UUID")
-    connection = _canonical_uuid(connection_id, "connection UUID")
-    ticks: list[int] = []
-    for epoch in iter_epochs(episode) if epochs is None else epochs:
-        if epoch.status != "sealed":
-            continue
-        for _line, record in iter_events(epoch):
-            if (
-                record.get("record_type") != "player_state"
-                or record.get("player_uuid") != player
-                or record.get("connection_id") != connection
-            ):
-                continue
-            tick = record.get("server_tick")
-            if not isinstance(tick, int) or isinstance(tick, bool) or tick < 0:
-                raise RecorderError("player_state has an invalid server_tick")
-            if first_tick is not None and tick < first_tick:
-                continue
-            if last_tick is not None and tick > last_tick:
-                continue
-            ticks.append(tick)
-    if not ticks:
-        raise RecorderError("the selected subject has no player_state ticks in sealed epochs")
-    if ticks != sorted(set(ticks)):
-        raise RecorderError("the selected subject timeline is duplicated or out of order")
-    return tuple(ticks)
+    snapshot = tuple(iter_epochs(episode) if epochs is None else epochs)
+    validation = validate_episode(episode, epochs=snapshot)
+    if not validation.valid:
+        raise RecorderError("episode must be valid before reading subject state ticks")
+    selection = _select_subject_poses(
+        session_id=validation.session_id,
+        player_uuid=player_uuid,
+        connection_id=connection_id,
+        first_tick=first_tick,
+        last_tick=last_tick,
+        epochs=snapshot,
+    )
+    return selection.ticks
+
+
+def _encode_subject_pose(record: dict[str, object]) -> bytes:
+    try:
+        line = json.dumps(
+            record,
+            ensure_ascii=False,
+            allow_nan=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8") + b"\n"
+    except (TypeError, ValueError) as exc:
+        raise RecorderError("subject pose is not canonical JSON") from exc
+    if len(line) > 16 * 1024:
+        raise RecorderError("subject pose record exceeds the 16 KiB safety limit")
+    return line
 
 
 def _pinned_epoch_snapshot(
@@ -265,7 +524,7 @@ def prepare_scene_job(
     pinned_epoch_paths: Iterable[Path] | None = None,
 ) -> SceneJob:
     epoch_snapshot = (
-        None
+        tuple(iter_epochs(episode))
         if pinned_epoch_paths is None
         else _pinned_epoch_snapshot(episode, pinned_epoch_paths)
     )
@@ -274,14 +533,16 @@ def prepare_scene_job(
         raise RecorderError("episode must have at least one valid sealed epoch before scene extraction")
     player = _canonical_uuid(player_uuid, "player UUID")
     connection = _canonical_uuid(connection_id, "connection UUID")
-    ticks = subject_state_ticks(
-        episode,
+    selection = _select_subject_poses(
+        session_id=validation.session_id,
         player_uuid=player,
         connection_id=connection,
         first_tick=first_tick,
         last_tick=last_tick,
         epochs=epoch_snapshot,
     )
+    ticks = selection.ticks
+    pose_bytes = selection.data
     selected_first = ticks[0]
     selected_last = ticks[-1]
 
@@ -312,6 +573,16 @@ def prepare_scene_job(
     try:
         final_stream = directory / "stream"
         result_path = directory / "result.json"
+        pose_path = directory / SUBJECT_POSE_FILE
+        subject_poses = SubjectPoseEnvelope(
+            path=pose_path,
+            sha256=hashlib.sha256(pose_bytes).hexdigest(),
+            size_bytes=len(pose_bytes),
+            record_count=len(selection.ticks),
+            first_tick=selected_first,
+            last_tick=selected_last,
+            source_epochs=selection.source_epochs,
+        )
         manifest_value = {
             "schema_version": 1,
             "job_id": job_id,
@@ -335,9 +606,11 @@ def prepare_scene_job(
                 }
                 for source in sources
             ],
+            "subject_poses": subject_poses.as_dict(),
             "output": str(final_stream),
             "stop_when_done": True,
         }
+        (staging / SUBJECT_POSE_FILE).write_bytes(pose_bytes)
         manifest = staging / "scene-job.json"
         manifest.write_text(
             json.dumps(manifest_value, indent=2, sort_keys=True) + "\n",
@@ -375,6 +648,7 @@ def prepare_scene_job(
         last_tick=selected_last,
         state_ticks=ticks,
         sources=sources,
+        subject_poses=subject_poses,
     )
 
 
@@ -426,6 +700,7 @@ def _validate_result(job: SceneJob, value: dict[str, Any]) -> SceneStreamIntegri
         "scope",
         "metadata_policy",
         "source_replays",
+        "subject_poses",
         "stream",
         "ignored_packet_counts",
         "covered_tick_count",
@@ -444,6 +719,8 @@ def _validate_result(job: SceneJob, value: dict[str, Any]) -> SceneStreamIntegri
         raise RecorderError("scene extractor result identity does not match its job")
     if value.get("scope") != "client_visible" or value.get("metadata_policy") != "full_packet_metadata":
         raise RecorderError("scene extractor result scope does not match its job")
+    if value.get("subject_poses") != job.subject_poses.as_dict():
+        raise RecorderError("scene extractor result subject poses do not match its job")
     expected_sources = [
         {
             "segment_id": source.segment_id,
@@ -527,6 +804,28 @@ def _assert_sources_unchanged(sources: Iterable[ReplaySegmentSource]) -> None:
             raise RecorderError(f"source replay changed during extraction: {source.path}")
 
 
+def _assert_subject_poses_unchanged(job: SceneJob) -> None:
+    source = job.subject_poses
+    if source.path != job.directory / SUBJECT_POSE_FILE:
+        raise RecorderError("subject pose path is outside its owned scene job")
+    try:
+        if source.path.is_symlink() or not source.path.is_file():
+            raise RecorderError("subject pose stream must be a regular non-symlink file")
+        before = source.path.stat()
+        size = before.st_size
+        digest = sha256_file(source.path)
+        after = source.path.stat()
+    except OSError as exc:
+        raise RecorderError(f"cannot verify subject pose stream: {source.path}") from exc
+    if (
+        (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns)
+        != (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns)
+        or size != source.size_bytes
+        or digest != source.sha256
+    ):
+        raise RecorderError("subject pose stream changed during extraction")
+
+
 @contextmanager
 def _locked_sources(sources: Iterable[ReplaySegmentSource]):
     handles = []
@@ -597,6 +896,7 @@ def launch_scene_job(
     loom_run_directory = os.path.relpath(run_directory, project)
     with _locked_sources(job.sources):
         _assert_sources_unchanged(job.sources)
+        _assert_subject_poses_unchanged(job)
         try:
             process = subprocess.run(
                 [
@@ -634,6 +934,7 @@ def launch_scene_job(
         except SceneStreamIntegrityError as exc:
             raise RecorderError(f"scene extractor spool failed integrity verification: {exc}") from exc
         _assert_sources_unchanged(job.sources)
+        _assert_subject_poses_unchanged(job)
         return VerifiedSceneStream(
             job_id=job.job_id,
             stream_path=job.stream,
@@ -648,6 +949,8 @@ __all__ = [
     "SCENE_RESULT_TYPE",
     "SCENE_STREAM_FORMAT",
     "SceneJob",
+    "SubjectPoseEnvelope",
+    "SubjectPoseSourceEpoch",
     "VerifiedSceneStream",
     "cleanup_scene_job",
     "cleanup_stale_scene_jobs",

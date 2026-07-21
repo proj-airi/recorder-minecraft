@@ -31,6 +31,8 @@ class EpochInfo:
     first_tick: int | None
     last_tick: int | None
     event_count: int | None
+    events_bytes: int | None
+    events_sha256: str | None
 
 
 @dataclass(frozen=True)
@@ -177,6 +179,13 @@ def inspect_epoch(path: Path) -> EpochInfo | None:
         first_tick=_optional_int(manifest, "first_server_tick", "first_tick", "start_tick", "start_server_tick"),
         last_tick=_optional_int(manifest, "last_server_tick", "last_tick", "end_tick", "end_server_tick"),
         event_count=_manifest_int(manifest, "record_count"),
+        events_bytes=_manifest_int(manifest, "events_bytes"),
+        events_sha256=(
+            str(manifest["events_sha256"]).lower()
+            if isinstance(manifest.get("events_sha256"), str)
+            and re.fullmatch(r"[0-9a-fA-F]{64}", str(manifest["events_sha256"]))
+            else None
+        ),
     )
 
 

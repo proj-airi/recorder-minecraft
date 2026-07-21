@@ -17,10 +17,13 @@ sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
 from mc_recorder.cli import _parser, _prepare_scene_output, run
 from mc_recorder.config import initialize, load_config
+from mc_recorder.episodes import inspect_epoch
 from mc_recorder.errors import RecorderError
 from mc_recorder.render_sources import ReplaySegmentSource
 from mc_recorder.scene_job import (
     _validate_result,
+    _select_subject_poses,
+    SubjectPoseSourceEpoch,
     cleanup_scene_job,
     cleanup_stale_scene_jobs,
     launch_scene_job,
@@ -35,6 +38,42 @@ SEGMENT = "00000000-0000-4000-8000-000000000003"
 
 
 class SceneJobTest(unittest.TestCase):
+    @staticmethod
+    def _pose_selection(*ticks: int):
+        records = [
+            {
+                "schema_version": 1,
+                "server_tick": tick,
+                "session_id": "session-a",
+                "player_uuid": PLAYER,
+                "connection_id": CONNECTION,
+                "entity_id": 7,
+                "dimension": "minecraft:overworld",
+                "position": {"x": float(tick), "y": 64.0, "z": -2.0},
+                "velocity": {"x": 0.1, "y": 0.0, "z": -0.1},
+                "yaw": 12.0,
+                "pitch": -3.0,
+                "head_yaw": 13.0,
+                "on_ground": True,
+            }
+            for tick in ticks
+        ]
+        return SimpleNamespace(
+            data=b"".join(
+                json.dumps(record, sort_keys=True, separators=(",", ":")).encode() + b"\n"
+                for record in records
+            ),
+            ticks=tuple(ticks),
+            source_epochs=(
+                SubjectPoseSourceEpoch(
+                    epoch_index=0,
+                    events_sha256="b" * 64,
+                    events_size_bytes=123,
+                    record_count=9,
+                ),
+            ),
+        )
+
     def _fixture(self, root: Path):
         config = load_config(initialize(root / "recorder.toml", accept_eula=True))
         config.mods.scene_extractor_project.mkdir()
@@ -56,6 +95,52 @@ class SceneJobTest(unittest.TestCase):
         )
         return config, episode, source
 
+    @staticmethod
+    def _player_state(tick: int) -> dict[str, object]:
+        return {
+            "schema_version": 1,
+            "record_type": "player_state",
+            "session_id": "session-a",
+            "epoch_index": 0,
+            "server_tick": tick,
+            "sequence": tick,
+            "recorded_at_ns": tick,
+            "player_uuid": PLAYER,
+            "connection_id": CONNECTION,
+            "entity_id": 7,
+            "dimension": "minecraft:overworld",
+            "position": {"x": tick + 0.25, "y": 64.0, "z": -2.0},
+            "velocity": {"x": 0.1, "y": 0.0, "z": -0.1},
+            "rotation": {"yaw": 12.0, "pitch": -3.0, "head_yaw": 13.0},
+            "on_ground": True,
+        }
+
+    @staticmethod
+    def _sealed_epoch(root: Path, records: list[dict[str, object]]):
+        epoch = root / "epoch-000000"
+        epoch.mkdir(parents=True)
+        events = b"".join(
+            json.dumps(record, separators=(",", ":")).encode() + b"\n"
+            for record in records
+        )
+        (epoch / "events.jsonl").write_bytes(events)
+        (epoch / "manifest.json").write_text(
+            json.dumps(
+                {
+                    "sealed": True,
+                    "record_count": len(records),
+                    "events_bytes": len(events),
+                    "events_sha256": hashlib.sha256(events).hexdigest(),
+                    "first_server_tick": records[0]["server_tick"],
+                    "last_server_tick": records[-1]["server_tick"],
+                }
+            ),
+            encoding="utf-8",
+        )
+        info = inspect_epoch(epoch)
+        assert info is not None
+        return info
+
     def _prepare(self, root: Path):
         config, episode, source = self._fixture(root)
         with (
@@ -64,7 +149,8 @@ class SceneJobTest(unittest.TestCase):
                 return_value=SimpleNamespace(valid=True, sealed_epochs=1, session_id="session-a"),
             ),
             mock.patch(
-                "mc_recorder.scene_job.subject_state_ticks", return_value=(10, 11)
+                "mc_recorder.scene_job._select_subject_poses",
+                return_value=self._pose_selection(10, 11),
             ),
             mock.patch(
                 "mc_recorder.scene_job.resolve_replay_segments", return_value=[source]
@@ -108,6 +194,7 @@ class SceneJobTest(unittest.TestCase):
                     "format": source.replay_format,
                 }
             ],
+            "subject_poses": job.subject_poses.as_dict(),
             "stream": {
                 "format": "mc-recorder-scene-stream-v1",
                 "path": str(job.stream),
@@ -145,6 +232,7 @@ class SceneJobTest(unittest.TestCase):
                     "scope",
                     "metadata_policy",
                     "source_replays",
+                    "subject_poses",
                     "output",
                     "stop_when_done",
                 },
@@ -154,6 +242,66 @@ class SceneJobTest(unittest.TestCase):
             self.assertEqual("full_packet_metadata", value["metadata_policy"])
             self.assertFalse(job.stream.exists())
             self.assertFalse(job.result.exists())
+            self.assertEqual(job.subject_poses.path, job.directory / "subject-poses.jsonl")
+            self.assertEqual(
+                job.subject_poses.sha256,
+                hashlib.sha256(job.subject_poses.path.read_bytes()).hexdigest(),
+            )
+            records = [
+                json.loads(line)
+                for line in job.subject_poses.path.read_text(encoding="utf-8").splitlines()
+            ]
+            self.assertEqual([10, 11], [record["server_tick"] for record in records])
+
+    def test_pose_selection_authenticates_epoch_and_requires_contiguous_finite_values(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            info = self._sealed_epoch(root, [self._player_state(10), self._player_state(11)])
+
+            selected = _select_subject_poses(
+                session_id="session-a",
+                player_uuid=PLAYER,
+                connection_id=CONNECTION,
+                epochs=(info,),
+            )
+
+            self.assertEqual(
+                [10, 11],
+                [json.loads(line)["server_tick"] for line in selected.data.splitlines()],
+            )
+            self.assertEqual(info.events_sha256, selected.source_epochs[0].events_sha256)
+            (info.path / "events.jsonl").write_bytes(b"tampered\n")
+            with self.assertRaisesRegex(RecorderError, "invalid JSON|integrity"):
+                _select_subject_poses(
+                    session_id="session-a",
+                    player_uuid=PLAYER,
+                    connection_id=CONNECTION,
+                    epochs=(info,),
+                )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            info = self._sealed_epoch(
+                Path(temporary), [self._player_state(10), self._player_state(12)]
+            )
+            with self.assertRaisesRegex(RecorderError, "not contiguous"):
+                _select_subject_poses(
+                    session_id="session-a",
+                    player_uuid=PLAYER,
+                    connection_id=CONNECTION,
+                    epochs=(info,),
+                )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            invalid = self._player_state(10)
+            invalid["position"] = {"x": float("nan"), "y": 64.0, "z": 2.0}
+            info = self._sealed_epoch(Path(temporary), [invalid])
+            with self.assertRaisesRegex(RecorderError, "finite"):
+                _select_subject_poses(
+                    session_id="session-a",
+                    player_uuid=PLAYER,
+                    connection_id=CONNECTION,
+                    epochs=(info,),
+                )
 
     def test_result_accepts_only_an_ordered_contributing_source_subset(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -189,6 +337,12 @@ class SceneJobTest(unittest.TestCase):
             value["source_replays"] = [trailing_value, first]
             with self.assertRaisesRegex(RecorderError, "ordered exact subset"):
                 _validate_result(job, value)
+
+            value["source_replays"] = [first]
+            value["subject_poses"] = dict(value["subject_poses"])  # type: ignore[arg-type]
+            value["subject_poses"]["sha256"] = "f" * 64  # type: ignore[index]
+            with self.assertRaisesRegex(RecorderError, "subject poses"):
+                _validate_result(prepared, value)
 
     def test_prepare_rejects_an_unpinned_new_seal_before_reading_epoch_data(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -237,8 +391,9 @@ class SceneJobTest(unittest.TestCase):
                     "mc_recorder.scene_job.validate_episode", return_value=validation
                 ) as validate,
                 mock.patch(
-                    "mc_recorder.scene_job.subject_state_ticks", return_value=(10, 11)
-                ) as state_ticks,
+                    "mc_recorder.scene_job._select_subject_poses",
+                    return_value=self._pose_selection(10, 11),
+                ) as subject_poses,
                 mock.patch(
                     "mc_recorder.scene_job.resolve_replay_segments", return_value=[source]
                 ),
@@ -252,7 +407,7 @@ class SceneJobTest(unittest.TestCase):
                 )
 
             validate.assert_called_once_with(episode, epochs=(info,))
-            self.assertEqual((info,), state_ticks.call_args.kwargs["epochs"])
+            self.assertEqual((info,), subject_poses.call_args.kwargs["epochs"])
 
     def test_scene_extract_force_is_explicit(self) -> None:
         arguments = _parser().parse_args(
@@ -370,6 +525,19 @@ class SceneJobTest(unittest.TestCase):
                 launch_scene_job(config, job, capture_output=True)
 
     @mock.patch("mc_recorder.scene_job.subprocess.run")
+    def test_launch_rejects_subject_pose_tampering_before_extraction(
+        self, run: mock.Mock
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            config, job = self._prepare(Path(temporary))
+            job.subject_poses.path.write_bytes(b"tampered\n")
+
+            with self.assertRaisesRegex(RecorderError, "subject pose stream changed"):
+                launch_scene_job(config, job, capture_output=True)
+
+            run.assert_not_called()
+
+    @mock.patch("mc_recorder.scene_job.subprocess.run")
     def test_launch_requires_the_exact_complete_result_and_canonical_blobs(
         self, run: mock.Mock
     ) -> None:
@@ -466,7 +634,8 @@ class SceneJobTest(unittest.TestCase):
                     ),
                 ),
                 mock.patch(
-                    "mc_recorder.scene_job.subject_state_ticks", return_value=(10, 11)
+                    "mc_recorder.scene_job._select_subject_poses",
+                    return_value=self._pose_selection(10, 11),
                 ),
                 mock.patch(
                     "mc_recorder.scene_job.resolve_replay_segments", return_value=[source]

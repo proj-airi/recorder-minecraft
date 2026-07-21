@@ -50,6 +50,7 @@ public final class SceneExtractorMod implements ModInitializer {
 
     private void runExtraction(MinecraftServer server) {
         try {
+            SceneJobLoader.verifySubjectPosesUnchanged(job);
             ReplayArchiveValidator validator = new ReplayArchiveValidator();
             List<ReplayArchiveValidator.VerifiedSource> verified = new ArrayList<>();
             for (SceneJob.SourceReplay source : job.sourceReplays()) {
@@ -64,6 +65,7 @@ public final class SceneExtractorMod implements ModInitializer {
                 for (ReplayArchiveValidator.VerifiedSource source : verified) {
                     validator.verifyUnchanged(source);
                 }
+                SceneJobLoader.verifySubjectPosesUnchanged(job);
                 output = spool.commit();
             }
             ResultPublisher.complete(job, output, extraction);

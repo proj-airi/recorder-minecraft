@@ -61,6 +61,21 @@ def _write_viewer_dataset(exports: Path) -> None:
         "scope": "client_visible",
         "metadata_policy": "full_packet_metadata",
         "source_replays": list(sources),
+        "subject_poses": {
+            "format": "mc-recorder-subject-poses-v1",
+            "path": "/verified/http-job/subject-poses.jsonl",
+            "sha256": "12" * 32,
+            "size_bytes": 100,
+            "record_count": 1,
+            "first_tick": 20,
+            "last_tick": 20,
+            "source_epochs": [{
+                "epoch_index": 0,
+                "events_sha256": "34" * 32,
+                "events_size_bytes": 1000,
+                "record_count": 20,
+            }],
+        },
         "stream": {
             "format": "mc-recorder-scene-stream-v1",
             "path": "/verified/http-test-stream",

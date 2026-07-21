@@ -249,6 +249,38 @@ public final class SceneReducer {
         ));
     }
 
+    /** Replaces only authoritative subject pose fields at a selected dataset tick. */
+    public void applyCanonicalSubjectPose(SceneJob.SubjectPose pose) {
+        requireDimension();
+        if (!pose.sessionId().equals(job.sessionId())
+            || !pose.playerUuid().equals(job.playerUuid())
+            || !pose.connectionId().equals(job.connectionId())) {
+            throw new SceneStateException("canonical subject pose identity does not match the scene job");
+        }
+        if (pose.entityId() != subjectEntityId) {
+            throw new SceneStateException(
+                "canonical subject pose entity_id " + pose.entityId()
+                    + " does not match replay subject " + subjectEntityId
+            );
+        }
+        if (!pose.dimension().equals(dimension)) {
+            throw new SceneStateException(
+                "canonical subject pose dimension " + pose.dimension()
+                    + " does not match replay dimension " + dimension
+            );
+        }
+        MutableEntity subject = requireEntity(subjectEntityId);
+        if (!subject.subject || !subject.uuid.equals(job.playerUuid())) {
+            throw new SceneStateException("replay subject identity does not match the scene job");
+        }
+        subject.position = pose.position();
+        subject.velocity = pose.velocity();
+        subject.yaw = pose.yaw();
+        subject.pitch = pose.pitch();
+        subject.headYaw = pose.headYaw();
+        subject.onGround = pose.onGround();
+    }
+
     public SceneSnapshot snapshot() {
         requireDimension();
         List<SceneSnapshot.Section> sectionValues = sections.entrySet().stream()

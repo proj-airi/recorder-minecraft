@@ -141,7 +141,27 @@ final class PacketTranslatorMovementTest {
     private static SceneJob job() {
         return new SceneJob(
             Path.of("job.json"), "job", "session", new UUID(0, 7), new UUID(0, 8),
-            0, 10, Path.of("stream"), Path.of("result.json"), List.of(), true
+            0, 10, Path.of("stream"), Path.of("result.json"), List.of(), subjectPoses(), true
+        );
+    }
+
+    private static SceneJob.SubjectPoseInput subjectPoses() {
+        int count = 11;
+        String[] dimensions = new String[count];
+        java.util.Arrays.fill(dimensions, "minecraft:overworld");
+        int[] entityIds = new int[count];
+        java.util.Arrays.fill(entityIds, 7);
+        return new SceneJob.SubjectPoseInput(
+            "mc-recorder-subject-poses-v1", Path.of("subject-poses.jsonl"), "a".repeat(64),
+            11, count, 0, 10,
+            List.of(new SceneJob.SourceEpoch(0, "b".repeat(64), 1, 1)),
+            new SceneJob.SubjectPoseFileIdentity("test", 0),
+            new SceneJob.SubjectPoseTimeline(
+                0, "session", new UUID(0, 7), new UUID(0, 8), entityIds, dimensions,
+                new double[count], new double[count], new double[count],
+                new double[count], new double[count], new double[count],
+                new float[count], new float[count], new float[count], new boolean[count]
+            )
         );
     }
 }

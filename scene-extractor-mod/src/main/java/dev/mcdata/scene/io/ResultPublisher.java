@@ -86,7 +86,30 @@ public final class ResultPublisher {
         result.addProperty("scope", SceneJob.SCOPE);
         result.addProperty("metadata_policy", SceneJob.METADATA_POLICY);
         result.add("source_replays", sourceReplays(sourceReplays));
+        result.add("subject_poses", subjectPoses(job.subjectPoses()));
         return result;
+    }
+
+    private static JsonObject subjectPoses(SceneJob.SubjectPoseInput input) {
+        JsonObject value = new JsonObject();
+        value.addProperty("format", input.format());
+        value.addProperty("path", input.path().toString());
+        value.addProperty("sha256", input.sha256());
+        value.addProperty("size_bytes", input.sizeBytes());
+        value.addProperty("record_count", input.recordCount());
+        value.addProperty("first_tick", input.firstTick());
+        value.addProperty("last_tick", input.lastTick());
+        JsonArray epochs = new JsonArray();
+        for (SceneJob.SourceEpoch source : input.sourceEpochs()) {
+            JsonObject epoch = new JsonObject();
+            epoch.addProperty("epoch_index", source.epochIndex());
+            epoch.addProperty("events_sha256", source.eventsSha256());
+            epoch.addProperty("events_size_bytes", source.eventsSizeBytes());
+            epoch.addProperty("record_count", source.recordCount());
+            epochs.add(epoch);
+        }
+        value.add("source_epochs", epochs);
+        return value;
     }
 
     private static JsonArray sourceReplays(List<SceneJob.SourceReplay> sourceReplays) {

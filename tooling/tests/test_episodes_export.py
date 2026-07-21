@@ -376,6 +376,21 @@ def _scene_store(
         "scope": "client_visible",
         "metadata_policy": "full_packet_metadata",
         "source_replays": list(sources),
+        "subject_poses": {
+            "format": "mc-recorder-subject-poses-v1",
+            "path": "/verified/export-job/subject-poses.jsonl",
+            "sha256": "12" * 32,
+            "size_bytes": 200,
+            "record_count": 2,
+            "first_tick": 10,
+            "last_tick": 11,
+            "source_epochs": [{
+                "epoch_index": 0,
+                "events_sha256": "34" * 32,
+                "events_size_bytes": 1000,
+                "record_count": 20,
+            }],
+        },
         "stream": {
             "format": "mc-recorder-scene-stream-v1",
             "path": "/verified/export-test-stream",

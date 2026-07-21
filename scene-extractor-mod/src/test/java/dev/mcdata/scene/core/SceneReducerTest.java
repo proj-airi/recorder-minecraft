@@ -202,6 +202,71 @@ final class SceneReducerTest {
         );
     }
 
+    @Test
+    void canonicalPoseOverridesStaleMovementAndPreservesOtherEntityState() {
+        SceneReducer reducer = new SceneReducer(job());
+        reducer.beginSegment();
+        reducer.apply(new SceneEvent.DimensionChanged("minecraft:overworld", 7, -64, 384));
+        reducer.apply(subject(7, new SceneEvent.Vec3(1, 64, 2)));
+        SceneEvent.EncodedValue metadata = new SceneEvent.EncodedValue(
+            "minecraft:entity_metadata", "packet", 3, "AA=="
+        );
+        reducer.apply(new SceneEvent.EntityMetadataChanged(7, Map.of(4, metadata)));
+        reducer.applyCanonicalSubjectPose(pose(
+            100, 7, "minecraft:overworld", new SceneEvent.Vec3(9, 70, -3)
+        ));
+
+        SceneSnapshot.Entity subject = reducer.snapshot().entities().getFirst();
+        assertEquals(new SceneEvent.Vec3(9, 70, -3), subject.position());
+        assertEquals(new SceneEvent.Vec3(0.25, -0.5, 0.75), subject.velocity());
+        assertEquals(21.0F, subject.yaw());
+        assertEquals(22.0F, subject.pitch());
+        assertEquals(23.0F, subject.headYaw());
+        assertTrue(subject.onGround());
+        assertEquals(metadata, subject.metadata().get(4));
+    }
+
+    @Test
+    void canonicalPoseRequiresReplayEntityAndDimensionAgreement() {
+        SceneReducer reducer = new SceneReducer(job());
+        reducer.beginSegment();
+        reducer.apply(new SceneEvent.DimensionChanged("minecraft:overworld", 7, -64, 384));
+        reducer.apply(subject(7, new SceneEvent.Vec3(1, 64, 2)));
+
+        assertThrows(
+            SceneReducer.SceneStateException.class,
+            () -> reducer.applyCanonicalSubjectPose(pose(
+                100, 8, "minecraft:overworld", new SceneEvent.Vec3(9, 70, -3)
+            ))
+        );
+        assertThrows(
+            SceneReducer.SceneStateException.class,
+            () -> reducer.applyCanonicalSubjectPose(pose(
+                100, 7, "minecraft:the_nether", new SceneEvent.Vec3(9, 70, -3)
+            ))
+        );
+    }
+
+    @Test
+    void canonicalPoseMakesOverlappingStaleReplayStatesConverge() {
+        SceneReducer first = reducerWithSubjectAt(new SceneEvent.Vec3(1, 64, 2));
+        SceneReducer second = reducerWithSubjectAt(new SceneEvent.Vec3(8, 80, -9));
+        SceneJob.SubjectPose pose = pose(
+            100, 7, "minecraft:overworld", new SceneEvent.Vec3(4, 65, 6)
+        );
+
+        first.applyCanonicalSubjectPose(pose);
+        second.applyCanonicalSubjectPose(pose);
+
+        assertEquals(first.snapshot().entities(), second.snapshot().entities());
+        assertEquals(
+            first.frame(new TimelineMarker("session", CONNECTION, 100, 1), 3, source())
+                .orElseThrow().subjectPosition(),
+            second.frame(new TimelineMarker("session", CONNECTION, 100, 1), 99, source())
+                .orElseThrow().subjectPosition()
+        );
+    }
+
     private static SceneEvent.EntitySpawned subject(int id, SceneEvent.Vec3 position) {
         return new SceneEvent.EntitySpawned(
             id, PLAYER, "minecraft:player", position, new SceneEvent.Vec3(0, 0, 0),
@@ -235,6 +300,26 @@ final class SceneReducerTest {
             "minecraft:overworld", chunkX, chunkZ, 0, section
         ));
         return reducer;
+    }
+
+    private static SceneReducer reducerWithSubjectAt(SceneEvent.Vec3 position) {
+        SceneReducer reducer = new SceneReducer(job());
+        reducer.beginSegment();
+        reducer.apply(new SceneEvent.DimensionChanged("minecraft:overworld", 7, -64, 384));
+        reducer.apply(subject(7, position));
+        return reducer;
+    }
+
+    private static SceneJob.SubjectPose pose(
+        long tick,
+        int entityId,
+        String dimension,
+        SceneEvent.Vec3 position
+    ) {
+        return new SceneJob.SubjectPose(
+            tick, "session", PLAYER, CONNECTION, entityId, dimension, position,
+            new SceneEvent.Vec3(0.25, -0.5, 0.75), 21, 22, 23, true
+        );
     }
 
     private static SceneEvent.SectionSnapshot sectionWith(
@@ -276,7 +361,30 @@ final class SceneReducerTest {
         return new SceneJob(
             Path.of("/tmp/job/scene-job.json"), "job", "session", PLAYER, CONNECTION,
             100, 101, Path.of("/tmp/job/spool"), Path.of("/tmp/job/result.json"),
-            List.of(source()), true
+            List.of(source()), subjectPoses(), true
+        );
+    }
+
+    private static SceneJob.SubjectPoseInput subjectPoses() {
+        int count = 2;
+        return new SceneJob.SubjectPoseInput(
+            "mc-recorder-subject-poses-v1",
+            Path.of("/tmp/job/subject-poses.jsonl"),
+            "a".repeat(64),
+            2,
+            count,
+            100,
+            101,
+            List.of(new SceneJob.SourceEpoch(0, "b".repeat(64), 1, 1)),
+            new SceneJob.SubjectPoseFileIdentity("test", 0),
+            new SceneJob.SubjectPoseTimeline(
+                100, "session", PLAYER, CONNECTION,
+                new int[] {7, 7},
+                new String[] {"minecraft:overworld", "minecraft:overworld"},
+                new double[count], new double[count], new double[count],
+                new double[count], new double[count], new double[count],
+                new float[count], new float[count], new float[count], new boolean[count]
+            )
         );
     }
 

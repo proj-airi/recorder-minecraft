@@ -174,7 +174,16 @@ public final class FlashbackSceneExtractor {
             reducer.apply(event);
         }
         if (translated.timeline().isPresent()) {
-            SceneFrame frame = reducer.frame(translated.timeline().orElseThrow(), context.outputTick(), context.source)
+            dev.mcdata.scene.core.TimelineMarker marker = translated.timeline().orElseThrow();
+            if (
+                marker.sessionId().equals(job.sessionId())
+                    && marker.connectionId().equals(job.connectionId())
+                    && marker.globalTick() >= job.globalStartTick()
+                    && marker.globalTick() <= job.globalEndTick()
+            ) {
+                reducer.applyCanonicalSubjectPose(job.subjectPoses().require(marker.globalTick()));
+            }
+            SceneFrame frame = reducer.frame(marker, context.outputTick(), context.source)
                 .orElse(null);
             if (frame == null) {
                 return;
