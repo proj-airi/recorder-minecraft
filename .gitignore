@@ -2,6 +2,7 @@
 /.gradle/
 /.gradle-recorder/
 /.mc-recorder/
+/.pixi/
 /.idea/
 /.vscode/
 /.DS_Store
@@ -12,6 +13,16 @@
 **/__pycache__/
 **/.pytest_cache/
 **/*.py[cod]
+
+node_modules/
+**/dist/
+**/.turbo/
+**/.vite/
+**/.vite-inspect/
+**/.vite-inspect*/
+**/*.tsbuildinfo
+.eslintcache
+pnpm-debug.log*
 
 /runtime/
 /artifacts/
