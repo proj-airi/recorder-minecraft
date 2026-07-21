@@ -96,6 +96,12 @@ class ServerProvisioningTest(unittest.TestCase):
             env = write_compose_env(load_config(source)).read_text(encoding="utf-8")
             self.assertIn('MC_MODRINTH_PROJECTS=""', env)
 
+    def test_compose_keeps_recorder_control_ticks_live_while_empty(self) -> None:
+        compose = (Path(__file__).parents[2] / "deploy" / "docker-compose.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('PAUSE_WHEN_EMPTY_SECONDS: "-1"', compose)
+
     def test_compose_status_maps_structured_service_state(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
