@@ -95,6 +95,11 @@ field is accepted only for persisted V1 compatibility and means the historical
 HUD-free behavior (`no_gui: true`). Client-only screens such as inventory
 and crafting menus are not replay state and cannot be reconstructed.
 
+For `no_gui: false`, the renderer must enter Flashback's replay-server spectate
+mode and wait for the server-confirmed camera switch. Directly changing the
+client camera is not equivalent: it bypasses Flashback's forwarding of the
+recorded hotbar, selected slot, food, saturation, and experience state.
+
 Requests contain no paths, URLs, commands, JVM flags, or environment values.
 The request schema rejects unknown fields so a worker cannot smuggle executable
 or filesystem inputs through an otherwise valid request.

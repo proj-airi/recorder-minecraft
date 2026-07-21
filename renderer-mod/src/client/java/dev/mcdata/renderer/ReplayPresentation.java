@@ -2,6 +2,8 @@ package dev.mcdata.renderer;
 
 import com.moulberry.flashback.visuals.ReplayVisuals;
 
+import java.util.UUID;
+
 final class ReplayPresentation {
     private ReplayPresentation() {
     }
@@ -24,5 +26,13 @@ final class ReplayPresentation {
 
     static boolean hideTrackedPlayerDuringExport(boolean noGui) {
         return noGui;
+    }
+
+    static String startSpectatingCommand(UUID playerId) {
+        return "spectate " + playerId;
+    }
+
+    static String stopSpectatingCommand() {
+        return "spectate";
     }
 }

@@ -176,7 +176,11 @@ The V1 renderer:
 - selects a player UUID and `connection_id`;
 - aligns replay ticks to global server ticks from
   `mc_recorder:timeline/v1` markers;
-- tracks the recorded player's head in first person;
+- enters Flashback's replay-server spectate mode for the recorded player and
+  waits for the server-confirmed camera switch before export;
+- tracks the recorded player's head in first person while Flashback forwards
+  the recorded nine-slot hotbar, selected slot, food, saturation, and
+  experience state to the HUD;
 - renders the recorded first-person hand/item and full recorded client HUD by
   default; and
 - emits one PNG per tick at exactly 20 FPS plus `frames.jsonl` and an atomic
@@ -188,6 +192,12 @@ mode. The HUD can include hotbar, crosshair, health, hunger, titles, boss bars,
 action bar, and scoreboard packets. Chat packets are not present in the
 configured ServerReplay source, and client-only inventory/crafting screens
 cannot be reconstructed.
+
+A client-only camera reassignment is not sufficient for GUI rendering: it does
+not activate Flashback's replay-server first-person synchronization and leaves
+the camera entity with only tracked equipment. GUI exports therefore use the
+normal replay `spectate <player UUID>` command path and do not begin until its
+camera acknowledgement is visible on the client.
 
 `frames.jsonl` rows include frame number, global `server_tick`, replay tick,
 session ID, connection ID, player UUID, and image path. The rendered image is a

@@ -3,6 +3,9 @@ package dev.mcdata.renderer;
 import com.moulberry.flashback.visuals.ReplayVisuals;
 import org.junit.jupiter.api.Test;
 
+import java.util.UUID;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -37,5 +40,13 @@ final class ReplayPresentationTest {
         assertFalse(visuals.showActionBar);
         assertFalse(ReplayPresentation.useSpectatedPlayerCamera(true));
         assertTrue(ReplayPresentation.hideTrackedPlayerDuringExport(true));
+    }
+
+    @Test
+    void usesFlashbacksReplayServerSpectateCommands() {
+        UUID playerId = UUID.fromString("1c4883d9-66f8-4760-8177-20ddb9a2ac21");
+
+        assertEquals("spectate " + playerId, ReplayPresentation.startSpectatingCommand(playerId));
+        assertEquals("spectate", ReplayPresentation.stopSpectatingCommand());
     }
 }

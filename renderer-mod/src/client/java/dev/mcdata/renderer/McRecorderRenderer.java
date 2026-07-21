@@ -73,6 +73,7 @@ public final class McRecorderRenderer implements ClientModInitializer {
     private int voxelReplayTick;
     private int voxelSettleTicks;
     private boolean voxelsComplete;
+    private boolean clientPresentationRequested;
     private boolean clientPresentationActive;
     private Entity previousCameraEntity;
     private CameraType previousCameraType;
@@ -383,7 +384,11 @@ public final class McRecorderRenderer implements ClientModInitializer {
             return;
         }
 
-        this.activateClientPresentation(minecraft, target);
+        if (!this.activateClientPresentation(minecraft, target)) {
+            this.checkTimeout("Flashback replay-server spectate for player " + this.job.playerId());
+            return;
+        }
+        this.waitTicks = 0;
         if (this.exportSettleStartedNanos == 0L) {
             this.exportSettleStartedNanos = System.nanoTime();
             return;
@@ -540,36 +545,54 @@ public final class McRecorderRenderer implements ClientModInitializer {
         return editorState;
     }
 
-    private void activateClientPresentation(Minecraft minecraft, Entity target) {
+    private boolean activateClientPresentation(Minecraft minecraft, Entity target) {
         if (!ReplayPresentation.useSpectatedPlayerCamera(this.job.noGui())) {
-            return;
+            return true;
         }
         if (!(target instanceof AbstractClientPlayer replayPlayer) || replayPlayer == minecraft.player) {
             throw new IllegalStateException(
                 "Recorded player cannot be used as the first-person replay camera: " + this.job.playerId()
             );
         }
-        if (!this.clientPresentationActive) {
+        if (!this.clientPresentationRequested) {
+            if (minecraft.getConnection() == null) {
+                throw new IllegalStateException("Flashback replay connection is unavailable");
+            }
             this.previousCameraEntity = minecraft.getCameraEntity();
             this.previousCameraType = minecraft.options.getCameraType();
             this.previousHideGui = minecraft.options.hideGui;
-            this.clientPresentationActive = true;
-            LOGGER.info("Using replay player {} for first-person hand and HUD rendering", this.job.playerId());
+            this.clientPresentationRequested = true;
+            minecraft.getConnection().sendCommand(
+                ReplayPresentation.startSpectatingCommand(this.job.playerId())
+            );
+            LOGGER.info(
+                "Requested replay-server spectate for player {} so Flashback can synchronize first-person HUD state",
+                this.job.playerId()
+            );
         }
         minecraft.options.setCameraType(CameraType.FIRST_PERSON);
         minecraft.options.hideGui = false;
-        minecraft.setCameraEntity(replayPlayer);
-        if (Flashback.getSpectatingPlayer() != replayPlayer) {
-            throw new IllegalStateException(
-                "Flashback did not activate the recorded player as its first-person camera"
+        if (minecraft.getCameraEntity() != replayPlayer || Flashback.getSpectatingPlayer() != replayPlayer) {
+            return false;
+        }
+        if (!this.clientPresentationActive) {
+            this.clientPresentationActive = true;
+            LOGGER.info(
+                "Replay server activated player {} with synchronized hotbar, food, experience, hand, and HUD state",
+                this.job.playerId()
             );
         }
+        return true;
     }
 
     private void restoreClientPresentation(Minecraft minecraft) {
-        if (!this.clientPresentationActive) {
+        if (!this.clientPresentationRequested && !this.clientPresentationActive) {
             return;
         }
+        if (this.clientPresentationRequested && minecraft.getConnection() != null) {
+            minecraft.getConnection().sendCommand(ReplayPresentation.stopSpectatingCommand());
+        }
+        this.clientPresentationRequested = false;
         this.clientPresentationActive = false;
         minecraft.setCameraEntity(
             this.previousCameraEntity != null ? this.previousCameraEntity : minecraft.player
