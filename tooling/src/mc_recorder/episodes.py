@@ -5,7 +5,7 @@ import json
 import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Iterable, Iterator
 
 from .errors import RecorderError
 
@@ -288,7 +288,11 @@ def iter_events(epoch: EpochInfo) -> Iterator[tuple[int, dict[str, Any]]]:
             yield line_number, record
 
 
-def validate_episode(episode: Path) -> ValidationResult:
+def validate_episode(
+    episode: Path,
+    *,
+    epochs: Iterable[EpochInfo] | None = None,
+) -> ValidationResult:
     issues: list[ValidationIssue] = []
     manifest_path = episode / "manifest.json"
     manifest = _read_json(manifest_path)
@@ -303,8 +307,8 @@ def validate_episode(episode: Path) -> ValidationResult:
                 ValidationIssue("warning", str(manifest_path), "manifest session_id differs from directory name")
             )
 
-    epochs = list(iter_epochs(episode))
-    if not epochs:
+    epoch_infos = list(iter_epochs(episode) if epochs is None else epochs)
+    if not epoch_infos:
         issues.append(ValidationIssue("error", str(episode / "epochs"), "no epoch directories found"))
     seen_indexes: set[int] = set()
     sealed_count = 0
@@ -313,7 +317,7 @@ def validate_episode(episode: Path) -> ValidationResult:
     previous_sequence: int | None = None
     previous_tick: int | None = None
 
-    for epoch in epochs:
+    for epoch in epoch_infos:
         relative = str(epoch.path.relative_to(episode))
         if epoch.index in seen_indexes:
             issues.append(ValidationIssue("error", relative, f"duplicate epoch index {epoch.index}"))

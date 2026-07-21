@@ -769,13 +769,14 @@ class DashboardService:
             # Retention takes an exclusive lock on these same manifest files.
             # Keep the exact canonical epochs alive from replay wait through
             # the final atomic dataset publication.
-            with pin_sealed_epochs(episode):
+            with pin_sealed_epochs(episode) as pinned_epochs:
                 return self._extract_and_publish_dataset(
                     row,
                     episode=episode,
                     output=output,
                     player_uuid=player_uuid,
                     connection_id=connection_id,
+                    pinned_epoch_paths=pinned_epochs,
                 )
 
     def _extract_and_publish_dataset(
@@ -786,6 +787,7 @@ class DashboardService:
         output: Path,
         player_uuid: str,
         connection_id: str,
+        pinned_epoch_paths: tuple[Path, ...],
     ) -> dict[str, Any]:
         cleanup_stale_scene_jobs(self.config.paths.runtime, keep=1)
         deadline = time.monotonic() + REPLAY_READY_TIMEOUT_SECONDS
@@ -798,6 +800,7 @@ class DashboardService:
                     connection_id=connection_id,
                     first_tick=row.get("start_tick"),
                     last_tick=row.get("end_tick"),
+                    pinned_epoch_paths=pinned_epoch_paths,
                 )
                 break
             except ReplayNotReadyError:

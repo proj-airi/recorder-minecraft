@@ -52,7 +52,8 @@ class RenderCliTest(unittest.TestCase):
             prepared = SimpleNamespace(manifest=root / "prepared" / "scene-job.json")
             reports = []
 
-            def prepare(*_args, **_kwargs):
+            def prepare(*_args, **kwargs):
+                self.assertEqual((epoch.resolve(),), kwargs["pinned_epoch_paths"])
                 reports.append(
                     enforce_quota(
                         captures,

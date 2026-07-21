@@ -153,6 +153,70 @@ class SceneJobTest(unittest.TestCase):
             self.assertFalse(job.stream.exists())
             self.assertFalse(job.result.exists())
 
+    def test_prepare_rejects_an_unpinned_new_seal_before_reading_epoch_data(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            config, episode, _source = self._fixture(root)
+            pinned = episode / "epochs" / "epoch-000000"
+            new_seal = episode / "epochs" / "epoch-000001"
+            for path in (pinned, new_seal):
+                path.mkdir(parents=True)
+                (path / "manifest.json").write_text(
+                    json.dumps({"sealed": True}), encoding="utf-8"
+                )
+
+            with (
+                mock.patch("mc_recorder.scene_job.inspect_epoch") as inspect,
+                mock.patch("mc_recorder.scene_job.validate_episode") as validate,
+            ):
+                with self.assertRaisesRegex(RecorderError, "set changed"):
+                    prepare_scene_job(
+                        config,
+                        episode,
+                        player_uuid=PLAYER,
+                        connection_id=CONNECTION,
+                        pinned_epoch_paths=(pinned.resolve(),),
+                    )
+
+            inspect.assert_not_called()
+            validate.assert_not_called()
+
+    def test_prepare_reads_only_the_exact_pinned_epoch_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            config, episode, source = self._fixture(root)
+            epoch = episode / "epochs" / "epoch-000000"
+            epoch.mkdir(parents=True)
+            (epoch / "manifest.json").write_text(
+                json.dumps({"sealed": True}), encoding="utf-8"
+            )
+            info = SimpleNamespace(index=0, path=epoch, status="sealed")
+            validation = SimpleNamespace(
+                valid=True, sealed_epochs=1, session_id="session-a"
+            )
+            with (
+                mock.patch("mc_recorder.scene_job.inspect_epoch", return_value=info),
+                mock.patch(
+                    "mc_recorder.scene_job.validate_episode", return_value=validation
+                ) as validate,
+                mock.patch(
+                    "mc_recorder.scene_job.subject_state_ticks", return_value=(10, 11)
+                ) as state_ticks,
+                mock.patch(
+                    "mc_recorder.scene_job.resolve_replay_segments", return_value=[source]
+                ),
+            ):
+                prepare_scene_job(
+                    config,
+                    episode,
+                    player_uuid=PLAYER,
+                    connection_id=CONNECTION,
+                    pinned_epoch_paths=(epoch.resolve(),),
+                )
+
+            validate.assert_called_once_with(episode, epochs=(info,))
+            self.assertEqual((info,), state_ticks.call_args.kwargs["epochs"])
+
     def test_scene_extract_force_is_explicit(self) -> None:
         arguments = _parser().parse_args(
             [
@@ -193,6 +257,10 @@ class SceneJobTest(unittest.TestCase):
                 mock.patch("mc_recorder.cli.load_config", return_value=config),
                 mock.patch("mc_recorder.cli.resolve_episode", return_value=root / "episode"),
                 mock.patch("mc_recorder.cli.operation_lock", return_value=nullcontext()),
+                mock.patch(
+                    "mc_recorder.cli.pin_sealed_epochs",
+                    return_value=nullcontext(()),
+                ),
                 mock.patch("mc_recorder.cli.prepare_scene_job", return_value=job),
                 mock.patch(
                     "mc_recorder.cli.launch_scene_job",

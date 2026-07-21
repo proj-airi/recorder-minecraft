@@ -14,7 +14,14 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from .config import RecorderConfig
-from .episodes import iter_epochs, iter_events, sha256_file, validate_episode
+from .episodes import (
+    EpochInfo,
+    inspect_epoch,
+    iter_epochs,
+    iter_events,
+    sha256_file,
+    validate_episode,
+)
 from .errors import RecorderError
 from .render_sources import ReplaySegmentSource, resolve_replay_segments
 from .scene_integrity import (
@@ -77,13 +84,14 @@ def subject_state_ticks(
     connection_id: str,
     first_tick: int | None = None,
     last_tick: int | None = None,
+    epochs: Iterable[EpochInfo] | None = None,
 ) -> tuple[int, ...]:
     """Return the exact selected player-state timeline from immutable epochs."""
 
     player = _canonical_uuid(player_uuid, "player UUID")
     connection = _canonical_uuid(connection_id, "connection UUID")
     ticks: list[int] = []
-    for epoch in iter_epochs(episode):
+    for epoch in iter_epochs(episode) if epochs is None else epochs:
         if epoch.status != "sealed":
             continue
         for _line, record in iter_events(epoch):
@@ -106,6 +114,50 @@ def subject_state_ticks(
     if ticks != sorted(set(ticks)):
         raise RecorderError("the selected subject timeline is duplicated or out of order")
     return tuple(ticks)
+
+
+def _pinned_epoch_snapshot(
+    episode: Path,
+    pinned_epoch_paths: Iterable[Path],
+) -> tuple[EpochInfo, ...]:
+    """Load only the exact epoch set protected by the caller's shared locks."""
+
+    epochs_root = episode.resolve() / "epochs"
+    requested = tuple(Path(path) for path in pinned_epoch_paths)
+    expected = tuple(path.resolve() for path in requested)
+    if len(expected) != len(set(expected)) or any(
+        requested_path.is_symlink()
+        or path.parent != epochs_root
+        or not path.is_dir()
+        for requested_path, path in zip(requested, expected, strict=True)
+    ):
+        raise RecorderError("pinned scene epoch set contains an unsafe or duplicate path")
+
+    declared: set[Path] = set()
+    try:
+        candidates = tuple(epochs_root.iterdir())
+    except OSError as exc:
+        raise RecorderError(f"cannot inspect pinned scene epochs: {epochs_root}") from exc
+    for candidate in candidates:
+        manifest = candidate / "manifest.json"
+        if candidate.is_symlink() or not candidate.is_dir() or manifest.is_symlink():
+            continue
+        try:
+            value = json.loads(manifest.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if isinstance(value, dict) and value.get("sealed") is True:
+            declared.add(candidate.resolve())
+    if declared != set(expected):
+        raise RecorderError("sealed epoch set changed while it was being pinned; retry scene extraction")
+
+    snapshot: list[EpochInfo] = []
+    for path in expected:
+        info = inspect_epoch(path)
+        if info is None or info.status != "sealed":
+            raise RecorderError(f"pinned sealed epoch no longer verifies: {path}")
+        snapshot.append(info)
+    return tuple(sorted(snapshot, key=lambda item: item.index))
 
 
 def _owned_scene_job(path: Path, *, expected_job_id: str | None = None) -> bool:
@@ -210,8 +262,14 @@ def prepare_scene_job(
     last_tick: int | None = None,
     output: Path | None = None,
     force: bool = False,
+    pinned_epoch_paths: Iterable[Path] | None = None,
 ) -> SceneJob:
-    validation = validate_episode(episode)
+    epoch_snapshot = (
+        None
+        if pinned_epoch_paths is None
+        else _pinned_epoch_snapshot(episode, pinned_epoch_paths)
+    )
+    validation = validate_episode(episode, epochs=epoch_snapshot)
     if not validation.valid or validation.sealed_epochs == 0:
         raise RecorderError("episode must have at least one valid sealed epoch before scene extraction")
     player = _canonical_uuid(player_uuid, "player UUID")
@@ -222,6 +280,7 @@ def prepare_scene_job(
         connection_id=connection,
         first_tick=first_tick,
         last_tick=last_tick,
+        epochs=epoch_snapshot,
     )
     selected_first = ticks[0]
     selected_last = ticks[-1]

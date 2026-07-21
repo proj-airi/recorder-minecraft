@@ -7,6 +7,7 @@ import tempfile
 import threading
 import time
 import unittest
+from contextlib import nullcontext
 from pathlib import Path
 from unittest import mock
 
@@ -354,6 +355,7 @@ class DashboardServiceTest(unittest.TestCase):
                             "connections": [ENDED],
                             "from_tick": 5,
                             "to_tick": 10,
+                            "scene_attachment": None,
                         },
                         "files": {
                             name: {
@@ -403,6 +405,7 @@ class DashboardServiceTest(unittest.TestCase):
                             "connections": [ENDED],
                             "from_tick": 5,
                             "to_tick": 10,
+                            "scene_attachment": None,
                         },
                         "files": {
                             name: {
@@ -598,12 +601,13 @@ class DashboardServiceTest(unittest.TestCase):
             service = DashboardService(config)
             row = {"id": "a" * 24, "start_tick": 1, "end_tick": 2}
             scene_job = mock.sentinel.scene_job
+            pinned_epochs = (root / "episode" / "epochs" / "epoch-000000",)
             try:
                 for outcome in ({"output": "dataset"}, RecorderError("compaction failed")):
                     with self.subTest(outcome=type(outcome).__name__), mock.patch(
                         "mc_recorder.dashboard_service.prepare_scene_job",
                         return_value=scene_job,
-                    ), mock.patch(
+                    ) as prepare, mock.patch(
                         "mc_recorder.dashboard_service.cleanup_scene_job"
                     ) as cleanup, mock.patch(
                         "mc_recorder.dashboard_service.cleanup_stale_scene_jobs"
@@ -621,6 +625,7 @@ class DashboardServiceTest(unittest.TestCase):
                                     output=root / "dataset",
                                     player_uuid=PLAYER,
                                     connection_id=ENDED,
+                                    pinned_epoch_paths=pinned_epochs,
                                 )
                         else:
                             self.assertEqual(
@@ -631,14 +636,77 @@ class DashboardServiceTest(unittest.TestCase):
                                     output=root / "dataset",
                                     player_uuid=PLAYER,
                                     connection_id=ENDED,
+                                    pinned_epoch_paths=pinned_epochs,
                                 ),
                             )
+                        prepare.assert_called_once_with(
+                            config,
+                            root / "episode",
+                            player_uuid=PLAYER,
+                            connection_id=ENDED,
+                            first_tick=1,
+                            last_tick=2,
+                            pinned_epoch_paths=pinned_epochs,
+                        )
                         if isinstance(outcome, Exception):
                             cleanup.assert_not_called()
                             self.assertEqual(2, cleanup_stale.call_count)
                         else:
                             cleanup.assert_called_once_with(scene_job)
                             cleanup_stale.assert_called_once_with(config.paths.runtime, keep=1)
+            finally:
+                service.close()
+
+    def test_generation_threads_the_pinned_epoch_snapshot_to_scene_preparation(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            config = load_config(initialize(root / "recorder.toml", accept_eula=True))
+            service = DashboardService(config)
+            session = "20260721T000000.000Z-deadbeef"
+            episode = config.paths.captures / session
+            pinned_epochs = (episode / "epochs" / "epoch-000000",)
+            output = config.paths.exports / "dataset"
+            row = {
+                "id": "a" * 24,
+                "session_id": session,
+                "player_uuid": PLAYER,
+                "connection_id": ENDED,
+                "end_sequence": 99,
+            }
+            expected = {"output": str(output)}
+            try:
+                with (
+                    mock.patch(
+                        "mc_recorder.dashboard_service.operation_lock",
+                        return_value=nullcontext(),
+                    ),
+                    mock.patch.object(
+                        service, "_sealed_through_sequence", return_value=99
+                    ),
+                    mock.patch(
+                        "mc_recorder.dashboard_service.resolve_episode",
+                        return_value=episode,
+                    ),
+                    mock.patch(
+                        "mc_recorder.dashboard_service.pin_sealed_epochs",
+                        return_value=nullcontext(pinned_epochs),
+                    ),
+                    mock.patch.object(
+                        service,
+                        "_extract_and_publish_dataset",
+                        return_value=expected,
+                    ) as extract,
+                ):
+                    self.assertEqual(expected, service._generate_dataset(row))
+
+                extract.assert_called_once_with(
+                    row,
+                    episode=episode,
+                    output=service._dataset_output(session, PLAYER, ENDED),
+                    player_uuid=PLAYER,
+                    connection_id=ENDED,
+                    pinned_epoch_paths=pinned_epochs,
+                )
             finally:
                 service.close()
 

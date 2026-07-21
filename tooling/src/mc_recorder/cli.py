@@ -405,7 +405,7 @@ def run(argv: Sequence[str] | None = None) -> int:
         output = _prepare_scene_output(args.output, force=args.force)
         with operation_lock(config.paths.runtime, "scene_extract"):
             cleanup_stale_scene_jobs(config.paths.runtime, keep=1)
-            with pin_sealed_epochs(episode):
+            with pin_sealed_epochs(episode) as pinned_epochs:
                 job = prepare_scene_job(
                     config,
                     episode,
@@ -413,6 +413,7 @@ def run(argv: Sequence[str] | None = None) -> int:
                     connection_id=args.connection,
                     first_tick=args.from_tick,
                     last_tick=args.to_tick,
+                    pinned_epoch_paths=pinned_epochs,
                 )
             print(f"Prepared scene extraction job {job.manifest}")
             if args.prepare_only:

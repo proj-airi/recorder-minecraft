@@ -103,6 +103,7 @@ def _dataset(exports: Path, samples: list[dict[str, object]]) -> tuple[Path, str
             "connections": [CONNECTION],
             "from_tick": 10,
             "to_tick": 12,
+            "scene_attachment": None,
         },
         "files": {
             name: {
