@@ -78,7 +78,7 @@
                 <label>Player<select id="filter-player"><option value="">All players</option></select></label>
                 <label>Connection<select id="filter-connection"><option value="">All connections</option></select></label>
                 <label>Validity<select id="filter-validity"><option value="">Any</option><option value="valid">Valid</option><option value="invalid">Invalid</option></select></label>
-                <label>Modality<select id="filter-modality"><option value="">Any</option><option value="rgb">RGB attached</option><option value="voxels">Voxels attached</option></select></label>
+                <label>Modality<select id="filter-modality"><option value="">Any</option><option value="rgb">RGB attached</option><option value="scene">Scene attached</option></select></label>
                 <label>From tick<input id="filter-from-tick" type="number" min="0"></label>
                 <label>To tick<input id="filter-to-tick" type="number" min="0"></label>
                 <button id="apply-filters" class="quiet">Apply filters</button>
@@ -161,7 +161,21 @@
               <details open><summary>State → next state</summary><pre id="state-diff"></pre></details>
               <details><summary>Controls and ordered actions</summary><pre id="sample-actions"></pre></details>
               <details><summary>Peers, validity, and provenance</summary><pre id="sample-provenance"></pre></details>
-              <details id="voxel-details"><summary>Voxel slice</summary><div class="voxel-tools"><select id="voxel-axis"><option>x</option><option selected>y</option><option>z</option></select><input id="voxel-index" type="number" value="-1"><button id="load-voxel" class="quiet">Load slice</button></div><canvas id="voxel-canvas"></canvas><p id="voxel-note" class="muted"></p></details>
+              <details id="scene-details" open>
+                <summary>Scene slice</summary>
+                <div class="scene-tools">
+                  <label>Axis<select id="scene-axis"><option>x</option><option selected>y</option><option>z</option></select></label>
+                  <label>World coordinate<input id="scene-coordinate" type="number" step="1"></label>
+                  <label>Radius<input id="scene-radius" type="number" min="1" max="64" value="32" step="1"></label>
+                  <button id="load-scene" class="quiet">Reload slice</button>
+                </div>
+                <div class="scene-canvas-wrap">
+                  <canvas id="scene-canvas" role="img" aria-label="Client-visible world scene slice"></canvas>
+                  <p id="scene-empty" class="empty">Select a sample with scene data.</p>
+                </div>
+                <div id="scene-legend" class="scene-legend"></div>
+                <p id="scene-note" class="muted"></p>
+              </details>
             </div>
           </section>
         </div>

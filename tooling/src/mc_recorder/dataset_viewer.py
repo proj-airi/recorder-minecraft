@@ -1,12 +1,7 @@
 from __future__ import annotations
 
-import base64
-import binascii
 import copy
-import gzip
 import hashlib
-import hmac
-import io
 import json
 import math
 import os
@@ -15,30 +10,32 @@ import sqlite3
 import stat
 import threading
 import time
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable, Iterator
+from typing import Any, Iterator
 
 from .errors import RecorderError
 from .render_contract import FULL_CLIENT_PRESENTATION_CONTRACT
 from .render_hud import validate_hud_result_envelope
 
 
-DATASET_SCHEMA_VERSION = 1
+DATASET_SCHEMA_VERSION = 2
 DATASET_OWNER = "mc-recorder"
-DATASET_FORMAT = "mc-recorder-jsonl-v1"
+DATASET_FORMAT = "mc-recorder-jsonl-v2"
 DATASET_SUFFIX = ".dataset"
-DATASET_FILES = (
+CORE_DATASET_FILES = (
     "samples.jsonl",
     "states.jsonl",
     "actions.jsonl",
     "modalities.jsonl",
 )
-_DATASET_ENTRIES = frozenset(("manifest.json", *DATASET_FILES))
+SCENE_STORE_REFERENCE = "scene/scene-v1.sqlite3"
+_ALLOWED_DATASET_FILES = frozenset((*CORE_DATASET_FILES, SCENE_STORE_REFERENCE))
+_ALLOWED_TOP_LEVEL_ENTRIES = frozenset(("manifest.json", *CORE_DATASET_FILES, "scene"))
 _SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
 _OPAQUE_ID_RE = re.compile(r"^[0-9a-f]{32}$")
-_INDEX_SCHEMA_VERSION = 1
+_INDEX_SCHEMA_VERSION = 2
 _MAX_SQLITE_INTEGER = 2**63 - 1
 
 __all__ = (
@@ -61,8 +58,6 @@ __all__ = (
     "TrajectoryOverview",
     "TrajectoryPoint",
     "TrajectoryTrack",
-    "VoxelCell",
-    "VoxelSlice",
     "opaque_dataset_id",
 )
 
@@ -72,7 +67,7 @@ class DatasetViewerError(RecorderError):
 
 
 class DatasetValidationError(DatasetViewerError):
-    """An exported dataset or indexed sample violates the v1 contract."""
+    """An exported dataset or indexed sample violates the v2 contract."""
 
 
 class DatasetNotFoundError(DatasetViewerError):
@@ -97,7 +92,7 @@ def opaque_dataset_id(exports_root: Path, directory_name: str) -> str:
     ):
         raise DatasetViewerError("dataset directory name is invalid")
     root = Path(exports_root).expanduser().resolve()
-    value = f"mc-recorder-dataset-v1\0{root}\0{directory_name}".encode()
+    value = f"mc-recorder-dataset-v2\0{root}\0{directory_name}".encode()
     return hashlib.blake2b(value, digest_size=16).hexdigest()
 
 
@@ -119,7 +114,7 @@ class DatasetSummary:
     last_tick: int | None
     size_bytes: int
     rgb_samples: int
-    voxel_samples: int
+    scene_samples: int
 
 
 @dataclass(frozen=True)
@@ -149,7 +144,7 @@ class DatasetMetadata:
     selected_to_tick: int | None
     rgb_samples: int
     rgb_presentation: str | None
-    voxel_samples: int
+    scene_samples: int
     files: dict[str, dict[str, object]]
 
 
@@ -163,7 +158,7 @@ class PlayerConnectionSummary:
     last_tick: int
     valid_transitions: int
     rgb_samples: int
-    voxel_samples: int
+    scene_samples: int
 
 
 @dataclass(frozen=True)
@@ -181,7 +176,7 @@ class SampleSummary:
     ordered_packet_count: int
     peer_count: int
     rgb_available: bool
-    voxel_available: bool
+    scene_available: bool
 
 
 @dataclass(frozen=True)
@@ -249,32 +244,6 @@ class TrajectoryOverview:
 
 
 @dataclass(frozen=True)
-class VoxelCell:
-    x: int
-    y: int
-    z: int
-    covered: bool
-    block_state: str | None
-    palette_index: int | None
-
-
-@dataclass(frozen=True)
-class VoxelSlice:
-    axis: str
-    index: int
-    world_coordinate: int
-    row_axis: str
-    column_axis: str
-    origin: tuple[int, int, int]
-    shape: tuple[int, int, int]
-    dimension: str
-    covered_cells: int
-    total_cells: int
-    coverage_complete: bool
-    cells: tuple[tuple[VoxelCell, ...], ...]
-
-
-@dataclass(frozen=True)
 class _VerifiedFile:
     path: Path
     size_bytes: int
@@ -292,6 +261,7 @@ class _Dataset:
     manifest: dict[str, Any]
     manifest_sha256: str
     files: dict[str, _VerifiedFile]
+    scene_identity: tuple[str, str, str] | None
     fingerprint: str
     quick_signature: tuple[tuple[str, int, int, int, int, int], ...]
 
@@ -312,10 +282,6 @@ class DatasetViewer:
         max_manifest_bytes: int = 4 * 1024 * 1024,
         max_sample_line_bytes: int = 32 * 1024 * 1024,
         max_rgb_bytes: int = 128 * 1024 * 1024,
-        max_voxel_compressed_bytes: int = 64 * 1024 * 1024,
-        max_voxel_json_bytes: int = 64 * 1024 * 1024,
-        max_voxel_cells: int = 2_000_000,
-        max_voxel_axis: int = 129,
         max_page_size: int = 200,
     ) -> None:
         self.exports_root = Path(exports_root).expanduser().resolve()
@@ -327,14 +293,6 @@ class DatasetViewer:
             max_sample_line_bytes, "sample line byte limit"
         )
         self.max_rgb_bytes = _positive_limit(max_rgb_bytes, "RGB byte limit")
-        self.max_voxel_compressed_bytes = _positive_limit(
-            max_voxel_compressed_bytes, "voxel compressed byte limit"
-        )
-        self.max_voxel_json_bytes = _positive_limit(
-            max_voxel_json_bytes, "voxel JSON byte limit"
-        )
-        self.max_voxel_cells = _positive_limit(max_voxel_cells, "voxel cell limit")
-        self.max_voxel_axis = _positive_limit(max_voxel_axis, "voxel axis limit")
         self.max_page_size = _positive_limit(max_page_size, "page size limit")
         self._lock = threading.RLock()
         self._cache: dict[str, _Dataset] = {}
@@ -345,7 +303,7 @@ class DatasetViewer:
             raise DatasetViewerError(
                 f"dataset index root is not a regular directory: {index_directory}"
             )
-        self.index_path = index_directory / "samples-v1.sqlite3"
+        self.index_path = index_directory / "samples-v2.sqlite3"
         if self.index_path.is_symlink():
             raise DatasetViewerError(
                 f"dataset index may not be a symlink: {self.index_path}"
@@ -423,7 +381,7 @@ class DatasetViewer:
         with self._connect() as database:
             row = database.execute(
                 """
-                SELECT sample_count, first_tick, last_tick, rgb_samples, voxel_samples
+                SELECT sample_count, first_tick, last_tick, rgb_samples, scene_samples
                 FROM indexed_datasets WHERE dataset_id = ?
                 """,
                 (dataset.dataset_id,),
@@ -479,7 +437,7 @@ class DatasetViewer:
                     manifest, "session_id", "dataset manifest"
                 ),
             ),
-            voxel_samples=int(row[4]),
+            scene_samples=int(row[4]),
             files=files,
         )
 
@@ -493,7 +451,7 @@ class DatasetViewer:
                 """
                 SELECT player_uuid, MAX(player_name), connection_id, COUNT(*),
                        MIN(server_tick), MAX(server_tick), SUM(transition_valid),
-                       SUM(rgb_available), SUM(voxel_available)
+                       SUM(rgb_available), SUM(scene_available)
                 FROM samples
                 WHERE dataset_id = ?
                 GROUP BY player_uuid, connection_id
@@ -511,7 +469,7 @@ class DatasetViewer:
                 last_tick=int(row[5]),
                 valid_transitions=int(row[6]),
                 rgb_samples=int(row[7]),
-                voxel_samples=int(row[8]),
+                scene_samples=int(row[8]),
             )
             for row in rows
         )
@@ -526,7 +484,7 @@ class DatasetViewer:
         to_tick: int | None = None,
         transition_valid: bool | None = None,
         rgb_available: bool | None = None,
-        voxel_available: bool | None = None,
+        scene_available: bool | None = None,
         limit: int = 50,
         cursor: str | None = None,
     ) -> SamplePage:
@@ -553,7 +511,7 @@ class DatasetViewer:
         for name, value in (
             ("transition_valid", transition_valid),
             ("rgb_available", rgb_available),
-            ("voxel_available", voxel_available),
+            ("scene_available", scene_available),
         ):
             if value is not None and not isinstance(value, bool):
                 raise DatasetViewerError(f"{name} must be a boolean")
@@ -574,8 +532,8 @@ class DatasetViewer:
                 int(rgb_available) if rgb_available is not None else None,
             ),
             (
-                "voxel_available",
-                int(voxel_available) if voxel_available is not None else None,
+                "scene_available",
+                int(scene_available) if scene_available is not None else None,
             ),
         )
         for expression, value in filters:
@@ -614,7 +572,7 @@ class DatasetViewer:
                 SELECT sample_id, server_tick, next_server_tick, player_uuid, player_name,
                        connection_id, dimension, position_x, position_y, position_z,
                        transition_valid, invalid_reasons, ordered_packet_count, peer_count,
-                       rgb_available, voxel_available
+                       rgb_available, scene_available
                 FROM samples
                 WHERE {" AND ".join(page_clauses)}
                 ORDER BY ordinal
@@ -643,18 +601,12 @@ class DatasetViewer:
                     if rgb.get("available") is True and rgb.get("valid") is True
                     else None
                 )
-            voxels = modalities.get("voxels")
-            if isinstance(voxels, dict):
-                for key in (
-                    "reference",
-                    "coverage_mask_reference",
-                    "unvalidated_source_reference",
-                    "unvalidated_source_coverage_mask_reference",
-                ):
-                    voxels.pop(key, None)
-                voxels["artifact_id"] = (
+            scene = modalities.get("scene")
+            if isinstance(scene, dict):
+                scene.pop("reference", None)
+                scene["artifact_id"] = (
                     sample_id
-                    if voxels.get("available") is True and voxels.get("valid") is True
+                    if _scene_is_available(scene)
                     else None
                 )
         return SampleDetail(sample_id=sample_id, record=public)
@@ -669,7 +621,7 @@ class DatasetViewer:
         to_tick: int | None = None,
         transition_valid: bool | None = None,
         rgb_available: bool | None = None,
-        voxel_available: bool | None = None,
+        scene_available: bool | None = None,
         max_points: int = 2_400,
     ) -> TrajectoryOverview:
         """Return a bounded top-down trajectory from the verified sample index.
@@ -702,7 +654,7 @@ class DatasetViewer:
         for name, value in (
             ("transition_valid", transition_valid),
             ("rgb_available", rgb_available),
-            ("voxel_available", voxel_available),
+            ("scene_available", scene_available),
         ):
             if value is not None and not isinstance(value, bool):
                 raise DatasetViewerError(f"{name} must be a boolean")
@@ -728,8 +680,8 @@ class DatasetViewer:
                 int(rgb_available) if rgb_available is not None else None,
             ),
             (
-                "voxel_available",
-                int(voxel_available) if voxel_available is not None else None,
+                "scene_available",
+                int(scene_available) if scene_available is not None else None,
             ),
         )
         for expression, value in filters:
@@ -907,30 +859,65 @@ class DatasetViewer:
                 )
         return artifact
 
-    def get_voxel_slice(
+    def get_scene_slice(
         self,
         dataset_id: str,
         sample_id: str,
         *,
         axis: str,
-        index: int,
-    ) -> VoxelSlice:
+        coordinate: int | None = None,
+        radius: int = 32,
+    ) -> object:
+        if axis not in {"x", "y", "z"}:
+            raise DatasetViewerError("scene slice axis must be x, y, or z")
+        if (
+            coordinate is not None
+            and (not isinstance(coordinate, int) or isinstance(coordinate, bool))
+        ):
+            raise DatasetViewerError("scene slice coordinate must be an integer")
+        if (
+            not isinstance(radius, int)
+            or isinstance(radius, bool)
+            or not 1 <= radius <= 64
+        ):
+            raise DatasetViewerError("scene slice radius must be between 1 and 64")
         dataset = self._dataset_by_id(dataset_id)
         sample = self._load_sample_record(dataset, sample_id)
-        modality = _sample_modality(sample, "voxels")
-        if modality.get("available") is not True or modality.get("valid") is not True:
-            raise ArtifactUnavailableError("sample has no validated voxel artifact")
-        artifact = self._verified_artifact(
-            dataset,
-            modality,
-            suffix=".json.gz",
-            maximum_bytes=self.max_voxel_compressed_bytes,
-            label="voxel",
-            media_type="application/gzip",
-        )
-        snapshot = self._read_voxel_snapshot(artifact)
-        decoded = self._validate_voxel_snapshot(snapshot, sample, modality)
-        return _voxel_slice(decoded, axis, index)
+        modality = _sample_modality(sample, "scene")
+        _validate_scene_modality(modality, dataset, "sample")
+        if not _scene_is_available(modality):
+            reason = modality.get("reason")
+            detail = f": {reason}" if isinstance(reason, str) and reason else ""
+            raise ArtifactUnavailableError(f"sample has no usable scene{detail}")
+
+        state = sample.get("state")
+        position = state.get("position") if isinstance(state, dict) else None
+        center: list[int] = []
+        for name in ("x", "y", "z"):
+            value = position.get(name) if isinstance(position, dict) else None
+            if not isinstance(value, (int, float)) or isinstance(value, bool):
+                raise DatasetValidationError(
+                    "sample with scene data must have a numeric subject position"
+                )
+            numeric = float(value)
+            if not math.isfinite(numeric):
+                raise DatasetValidationError(
+                    "sample with scene data must have a finite subject position"
+                )
+            center.append(math.floor(numeric))
+        if coordinate is None:
+            coordinate = center[{"x": 0, "y": 1, "z": 2}[axis]]
+
+        frame_id = modality["frame_id"]
+        scene_file = dataset.files[SCENE_STORE_REFERENCE]
+        with _open_verified_scene_store(scene_file) as store:
+            return store.slice(
+                frame_id,
+                axis=axis,
+                coordinate=coordinate,
+                center=(center[0], center[1], center[2]),
+                radius=radius,
+            )
 
     def _dataset_candidates(self) -> list[Path]:
         if not self.exports_root.exists():
@@ -1007,15 +994,24 @@ class DatasetViewer:
                 )
             _required_string(manifest, "session_id", "dataset manifest")
             file_envelopes = manifest.get("files")
-            if not isinstance(file_envelopes, dict) or set(file_envelopes) != set(
-                DATASET_FILES
+            if not isinstance(file_envelopes, dict):
+                raise DatasetValidationError(
+                    "dataset manifest files must be an object"
+                )
+            declared_files = set(file_envelopes)
+            if not set(CORE_DATASET_FILES).issubset(declared_files) or not (
+                declared_files <= _ALLOWED_DATASET_FILES
             ):
                 raise DatasetValidationError(
-                    "dataset manifest files must exactly match the v1 streams"
+                    "dataset manifest files must contain the v2 streams and only supported artifacts"
+                )
+            if set(entries) != {"manifest.json", *declared_files}:
+                raise DatasetValidationError(
+                    "dataset entries do not exactly match the manifest files"
                 )
 
             verified: dict[str, _VerifiedFile] = {}
-            for name in DATASET_FILES:
+            for name in sorted(declared_files):
                 envelope = file_envelopes.get(name)
                 if not isinstance(envelope, dict):
                     raise DatasetValidationError(
@@ -1044,11 +1040,38 @@ class DatasetViewer:
                     entries[name], expected_size, expected_sha, name
                 )
 
+            scene_identity: tuple[str, str, str] | None = None
+            if SCENE_STORE_REFERENCE in verified:
+                from .scene_store import validate_scene_store
+
+                expected_session = _required_string(
+                    manifest, "session_id", "dataset manifest"
+                )
+                try:
+                    scene_info = validate_scene_store(
+                        verified[SCENE_STORE_REFERENCE].path,
+                        expected_session_id=expected_session,
+                    )
+                except RecorderError as exc:
+                    raise DatasetValidationError(
+                        f"dataset scene store is invalid: {exc}"
+                    ) from exc
+                if not scene_info.coverage_complete:
+                    raise DatasetValidationError(
+                        "dataset scene store must have complete reconstruction coverage"
+                    )
+                identity = scene_info.identity
+                scene_identity = (
+                    identity.session_id,
+                    identity.player_uuid,
+                    identity.connection_id,
+                )
+
             manifest_sha = hashlib.sha256(manifest_bytes).hexdigest()
             fingerprint_hash = hashlib.sha256()
             fingerprint_hash.update(f"viewer-index-v{_INDEX_SCHEMA_VERSION}\0".encode())
             fingerprint_hash.update(manifest_sha.encode())
-            for name in DATASET_FILES:
+            for name in sorted(declared_files):
                 item = verified[name]
                 fingerprint_hash.update(
                     f"\0{name}\0{item.size_bytes}\0{item.sha256}".encode()
@@ -1059,6 +1082,7 @@ class DatasetViewer:
                 manifest=manifest,
                 manifest_sha256=manifest_sha,
                 files=verified,
+                scene_identity=scene_identity,
                 fingerprint=fingerprint_hash.hexdigest(),
                 quick_signature=quick_signature,
             )
@@ -1075,9 +1099,10 @@ class DatasetViewer:
                 f"cannot inspect dataset directory: {candidate.name}"
             ) from exc
         names = {entry.name for entry in scanned}
-        if names != _DATASET_ENTRIES:
-            missing = sorted(_DATASET_ENTRIES - names)
-            unexpected = sorted(names - _DATASET_ENTRIES)
+        required = frozenset(("manifest.json", *CORE_DATASET_FILES))
+        if not required.issubset(names) or not names <= _ALLOWED_TOP_LEVEL_ENTRIES:
+            missing = sorted(required - names)
+            unexpected = sorted(names - _ALLOWED_TOP_LEVEL_ENTRIES)
             detail = []
             if missing:
                 detail.append(f"missing {', '.join(missing)}")
@@ -1095,11 +1120,60 @@ class DatasetViewer:
                 raise DatasetValidationError(
                     f"cannot stat dataset entry: {entry.name}"
                 ) from exc
-            if entry.is_symlink() or not stat.S_ISREG(metadata.st_mode):
+            if entry.is_symlink():
                 raise DatasetValidationError(
-                    f"dataset entry must be a regular non-symlink file: {entry.name}"
+                    f"dataset entry may not be a symlink: {entry.name}"
                 )
             path = candidate / entry.name
+            if entry.name == "scene":
+                if not stat.S_ISDIR(metadata.st_mode):
+                    raise DatasetValidationError("dataset scene entry must be a directory")
+                try:
+                    children = list(os.scandir(path))
+                except OSError as exc:
+                    raise DatasetValidationError("cannot inspect dataset scene directory") from exc
+                if {child.name for child in children} != {"scene-v1.sqlite3"}:
+                    raise DatasetValidationError(
+                        "dataset scene directory must contain only scene-v1.sqlite3"
+                    )
+                scene_entry = children[0]
+                try:
+                    scene_metadata = scene_entry.stat(follow_symlinks=False)
+                except OSError as exc:
+                    raise DatasetValidationError("cannot stat dataset scene store") from exc
+                if scene_entry.is_symlink() or not stat.S_ISREG(scene_metadata.st_mode):
+                    raise DatasetValidationError(
+                        "dataset scene store must be a regular non-symlink file"
+                    )
+                scene_path = path / scene_entry.name
+                if scene_path.resolve().parent != path.resolve():
+                    raise DatasetValidationError("dataset scene store escapes its directory")
+                entries[SCENE_STORE_REFERENCE] = scene_path
+                signature.extend(
+                    (
+                        (
+                            "scene/",
+                            metadata.st_dev,
+                            metadata.st_ino,
+                            metadata.st_size,
+                            metadata.st_mtime_ns,
+                            metadata.st_ctime_ns,
+                        ),
+                        (
+                            SCENE_STORE_REFERENCE,
+                            scene_metadata.st_dev,
+                            scene_metadata.st_ino,
+                            scene_metadata.st_size,
+                            scene_metadata.st_mtime_ns,
+                            scene_metadata.st_ctime_ns,
+                        ),
+                    )
+                )
+                continue
+            if not stat.S_ISREG(metadata.st_mode):
+                raise DatasetValidationError(
+                    f"dataset entry must be a regular file: {entry.name}"
+                )
             if path.resolve().parent != candidate.resolve():
                 raise DatasetValidationError(
                     f"dataset entry escapes its directory: {entry.name}"
@@ -1132,7 +1206,7 @@ class DatasetViewer:
                     first_tick INTEGER,
                     last_tick INTEGER,
                     rgb_samples INTEGER NOT NULL,
-                    voxel_samples INTEGER NOT NULL,
+                    scene_samples INTEGER NOT NULL,
                     indexed_at_ns INTEGER NOT NULL
                 );
                 CREATE TABLE IF NOT EXISTS samples (
@@ -1156,7 +1230,7 @@ class DatasetViewer:
                     ordered_packet_count INTEGER NOT NULL,
                     peer_count INTEGER NOT NULL,
                     rgb_available INTEGER NOT NULL,
-                    voxel_available INTEGER NOT NULL,
+                    scene_available INTEGER NOT NULL,
                     PRIMARY KEY (dataset_id, ordinal),
                     UNIQUE (dataset_id, sample_id),
                     UNIQUE (dataset_id, server_tick, player_uuid, connection_id)
@@ -1164,7 +1238,7 @@ class DatasetViewer:
                 CREATE INDEX IF NOT EXISTS samples_subject_tick
                     ON samples(dataset_id, player_uuid, connection_id, server_tick);
                 CREATE INDEX IF NOT EXISTS samples_filters
-                    ON samples(dataset_id, transition_valid, rgb_available, voxel_available, ordinal);
+                    ON samples(dataset_id, transition_valid, rgb_available, scene_available, ordinal);
                 """
             )
             existing = database.execute(
@@ -1209,14 +1283,14 @@ class DatasetViewer:
                 database.execute(
                     "DELETE FROM samples WHERE dataset_id = ?", (dataset.dataset_id,)
                 )
-                sample_count, first_tick, last_tick, rgb_count, voxel_count = (
+                sample_count, first_tick, last_tick, rgb_count, scene_count = (
                     self._index_samples(database, dataset)
                 )
                 database.execute(
                     """
                     INSERT OR REPLACE INTO indexed_datasets(
                         dataset_id, fingerprint, sample_count, first_tick, last_tick,
-                        rgb_samples, voxel_samples, indexed_at_ns
+                        rgb_samples, scene_samples, indexed_at_ns
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
@@ -1226,7 +1300,7 @@ class DatasetViewer:
                         first_tick,
                         last_tick,
                         rgb_count,
-                        voxel_count,
+                        scene_count,
                         time.time_ns(),
                     ),
                 )
@@ -1249,14 +1323,23 @@ class DatasetViewer:
         first_tick: int | None = None
         last_tick: int | None = None
         rgb_count = 0
-        voxel_count = 0
+        scene_count = 0
+        scene_subject: tuple[str, str] | None = None
         try:
             handle = samples.path.open("rb")
         except OSError as exc:
             raise DatasetValidationError(
                 "cannot open samples.jsonl while indexing"
             ) from exc
-        with handle:
+        with ExitStack() as resources:
+            resources.enter_context(handle)
+            scene_reader = None
+            if SCENE_STORE_REFERENCE in dataset.files:
+                scene_reader = resources.enter_context(
+                    _open_verified_scene_store(
+                        dataset.files[SCENE_STORE_REFERENCE]
+                    )
+                )
             while True:
                 offset = handle.tell()
                 line = handle.readline(self.max_sample_line_bytes + 1)
@@ -1284,7 +1367,7 @@ class DatasetViewer:
                             session_id, server_tick, next_server_tick, player_uuid,
                             player_name, connection_id, dimension, position_x, position_y,
                             position_z, transition_valid, invalid_reasons,
-                            ordered_packet_count, peer_count, rgb_available, voxel_available
+                            ordered_packet_count, peer_count, rgb_available, scene_available
                         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (dataset.dataset_id, sample_count, *values),
@@ -1297,7 +1380,31 @@ class DatasetViewer:
                 first_tick = tick if first_tick is None else min(first_tick, tick)
                 last_tick = tick if last_tick is None else max(last_tick, tick)
                 rgb_count += int(values[-2])
-                voxel_count += int(values[-1])
+                scene_count += int(values[-1])
+                if values[-1]:
+                    if scene_reader is None:
+                        raise DatasetValidationError(
+                            f"{context}: usable scene has no scene store reader"
+                        )
+                    scene_modality = _sample_modality(record, "scene")
+                    try:
+                        frame = scene_reader.frame(scene_modality["frame_id"])
+                    except RecorderError as exc:
+                        raise DatasetValidationError(
+                            f"{context}: modalities.scene.frame_id does not resolve: {exc}"
+                        ) from exc
+                    if frame.tick != tick:
+                        raise DatasetValidationError(
+                            f"{context}: modalities.scene.frame_id resolves to tick "
+                            f"{frame.tick}, not sample tick {tick}"
+                        )
+                    subject = (str(values[6]), str(values[8]))
+                    if scene_subject is None:
+                        scene_subject = subject
+                    elif subject != scene_subject:
+                        raise DatasetValidationError(
+                            "dataset scene store may belong to only one player connection"
+                        )
                 sample_count += 1
 
         if byte_count != samples.size_bytes or digest.hexdigest() != samples.sha256:
@@ -1309,14 +1416,18 @@ class DatasetViewer:
             raise DatasetValidationError(
                 f"dataset manifest declares {declared} samples but samples.jsonl contains {sample_count}"
             )
-        return sample_count, first_tick, last_tick, rgb_count, voxel_count
+        if scene_count and SCENE_STORE_REFERENCE not in dataset.files:
+            raise DatasetValidationError(
+                "samples reference scenes but the scene store is absent from the manifest"
+            )
+        return sample_count, first_tick, last_tick, rgb_count, scene_count
 
     def _dataset_summary(self, dataset: _Dataset) -> DatasetSummary:
         with self._connect() as database:
             row = database.execute(
                 """
                 SELECT d.sample_count, d.first_tick, d.last_tick, d.rgb_samples,
-                       d.voxel_samples, COUNT(DISTINCT s.player_uuid),
+                       d.scene_samples, COUNT(DISTINCT s.player_uuid),
                        COUNT(DISTINCT s.player_uuid || char(0) || s.connection_id)
                 FROM indexed_datasets d
                 LEFT JOIN samples s ON s.dataset_id = d.dataset_id
@@ -1341,7 +1452,7 @@ class DatasetViewer:
             first_tick=_nullable_int(row[1]),
             last_tick=_nullable_int(row[2]),
             rgb_samples=int(row[3]),
-            voxel_samples=int(row[4]),
+            scene_samples=int(row[4]),
             player_count=int(row[5]),
             connection_count=int(row[6]),
             size_bytes=sum(item.size_bytes for item in dataset.files.values()),
@@ -1462,155 +1573,6 @@ class DatasetViewer:
             sha256=verified.sha256,
             media_type=media_type,
         )
-
-    def _read_voxel_snapshot(self, artifact: VerifiedArtifact) -> dict[str, Any]:
-        try:
-            with artifact.path.open("rb") as raw:
-                compressed_bytes = raw.read(self.max_voxel_compressed_bytes + 1)
-        except OSError as exc:
-            raise DatasetValidationError("voxel artifact became unavailable after validation") from exc
-        if len(compressed_bytes) > self.max_voxel_compressed_bytes:
-            raise DatasetValidationError(
-                f"voxel artifact exceeds the {self.max_voxel_compressed_bytes}-byte limit"
-            )
-        if len(compressed_bytes) != artifact.size_bytes or not hmac.compare_digest(
-            hashlib.sha256(compressed_bytes).hexdigest(), artifact.sha256
-        ):
-            raise DatasetValidationError("voxel artifact changed after validation")
-        try:
-            with gzip.GzipFile(fileobj=io.BytesIO(compressed_bytes)) as compressed:
-                payload = compressed.read(self.max_voxel_json_bytes + 1)
-        except (OSError, EOFError, gzip.BadGzipFile) as exc:
-            raise DatasetValidationError(
-                "voxel artifact is not a valid gzip stream"
-            ) from exc
-        if len(payload) > self.max_voxel_json_bytes:
-            raise DatasetValidationError(
-                f"voxel artifact expands beyond the {self.max_voxel_json_bytes}-byte limit"
-            )
-        try:
-            value = _strict_json_loads(payload)
-        except (ValueError, RecursionError) as exc:
-            raise DatasetValidationError(
-                "voxel artifact contains invalid JSON"
-            ) from exc
-        if not isinstance(value, dict):
-            raise DatasetValidationError("voxel artifact JSON must be an object")
-        return value
-
-    def _validate_voxel_snapshot(
-        self,
-        snapshot: dict[str, Any],
-        sample: dict[str, Any],
-        modality: dict[str, Any],
-    ) -> dict[str, Any]:
-        context = "voxel artifact"
-        if snapshot.get("schema_version") != 1 or isinstance(
-            snapshot.get("schema_version"), bool
-        ):
-            raise DatasetValidationError(f"{context} schema_version is unsupported")
-        if snapshot.get("format") != "mc-recorder-voxel-palette-v1":
-            raise DatasetValidationError(f"{context} format is unsupported")
-        for key in ("session_id", "player_uuid", "connection_id", "server_tick"):
-            if snapshot.get(key) != sample.get(key):
-                raise DatasetValidationError(
-                    f"{context} {key} does not match the sample"
-                )
-        if snapshot.get("dimension") != modality.get("dimension"):
-            raise DatasetValidationError(
-                f"{context} dimension does not match its modality envelope"
-            )
-        dimension = snapshot.get("dimension")
-        if not isinstance(dimension, str) or not dimension:
-            raise DatasetValidationError(f"{context} dimension is invalid")
-        origin = _voxel_vector(snapshot, "origin")
-        shape = _voxel_vector(snapshot, "shape")
-        if modality.get("origin") != snapshot.get("origin") or modality.get(
-            "shape"
-        ) != snapshot.get("shape"):
-            raise DatasetValidationError(
-                f"{context} shape or origin does not match its modality envelope"
-            )
-        if any(value <= 0 or value > self.max_voxel_axis for value in shape):
-            raise DatasetValidationError(
-                f"{context} shape is outside the configured axis bounds"
-            )
-        total = shape[0] * shape[1] * shape[2]
-        if total > self.max_voxel_cells:
-            raise DatasetValidationError(f"{context} exceeds the configured cell limit")
-        if snapshot.get("total_cells") != total or modality.get("total_cells") != total:
-            raise DatasetValidationError(f"{context} total_cells does not match shape")
-        if snapshot.get("linear_order") != "x_fastest_then_z_then_y":
-            raise DatasetValidationError(f"{context} linear order is unsupported")
-        dtype = snapshot.get("index_dtype")
-        if (
-            dtype not in {"uint16", "uint32"}
-            or snapshot.get("index_byte_order") != "little_endian"
-        ):
-            raise DatasetValidationError(f"{context} index encoding is unsupported")
-        width = 2 if dtype == "uint16" else 4
-        indices = _decode_base64(
-            snapshot.get("indices_base64"), "voxel palette indices"
-        )
-        if len(indices) != total * width:
-            raise DatasetValidationError(
-                f"{context} index byte length does not match shape"
-            )
-        coverage = _decode_base64(
-            snapshot.get("coverage_bitset_base64"), "voxel coverage bitset"
-        )
-        maximum_coverage_bytes = (total + 7) // 8
-        if len(coverage) > maximum_coverage_bytes:
-            raise DatasetValidationError(f"{context} coverage bitset is too long")
-        if coverage and total % 8 and coverage[-1] >> (total % 8):
-            raise DatasetValidationError(
-                f"{context} coverage bitset contains out-of-range bits"
-            )
-        if snapshot.get("coverage_bit_order") != "lsb0":
-            raise DatasetValidationError(f"{context} coverage bit order is unsupported")
-        covered = sum((byte >> bit) & 1 for byte in coverage for bit in range(8))
-        if (
-            snapshot.get("covered_cells") != covered
-            or modality.get("covered_cells") != covered
-        ):
-            raise DatasetValidationError(
-                f"{context} covered_cells does not match its bitset"
-            )
-        complete = covered == total
-        if (
-            snapshot.get("coverage_complete") is not complete
-            or modality.get("coverage_complete") is not complete
-        ):
-            raise DatasetValidationError(f"{context} coverage_complete is inconsistent")
-        palette = snapshot.get("palette")
-        if (
-            not isinstance(palette, list)
-            or not palette
-            or not all(isinstance(item, str) and item for item in palette)
-        ):
-            raise DatasetValidationError(f"{context} palette is invalid")
-        palette_indexes: list[int] = []
-        for offset in range(0, len(indices), width):
-            palette_index = int.from_bytes(
-                indices[offset : offset + width], "little", signed=False
-            )
-            if palette_index >= len(palette):
-                raise DatasetValidationError(
-                    f"{context} contains an out-of-range palette index"
-                )
-            palette_indexes.append(palette_index)
-        return {
-            "origin": origin,
-            "shape": shape,
-            "dimension": dimension,
-            "covered_cells": covered,
-            "total_cells": total,
-            "coverage_complete": complete,
-            "coverage": coverage,
-            "palette": tuple(palette),
-            "indices": tuple(palette_indexes),
-        }
-
 
 def _positive_limit(value: int, label: str) -> int:
     if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
@@ -1843,6 +1805,35 @@ def _verify_file(
     )
 
 
+def _assert_verified_file_metadata(verified: _VerifiedFile, label: str) -> None:
+    try:
+        current = verified.path.stat()
+    except OSError as exc:
+        raise DatasetValidationError(f"{label} became unavailable") from exc
+    if (
+        verified.path.is_symlink()
+        or not stat.S_ISREG(current.st_mode)
+        or current.st_dev != verified.device
+        or current.st_ino != verified.inode
+        or current.st_size != verified.size_bytes
+        or current.st_mtime_ns != verified.modified_ns
+        or current.st_ctime_ns != verified.changed_ns
+    ):
+        raise DatasetValidationError(f"{label} changed after dataset verification")
+
+
+@contextmanager
+def _open_verified_scene_store(verified: _VerifiedFile) -> Iterator[Any]:
+    from .scene_store import SceneStore
+
+    _assert_verified_file_metadata(verified, "scene store")
+    try:
+        with SceneStore(verified.path, validate=False) as store:
+            yield store
+    finally:
+        _assert_verified_file_metadata(verified, "scene store")
+
+
 def _sample_index_values(
     record: object, dataset: _Dataset, offset: int, length: int
 ) -> tuple[object, ...]:
@@ -1924,13 +1915,20 @@ def _sample_index_values(
     peer_states = peers.get("state") if isinstance(peers, dict) else None
     peer_count = len(peer_states) if isinstance(peer_states, list) else 0
     rgb = _sample_modality(record, "rgb")
-    voxels = _sample_modality(record, "voxels")
+    scene = _sample_modality(record, "scene")
     rgb_available = int(rgb.get("available") is True and rgb.get("valid") is True)
-    voxel_available = int(
-        voxels.get("available") is True and voxels.get("valid") is True
-    )
+    _validate_scene_modality(scene, dataset, context)
+    scene_available = int(_scene_is_available(scene))
+    if scene_available and dataset.scene_identity != (
+        session_id,
+        player_uuid,
+        connection_id,
+    ):
+        raise DatasetValidationError(
+            f"{context}: modalities.scene identity does not match its scene store"
+        )
     sample_id_input = (
-        f"sample-v1\0{dataset.fingerprint}\0{offset}\0{length}\0{session_id}\0"
+        f"sample-v2\0{dataset.fingerprint}\0{offset}\0{length}\0{session_id}\0"
         f"{server_tick}\0{player_uuid}\0{connection_id}"
     ).encode()
     sample_id = hashlib.blake2b(sample_id_input, digest_size=16).hexdigest()
@@ -1953,7 +1951,7 @@ def _sample_index_values(
         len(packets),
         peer_count,
         rgb_available,
-        voxel_available,
+        scene_available,
     )
 
 
@@ -2017,100 +2015,81 @@ def _sample_summary(row: tuple[object, ...]) -> SampleSummary:
         ordered_packet_count=int(row[12]),
         peer_count=int(row[13]),
         rgb_available=bool(row[14]),
-        voxel_available=bool(row[15]),
+        scene_available=bool(row[15]),
     )
 
 
-def _decode_base64(value: object, label: str) -> bytes:
-    if not isinstance(value, str):
-        raise DatasetValidationError(f"{label} must be a base64 string")
-    try:
-        return base64.b64decode(value, validate=True)
-    except (ValueError, binascii.Error) as exc:
-        raise DatasetValidationError(f"{label} is not valid base64") from exc
+def _scene_is_available(modality: dict[str, Any]) -> bool:
+    return (
+        modality.get("available") is True
+        and modality.get("valid") is True
+        and modality.get("coverage_complete") is True
+    )
 
 
-def _voxel_vector(mapping: dict[str, Any], key: str) -> tuple[int, int, int]:
-    value = mapping.get(key)
-    if not isinstance(value, dict):
-        raise DatasetValidationError(f"voxel artifact {key} must be an object")
-    coordinates: list[int] = []
-    for axis in ("x", "y", "z"):
-        coordinate = value.get(axis)
-        if not isinstance(coordinate, int) or isinstance(coordinate, bool):
+def _validate_scene_modality(
+    modality: dict[str, Any], dataset: _Dataset, context: str
+) -> None:
+    expected_fields = {
+        "available",
+        "valid",
+        "coverage_complete",
+        "reference",
+        "frame_id",
+        "reason",
+    }
+    if set(modality) != expected_fields:
+        raise DatasetValidationError(
+            f"{context}: modalities.scene fields do not match the v2 contract"
+        )
+    complete = modality.get("coverage_complete")
+    available = modality.get("available")
+    valid = modality.get("valid")
+    if not all(isinstance(flag, bool) for flag in (available, valid, complete)):
+        raise DatasetValidationError(
+            f"{context}: modalities.scene availability flags must be booleans"
+        )
+    reference = modality.get("reference")
+    frame_id = modality.get("frame_id")
+    reason = modality.get("reason")
+    if reason is not None and not isinstance(reason, str):
+        raise DatasetValidationError(
+            f"{context}: modalities.scene.reason must be a string or null"
+        )
+    usable = _scene_is_available(modality)
+    flags = (available, valid, complete)
+    if len(set(flags)) != 1:
+        raise DatasetValidationError(
+            f"{context}: modalities.scene availability flags are inconsistent"
+        )
+    if usable:
+        if reference != SCENE_STORE_REFERENCE:
             raise DatasetValidationError(
-                f"voxel artifact {key}.{axis} must be an integer"
+                f"{context}: modalities.scene.reference must name the contained scene store"
             )
-        coordinates.append(coordinate)
-    return coordinates[0], coordinates[1], coordinates[2]
-
-
-def _voxel_slice(decoded: dict[str, Any], axis: str, index: int) -> VoxelSlice:
-    if axis not in {"x", "y", "z"}:
-        raise DatasetViewerError("voxel slice axis must be x, y, or z")
-    if not isinstance(index, int) or isinstance(index, bool):
-        raise DatasetViewerError("voxel slice index must be an integer")
-    origin = decoded["origin"]
-    shape = decoded["shape"]
-    axis_index = {"x": 0, "y": 1, "z": 2}[axis]
-    if not 0 <= index < shape[axis_index]:
-        raise DatasetViewerError(
-            f"voxel slice index is outside axis size {shape[axis_index]}"
+        valid_frame_id = (
+            isinstance(frame_id, str)
+            and bool(frame_id)
+            and len(frame_id.encode("utf-8")) <= 512
         )
-    if axis == "x":
-        row_axis, column_axis = "y", "z"
-        coordinates: Iterable[Iterable[tuple[int, int, int]]] = (
-            ((index, y, z) for z in range(shape[2])) for y in range(shape[1])
-        )
-    elif axis == "y":
-        row_axis, column_axis = "z", "x"
-        coordinates = (
-            ((x, index, z) for x in range(shape[0])) for z in range(shape[2])
-        )
+        if not valid_frame_id:
+            raise DatasetValidationError(
+                f"{context}: modalities.scene.frame_id is invalid"
+            )
+        if SCENE_STORE_REFERENCE not in dataset.files:
+            raise DatasetValidationError(
+                f"{context}: modalities.scene references an absent scene store"
+            )
+        if reason is not None:
+            raise DatasetValidationError(
+                f"{context}: usable modalities.scene must not have an unavailable reason"
+            )
     else:
-        row_axis, column_axis = "y", "x"
-        coordinates = (
-            ((x, y, index) for x in range(shape[0])) for y in range(shape[1])
-        )
-
-    coverage: bytes = decoded["coverage"]
-    palette: tuple[str, ...] = decoded["palette"]
-    indices: tuple[int, ...] = decoded["indices"]
-    rows: list[tuple[VoxelCell, ...]] = []
-    for coordinate_row in coordinates:
-        cells: list[VoxelCell] = []
-        for x, y, z in coordinate_row:
-            linear = x + shape[0] * (z + shape[2] * y)
-            covered = linear // 8 < len(coverage) and bool(
-                coverage[linear // 8] & (1 << (linear % 8))
+        if reference is not None or frame_id is not None:
+            raise DatasetValidationError(
+                f"{context}: unavailable modalities.scene must not reference a frame"
             )
-            palette_index = indices[linear] if covered else None
-            cells.append(
-                VoxelCell(
-                    x=origin[0] + x,
-                    y=origin[1] + y,
-                    z=origin[2] + z,
-                    covered=covered,
-                    block_state=palette[palette_index]
-                    if palette_index is not None
-                    else None,
-                    palette_index=palette_index,
-                )
+        if reason != "scene_not_attached":
+            raise DatasetValidationError(
+                f"{context}: unavailable modalities.scene reason must be scene_not_attached"
             )
-        rows.append(tuple(cells))
-    slice_covered = sum(cell.covered for row in rows for cell in row)
-    slice_total = sum(len(row) for row in rows)
-    return VoxelSlice(
-        axis=axis,
-        index=index,
-        world_coordinate=origin[axis_index] + index,
-        row_axis=row_axis,
-        column_axis=column_axis,
-        origin=origin,
-        shape=shape,
-        dimension=decoded["dimension"],
-        covered_cells=slice_covered,
-        total_cells=slice_total,
-        coverage_complete=slice_covered == slice_total,
-        cells=tuple(rows),
-    )

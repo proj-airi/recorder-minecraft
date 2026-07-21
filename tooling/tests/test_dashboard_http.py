@@ -11,7 +11,9 @@ import time
 import unittest
 import urllib.error
 import urllib.request
+from dataclasses import dataclass
 from pathlib import Path
+from types import MappingProxyType
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
@@ -25,14 +27,58 @@ from mc_recorder.dashboard_http import (
 )
 from mc_recorder.dataset_viewer import DatasetValidationError, VerifiedArtifact
 from mc_recorder.errors import RecorderError
+from mc_recorder.scene_store import SceneIdentity, SceneStoreBuilder
 
 
 def _write_viewer_dataset(exports: Path) -> None:
     exports.mkdir(parents=True, exist_ok=True)
     directory = exports / "http-smoke.dataset"
     directory.mkdir()
+    scene_directory = directory / "scene"
+    scene_directory.mkdir()
+    scene_path = scene_directory / "scene-v1.sqlite3"
+    builder = SceneStoreBuilder(
+        SceneIdentity("session-http", "player-http", "connection-http"),
+        start_tick=20,
+        end_tick=20,
+    )
+    try:
+        builder.set_section(
+            20,
+            "minecraft:overworld",
+            (0, 4, 0),
+            ({"name": "minecraft:grass_block"},),
+            (0,) * 4096,
+        )
+        builder.set_entity(
+            20,
+            "cow-http",
+            {
+                "dimension": "minecraft:overworld",
+                "type_id": "minecraft:cow",
+                "network_id": 3,
+                "position": [1.5, 64.0, 2.5],
+                "aabb": [1.0, 63.5, 2.0, 2.0, 65.0, 3.0],
+            },
+        )
+        builder.set_block_entity(
+            20,
+            "minecraft:overworld",
+            (2, 64, 2),
+            {"type_id": "minecraft:chest"},
+        )
+        builder.add_frame(
+            20,
+            frame_id="scene-frame-http-20",
+            replay_tick=20,
+            dimension="minecraft:overworld",
+            subject_position=(1.0, 64.0, 2.0),
+        )
+        builder.publish(scene_path, expected_ticks=(20,))
+    finally:
+        builder.close()
     sample = {
-        "schema_version": 1,
+        "schema_version": 2,
         "sample_key": {
             "session_id": "session-http",
             "server_tick": 20,
@@ -78,11 +124,13 @@ def _write_viewer_dataset(exports: Path) -> None:
         "peers": {"state": [], "next_state": []},
         "modalities": {
             "rgb": {"available": False, "valid": False, "reference": None, "reason": "missing"},
-            "voxels": {
-                "available": False,
-                "valid": False,
-                "reference": None,
-                "reason": "missing",
+            "scene": {
+                "available": True,
+                "valid": True,
+                "coverage_complete": True,
+                "reference": "scene/scene-v1.sqlite3",
+                "frame_id": "scene-frame-http-20",
+                "reason": None,
             },
         },
         "transition_valid": True,
@@ -99,18 +147,30 @@ def _write_viewer_dataset(exports: Path) -> None:
     for name, data in streams.items():
         (directory / name).write_bytes(data)
     manifest = {
-        "schema_version": 1,
+        "schema_version": 2,
         "owner": "mc-recorder",
-        "format": "mc-recorder-jsonl-v1",
+        "format": "mc-recorder-jsonl-v2",
         "created_at": "2026-07-21T00:00:00+00:00",
         "session_id": "session-http",
         "source": {"sealed_epochs": 1, "active_epochs_skipped": 0},
         "selection": {"players": [], "from_tick": None, "to_tick": None},
-        "modalities": {},
+        "modalities": {
+            "scene": {
+                "availability": "per-sample",
+                "records_attached": 1,
+                "index": "modalities.jsonl",
+                "store": "scene/scene-v1.sqlite3",
+            }
+        },
         "files": {
             name: {"size_bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}
             for name, data in streams.items()
         },
+    }
+    scene_data = scene_path.read_bytes()
+    manifest["files"]["scene/scene-v1.sqlite3"] = {
+        "size_bytes": len(scene_data),
+        "sha256": hashlib.sha256(scene_data).hexdigest(),
     }
     (directory / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
 
@@ -168,6 +228,8 @@ class DashboardHTTPTest(unittest.TestCase):
         self.assertIn(b"Right click", body)
         self.assertIn(b"Mouse delta", body)
         self.assertIn(b"SERVER-RECONSTRUCTED", body)
+        self.assertIn(b"Scene slice", body)
+        self.assertNotIn(b"Voxel slice", body)
         self.assertEqual("no-store", response.headers["Cache-Control"])
 
     def test_status_returns_csrf_and_mutations_enforce_it(self) -> None:
@@ -243,6 +305,7 @@ class DashboardHTTPTest(unittest.TestCase):
 
         metadata = json.load(self._request(f"/api/v1/datasets/{dataset_id}"))
         self.assertEqual("session-http", metadata["session_id"])
+        self.assertEqual(1, metadata["scene_samples"])
         trajectory = json.load(
             self._request(
                 f"/api/v1/datasets/{dataset_id}/trajectory?max_points=10"
@@ -255,14 +318,86 @@ class DashboardHTTPTest(unittest.TestCase):
         )
         sample_id = page["samples"][0]["sample_id"]
         self.assertRegex(sample_id, r"^[0-9a-f]{32}$")
+        self.assertTrue(page["samples"][0]["scene_available"])
         detail = json.load(
             self._request(f"/api/v1/datasets/{dataset_id}/samples/{sample_id}")
         )
         self.assertEqual(20, detail["record"]["server_tick"])
         self.assertNotIn("reference", detail["record"]["modalities"]["rgb"])
+        self.assertNotIn("reference", detail["record"]["modalities"]["scene"])
+        self.assertEqual(
+            sample_id, detail["record"]["modalities"]["scene"]["artifact_id"]
+        )
         with self.assertRaises(urllib.error.HTTPError) as raised:
             self._request(f"/api/v1/datasets/{dataset_id}/samples/{sample_id}/frame")
         self.assertEqual(404, raised.exception.code)
+        raised.exception.close()
+
+        scene_slice = json.load(
+            self._request(
+                f"/api/v1/datasets/{dataset_id}/samples/{sample_id}/scene-slice"
+                "?axis=y&radius=4"
+            )
+        )
+        self.assertEqual((64, 9, 9), (
+            scene_slice["coordinate"],
+            scene_slice["width"],
+            scene_slice["height"],
+        ))
+        self.assertEqual(81, len(scene_slice["cells"]))
+        self.assertTrue(any(cell["color"] for cell in scene_slice["cells"]))
+        self.assertEqual("minecraft:cow", scene_slice["entities"][0]["type_id"])
+        self.assertEqual(
+            "minecraft:chest", scene_slice["block_entities"][0]["type_id"]
+        )
+        self.assertEqual(
+            {"row": 2.5, "column": 1.5},
+            {
+                key: scene_slice["entities"][0]["projection"][key]
+                for key in ("row", "column")
+            },
+        )
+        overridden = json.load(
+            self._request(
+                f"/api/v1/datasets/{dataset_id}/samples/{sample_id}/scene-slice"
+                "?axis=x&coordinate=1&radius=1"
+            )
+        )
+        self.assertEqual(("x", 1, 3, 3), (
+            overridden["axis"],
+            overridden["coordinate"],
+            overridden["width"],
+            overridden["height"],
+        ))
+        scene_page = json.load(
+            self._request(
+                f"/api/v1/datasets/{dataset_id}/samples?modality=scene"
+            )
+        )
+        self.assertEqual(1, scene_page["total"])
+        for invalid_radius in (0, 65):
+            with self.subTest(radius=invalid_radius), self.assertRaises(
+                urllib.error.HTTPError
+            ) as raised:
+                self._request(
+                    f"/api/v1/datasets/{dataset_id}/samples/{sample_id}/scene-slice"
+                    f"?radius={invalid_radius}"
+                )
+            self.assertEqual(400, raised.exception.code)
+            raised.exception.close()
+
+        with self.assertRaises(urllib.error.HTTPError) as raised:
+            self._request(
+                f"/api/v1/datasets/{dataset_id}/samples/{sample_id}/voxel-slice"
+            )
+        self.assertEqual(404, raised.exception.code)
+        raised.exception.close()
+
+        with self.assertRaises(urllib.error.HTTPError) as raised:
+            self._request(
+                f"/api/v1/datasets/{dataset_id}/samples?modality=voxels"
+            )
+        self.assertEqual(400, raised.exception.code)
         raised.exception.close()
 
         with self.assertRaises(urllib.error.HTTPError) as raised:
@@ -443,6 +578,83 @@ class DashboardHTTPTest(unittest.TestCase):
 
 
 class DashboardServeConfigurationTest(unittest.TestCase):
+    def test_serializes_scene_slice_colors_and_projected_summaries(self) -> None:
+        @dataclass(frozen=True)
+        class Cell:
+            world_position: tuple[int, int, int]
+            covered: bool
+            block_state: object
+
+        @dataclass(frozen=True)
+        class Slice:
+            tick: int
+            dimension: str
+            axis: str
+            coordinate: int
+            row_axis: str
+            column_axis: str
+            row_origin: int
+            column_origin: int
+            width: int
+            height: int
+            cells: tuple[Cell, ...]
+            entities: tuple[object, ...]
+            block_entities: tuple[object, ...]
+            coverage_complete: bool
+
+        value = Slice(
+            tick=20,
+            dimension="minecraft:overworld",
+            axis="y",
+            coordinate=64,
+            row_axis="z",
+            column_axis="x",
+            row_origin=1,
+            column_origin=0,
+            width=2,
+            height=1,
+            cells=(
+                Cell((0, 64, 1), True, MappingProxyType({"name": "minecraft:stone"})),
+                Cell((1, 64, 1), False, None),
+            ),
+            entities=(
+                MappingProxyType(
+                    {
+                        "type_id": "minecraft:pig",
+                        "position": (0.5, 64.0, 1.5),
+                        "aabb": (0.1, 63.5, 1.1, 0.9, 64.5, 1.9),
+                    }
+                ),
+            ),
+            block_entities=(
+                MappingProxyType(
+                    {
+                        "type_id": "minecraft:chest",
+                        "position": (1, 64, 1),
+                    }
+                ),
+            ),
+            coverage_complete=False,
+        )
+
+        payload = DashboardHandler._scene_slice_payload(value)
+
+        self.assertEqual((2, 1), (payload["width"], payload["height"]))
+        self.assertEqual(2, len(payload["cells"]))
+        self.assertEqual(3, len(payload["cells"][0]["color"]))
+        self.assertIsNone(payload["cells"][1]["color"])
+        self.assertEqual(
+            {"row": 1.5, "column": 0.5},
+            {
+                key: payload["entities"][0]["projection"][key]
+                for key in ("row", "column")
+            },
+        )
+        self.assertEqual(
+            {"row": 1.0, "column": 1.0},
+            payload["block_entities"][0]["projection"],
+        )
+
     def test_rgb_recheck_uses_a_bounded_read(self) -> None:
         path = mock.MagicMock()
         handle = mock.MagicMock()

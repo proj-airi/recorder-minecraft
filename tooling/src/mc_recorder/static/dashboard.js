@@ -17,6 +17,8 @@ const state = {
   trajectory: null,
   trajectoryRequest: 0,
   trajectoryResizeObserver: null,
+  sceneRequest: 0,
+  sceneAbort: null,
 };
 
 const trajectoryColors = ["#78e08f", "#74b9ff", "#f1c75b", "#ff8f70", "#c7a6ff", "#61d6d0", "#f58bc8", "#b4d273"];
@@ -310,6 +312,7 @@ function populateDatasetFilters(metadata) {
 
 async function selectDataset(id) {
   stopPlayback();
+  cancelSceneLoad();
   try {
     state.dataset = await api(`/api/v1/datasets/${id}`);
     state.currentSample = null;
@@ -402,8 +405,8 @@ async function loadSamplePage() {
       $("#state-diff").textContent = JSON.stringify({ unavailable: "no matching sample" }, null, 2);
       $("#sample-actions").textContent = JSON.stringify({ unavailable: "no matching sample" }, null, 2);
       $("#sample-provenance").textContent = JSON.stringify({ unavailable: "no matching sample" }, null, 2);
-      $("#load-voxel").disabled = true;
-      $("#voxel-note").textContent = "";
+      cancelSceneLoad();
+      clearScene("No samples match these filters.");
       renderInputHud(null);
       drawTrajectory();
     }
@@ -669,6 +672,7 @@ function renderInputHud(sample) {
 
 async function showSample(index) {
   if (!state.samples.length) return;
+  cancelSceneLoad();
   const bounded = Math.max(0, Math.min(index, state.samples.length - 1));
   const summary = state.samples[bounded];
   const sampleId = summary.sample_id;
@@ -683,8 +687,8 @@ async function showSample(index) {
     $("#sample-position").textContent = `${bounded + 1} / ${state.samples.length}`;
     const key = sample.sample_key || {};
     const rgb = sample.modalities?.rgb || {};
-    const voxels = sample.modalities?.voxels || {};
-    $("#sample-summary").innerHTML = `<p class="eyebrow">TICK ${escapeHtml(key.server_tick ?? sample.server_tick)}</p><h2>${escapeHtml(sample.state?.player_name || key.player_uuid || sample.player_uuid)}</h2><dl><dt>Connection</dt><dd>${escapeHtml(key.connection_id || sample.connection_id)}</dd><dt>Transition</dt><dd>${sample.transition_valid ? "valid" : "invalid"}</dd><dt>RGB</dt><dd>${rgb.available && rgb.valid ? "available" : escapeHtml(rgb.reason || "missing")}</dd><dt>Voxels</dt><dd>${voxels.available && voxels.valid ? "available" : escapeHtml(voxels.reason || "missing")}</dd></dl>`;
+    const scene = sample.modalities?.scene || {};
+    $("#sample-summary").innerHTML = `<p class="eyebrow">TICK ${escapeHtml(key.server_tick ?? sample.server_tick)}</p><h2>${escapeHtml(sample.state?.player_name || key.player_uuid || sample.player_uuid)}</h2><dl><dt>Connection</dt><dd>${escapeHtml(key.connection_id || sample.connection_id)}</dd><dt>Transition</dt><dd>${sample.transition_valid ? "valid" : "invalid"}</dd><dt>RGB</dt><dd>${rgb.available && rgb.valid ? "available" : escapeHtml(rgb.reason || "missing")}</dd><dt>Scene</dt><dd>${sceneUsable(scene) ? "available" : escapeHtml(scene.reason || "missing")}</dd></dl>`;
     const difference = stateDifference(sample.state, sample.next_state);
     $("#state-diff").textContent = JSON.stringify(Object.keys(difference).length ? difference : { unchanged: true }, null, 2);
     $("#sample-actions").textContent = JSON.stringify({ reconstructed_control: sample.action?.reconstructed_control, ordered_packets: sample.action?.ordered_packets || [] }, null, 2);
@@ -703,8 +707,12 @@ async function showSample(index) {
       image.hidden = true;
       missing.hidden = false;
     }
-    $("#load-voxel").disabled = !(voxels.available && voxels.valid && voxels.artifact_id);
-    setDefaultVoxelIndex();
+    setDefaultSceneCoordinate();
+    if (sceneUsable(scene)) loadScene();
+    else {
+      cancelSceneLoad();
+      clearScene(sceneUnavailableMessage(scene));
+    }
   } catch (error) {
     toast(error.message);
   }
@@ -746,36 +754,168 @@ function togglePlay() {
   state.playbackTimer = setTimeout(playbackStep, 50);
 }
 
-function setDefaultVoxelIndex() {
-  const shape = state.currentSample?.record?.modalities?.voxels?.shape;
-  const axis = $("#voxel-axis").value;
-  if (shape && Number.isInteger(shape[axis]) && shape[axis] > 0) {
-    $("#voxel-index").value = Math.floor(shape[axis] / 2);
-  } else {
-    $("#voxel-index").value = -1;
-  }
+function sceneUsable(scene) {
+  return Boolean(
+    scene?.available === true
+    && scene?.valid === true
+    && scene?.coverage_complete === true
+    && scene?.artifact_id
+    && typeof scene?.frame_id === "string"
+    && scene.frame_id.length > 0,
+  );
 }
 
-async function loadVoxel() {
-  if (!state.currentSample) return;
+function sceneUnavailableMessage(scene) {
+  const reason = scene?.reason;
+  if (reason === "scene_not_attached") return "Scene data has not been generated for this dataset.";
+  if (typeof reason === "string" && reason.includes("queued")) return "Scene generation is queued.";
+  if (typeof reason === "string" && reason.includes("failed")) return `Scene generation failed: ${reason}`;
+  return typeof reason === "string" && reason ? `Scene unavailable: ${reason}` : "Scene data is unavailable for this sample.";
+}
+
+function cancelSceneLoad() {
+  state.sceneRequest += 1;
+  if (state.sceneAbort) state.sceneAbort.abort();
+  state.sceneAbort = null;
+}
+
+function clearScene(message) {
+  const canvas = $("#scene-canvas");
+  canvas.getContext("2d").clearRect(0, 0, canvas.width, canvas.height);
+  canvas.width = 0;
+  canvas.height = 0;
+  canvas.style.width = "";
+  canvas.style.height = "";
+  $("#scene-empty").hidden = false;
+  $("#scene-empty").textContent = message;
+  $("#scene-legend").innerHTML = "";
+  $("#scene-note").textContent = "";
+  $("#load-scene").disabled = true;
+}
+
+function setDefaultSceneCoordinate() {
+  const axis = $("#scene-axis").value;
+  const value = state.currentSample?.record?.state?.position?.[axis];
+  $("#scene-coordinate").value = finiteCoordinate(value) ? Math.floor(value) : "";
+}
+
+function sceneProjection(item, slice) {
+  const projection = item?.projection || item?.projected;
+  if (finiteCoordinate(projection?.column) && finiteCoordinate(projection?.row)) return projection;
+  const position = item?.position || item?.world_position;
+  const coordinate = (axis) => {
+    if (Array.isArray(position)) return position[{ x: 0, y: 1, z: 2 }[axis]];
+    return position?.[axis];
+  };
+  const column = coordinate(slice.column_axis);
+  const row = coordinate(slice.row_axis);
+  return finiteCoordinate(column) && finiteCoordinate(row) ? { column, row } : null;
+}
+
+function drawSceneMarker(context, item, slice, kind) {
+  const projection = sceneProjection(item, slice);
+  if (!projection) return;
+  const markerOffset = kind === "block-entity" ? .5 : 0;
+  const x = projection.column - slice.column_origin + markerOffset;
+  const y = projection.row - slice.row_origin + markerOffset;
+  if (x < 0 || x > slice.width || y < 0 || y > slice.height) return;
+  context.save();
+  if (kind === "entity") {
+    const minColumn = projection.min_column;
+    const maxColumn = projection.max_column;
+    const minRow = projection.min_row;
+    const maxRow = projection.max_row;
+    if ([minColumn, maxColumn, minRow, maxRow].every(finiteCoordinate)) {
+      context.fillStyle = "#ffcf5a55";
+      context.fillRect(
+        minColumn - slice.column_origin,
+        minRow - slice.row_origin,
+        Math.max(.15, maxColumn - minColumn),
+        Math.max(.15, maxRow - minRow),
+      );
+    }
+    context.fillStyle = "#ffcf5a";
+    context.strokeStyle = "#2b1f05";
+    context.lineWidth = .35;
+    context.beginPath();
+    context.arc(x, y, .65, 0, Math.PI * 2);
+    context.fill();
+    context.stroke();
+  } else {
+    context.translate(x, y);
+    context.rotate(Math.PI / 4);
+    context.fillStyle = "#61d6d0";
+    context.strokeStyle = "#082c2a";
+    context.lineWidth = .3;
+    context.fillRect(-.55, -.55, 1.1, 1.1);
+    context.strokeRect(-.55, -.55, 1.1, 1.1);
+  }
+  context.restore();
+}
+
+function sceneLabel(item, fallback) {
+  return item?.name || item?.custom_name || item?.type_id || item?.type || item?.entity_type || item?.block_entity_type || fallback;
+}
+
+function drawScene(slice) {
+  const canvas = $("#scene-canvas");
+  const context = canvas.getContext("2d");
+  canvas.width = slice.width;
+  canvas.height = slice.height;
+  const image = context.createImageData(slice.width, slice.height);
+  (slice.cells || []).forEach((cell, index) => {
+    const color = cell.covered ? (cell.color || [120, 160, 125]) : [24, 29, 26];
+    image.data.set([...color, 255], index * 4);
+  });
+  context.putImageData(image, 0, 0);
+  (slice.entities || []).forEach((entity) => drawSceneMarker(context, entity, slice, "entity"));
+  (slice.block_entities || []).forEach((entity) => drawSceneMarker(context, entity, slice, "block-entity"));
+  canvas.style.width = `${Math.min(720, slice.width * 8)}px`;
+  canvas.style.height = `${Math.min(720, slice.height * 8)}px`;
+  canvas.setAttribute("aria-label", `${slice.axis} axis scene slice at world coordinate ${slice.coordinate}`);
+  $("#scene-empty").hidden = true;
+  const entityKinds = new Set((slice.entities || []).map((item) => sceneLabel(item, "entity")));
+  const blockEntityKinds = new Set((slice.block_entities || []).map((item) => sceneLabel(item, "block entity")));
+  $("#scene-legend").innerHTML = [
+    ...[...entityKinds].map((label) => `<span class="scene-legend-item"><i class="scene-legend-marker"></i>${escapeHtml(label)}</span>`),
+    ...[...blockEntityKinds].map((label) => `<span class="scene-legend-item"><i class="scene-legend-marker block-entity"></i>${escapeHtml(label)}</span>`),
+  ].join("");
+  const covered = (slice.cells || []).filter((cell) => cell.covered).length;
+  $("#scene-note").textContent = `${covered}/${slice.cells?.length || 0} cells covered · ${slice.axis}=${slice.coordinate} · ${(slice.entities || []).length} entities · ${(slice.block_entities || []).length} block entities; dark cells are unknown`;
+}
+
+async function loadScene() {
+  const current = state.currentSample;
+  const scene = current?.record?.modalities?.scene;
+  if (!current || !sceneUsable(scene)) {
+    cancelSceneLoad();
+    clearScene(sceneUnavailableMessage(scene));
+    return;
+  }
+  cancelSceneLoad();
+  const request = state.sceneRequest;
+  const controller = new AbortController();
+  state.sceneAbort = controller;
+  clearScene("Loading scene slice…");
+  $("#load-scene").disabled = true;
   try {
-    const axis = $("#voxel-axis").value;
-    const index = $("#voxel-index").value;
-    const slice = await api(`/api/v1/datasets/${state.dataset.id}/samples/${state.currentSample.id}/voxel-slice?axis=${axis}&index=${index}`);
-    const canvas = $("#voxel-canvas");
-    const context = canvas.getContext("2d");
-    canvas.width = slice.width;
-    canvas.height = slice.height;
-    const image = context.createImageData(slice.width, slice.height);
-    (slice.cells || []).forEach((cell, cellIndex) => {
-      const color = cell.covered ? (cell.color || [120, 160, 125]) : [28, 32, 30];
-      image.data.set([...color, 255], cellIndex * 4);
+    const query = new URLSearchParams({
+      axis: $("#scene-axis").value,
+      coordinate: $("#scene-coordinate").value,
+      radius: $("#scene-radius").value,
     });
-    context.putImageData(image, 0, 0);
-    canvas.style.width = `${Math.min(640, slice.width * 8)}px`;
-    $("#voxel-note").textContent = `${slice.covered_cells}/${slice.total_cells} slice cells covered · ${slice.axis}=${slice.world_coordinate}; dark cells are unknown`;
+    const slice = await api(`/api/v1/datasets/${state.dataset.id}/samples/${current.id}/scene-slice?${query}`, { signal: controller.signal });
+    if (request !== state.sceneRequest || current.id !== state.currentSample?.id) return;
+    drawScene(slice);
   } catch (error) {
+    if (error.name === "AbortError" || request !== state.sceneRequest) return;
+    clearScene(`Scene slice failed: ${error.message}`);
     toast(error.message);
+  } finally {
+    if (request === state.sceneRequest) {
+      state.sceneAbort = null;
+      $("#load-scene").disabled = false;
+    }
   }
 }
 
@@ -793,6 +933,7 @@ $("#refresh-renders").addEventListener("click", refreshRenders);
 $("#refresh-datasets").addEventListener("click", refreshDatasets);
 $("#apply-filters").addEventListener("click", () => {
   stopPlayback();
+  cancelSceneLoad();
   state.sampleRequest += 1;
   state.currentSample = null;
   state.currentCursor = null;
@@ -808,8 +949,10 @@ $("#sample-prev").addEventListener("click", () => { stopPlayback(); showSample(s
 $("#sample-next").addEventListener("click", () => { stopPlayback(); showSample(state.sampleIndex + 1); });
 $("#sample-slider").addEventListener("input", (event) => { stopPlayback(); showSample(Number(event.target.value)); });
 $("#sample-play").addEventListener("click", togglePlay);
-$("#voxel-axis").addEventListener("change", setDefaultVoxelIndex);
-$("#load-voxel").addEventListener("click", loadVoxel);
+$("#scene-axis").addEventListener("change", () => { setDefaultSceneCoordinate(); loadScene(); });
+$("#scene-coordinate").addEventListener("change", loadScene);
+$("#scene-radius").addEventListener("change", loadScene);
+$("#load-scene").addEventListener("click", loadScene);
 
 if ("ResizeObserver" in window) {
   state.trajectoryResizeObserver = new ResizeObserver(() => drawTrajectory());
