@@ -15,6 +15,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -31,7 +32,7 @@ public final class ResultPublisher {
         SceneSpoolWriter.OutputStats output,
         FlashbackSceneExtractor.ExtractionStats extraction
     ) throws IOException {
-        JsonObject result = common(job, "complete");
+        JsonObject result = common(job, "complete", extraction.sourceReplays());
         JsonObject stream = new JsonObject();
         stream.addProperty("format", SceneSpoolWriter.FORMAT);
         stream.addProperty("path", job.output().toString());
@@ -58,7 +59,7 @@ public final class ResultPublisher {
     }
 
     public static void failed(SceneJob job, Throwable failure) throws IOException {
-        JsonObject result = common(job, "failed");
+        JsonObject result = common(job, "failed", job.sourceReplays());
         String message = failure.getClass().getSimpleName() + ": " + String.valueOf(failure.getMessage());
         if (message.length() > MAX_ERROR_CHARS) {
             message = message.substring(0, MAX_ERROR_CHARS);
@@ -67,7 +68,11 @@ public final class ResultPublisher {
         publish(job.result(), result);
     }
 
-    private static JsonObject common(SceneJob job, String status) {
+    private static JsonObject common(
+        SceneJob job,
+        String status,
+        List<SceneJob.SourceReplay> sourceReplays
+    ) {
         JsonObject result = new JsonObject();
         result.addProperty("schema_version", 1);
         result.addProperty("result_type", RESULT_TYPE);
@@ -80,13 +85,13 @@ public final class ResultPublisher {
         result.addProperty("global_end_tick", job.globalEndTick());
         result.addProperty("scope", SceneJob.SCOPE);
         result.addProperty("metadata_policy", SceneJob.METADATA_POLICY);
-        result.add("source_replays", sourceReplays(job));
+        result.add("source_replays", sourceReplays(sourceReplays));
         return result;
     }
 
-    private static JsonArray sourceReplays(SceneJob job) {
+    private static JsonArray sourceReplays(List<SceneJob.SourceReplay> sourceReplays) {
         JsonArray sources = new JsonArray();
-        for (SceneJob.SourceReplay source : job.sourceReplays()) {
+        for (SceneJob.SourceReplay source : sourceReplays) {
             JsonObject value = new JsonObject();
             value.addProperty("segment_id", source.segmentId().toString());
             value.addProperty("segment_ordinal", source.segmentOrdinal());

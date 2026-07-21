@@ -24,6 +24,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -83,10 +84,63 @@ public final class SceneSpoolWriter implements AutoCloseable {
         segmentBeginPending = true;
     }
 
+    /**
+     * Canonicalizes one complete snapshot without advancing the output state.
+     *
+     * <p>This lets the replay adapter compare overlapping segment snapshots before deciding which
+     * single frame owns the global tick. Blob creation is content-addressed and therefore remains
+     * deterministic when an equal overlap is suppressed.</p>
+     */
+    public PreparedSnapshot prepareSnapshot(SceneFrame frame, SceneSnapshot snapshot) throws IOException {
+        ensureOpen();
+        SceneJob.SourceReplay source = requireActiveSegment(frame);
+        Map<SectionIdentity, String> currentSections = new LinkedHashMap<>();
+        for (SceneSnapshot.Section section : snapshot.sections()) {
+            SectionIdentity identity = new SectionIdentity(
+                section.dimension(), section.x(), section.y(), section.z()
+            );
+            currentSections.put(identity, writeSectionBlob(section.snapshot()));
+        }
+
+        Map<String, String> currentEntities = new LinkedHashMap<>();
+        for (SceneSnapshot.Entity entity : snapshot.entities()) {
+            currentEntities.put(instanceId(source, entity), writeEntityBlob(entity));
+        }
+
+        Map<BlockEntityIdentity, String> currentBlockEntities = new LinkedHashMap<>();
+        for (SceneSnapshot.BlockEntity blockEntity : snapshot.blockEntities()) {
+            BlockEntityIdentity identity = new BlockEntityIdentity(
+                blockEntity.dimension(), blockEntity.x(), blockEntity.y(), blockEntity.z()
+            );
+            currentBlockEntities.put(identity, writeBlockEntityBlob(blockEntity));
+        }
+
+        return new PreparedSnapshot(
+            source.segmentId(), currentSections, currentEntities, currentBlockEntities,
+            snapshotSha256(
+                frame.dimension(), currentSections, currentEntities, currentBlockEntities, source
+            )
+        );
+    }
+
+    /** Emits source provenance for a segment that owns any selected marker, including an overlap. */
+    public void writeSegmentBegin(SceneFrame frame) throws IOException {
+        ensureOpen();
+        writeSegmentBegin(frame, requireActiveSegment(frame));
+    }
+
     /** Writes one selected frame and the normalized state delta effective at its global tick. */
     public void writeFrame(SceneFrame frame, SceneSnapshot snapshot) throws IOException {
+        writeFrame(frame, prepareSnapshot(frame, snapshot));
+    }
+
+    /** Writes one unique selected frame from a snapshot prepared for overlap comparison. */
+    public void writeFrame(SceneFrame frame, PreparedSnapshot snapshot) throws IOException {
         ensureOpen();
-        SceneJob.SourceReplay source = requirePendingSegment(frame);
+        SceneJob.SourceReplay source = requireActiveSegment(frame);
+        if (!snapshot.segmentId.equals(source.segmentId())) {
+            throw new IllegalStateException("prepared scene snapshot belongs to a different replay segment");
+        }
         writeSegmentBegin(frame, source);
         String snapshotSha256 = writeSnapshotChanges(frame, source, snapshot);
 
@@ -178,7 +232,7 @@ public final class SceneSpoolWriter implements AutoCloseable {
         }
     }
 
-    private SceneJob.SourceReplay requirePendingSegment(SceneFrame frame) {
+    private SceneJob.SourceReplay requireActiveSegment(SceneFrame frame) {
         if (activeSegment == null || !activeSegment.segmentId().equals(frame.segmentId())) {
             throw new IllegalStateException("scene frame does not belong to the active replay segment");
         }
@@ -199,15 +253,9 @@ public final class SceneSpoolWriter implements AutoCloseable {
     private String writeSnapshotChanges(
         SceneFrame frame,
         SceneJob.SourceReplay source,
-        SceneSnapshot snapshot
+        PreparedSnapshot snapshot
     ) throws IOException {
-        Map<SectionIdentity, String> currentSections = new LinkedHashMap<>();
-        for (SceneSnapshot.Section section : snapshot.sections()) {
-            SectionIdentity identity = new SectionIdentity(
-                section.dimension(), section.x(), section.y(), section.z()
-            );
-            currentSections.put(identity, writeSectionBlob(section.snapshot()));
-        }
+        Map<SectionIdentity, String> currentSections = snapshot.sections;
         for (SectionIdentity identity : sortedDifference(previousSections, currentSections)) {
             writeSectionChange(frame, source, "section_unload", identity, null);
         }
@@ -217,11 +265,7 @@ public final class SceneSpoolWriter implements AutoCloseable {
             }
         }
 
-        Map<String, String> currentEntities = new LinkedHashMap<>();
-        for (SceneSnapshot.Entity entity : snapshot.entities()) {
-            String instanceId = instanceId(source, entity);
-            currentEntities.put(instanceId, writeEntityBlob(entity));
-        }
+        Map<String, String> currentEntities = snapshot.entities;
         for (String instanceId : sortedDifference(previousEntities, currentEntities)) {
             JsonObject fields = baseChange(frame, source, "entity_remove");
             fields.addProperty("instance_id", instanceId);
@@ -236,13 +280,7 @@ public final class SceneSpoolWriter implements AutoCloseable {
             }
         }
 
-        Map<BlockEntityIdentity, String> currentBlockEntities = new LinkedHashMap<>();
-        for (SceneSnapshot.BlockEntity blockEntity : snapshot.blockEntities()) {
-            BlockEntityIdentity identity = new BlockEntityIdentity(
-                blockEntity.dimension(), blockEntity.x(), blockEntity.y(), blockEntity.z()
-            );
-            currentBlockEntities.put(identity, writeBlockEntityBlob(blockEntity));
-        }
+        Map<BlockEntityIdentity, String> currentBlockEntities = snapshot.blockEntities;
         for (BlockEntityIdentity identity : sortedDifference(previousBlockEntities, currentBlockEntities)) {
             writeBlockEntityChange(frame, source, "block_entity_remove", identity, null);
         }
@@ -257,7 +295,7 @@ public final class SceneSpoolWriter implements AutoCloseable {
         previousSections = Map.copyOf(currentSections);
         previousEntities = Map.copyOf(currentEntities);
         previousBlockEntities = Map.copyOf(currentBlockEntities);
-        return snapshotSha256(frame.dimension(), currentSections, currentEntities, currentBlockEntities, source);
+        return snapshot.sha256;
     }
 
     private void writeSectionChange(
@@ -675,6 +713,34 @@ public final class SceneSpoolWriter implements AutoCloseable {
             }
             compared = Integer.compare(y, other.y);
             return compared != 0 ? compared : Integer.compare(z, other.z);
+        }
+    }
+
+    /** Opaque canonical snapshot prepared for one active replay segment. */
+    public static final class PreparedSnapshot {
+        private final UUID segmentId;
+        private final Map<SectionIdentity, String> sections;
+        private final Map<String, String> entities;
+        private final Map<BlockEntityIdentity, String> blockEntities;
+        private final String sha256;
+
+        private PreparedSnapshot(
+            UUID segmentId,
+            Map<SectionIdentity, String> sections,
+            Map<String, String> entities,
+            Map<BlockEntityIdentity, String> blockEntities,
+            String sha256
+        ) {
+            this.segmentId = segmentId;
+            // Preserve reducer insertion order because it also fixes deterministic change ordering.
+            this.sections = Collections.unmodifiableMap(new LinkedHashMap<>(sections));
+            this.entities = Collections.unmodifiableMap(new LinkedHashMap<>(entities));
+            this.blockEntities = Collections.unmodifiableMap(new LinkedHashMap<>(blockEntities));
+            this.sha256 = sha256;
+        }
+
+        public String sha256() {
+            return sha256;
         }
     }
 

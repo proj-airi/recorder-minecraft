@@ -39,7 +39,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -56,8 +55,7 @@ public final class FlashbackSceneExtractor {
     private final SceneSpoolWriter spool;
     private final ProtocolInfo<ClientGamePacketListener> gameProtocol;
     private final Map<String, Long> ignoredPackets = new java.util.TreeMap<>();
-    private final Set<Long> coveredTicks = new HashSet<>();
-    private final Set<String> markerKeys = new HashSet<>();
+    private final FrameOverlapTracker overlaps = new FrameOverlapTracker();
 
     public FlashbackSceneExtractor(SceneJob job, RegistryAccess registries, SceneSpoolWriter spool) {
         this.job = job;
@@ -73,16 +71,11 @@ public final class FlashbackSceneExtractor {
     public ExtractionStats extract(List<ReplayArchiveValidator.VerifiedSource> sources) throws IOException {
         for (ReplayArchiveValidator.VerifiedSource verified : sources) {
             extractSegment(verified.source());
-            if (coveredTicks.contains(job.globalEndTick())) {
-                break;
-            }
         }
-        for (long tick = job.globalStartTick(); tick <= job.globalEndTick(); tick++) {
-            if (!coveredTicks.contains(tick)) {
-                throw new IOException("scene replay coverage is missing global tick " + tick);
-            }
-        }
-        return new ExtractionStats(Map.copyOf(ignoredPackets), coveredTicks.size());
+        overlaps.requireCoverage(job.globalStartTick(), job.globalEndTick());
+        return new ExtractionStats(
+            Map.copyOf(ignoredPackets), overlaps.coveredTickCount(), overlaps.contributingSources()
+        );
     }
 
     private void extractSegment(SceneJob.SourceReplay source) throws IOException {
@@ -189,14 +182,14 @@ public final class FlashbackSceneExtractor {
             if (!frame.complete()) {
                 throw new IOException("timeline frame lacks the recorded subject at global tick " + frame.globalTick());
             }
-            String markerKey = context.source.segmentId() + ":" + frame.globalTick();
-            if (!markerKeys.add(markerKey)) {
-                throw new IOException("duplicate timeline marker in one replay segment at global tick " + frame.globalTick());
+            SceneSpoolWriter.PreparedSnapshot snapshot = spool.prepareSnapshot(frame, reducer.snapshot());
+            FrameOverlapTracker.Decision decision = overlaps.observe(
+                context.source, frame, snapshot.sha256()
+            );
+            spool.writeSegmentBegin(frame);
+            if (decision == FrameOverlapTracker.Decision.EMIT) {
+                spool.writeFrame(frame, snapshot);
             }
-            if (!coveredTicks.add(frame.globalTick())) {
-                return;
-            }
-            spool.writeFrame(frame, reducer.snapshot());
             if (frame.globalTick() == job.globalEndTick()) {
                 context.finished = true;
             }
@@ -346,7 +339,16 @@ public final class FlashbackSceneExtractor {
         return new SceneEvent.Vec3(vector.x, vector.y, vector.z);
     }
 
-    public record ExtractionStats(Map<String, Long> ignoredPacketCounts, long coveredTickCount) { }
+    public record ExtractionStats(
+        Map<String, Long> ignoredPacketCounts,
+        long coveredTickCount,
+        List<SceneJob.SourceReplay> sourceReplays
+    ) {
+        public ExtractionStats {
+            ignoredPacketCounts = Map.copyOf(ignoredPacketCounts);
+            sourceReplays = List.copyOf(sourceReplays);
+        }
+    }
 
     private static final class SegmentContext {
         private final SceneJob.SourceReplay source;

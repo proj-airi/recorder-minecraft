@@ -455,8 +455,23 @@ def _validate_result(job: SceneJob, value: dict[str, Any]) -> SceneStreamIntegri
         }
         for source in job.sources
     ]
-    if value.get("source_replays") != expected_sources:
-        raise RecorderError("scene extractor result source replays do not match its job")
+    contributing_sources = value.get("source_replays")
+    if not isinstance(contributing_sources, list) or not contributing_sources:
+        raise RecorderError(
+            "scene extractor result source replays must be a non-empty ordered job subset"
+        )
+    expected_index = 0
+    for contributing in contributing_sources:
+        while (
+            expected_index < len(expected_sources)
+            and expected_sources[expected_index] != contributing
+        ):
+            expected_index += 1
+        if expected_index == len(expected_sources):
+            raise RecorderError(
+                "scene extractor result source replays are not an ordered exact subset of its job"
+            )
+        expected_index += 1
     ignored = value.get("ignored_packet_counts")
     if not isinstance(ignored, dict) or any(
         not isinstance(name, str)

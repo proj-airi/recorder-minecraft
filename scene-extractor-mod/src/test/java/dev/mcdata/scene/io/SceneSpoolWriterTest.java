@@ -60,4 +60,48 @@ final class SceneSpoolWriterTest {
             assertEquals(1, blobs.count());
         }
     }
+
+    @Test
+    void emitsProvenanceForAnEqualOverlapWithoutWritingADuplicateFrame() throws IOException {
+        Path output = temporary.resolve("overlap-spool");
+        SceneJob.SourceReplay first = new SceneJob.SourceReplay(
+            UUID.fromString("33333333-3333-3333-3333-333333333333"), 0,
+            temporary.resolve("source-a.zip"), "a".repeat(64), 1
+        );
+        SceneJob.SourceReplay second = new SceneJob.SourceReplay(
+            UUID.fromString("44444444-4444-4444-4444-444444444444"), 1,
+            temporary.resolve("source-b.zip"), "b".repeat(64), 2
+        );
+        SceneSnapshot snapshot = new SceneSnapshot(List.of(), List.of(), List.of());
+        SceneFrame firstFrame = frame(first, 10, 50);
+        SceneFrame secondFrame = frame(second, 10, 1);
+
+        SceneSpoolWriter.OutputStats stats;
+        try (SceneSpoolWriter writer = new SceneSpoolWriter(output)) {
+            writer.beginSegment(first);
+            SceneSpoolWriter.PreparedSnapshot firstSnapshot = writer.prepareSnapshot(firstFrame, snapshot);
+            writer.writeFrame(firstFrame, firstSnapshot);
+
+            writer.beginSegment(second);
+            SceneSpoolWriter.PreparedSnapshot secondSnapshot = writer.prepareSnapshot(secondFrame, snapshot);
+            assertEquals(firstSnapshot.sha256(), secondSnapshot.sha256());
+            writer.writeSegmentBegin(secondFrame);
+            stats = writer.commit();
+        }
+
+        assertEquals(1, stats.frameCount());
+        assertEquals(2, stats.changeCount());
+        assertEquals(1, Files.readAllLines(output.resolve("frames.jsonl")).size());
+        List<String> changes = Files.readAllLines(output.resolve("changes.jsonl"));
+        assertEquals(2, changes.size());
+        assertTrue(changes.get(0).contains(first.segmentId().toString()));
+        assertTrue(changes.get(1).contains(second.segmentId().toString()));
+    }
+
+    private static SceneFrame frame(SceneJob.SourceReplay source, long tick, int replayTick) {
+        return new SceneFrame(
+            tick, replayTick, 4, source.segmentId(), source.segmentOrdinal(),
+            "minecraft:overworld", 7, new SceneEvent.Vec3(0, 64, 0), 0, 0, true
+        );
+    }
 }

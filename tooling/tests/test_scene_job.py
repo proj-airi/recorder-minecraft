@@ -8,6 +8,7 @@ import tempfile
 import unittest
 import zlib
 from contextlib import nullcontext
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -19,6 +20,7 @@ from mc_recorder.config import initialize, load_config
 from mc_recorder.errors import RecorderError
 from mc_recorder.render_sources import ReplaySegmentSource
 from mc_recorder.scene_job import (
+    _validate_result,
     cleanup_scene_job,
     cleanup_stale_scene_jobs,
     launch_scene_job,
@@ -152,6 +154,41 @@ class SceneJobTest(unittest.TestCase):
             self.assertEqual("full_packet_metadata", value["metadata_policy"])
             self.assertFalse(job.stream.exists())
             self.assertFalse(job.result.exists())
+
+    def test_result_accepts_only_an_ordered_contributing_source_subset(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            _config, prepared = self._prepare(root)
+            replay = prepared.sources[0].path.with_name("trailing-segment.zip")
+            replay.write_bytes(b"unused trailing replay")
+            trailing = ReplaySegmentSource(
+                segment_id="00000000-0000-4000-8000-000000000004",
+                segment_ordinal=1,
+                player_uuid=PLAYER,
+                connection_id=CONNECTION,
+                path=replay,
+                replay_format="flashback",
+                sha256=hashlib.sha256(replay.read_bytes()).hexdigest(),
+                size_bytes=replay.stat().st_size,
+            )
+            job = replace(prepared, sources=prepared.sources + (trailing,))
+            value = self._write_success(job)
+
+            integrity = _validate_result(job, value)
+
+            self.assertEqual(2, integrity.frame_count)
+            first = value["source_replays"][0]  # type: ignore[index]
+            trailing_value = {
+                "segment_id": trailing.segment_id,
+                "segment_ordinal": trailing.segment_ordinal,
+                "path": str(trailing.path),
+                "sha256": trailing.sha256,
+                "size_bytes": trailing.size_bytes,
+                "format": trailing.replay_format,
+            }
+            value["source_replays"] = [trailing_value, first]
+            with self.assertRaisesRegex(RecorderError, "ordered exact subset"):
+                _validate_result(job, value)
 
     def test_prepare_rejects_an_unpinned_new_seal_before_reading_epoch_data(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
