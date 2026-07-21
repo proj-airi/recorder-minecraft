@@ -90,6 +90,7 @@ public final class FlashbackSceneExtractor {
                 do {
                     if (initial || reader.shouldPlaySnapshot()) {
                         initial = false;
+                        reducer.beginSnapshot();
                         consumeSnapshot(reader, context);
                     }
                     while (!context.finished && consumeNext(reader, context)) {

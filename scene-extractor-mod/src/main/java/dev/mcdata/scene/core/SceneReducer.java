@@ -44,6 +44,18 @@ public final class SceneReducer {
     }
 
     public void beginSegment() {
+        beginSnapshot();
+    }
+
+    /**
+     * Replace the reducer state before consuming a complete Flashback snapshot.
+     *
+     * <p>Flashback may insert full snapshots between chunks of one replay. Those
+     * snapshots replay entity-spawn packets for entities that are already live;
+     * retaining {@code spawnGenerations} would therefore manufacture a new
+     * logical entity lifetime at every forced snapshot.</p>
+     */
+    public void beginSnapshot() {
         entities.clear();
         sections.clear();
         blockEntities.clear();

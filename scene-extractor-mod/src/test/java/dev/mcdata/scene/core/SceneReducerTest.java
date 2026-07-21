@@ -38,6 +38,38 @@ final class SceneReducerTest {
     }
 
     @Test
+    void fullSnapshotReplacesStateWithoutSplittingEntityLifetimes() {
+        SceneReducer reducer = new SceneReducer(job());
+        reducer.beginSegment();
+        reducer.apply(new SceneEvent.DimensionChanged("minecraft:overworld", 7, -64, 384));
+        reducer.apply(subject(7, new SceneEvent.Vec3(10, 70, 20)));
+        reducer.apply(entity(8));
+        reducer.apply(entity(9));
+
+        SceneSnapshot.Entity before = reducer.snapshot().entities().stream()
+            .filter(entity -> entity.networkId() == 8)
+            .findFirst()
+            .orElseThrow();
+
+        reducer.beginSnapshot();
+        reducer.apply(new SceneEvent.DimensionChanged("minecraft:overworld", 7, -64, 384));
+        reducer.apply(subject(7, new SceneEvent.Vec3(10, 70, 20)));
+        reducer.apply(new SceneEvent.EntitySpawned(
+            8, before.uuid(), before.typeId(), before.position(), before.velocity(),
+            new SceneEvent.Rotation(before.yaw(), before.pitch(), before.headYaw()),
+            before.width(), before.height(), before.spawnData(), false
+        ));
+
+        SceneSnapshot after = reducer.snapshot();
+        SceneSnapshot.Entity replaced = after.entities().stream()
+            .filter(entity -> entity.networkId() == 8)
+            .findFirst()
+            .orElseThrow();
+        assertEquals(before.generation(), replaced.generation());
+        assertFalse(after.entities().stream().anyMatch(entity -> entity.networkId() == 9));
+    }
+
+    @Test
     void preservesSubjectButClearsOtherEntitiesAcrossRespawn() {
         SceneReducer reducer = new SceneReducer(job());
         reducer.beginSegment();
