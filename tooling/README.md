@@ -382,17 +382,31 @@ mc-recorder scene extract SESSION_ID \
   --connection UUID \
   [--from-tick N] [--to-tick N] \
   --output PATH \
+  [--force] \
   [--prepare-only]
 ```
 
-The only supported scope is `client_visible`; no source world is mounted or
-generated. Every selected `player_state` tick must resolve. Segment overlaps
-must describe identical logical frames, while gaps, source mutation, unknown
-state-affecting packets, and identity mismatch fail the job. The output includes
-block states, entities, block entities, full captured metadata, exact source
-replay provenance, and a `sensitive: true` marker. Python consumers can use
-`SceneStore.frame`, `materialize_crop`, and `slice` for independent random
-access without replaying earlier ticks.
+The only supported scope is `client_visible`. No captured/source world is
+mounted; any dedicated-server bootstrap world lives in the job-owned
+`runtime/scene-jobs/<job-id>/server-run` directory and is never scene input.
+The job binds an ephemeral server port with query and RCON disabled, so it does
+not share `scene-extractor-mod/run` or conflict with the capture server.
+
+Every selected `player_state` tick must resolve. Segment overlaps must describe
+identical logical frames, while gaps, source mutation, unknown state-affecting
+packets, and identity mismatch fail the job. Before compaction the CLI verifies
+the terminal identity, policy, sources, frame/change counts, index sizes and
+SHA-256 hashes, and every referenced canonical blob's name, digest, count, and
+bytes. A frozen verification envelope is checked again before reads and before
+publication, then persisted with the store's extraction provenance.
+
+The output includes block states, entities, block entities, full captured
+metadata, exact source replay provenance, and a `sensitive: true` marker.
+Output parents are created safely; symlinked parents/outputs are rejected.
+Existing output fails by default, while `--force` replaces only a scene store
+that already validates. Python consumers can use `SceneStore.frame`,
+`materialize_crop`, and `slice` for independent random access without replaying
+earlier ticks.
 
 Attach it manually with `mc-recorder export SESSION_ID --scene PATH`; the
 dashboard generation path performs extraction, compaction, validation, and
@@ -412,10 +426,16 @@ warning threshold. Eligible units are verified whole sidecar epochs and stable,
 readable completed `.zip`/`.mcpr` replay archives. Replay archives must be
 unchanged and at least five minutes old. Active/incomplete epochs,
 recent/partial archives, directories, symlinks, and unexpected paths are never
-candidates.
+candidates. Dataset publication holds shared locks on its sealed epochs and
+replays, so retention skips them. Successful scene jobs are removed; only the
+newest failed or `--prepare-only` marker-owned job is retained, and older crash
+jobs are pruned without touching symlinked or non-owned directories.
 
 ## Tests
 
 ```sh
 PYTHONPATH=tooling/src python3 -m unittest discover -s tooling/tests -v
+./gradlew --project-dir recorder-mod build
+./gradlew --project-dir scene-extractor-mod build
+./gradlew --project-dir renderer-mod build
 ```

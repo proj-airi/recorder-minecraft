@@ -24,6 +24,7 @@ Run the automated checks:
 ```sh
 python -m unittest discover -s tooling/tests -v
 ./gradlew --project-dir recorder-mod build
+./gradlew --project-dir scene-extractor-mod build
 ./gradlew --project-dir renderer-mod build
 ```
 

@@ -54,7 +54,9 @@ packet codecs, materializes the logical client-visible scene, and structurally
 shares unchanged values in `scene-v1.sqlite3`. Unloaded cells remain unknown
 rather than becoming valid air. The default `client_visible` scope includes
 entities and block entities and is marked sensitive when full captured metadata
-is retained.
+is retained. Each job uses its own `runtime/scene-jobs/<job-id>/server-run`
+bootstrap world and an ephemeral server port; it never mounts a captured world,
+shares `scene-extractor-mod/run`, or binds the capture server's port.
 
 ## Requirements
 
@@ -147,10 +149,14 @@ streams the verified dataset into a compact, hash-bound structured-HUD sidecar,
 and the worker applies its exact inventory, selected slot, health, food, air,
 and experience state before each frame. GUI renders that complete this path are
 versioned with the `flashback_server_spectate_structured_hud_v1` presentation
-contract. Older GUI
-renders, including the spectate-only v1 contract, are shown as unsynchronized
-legacy RGB and can be replaced explicitly with **Re-render RGB**; each verified
-original import remains preserved for audit.
+contract. Older GUI renders, including the spectate-only v1 contract, are shown
+as unsynchronized legacy RGB and can be replaced explicitly with **Re-render
+RGB**; each verified original import remains preserved for audit.
+
+Successful scene jobs are removed after the contained store is published. The
+newest failed or intentional `--prepare-only` job is retained for diagnostics;
+older marker-owned crash jobs are pruned under the global operation lock.
+Non-owned or symlinked directories are never removed.
 
 On a GUI-capable machine, use the same project revision as the recorder host,
 install the Python tooling, initialize a local `recorder.toml`, and make Java 21
@@ -277,13 +283,16 @@ a GUI client:
 mc-recorder scene extract SESSION_ID \
   --player PLAYER_UUID \
   --connection CONNECTION_ID \
-  --output artifacts/scenes/SESSION_ID.sqlite3
+  --output artifacts/scenes/SESSION_ID.sqlite3 \
+  [--force]
 ```
 
 The output must cover every selected `player_state` tick. Segment gaps,
 non-identical overlap, unknown state-affecting packets, source mutation, or
 identity mismatch fail closed. `--from-tick`, `--to-tick`, and `--prepare-only`
-are available for bounded/manual operation.
+are available for bounded/manual operation. Output parents are created without
+accepting symlinked paths. Existing outputs fail by default; `--force` replaces
+only a scene store that already passes the complete owned-store validation.
 
 Attach manually completed RGB and scene results while exporting. Dashboard
 generation performs scene extraction and attachment automatically; dashboard
@@ -331,7 +340,9 @@ threshold. Eligible units are either:
 
 Active/incomplete epochs, recent/partial replay files, directories, symlinks,
 and unexpected paths are ineligible. Sidecar and replay units are independently
-evicted; do not assume coupled retention.
+evicted; do not assume coupled retention. Dataset generation holds shared locks
+on every selected sealed epoch and replay through atomic publication, so quota
+enforcement skips source units that are still in use.
 
 ```sh
 mc-recorder storage status

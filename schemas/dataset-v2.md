@@ -75,8 +75,11 @@ exactly one `(session_id, player_uuid, connection_id)`. It contains:
 - content-addressed, zlib-compressed blobs;
 - palette-encoded 16 by 16 by 16 block sections;
 - half-open section, entity, and block-entity version intervals;
+- temporal/spatial indexes for duration-independent entity and block-entity
+  crop/slice lookups;
 - frame dimension, subject position, replay tick, completeness, and metadata;
-- canonical source-replay integrity envelopes and the extraction policy.
+- canonical source-replay integrity envelopes, the extraction policy, and the
+  complete verified terminal extraction result.
 
 Frames are logical full client-visible snapshots. Physical storage uses
 structural sharing, so unchanged sections and entities are not duplicated.
@@ -88,6 +91,10 @@ codecs. At every `mc_recorder:timeline` marker it applies all preceding replay
 actions and emits a frame. Segment overlap must resolve to identical state;
 gaps, source mutation, an unknown state-affecting packet, identity mismatch, or
 missing selected tick fail the extraction. Partial stores are never attached.
+The terminal result must exactly match the job identity, policy, replay
+envelopes, selected frame count, frames/changes byte sizes and SHA-256 hashes,
+and referenced canonical blob count/bytes/digests. Compaction accepts a frozen
+verified envelope and rechecks the spool before reading and before publication.
 
 The default and currently supported scope is `client_visible`; no source world
 is mounted. Scene V1 includes block states, entities, block entities, and full
@@ -100,7 +107,10 @@ Scene stores using `metadata_policy: "full_packet_metadata"` are marked
 `sensitive: true`. Text-bearing entity and block-entity metadata present in the
 replay is retained; chat remains absent when capture was configured to ignore
 it. The dataset manifest records the contained store hash/size and the exact
-source replay segment IDs, ordinals, hashes, sizes, and format.
+source replay segment IDs, ordinals, hashes, sizes, format, and verified
+terminal result. Local source/store/stream paths are provenance strings only:
+they may no longer exist after atomic publication and must never be dereferenced
+instead of the contained hash-verified store.
 
 RGB remains a separately derived client render. Absolute RGB artifact paths are
 allowed only after the renderer index and every image have passed containment,
