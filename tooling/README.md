@@ -230,11 +230,16 @@ rebuilds its background SQLite byte-offset index under `.mc-recorder`.
 
 The viewer never sends the full `samples.jsonl` to the browser. It offers
 paginated sample summaries, player/connection and validity/modality filters,
-20 Hz timeline stepping/playback, and on-demand sample detail. Detail includes
-state-to-next-state differences, reconstructed controls, ordered packet actions,
-peer state, transition validity, and provenance. Attached RGB is fetched on
-demand. Valid voxel data is rendered as axis-selectable 2D slices with uncovered
-cells shown as unknown; V1 does not provide a full interactive 3D view.
+20 Hz timeline stepping/playback, a bounded top-down X/Z trajectory, and
+on-demand sample detail. The trajectory is derived from the verified SQLite
+index, breaks across invalid/missing transitions, and is decimated on the server
+for long captures. Synchronized held-control buttons, camera movement, and
+selected slot are explicitly labeled as server-reconstructed rather than raw
+device input. Detail includes state-to-next-state differences, reconstructed
+controls, ordered packet actions, peer state, transition validity, and
+provenance. Attached RGB is fetched on demand. Valid voxel data is rendered as
+axis-selectable 2D slices with uncovered cells shown as unknown; V1 does not
+provide a full interactive 3D view.
 
 Dataset, sample, frame, and voxel routes use opaque IDs. The server rejects
 browser-supplied paths, symlinks, artifacts outside `paths.exports`, missing
@@ -249,8 +254,8 @@ The versioned HTTP interface includes:
   `/api/v1/recordings/{id}/generate`;
 - `POST /api/v1/recordings/{id}/render` and
   `/api/v1/render-jobs/{id}/cancel` or `/api/v1/render-jobs/{id}/retry`; and
-- `GET /api/v1/datasets` plus dataset metadata, paginated `samples`, opaque
-  sample detail, `frame`, and `voxel-slice` routes below
+- `GET /api/v1/datasets` plus dataset metadata, bounded `trajectory`, paginated
+  `samples`, opaque sample detail, `frame`, and `voxel-slice` routes below
   `/api/v1/datasets/{id}`.
 
 ## Inspect and export

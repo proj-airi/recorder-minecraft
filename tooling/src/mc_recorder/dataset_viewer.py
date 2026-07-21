@@ -57,6 +57,10 @@ __all__ = (
     "SamplePage",
     "SampleSummary",
     "VerifiedArtifact",
+    "TrajectoryBounds",
+    "TrajectoryOverview",
+    "TrajectoryPoint",
+    "TrajectoryTrack",
     "VoxelCell",
     "VoxelSlice",
     "opaque_dataset_id",
@@ -199,6 +203,49 @@ class VerifiedArtifact:
     size_bytes: int
     sha256: str
     media_type: str
+
+
+@dataclass(frozen=True)
+class TrajectoryBounds:
+    min_x: float
+    max_x: float
+    min_y: float
+    max_y: float
+    min_z: float
+    max_z: float
+
+
+@dataclass(frozen=True)
+class TrajectoryPoint:
+    server_tick: int
+    x: float
+    y: float
+    z: float
+    continuous_from_previous: bool
+
+
+@dataclass(frozen=True)
+class TrajectoryTrack:
+    player_uuid: str
+    player_name: str | None
+    connection_id: str
+    dimension: str | None
+    point_count: int
+    first_tick: int
+    last_tick: int
+    distance_blocks: float
+    horizontal_distance_blocks: float
+    points: tuple[TrajectoryPoint, ...]
+
+
+@dataclass(frozen=True)
+class TrajectoryOverview:
+    total_points: int
+    returned_points: int
+    downsampled: bool
+    omitted_tracks: int
+    bounds: TrajectoryBounds | None
+    tracks: tuple[TrajectoryTrack, ...]
 
 
 @dataclass(frozen=True)
@@ -611,6 +658,233 @@ class DatasetViewer:
                     else None
                 )
         return SampleDetail(sample_id=sample_id, record=public)
+
+    def get_trajectory(
+        self,
+        dataset_id: str,
+        *,
+        player_uuid: str | None = None,
+        connection_id: str | None = None,
+        from_tick: int | None = None,
+        to_tick: int | None = None,
+        transition_valid: bool | None = None,
+        rgb_available: bool | None = None,
+        voxel_available: bool | None = None,
+        max_points: int = 2_400,
+    ) -> TrajectoryOverview:
+        """Return a bounded top-down trajectory from the verified sample index.
+
+        The source rows are streamed per player/connection/dimension track. The
+        response preserves each returned track's endpoints and marks paths that
+        cross an invalid or missing transition as discontinuous. Exact travel
+        distance is accumulated from all matching indexed positions, not from
+        only the returned display points.
+        """
+
+        dataset = self._dataset_by_id(dataset_id)
+        self._ensure_index(dataset)
+        if (
+            not isinstance(max_points, int)
+            or isinstance(max_points, bool)
+            or not 1 <= max_points <= 10_000
+        ):
+            raise DatasetViewerError("max_points must be between 1 and 10000")
+        from_tick = _optional_tick(from_tick, "from_tick")
+        to_tick = _optional_tick(to_tick, "to_tick")
+        if from_tick is not None and to_tick is not None and from_tick > to_tick:
+            raise DatasetViewerError("from_tick cannot be greater than to_tick")
+        for name, value in (
+            ("player_uuid", player_uuid),
+            ("connection_id", connection_id),
+        ):
+            if value is not None and (not isinstance(value, str) or not value):
+                raise DatasetViewerError(f"{name} must be a non-empty string")
+        for name, value in (
+            ("transition_valid", transition_valid),
+            ("rgb_available", rgb_available),
+            ("voxel_available", voxel_available),
+        ):
+            if value is not None and not isinstance(value, bool):
+                raise DatasetViewerError(f"{name} must be a boolean")
+
+        clauses = [
+            "dataset_id = ?",
+            "position_x IS NOT NULL",
+            "position_y IS NOT NULL",
+            "position_z IS NOT NULL",
+        ]
+        parameters: list[object] = [dataset.dataset_id]
+        filters = (
+            ("player_uuid", player_uuid),
+            ("connection_id", connection_id),
+            ("server_tick >=", from_tick),
+            ("server_tick <=", to_tick),
+            (
+                "transition_valid",
+                int(transition_valid) if transition_valid is not None else None,
+            ),
+            (
+                "rgb_available",
+                int(rgb_available) if rgb_available is not None else None,
+            ),
+            (
+                "voxel_available",
+                int(voxel_available) if voxel_available is not None else None,
+            ),
+        )
+        for expression, value in filters:
+            if value is not None:
+                clauses.append(
+                    f"{expression} ?"
+                    if expression.endswith((">=", "<="))
+                    else f"{expression} = ?"
+                )
+                parameters.append(value)
+        filter_sql = " AND ".join(clauses)
+
+        with self._connect() as database:
+            bounds_row = database.execute(
+                f"""
+                SELECT COUNT(*), MIN(position_x), MAX(position_x),
+                       MIN(position_y), MAX(position_y),
+                       MIN(position_z), MAX(position_z)
+                FROM samples WHERE {filter_sql}
+                """,
+                parameters,
+            ).fetchone()
+            total_points = int(bounds_row[0]) if bounds_row is not None else 0
+            if total_points == 0:
+                return TrajectoryOverview(0, 0, False, 0, None, ())
+            bounds = TrajectoryBounds(
+                min_x=float(bounds_row[1]),
+                max_x=float(bounds_row[2]),
+                min_y=float(bounds_row[3]),
+                max_y=float(bounds_row[4]),
+                min_z=float(bounds_row[5]),
+                max_z=float(bounds_row[6]),
+            )
+            track_count = int(
+                database.execute(
+                    f"""
+                    SELECT COUNT(*) FROM (
+                        SELECT 1 FROM samples
+                        WHERE {filter_sql}
+                        GROUP BY player_uuid, connection_id, dimension
+                    )
+                    """,
+                    parameters,
+                ).fetchone()[0]
+            )
+            group_rows = database.execute(
+                f"""
+                SELECT player_uuid, MAX(player_name), connection_id, dimension,
+                       COUNT(*), MIN(server_tick), MAX(server_tick), MIN(ordinal)
+                FROM samples
+                WHERE {filter_sql}
+                GROUP BY player_uuid, connection_id, dimension
+                ORDER BY MIN(ordinal), player_uuid, connection_id, dimension
+                LIMIT ?
+                """,
+                [*parameters, max_points],
+            ).fetchall()
+            budgets = _allocate_trajectory_budgets(
+                [int(row[4]) for row in group_rows], max_points
+            )
+            tracks: list[TrajectoryTrack] = []
+            for group, budget in zip(group_rows, budgets, strict=True):
+                if budget <= 0:
+                    continue
+                group_count = int(group[4])
+                group_clauses = [*clauses, "player_uuid = ?", "connection_id = ?"]
+                group_parameters = [*parameters, group[0], group[2]]
+                if group[3] is None:
+                    group_clauses.append("dimension IS NULL")
+                else:
+                    group_clauses.append("dimension = ?")
+                    group_parameters.append(group[3])
+                targets = _trajectory_target_indexes(group_count, budget)
+                cursor = database.execute(
+                    f"""
+                    SELECT server_tick, next_server_tick, position_x, position_y,
+                           position_z, transition_valid
+                    FROM samples
+                    WHERE {" AND ".join(group_clauses)}
+                    ORDER BY ordinal
+                    """,
+                    group_parameters,
+                )
+                points: list[TrajectoryPoint] = []
+                previous: tuple[int, int, float, float, float, bool] | None = None
+                continuous_since_selected = True
+                distance_blocks = 0.0
+                horizontal_distance_blocks = 0.0
+                seen = 0
+                for index, row in enumerate(cursor):
+                    current = (
+                        int(row[0]),
+                        int(row[1]),
+                        float(row[2]),
+                        float(row[3]),
+                        float(row[4]),
+                        bool(row[5]),
+                    )
+                    if previous is not None:
+                        continuous = previous[5] and current[0] == previous[1]
+                        continuous_since_selected = (
+                            continuous_since_selected and continuous
+                        )
+                        if continuous:
+                            dx = current[2] - previous[2]
+                            dy = current[3] - previous[3]
+                            dz = current[4] - previous[4]
+                            horizontal_distance_blocks += math.hypot(dx, dz)
+                            distance_blocks += math.sqrt(dx * dx + dy * dy + dz * dz)
+                    if index in targets:
+                        points.append(
+                            TrajectoryPoint(
+                                server_tick=current[0],
+                                x=current[2],
+                                y=current[3],
+                                z=current[4],
+                                continuous_from_previous=(
+                                    bool(previous) and continuous_since_selected
+                                ),
+                            )
+                        )
+                        continuous_since_selected = True
+                    previous = current
+                    seen += 1
+                if seen != group_count:
+                    raise DatasetViewerError(
+                        "dataset trajectory index changed while it was being read"
+                    )
+                tracks.append(
+                    TrajectoryTrack(
+                        player_uuid=str(group[0]),
+                        player_name=str(group[1]) if group[1] is not None else None,
+                        connection_id=str(group[2]),
+                        dimension=str(group[3]) if group[3] is not None else None,
+                        point_count=group_count,
+                        first_tick=int(group[5]),
+                        last_tick=int(group[6]),
+                        distance_blocks=distance_blocks,
+                        horizontal_distance_blocks=horizontal_distance_blocks,
+                        points=tuple(points),
+                    )
+                )
+
+        returned_points = sum(len(track.points) for track in tracks)
+        omitted_tracks = track_count - len(group_rows) + sum(
+            1 for budget in budgets if budget <= 0
+        )
+        return TrajectoryOverview(
+            total_points=total_points,
+            returned_points=returned_points,
+            downsampled=returned_points < total_points,
+            omitted_tracks=omitted_tracks,
+            bounds=bounds,
+            tracks=tuple(tracks),
+        )
 
     def resolve_rgb_artifact(self, dataset_id: str, sample_id: str) -> VerifiedArtifact:
         dataset = self._dataset_by_id(dataset_id)
@@ -1342,6 +1616,67 @@ def _positive_limit(value: int, label: str) -> int:
     if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
         raise DatasetViewerError(f"{label} must be a positive integer")
     return value
+
+
+def _allocate_trajectory_budgets(
+    point_counts: list[int], maximum: int
+) -> list[int]:
+    """Allocate a bounded display-point budget while retaining small tracks."""
+
+    if not point_counts:
+        return []
+    budgets = [0] * len(point_counts)
+    minimums = [1 if count == 1 else 2 for count in point_counts]
+    minimum_total = sum(minimums)
+    if minimum_total > maximum:
+        for index in range(min(maximum, len(point_counts))):
+            budgets[index] = 1
+        return budgets
+
+    budgets = minimums
+    remaining = maximum - minimum_total
+    capacities = [count - budget for count, budget in zip(point_counts, budgets)]
+    capacity_total = sum(capacities)
+    if remaining <= 0 or capacity_total <= 0:
+        return budgets
+    remaining = min(remaining, capacity_total)
+    exact = [remaining * capacity / capacity_total for capacity in capacities]
+    additions = [
+        min(capacity, math.floor(value))
+        for capacity, value in zip(capacities, exact)
+    ]
+    for index, addition in enumerate(additions):
+        budgets[index] += addition
+    leftover = remaining - sum(additions)
+    order = sorted(
+        range(len(point_counts)),
+        key=lambda index: (
+            exact[index] - additions[index],
+            capacities[index],
+            -index,
+        ),
+        reverse=True,
+    )
+    for index in order:
+        if leftover <= 0:
+            break
+        if budgets[index] < point_counts[index]:
+            budgets[index] += 1
+            leftover -= 1
+    return budgets
+
+
+def _trajectory_target_indexes(point_count: int, budget: int) -> frozenset[int]:
+    if point_count <= 0 or budget <= 0:
+        return frozenset()
+    if point_count <= budget:
+        return frozenset(range(point_count))
+    if budget == 1:
+        return frozenset((0,))
+    return frozenset(
+        round(index * (point_count - 1) / (budget - 1))
+        for index in range(budget)
+    )
 
 
 def _strict_json_loads(value: str | bytes | bytearray) -> object:

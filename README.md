@@ -206,10 +206,12 @@ automatically.
 
 The viewer pages through a SQLite byte-offset index rather than loading a large
 `samples.jsonl` into the browser. It provides a 20 Hz synchronized timeline and
-RGB playback when attached, player/connection filters, state-to-next-state
-differences, reconstructed controls, ordered packet actions, peers, transition
-validity, and provenance. Validated voxel artifacts are shown as axis-selectable
-2D slices; uncovered cells remain unknown. Interactive 3D voxels are outside V1.
+RGB playback when attached, a server-bounded top-down player trajectory,
+player/connection filters, live server-reconstructed control buttons,
+state-to-next-state differences, ordered packet actions, peers, transition
+validity, and provenance. The trajectory and control HUD need no GUI renderer.
+Validated voxel artifacts are shown as axis-selectable 2D slices; uncovered
+cells remain unknown. Interactive 3D voxels are outside V1.
 
 Export all recorded subjects, or add repeatable player and connection UUID filters:
 
