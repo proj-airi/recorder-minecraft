@@ -52,6 +52,7 @@ public final class FlashbackSceneExtractor {
     private final RegistryAccess registries;
     private final SceneReducer reducer;
     private final PacketTranslator translator;
+    private final SubjectInitializationBuffer subjectInitialization;
     private final SceneSpoolWriter spool;
     private final ProtocolInfo<ClientGamePacketListener> gameProtocol;
     private final Map<String, Long> ignoredPackets = new java.util.TreeMap<>();
@@ -62,6 +63,7 @@ public final class FlashbackSceneExtractor {
         this.registries = registries;
         this.reducer = new SceneReducer(job);
         this.translator = new PacketTranslator(registries, reducer);
+        this.subjectInitialization = new SubjectInitializationBuffer(reducer);
         this.spool = spool;
         this.gameProtocol = GameProtocols.CLIENTBOUND_TEMPLATE.bind(
             RegistryFriendlyByteBuf.decorator(registries)
@@ -91,6 +93,7 @@ public final class FlashbackSceneExtractor {
                     if (initial || reader.shouldPlaySnapshot()) {
                         initial = false;
                         reducer.beginSnapshot();
+                        subjectInitialization.beginSnapshot();
                         consumeSnapshot(reader, context);
                     }
                     while (!context.finished && consumeNext(reader, context)) {
@@ -161,6 +164,7 @@ public final class FlashbackSceneExtractor {
         }
         if (packet instanceof ClientboundLoginPacket login) {
             context.playerId = login.playerId();
+            subjectInitialization.identifySubject(context.playerId);
         }
 
         PacketTranslator.Translation translated = translator.translate(packet);
@@ -172,7 +176,7 @@ public final class FlashbackSceneExtractor {
             return;
         }
         for (SceneEvent event : translated.events()) {
-            reducer.apply(event);
+            subjectInitialization.apply(event);
         }
         if (translated.timeline().isPresent()) {
             dev.mcdata.scene.core.TimelineMarker marker = translated.timeline().orElseThrow();
@@ -229,7 +233,7 @@ public final class FlashbackSceneExtractor {
         SceneEvent.EntitySpawned event = translator.createLocalPlayer(
             context.playerId, uuid, x, y, z, pitch, yaw, headYaw, velocity
         );
-        reducer.apply(event);
+        subjectInitialization.spawn(event);
     }
 
     private void processMoveEntities(RegistryFriendlyByteBuf buffer, SegmentContext context) throws IOException {
@@ -246,7 +250,10 @@ public final class FlashbackSceneExtractor {
             }
             for (int movementIndex = 0; movementIndex < movements; movementIndex++) {
                 EntityMovement movement = EntityMovement.Companion.read(buffer);
-                if (!currentDimension || !reducer.hasEntity(movement.getId())) {
+                if (!currentDimension || (
+                    !reducer.hasEntity(movement.getId())
+                        && !subjectInitialization.isUnspawnedSubject(movement.getId())
+                )) {
                     ignoredPackets.merge("flashback:movement_for_untracked_entity", 1L, Long::sum);
                     continue;
                 }
@@ -259,11 +266,11 @@ public final class FlashbackSceneExtractor {
                     Set.of(),
                     movement.getOnGround()
                 );
-                reducer.apply(event);
+                subjectInitialization.apply(event);
                 SceneEvent.EntityHeadRotated head = new SceneEvent.EntityHeadRotated(
                     movement.getId(), movement.getHeadRot()
                 );
-                reducer.apply(head);
+                subjectInitialization.apply(head);
             }
         }
     }
