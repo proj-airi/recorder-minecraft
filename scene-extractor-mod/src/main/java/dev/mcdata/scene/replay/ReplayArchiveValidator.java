@@ -25,9 +25,12 @@ import java.util.zip.ZipFile;
 /** Verifies immutable bytes, embedded provenance, and source-compatible mod versions. */
 public final class ReplayArchiveValidator {
     private static final long MAX_METADATA_BYTES = 1_048_576;
+    private static final Set<String> REPLACED_CAPTURE_INFRASTRUCTURE_IDS = Set.of(
+        "mc-recorder", "server-replay"
+    );
     private static final Set<String> INFRASTRUCTURE_IDS = Set.of(
         "minecraft", "java", "fabricloader", "fabric-api", "fabric-language-kotlin",
-        "mc-recorder-scene-extractor", "mixinextras", "inject"
+        "mc-recorder", "server-replay", "mc-recorder-scene-extractor", "mixinextras", "inject"
     );
 
     public VerifiedSource verify(SceneJob job, SceneJob.SourceReplay source) throws IOException {
@@ -144,7 +147,15 @@ public final class ReplayArchiveValidator {
                 container.getMetadata().getVersion().getFriendlyString()
             );
         }
+        verifyModCompatibility(expected, loaded);
+    }
+
+    static void verifyModCompatibility(Map<String, String> expected, Map<String, String> loaded)
+        throws IOException {
         for (Map.Entry<String, String> required : expected.entrySet()) {
+            if (REPLACED_CAPTURE_INFRASTRUCTURE_IDS.contains(required.getKey())) {
+                continue;
+            }
             String actual = loaded.get(required.getKey());
             if (!required.getValue().equals(actual)) {
                 throw new IOException(
