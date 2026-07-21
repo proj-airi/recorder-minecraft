@@ -518,6 +518,9 @@ def launch_scene_job(
     gradle_cache = config.paths.runtime / "gradle-cache"
     gradle_cache.mkdir(parents=True, exist_ok=True)
     environment["GRADLE_USER_HOME"] = str(gradle_cache)
+    # Loom resolves `runDir` as a project-relative path even when Gradle is
+    # given an absolute string (it would otherwise create `project/private/...`).
+    loom_run_directory = os.path.relpath(run_directory, project)
     with _locked_sources(job.sources):
         _assert_sources_unchanged(job.sources)
         try:
@@ -526,7 +529,7 @@ def launch_scene_job(
                     str(wrapper),
                     "--project-dir",
                     str(project),
-                    f"-PmcRecorderSceneRunDir={run_directory}",
+                    f"-PmcRecorderSceneRunDir={loom_run_directory}",
                     "runServer",
                     "--no-daemon",
                     "--console=plain",

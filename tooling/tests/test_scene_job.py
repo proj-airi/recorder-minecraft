@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -238,7 +239,11 @@ class SceneJobTest(unittest.TestCase):
             environment = run.call_args.kwargs["env"]
             self.assertEqual(str(job.manifest), environment["MC_RECORDER_SCENE_JOB"])
             command = run.call_args.args[0]
-            self.assertIn(f"-PmcRecorderSceneRunDir={job.run_directory}", command)
+            self.assertIn(
+                "-PmcRecorderSceneRunDir="
+                + os.path.relpath(job.run_directory, config.mods.scene_extractor_project),
+                command,
+            )
             self.assertEqual(
                 "eula=true\n",
                 (job.run_directory / "eula.txt").read_text(),
