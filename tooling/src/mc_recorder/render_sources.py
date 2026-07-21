@@ -13,6 +13,7 @@ from .errors import RecorderError
 
 MAX_LEDGER_BYTES = 8 * 1024 * 1024
 MAX_ARCHIVE_METADATA_BYTES = 1024 * 1024
+HOTBAR_SNAPSHOT_CONTRACT = "item_stack_copy_v1"
 
 
 class ReplayNotReadyError(RecorderError):
@@ -209,7 +210,6 @@ def resolve_replay_segments(
         path = _host_replay_path(raw.get("output"), replays_root)
         archive_identity = _archive_identity(path)
         expected_identity = {
-            "schema_version": 1,
             "session_id": session,
             "segment_id": segment_id,
             "segment_ordinal": ordinal,
@@ -218,6 +218,24 @@ def resolve_replay_segments(
         }
         if any(archive_identity.get(key) != value for key, value in expected_identity.items()):
             raise RecorderError(f"replay archive identity does not match its segment ledger: {path}")
+        archive_schema = archive_identity.get("schema_version")
+        ledger_hotbar_contract = raw.get("hotbar_snapshot_contract")
+        archive_hotbar_contract = archive_identity.get("hotbar_snapshot_contract")
+        if archive_schema == 1:
+            if ledger_hotbar_contract is not None or archive_hotbar_contract is not None:
+                raise RecorderError(
+                    f"legacy replay archive has inconsistent hotbar snapshot metadata: {path}"
+                )
+        elif archive_schema == 2:
+            if (
+                ledger_hotbar_contract != HOTBAR_SNAPSHOT_CONTRACT
+                or archive_hotbar_contract != HOTBAR_SNAPSHOT_CONTRACT
+            ):
+                raise RecorderError(
+                    f"replay archive hotbar snapshot contract does not match its segment ledger: {path}"
+                )
+        else:
+            raise RecorderError(f"replay archive has an unsupported mc_recorder schema: {path}")
         sha256, size_bytes = _stable_digest(path)
         declared_size = raw.get("output_size_bytes")
         if declared_size is not None and declared_size != size_bytes:

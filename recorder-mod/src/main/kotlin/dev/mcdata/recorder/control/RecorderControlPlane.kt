@@ -436,6 +436,7 @@ class RecorderControlPlane(
         val connectionEndSequence: Long?,
         val terminalReason: String?,
         val replayFormat: String,
+        val hotbarSnapshotContract: String,
         val sourceLocation: String,
         val state: String,
         val startedAtUnixMs: Long,
@@ -455,6 +456,7 @@ class RecorderControlPlane(
             connectionEndSequence?.let { addProperty("connection_end_sequence", it) }
             terminalReason?.let { addProperty("terminal_reason", it) }
             addProperty("replay_format", replayFormat)
+            addProperty("hotbar_snapshot_contract", hotbarSnapshotContract)
             addProperty("source_location", sourceLocation)
             addProperty("state", state)
             addProperty("started_at_unix_ms", startedAtUnixMs)

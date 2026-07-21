@@ -42,11 +42,12 @@ class ReplaySegmentTrackerTest {
         metadataProvider(metadata)
 
         val embedded = metadata.getAsJsonObject("mc_recorder")
-        assertEquals(1, embedded.get("schema_version").asInt)
+        assertEquals(2, embedded.get("schema_version").asInt)
         assertEquals(SESSION, embedded.get("session_id").asString)
         assertEquals(PLAYER, embedded.get("player_uuid").asString)
         assertEquals(CONNECTION_ONE, embedded.get("connection_id").asString)
         assertEquals(0, embedded.get("segment_ordinal").asLong)
+        assertEquals("item_stack_copy_v1", embedded.get("hotbar_snapshot_contract").asString)
         assertTrue(UUID.fromString(embedded.get("segment_id").asString).toString().isNotBlank())
         assertEquals(CONNECTION_ONE, publications.last().single().connectionId)
     }
@@ -112,6 +113,7 @@ class ReplaySegmentTrackerTest {
         val segment = current.getAsJsonArray("segments").single().asJsonObject
         assertEquals(CONNECTION_ONE, segment.get("connection_id").asString)
         assertEquals("saved", segment.get("state").asString)
+        assertEquals("item_stack_copy_v1", segment.get("hotbar_snapshot_contract").asString)
         assertEquals(7, segment.get("output_size_bytes").asLong)
     }
 

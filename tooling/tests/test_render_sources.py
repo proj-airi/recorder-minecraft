@@ -20,10 +20,16 @@ CONNECTION = "00000000-0000-4000-8000-000000000002"
 SEGMENT = "00000000-0000-4000-8000-000000000003"
 
 
-def _write_archive(path: Path, *, segment: str = SEGMENT) -> None:
+def _write_archive(
+    path: Path,
+    *,
+    segment: str = SEGMENT,
+    schema_version: int = 1,
+    hotbar_snapshot_contract: str | None = None,
+) -> None:
     arcade_metadata = {
         "mc_recorder": {
-            "schema_version": 1,
+            "schema_version": schema_version,
             "session_id": SESSION,
             "segment_id": segment,
             "segment_ordinal": 0,
@@ -31,6 +37,10 @@ def _write_archive(path: Path, *, segment: str = SEGMENT) -> None:
             "connection_id": CONNECTION,
         },
     }
+    if hotbar_snapshot_contract is not None:
+        arcade_metadata["mc_recorder"][
+            "hotbar_snapshot_contract"
+        ] = hotbar_snapshot_contract
     path.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(path, "w") as archive:
         archive.writestr("metadata.json", json.dumps({"uuid": str(uuid.uuid4())}))
@@ -103,6 +113,51 @@ class ReplaySegmentResolutionTest(unittest.TestCase):
             _write_ledger(root / "control", str(replay))
 
             with self.assertRaisesRegex(RecorderError, "identity does not match"):
+                resolve_replay_segments(
+                    control_root=root / "control",
+                    replays_root=root / "replays",
+                    session_id=SESSION,
+                    player_uuid=PLAYER,
+                    connection_id=CONNECTION,
+                )
+
+    def test_accepts_schema_two_archive_with_matching_immutable_hotbar_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            replay = root / "replays" / "players" / PLAYER / "segment.zip"
+            _write_archive(
+                replay,
+                schema_version=2,
+                hotbar_snapshot_contract="item_stack_copy_v1",
+            )
+            _write_ledger(
+                root / "control",
+                str(replay),
+                hotbar_snapshot_contract="item_stack_copy_v1",
+            )
+
+            sources = resolve_replay_segments(
+                control_root=root / "control",
+                replays_root=root / "replays",
+                session_id=SESSION,
+                player_uuid=PLAYER,
+                connection_id=CONNECTION,
+            )
+
+            self.assertEqual([SEGMENT], [source.segment_id for source in sources])
+
+    def test_rejects_schema_two_archive_without_matching_hotbar_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            replay = root / "replays" / "players" / PLAYER / "segment.zip"
+            _write_archive(
+                replay,
+                schema_version=2,
+                hotbar_snapshot_contract="item_stack_copy_v1",
+            )
+            _write_ledger(root / "control", str(replay))
+
+            with self.assertRaisesRegex(RecorderError, "hotbar snapshot contract"):
                 resolve_replay_segments(
                     control_root=root / "control",
                     replays_root=root / "replays",

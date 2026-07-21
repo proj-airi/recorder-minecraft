@@ -126,17 +126,23 @@ player join, the recorder retains recorder-object identity and fills the exact
 `connection_id` when the connection ledger starts. Reconnects therefore cannot
 claim a still-saving archive from an earlier connection. Each segment row
 contains player identity, optional connection join/end boundaries, replay
-format, `recording` or `saved` state, timestamps, and host-local source/output
-locations. A saved row also includes the observed output size; host tooling
-must still enforce replay-root containment and compute a stable SHA-256 before
-using the archive.
+format, `recording` or `saved` state, timestamps, host-local source/output
+locations, and `hotbar_snapshot_contract: "item_stack_copy_v1"` for captures
+whose replay packets freeze each mutable `ItemStack` at the synchronous record
+boundary. A saved row also includes the observed output size; host tooling must
+still enforce replay-root containment and compute a stable SHA-256 before using
+the archive.
 
 Every saved replay embeds an `mc_recorder` metadata object in ServerReplay's
-`arcade_replay_meta.json` ZIP entry, with schema version, session ID, segment
-ID/ordinal, player UUID, and the connection ID when binding completed. This is
-distinct from Flashback's base `metadata.json`. The current and session-history
-segment ledgers are atomic runtime indexes, not substitutes for that archive
-metadata, timeline markers, or host integrity verification.
+`arcade_replay_meta.json` ZIP entry. Metadata schema v2 contains session ID,
+segment ID/ordinal, player UUID, the connection ID when binding completed, and
+`hotbar_snapshot_contract: "item_stack_copy_v1"`. Schema-v1 archives lack that
+marker and must not be treated as proof of faithful unselected-hotbar history:
+the older recorder could retain a live mutable stack until asynchronous ZIP
+encoding and serialize its later value. This is distinct from Flashback's base
+`metadata.json`. The current and session-history segment ledgers are atomic
+runtime indexes, not substitutes for that archive metadata, timeline markers,
+or host integrity verification.
 
 These files coordinate the dashboard; they are never source truth. Exporters
 must still validate the immutable source events and sealed epoch manifests.
