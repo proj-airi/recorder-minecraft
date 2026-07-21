@@ -293,6 +293,24 @@ class RenderQueueStoreTest(unittest.TestCase):
         with self.assertRaisesRegex(RecorderError, "cannot be retried"):
             self.store.retry(claimed["job"]["id"])
 
+    def test_cancel_is_fenced_after_server_verification_begins(self) -> None:
+        job = self.store.create(_payload())
+        self.store.register_worker("worker", worker_id=WORKER_ONE)
+        claimed = self.store.claim(WORKER_ONE, job_id=job["id"])
+        assert claimed is not None
+        attempt = claimed["attempt"]
+        verifying = self.store.mark_uploaded(
+            WORKER_ONE,
+            attempt["id"],
+            attempt["lease_token"],
+            {"upload_id": "verified-upload"},
+        )
+        self.assertEqual("verifying", verifying["state"])
+
+        with self.assertRaisesRegex(RecorderError, "server-side verifying"):
+            self.store.cancel(job["id"])
+        self.assertEqual("verifying", self.store.get(job["id"])["state"])
+
     def test_worker_updates_are_bounded_and_monotonic(self) -> None:
         self.store.create(_payload())
         self.store.register_worker("worker", worker_id=WORKER_ONE)

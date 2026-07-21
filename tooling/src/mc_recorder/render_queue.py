@@ -746,6 +746,10 @@ class RenderQueueStore:
                 raise KeyError(canonical)
             if row["state"] == "canceled":
                 return self._job(connection, row)
+            if row["state"] in SERVER_PHASES:
+                raise RecorderError(
+                    f"render job cannot be canceled while server-side {row['state']} is in progress"
+                )
             if row["state"] in {"complete", "partial", "failed"}:
                 raise RecorderError(f"render job cannot be canceled while {row['state']}")
             self._finish_active_attempt(connection, row, "canceled", "canceled by operator", now)
