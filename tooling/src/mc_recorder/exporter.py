@@ -20,6 +20,7 @@ from typing import Any, Iterable
 
 from .episodes import EpochInfo, iter_epochs, iter_events, sha256_file, validate_episode
 from .errors import RecorderError
+from .render_contract import FULL_CLIENT_PRESENTATION_CONTRACT
 
 
 EXPORT_SCHEMA_VERSION = 1
@@ -1208,6 +1209,16 @@ def _load_frame_attachments(
         no_gui = result.get("no_gui", True)
         if not isinstance(no_gui, bool):
             raise RecorderError(f"renderer result no_gui must be a boolean: {result_path}")
+        presentation_contract = result.get("presentation_contract")
+        if presentation_contract is not None:
+            if presentation_contract != FULL_CLIENT_PRESENTATION_CONTRACT:
+                raise RecorderError(
+                    f"renderer result presentation_contract is unsupported: {result_path}"
+                )
+            if no_gui:
+                raise RecorderError(
+                    f"renderer result presentation_contract requires no_gui=false: {result_path}"
+                )
         replay_sha, replay_bytes, replay_path = _renderer_replay_integrity(result, result_path)
         session = result.get("session_id")
         player = result.get("player_uuid")
@@ -1371,6 +1382,11 @@ def _load_frame_attachments(
                 "width": width,
                 "height": height,
                 "no_gui": no_gui,
+                **(
+                    {"presentation_contract": presentation_contract}
+                    if presentation_contract is not None
+                    else {}
+                ),
                 "frame_count": row_count,
                 "replay": replay_path,
                 "replay_sha256": replay_sha,

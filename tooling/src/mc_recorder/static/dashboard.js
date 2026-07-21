@@ -142,14 +142,18 @@ async function refreshRecordings() {
               : `<button class="${recording.can_generate ? "primary" : "quiet"}" data-generate="${recording.id}" ${recording.can_generate ? "" : "disabled"}>${recording.state === "failed" ? (recording.can_generate ? "Retry generate" : "Resolve conflict") : "Seal & generate"}</button>`;
             const renderJob = recording.render_job;
             let renderAction = "";
-            if (renderJob && ["failed", "partial", "canceled"].includes(renderJob.state)) {
-              renderAction = `<button class="quiet" data-render-retry="${renderJob.id}">Retry RGB</button>`;
-            } else if (renderJob && ["queued", "downloading", "rendering", "uploading", "verifying", "attaching"].includes(renderJob.state)) {
+            if (renderJob && ["queued", "downloading", "rendering", "uploading", "verifying", "attaching"].includes(renderJob.state)) {
               renderAction = `<span class="status ${badgeClass(renderJob.state)}">RGB ${escapeHtml(renderJob.state)}</span><button class="quiet" data-render-cancel="${renderJob.id}">Cancel</button>`;
-            } else if (renderJob?.state === "complete" || recording.rgb_complete) {
+            } else if (recording.can_replace_legacy_rgb) {
+              renderAction = `<span class="status warning">Warning: legacy RGB HUD is unsynchronized</span><select class="render-resolution" data-render-resolution="${recording.id}" aria-label="RGB re-render resolution"><option value="640x360">640×360</option><option value="1280x720">1280×720</option></select><button class="quiet" data-render-recording="${recording.id}" data-replace-legacy-rgb="true">Re-render RGB</button>`;
+            } else if (renderJob && ["failed", "partial", "canceled"].includes(renderJob.state)) {
+              renderAction = `<button class="quiet" data-render-retry="${renderJob.id}">Retry RGB</button>`;
+            } else if (recording.rgb_complete) {
               const presentation = {
                 full_client: "full client + hand",
                 hud_free: "HUD-free (legacy)",
+                legacy_gui_unsynchronized: "legacy GUI (unsynchronized)",
+                mixed_legacy_gui_unsynchronized: "mixed legacy GUI (unsynchronized)",
                 mixed: "mixed presentation",
               }[recording.rgb_presentation];
               renderAction = `<span class="status ok">RGB complete${presentation ? ` · ${presentation}` : ""}</span>`;
@@ -176,7 +180,10 @@ async function refreshRecordings() {
       button.addEventListener("click", () => openDataset(button.dataset.viewDataset));
     });
     document.querySelectorAll("[data-render-recording]").forEach((button) => {
-      button.addEventListener("click", () => queueRender(button.dataset.renderRecording));
+      button.addEventListener("click", () => queueRender(
+        button.dataset.renderRecording,
+        button.dataset.replaceLegacyRgb === "true",
+      ));
     });
     document.querySelectorAll("[data-render-cancel]").forEach((button) => {
       button.addEventListener("click", () => renderJobAction(button.dataset.renderCancel, "cancel"));
@@ -189,13 +196,18 @@ async function refreshRecordings() {
   }
 }
 
-async function queueRender(recordingId) {
+async function queueRender(recordingId, replaceLegacyRgb = false) {
   const resolution = document.querySelector(`[data-render-resolution="${recordingId}"]`)?.value || "640x360";
   const [width, height] = resolution.split("x").map(Number);
   try {
     const job = await api(`/api/v1/recordings/${recordingId}/render`, {
       method: "POST",
-      body: JSON.stringify({ width, height, fps: 20 }),
+      body: JSON.stringify({
+        width,
+        height,
+        fps: 20,
+        ...(replaceLegacyRgb ? { replace_legacy_rgb: true } : {}),
+      }),
     });
     toast(`RGB render ${job.state}; the foreground GUI worker will claim it when online.`);
     await Promise.all([refreshRecordings(), refreshRenders()]);

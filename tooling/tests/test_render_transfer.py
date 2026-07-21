@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
 from mc_recorder.errors import RecorderError
 from mc_recorder.exporter import CANONICAL_RENDER_RESULT_TYPE, export_episode
+from mc_recorder.render_contract import FULL_CLIENT_PRESENTATION_CONTRACT
 from mc_recorder.render_transfer import (
     PORTABLE_REQUEST_TYPE,
     create_portable_render_request,
@@ -145,6 +146,7 @@ def _request(
     range_policy: str = "exact",
     newer_cutoff: int | None = None,
     no_gui: bool = False,
+    presentation_contract: str | None = None,
 ) -> tuple[dict[str, object], Path, Path]:
     episode = _episode(root)
     replay = _replay(root)
@@ -161,6 +163,7 @@ def _request(
         range_policy=range_policy,
         newer_cutoff=newer_cutoff,
         no_gui=no_gui,
+        presentation_contract=presentation_contract,
     )
     return request, episode, replay
 
@@ -215,6 +218,15 @@ def _complete_job(
                 "width": 64,
                 "height": 64,
                 "no_gui": request["render"].get("no_gui", True),
+                **(
+                    {
+                        "presentation_contract": request["render"][
+                            "presentation_contract"
+                        ]
+                    }
+                    if "presentation_contract" in request["render"]
+                    else {}
+                ),
                 "voxel_snapshots": 0,
                 "voxel_horizontal_radius": 0,
                 "voxel_vertical_radius": 0,
@@ -342,6 +354,119 @@ class PortableRenderTransferTest(unittest.TestCase):
 
             with self.assertRaisesRegex(RecorderError, "no_gui does not match"):
                 create_render_bundle(job, root / "bundle", request, use_hardlinks=False)
+
+    def test_hud_free_worker_result_cannot_claim_a_full_client_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            request, _episode_path, replay = _request(root, no_gui=True)
+            job = _complete_job(root, request, replay)
+            result_path = job / "result.json"
+            result = json.loads(result_path.read_text())
+            result["presentation_contract"] = FULL_CLIENT_PRESENTATION_CONTRACT
+            result_path.write_text(json.dumps(result), encoding="utf-8")
+
+            with self.assertRaisesRegex(RecorderError, "requires no_gui=false"):
+                create_render_bundle(
+                    job, root / "invalid-bundle", request, use_hardlinks=False
+                )
+
+    def test_full_client_presentation_contract_round_trips_and_is_request_bound(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            request, episode, replay = _request(
+                root,
+                presentation_contract=FULL_CLIENT_PRESENTATION_CONTRACT,
+            )
+            self.assertEqual(
+                FULL_CLIENT_PRESENTATION_CONTRACT,
+                request["render"]["presentation_contract"],
+            )
+            job = _complete_job(root, request, replay)
+            job_manifest = json.loads((job / "render-job.json").read_text())
+            self.assertEqual(
+                FULL_CLIENT_PRESENTATION_CONTRACT,
+                job_manifest["presentation_contract"],
+            )
+            bundle = create_render_bundle(
+                job, root / "bundle", request, use_hardlinks=False
+            )
+            imported = import_render_bundle(
+                request, bundle.directory, replay, root / "imported"
+            )
+            canonical = json.loads(imported.result.read_text())
+            self.assertEqual(
+                FULL_CLIENT_PRESENTATION_CONTRACT,
+                canonical["presentation_contract"],
+            )
+            dataset = export_episode(
+                episode, root / "dataset", frames=[imported.directory]
+            )
+            manifest = json.loads((dataset.output / "manifest.json").read_text())
+            self.assertEqual(
+                FULL_CLIENT_PRESENTATION_CONTRACT,
+                manifest["selection"]["frame_attachments"][0][
+                    "presentation_contract"
+                ],
+            )
+
+            result_path = job / "result.json"
+            result = json.loads(result_path.read_text())
+            result.pop("presentation_contract")
+            result_path.write_text(json.dumps(result), encoding="utf-8")
+            with self.assertRaisesRegex(
+                RecorderError, "presentation_contract does not match"
+            ):
+                create_render_bundle(
+                    job, root / "mismatched-bundle", request, use_hardlinks=False
+                )
+
+    def test_presentation_contract_validation_preserves_unmarked_legacy_requests(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            request, _episode_path, replay = _request(root)
+            self.assertNotIn("presentation_contract", request["render"])
+            legacy_job = _complete_job(root, request, replay)
+            self.assertTrue(
+                create_render_bundle(
+                    legacy_job, root / "legacy-bundle", request, use_hardlinks=False
+                ).manifest.is_file()
+            )
+            result_path = legacy_job / "result.json"
+            upgraded_result = json.loads(result_path.read_text())
+            upgraded_result[
+                "presentation_contract"
+            ] = FULL_CLIENT_PRESENTATION_CONTRACT
+            result_path.write_text(json.dumps(upgraded_result), encoding="utf-8")
+            upgraded_bundle = create_render_bundle(
+                legacy_job, root / "upgraded-bundle", request, use_hardlinks=False
+            )
+            upgraded_import = import_render_bundle(
+                request,
+                upgraded_bundle.directory,
+                replay,
+                root / "upgraded-import",
+            )
+            self.assertEqual(
+                FULL_CLIENT_PRESENTATION_CONTRACT,
+                json.loads(upgraded_import.result.read_text())[
+                    "presentation_contract"
+                ],
+            )
+
+            invalid = json.loads(json.dumps(request))
+            invalid["render"]["presentation_contract"] = "unknown_v9"
+            with self.assertRaisesRegex(
+                RecorderError, "presentation_contract is unsupported"
+            ):
+                write_portable_render_request(root / "invalid.json", invalid)
+
+            hud_free = json.loads(json.dumps(request))
+            hud_free["render"]["no_gui"] = True
+            hud_free["render"][
+                "presentation_contract"
+            ] = FULL_CLIENT_PRESENTATION_CONTRACT
+            with self.assertRaisesRegex(RecorderError, "requires no_gui=false"):
+                write_portable_render_request(root / "hud-free.json", hud_free)
 
     def test_rejects_tampering_symlinks_hardlinks_and_extra_payloads(self) -> None:
         cases = ("tamper", "symlink", "hardlink", "extra")

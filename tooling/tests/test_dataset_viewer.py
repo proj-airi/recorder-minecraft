@@ -22,6 +22,7 @@ from mc_recorder.dataset_viewer import (
     DatasetViewerError,
     SampleNotFoundError,
 )
+from mc_recorder.render_contract import FULL_CLIENT_PRESENTATION_CONTRACT
 
 
 def _sha256(data: bytes) -> str:
@@ -385,13 +386,46 @@ class DatasetIndexTest(unittest.TestCase):
     def test_reports_verified_rgb_presentation_provenance(self) -> None:
         rgb = {"available": True, "valid": True}
         cases = (
-            ("full.dataset", [{"no_gui": False}], "full_client"),
+            (
+                "full.dataset",
+                [
+                    {
+                        "no_gui": False,
+                        "presentation_contract": FULL_CLIENT_PRESENTATION_CONTRACT,
+                    }
+                ],
+                "full_client",
+            ),
+            (
+                "legacy-gui.dataset",
+                [{"no_gui": False}],
+                "legacy_gui_unsynchronized",
+            ),
+            (
+                "wrong-gui.dataset",
+                [{"no_gui": False, "presentation_contract": "wrong"}],
+                "legacy_gui_unsynchronized",
+            ),
             ("hud-free.dataset", [{"no_gui": True}], "hud_free"),
             ("legacy.dataset", [{"result_sha256": "0" * 64}], "hud_free"),
             (
                 "mixed.dataset",
-                [{"no_gui": False}, {"no_gui": True}],
+                [
+                    {
+                        "no_gui": False,
+                        "presentation_contract": FULL_CLIENT_PRESENTATION_CONTRACT,
+                    },
+                    {"no_gui": True},
+                ],
                 "mixed",
+            ),
+            (
+                "mixed-legacy-gui.dataset",
+                [
+                    {"no_gui": False},
+                    {"no_gui": True},
+                ],
+                "mixed_legacy_gui_unsynchronized",
             ),
         )
         for name, attachments, expected in cases:

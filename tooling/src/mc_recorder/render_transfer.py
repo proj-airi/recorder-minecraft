@@ -20,6 +20,7 @@ from .exporter import (
     _load_frame_attachments,
     _load_voxel_attachments,
 )
+from .render_contract import FULL_CLIENT_PRESENTATION_CONTRACT
 from .render_job import (
     OWNER,
     RENDER_JOB_TYPE,
@@ -246,7 +247,7 @@ def _validate_request(value: Any) -> dict[str, Any]:
     _required_keys(
         render,
         {"width", "height", "fps", "camera", "voxel_crop"},
-        {"no_gui"},
+        {"no_gui", "presentation_contract"},
         "request render",
     )
     _integer(render.get("width"), "request render width", 64, 16_384)
@@ -257,6 +258,14 @@ def _validate_request(value: Any) -> dict[str, Any]:
         raise RecorderError("portable renderer v1 supports first_person_head only")
     if "no_gui" in render and not isinstance(render["no_gui"], bool):
         raise RecorderError("request render no_gui must be a boolean")
+    presentation_contract = render.get("presentation_contract")
+    if presentation_contract is not None:
+        if presentation_contract != FULL_CLIENT_PRESENTATION_CONTRACT:
+            raise RecorderError("request render presentation_contract is unsupported")
+        if render.get("no_gui", True):
+            raise RecorderError(
+                "request render presentation_contract requires no_gui=false"
+            )
     crop = _object(render.get("voxel_crop"), "portable render request voxel_crop")
     _required_keys(crop, {"horizontal_radius", "vertical_radius"}, set(), "request voxel_crop")
     horizontal = _integer(crop.get("horizontal_radius"), "request horizontal voxel radius", 0, 64)
@@ -316,6 +325,7 @@ def create_portable_render_request(
     range_policy: str = "exact",
     newer_cutoff: int | None = None,
     no_gui: bool = False,
+    presentation_contract: str | None = None,
 ) -> dict[str, Any]:
     validation = validate_episode(episode)
     if not validation.valid or validation.sealed_epochs == 0:
@@ -393,6 +403,8 @@ def create_portable_render_request(
             },
         },
     }
+    if presentation_contract is not None:
+        value["render"]["presentation_contract"] = presentation_contract
     return _validate_request(value)
 
 
@@ -620,6 +632,8 @@ def materialize_portable_render_job(
                 "A replay segment may cover only part of a longer player connection.",
             ],
         }
+        if "presentation_contract" in render:
+            job["presentation_contract"] = render["presentation_contract"]
         (staging / "render-job.json").write_text(
             json.dumps(job, indent=2, sort_keys=True) + "\n", encoding="utf-8"
         )
@@ -676,6 +690,24 @@ def _raw_result_range(
     result_no_gui = result.get("no_gui", True)
     if not isinstance(result_no_gui, bool) or result_no_gui != requested_no_gui:
         raise RecorderError("worker result no_gui does not match its request")
+    requested_presentation = render.get("presentation_contract")
+    result_presentation = result.get("presentation_contract")
+    if (
+        result_presentation is not None
+        and result_presentation != FULL_CLIENT_PRESENTATION_CONTRACT
+    ):
+        raise RecorderError("worker result presentation_contract is unsupported")
+    if result_presentation is not None and result_no_gui:
+        raise RecorderError(
+            "worker result presentation_contract requires no_gui=false"
+        )
+    if (
+        requested_presentation is not None
+        and result_presentation != requested_presentation
+    ):
+        raise RecorderError(
+            "worker result presentation_contract does not match its request"
+        )
     if status_text == "no_coverage":
         if timeline["range_policy"] != "intersection":
             raise RecorderError("no_coverage is valid only for an intersection request")
@@ -1149,6 +1181,8 @@ def _canonical_result(
         "artifact_root": ".",
         "worker_result": "worker-result.json",
     }
+    if "presentation_contract" in raw:
+        result["presentation_contract"] = raw["presentation_contract"]
     if status_value == "no_coverage":
         reason = raw.get("reason")
         result["reason"] = reason if isinstance(reason, str) and reason else "segment_has_no_coverage"

@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any, Iterable, Iterator
 
 from .errors import RecorderError
+from .render_contract import FULL_CLIENT_PRESENTATION_CONTRACT
 
 
 DATASET_SCHEMA_VERSION = 1
@@ -1408,7 +1409,17 @@ def _rgb_presentation(selection: object, rgb_samples: int) -> str | None:
             presentations.add("hud_free")
             continue
         no_gui = attachment.get("no_gui", True)
-        presentations.add("full_client" if no_gui is False else "hud_free")
+        if no_gui is False:
+            presentations.add(
+                "full_client"
+                if attachment.get("presentation_contract")
+                == FULL_CLIENT_PRESENTATION_CONTRACT
+                else "legacy_gui_unsynchronized"
+            )
+        else:
+            presentations.add("hud_free")
+    if "legacy_gui_unsynchronized" in presentations and len(presentations) > 1:
+        return "mixed_legacy_gui_unsynchronized"
     if len(presentations) > 1:
         return "mixed"
     return next(iter(presentations))

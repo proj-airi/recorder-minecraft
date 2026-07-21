@@ -18,6 +18,10 @@ from typing import Any, Callable, Sequence
 
 from .config import RecorderConfig
 from .errors import RecorderError
+from .render_contract import (
+    FULL_CLIENT_PRESENTATION_CAPABILITY_KEY,
+    FULL_CLIENT_PRESENTATION_CONTRACT,
+)
 from .render_job import launch_render_job
 from .render_transfer import (
     create_render_bundle,
@@ -491,15 +495,24 @@ def _register_worker(
                 "fps": [20],
                 "renderer": "minecraft-java-gui",
                 "portable_request_no_gui": True,
+                FULL_CLIENT_PRESENTATION_CAPABILITY_KEY: FULL_CLIENT_PRESENTATION_CONTRACT,
                 _STRUCTURED_CLAIM_FAILURE_CAPABILITY: True,
                 "voxel_capture": True,
             },
         },
     )
     server_capabilities = registration.get("server_capabilities")
-    if persistent and (
+    if (
         not isinstance(server_capabilities, dict)
-        or server_capabilities.get(_STRUCTURED_CLAIM_FAILURE_CAPABILITY) is not True
+        or server_capabilities.get(FULL_CLIENT_PRESENTATION_CAPABILITY_KEY)
+        != FULL_CLIENT_PRESENTATION_CONTRACT
+    ):
+        raise _IncompatibleServerError(
+            "remote mc-recorder does not support the required full-client presentation "
+            "contract; update the server tooling"
+        )
+    if persistent and (
+        server_capabilities.get(_STRUCTURED_CLAIM_FAILURE_CAPABILITY) is not True
     ):
         raise _IncompatibleServerError(
             "remote mc-recorder is too old for a safe persistent render worker; "

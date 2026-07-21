@@ -184,7 +184,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
             elif match := GENERATE_PATH.fullmatch(path):
                 job = self.application.service.generate_job(match.group(1))
             elif match := RENDER_PATH.fullmatch(path):
-                unexpected = set(body) - {"width", "height", "fps", "no_gui"}
+                unexpected = set(body) - {
+                    "width",
+                    "height",
+                    "fps",
+                    "no_gui",
+                    "replace_legacy_rgb",
+                }
                 if unexpected:
                     raise ValueError(
                         f"unsupported render setting: {sorted(unexpected)[0]}"
@@ -197,12 +203,17 @@ class DashboardHandler(BaseHTTPRequestHandler):
                         raise ValueError(f"render {setting} must be an integer")
                 if "no_gui" in body and not isinstance(body["no_gui"], bool):
                     raise ValueError("render no_gui must be a boolean")
+                if "replace_legacy_rgb" in body and not isinstance(
+                    body["replace_legacy_rgb"], bool
+                ):
+                    raise ValueError("replace_legacy_rgb must be a boolean")
                 job = self.application.service.create_render_job(
                     match.group(1),
                     width=body.get("width", 640),
                     height=body.get("height", 360),
                     fps=body.get("fps", 20),
                     no_gui=body.get("no_gui", False),
+                    replace_legacy_rgb=body.get("replace_legacy_rgb", False),
                 )
             elif match := RENDER_JOB_ACTION_PATH.fullmatch(path):
                 if body:

@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 from .episodes import iter_epochs, iter_events, sha256_file, validate_episode
 from .errors import RecorderError
+from .render_contract import FULL_CLIENT_PRESENTATION_CONTRACT
 
 if TYPE_CHECKING:
     from .config import RecorderConfig
@@ -362,6 +363,8 @@ def prepare_render_job(
                 "Voxel V1 materializes block states but not block-entity data; the replay remains source.",
             ],
         }
+        if not no_gui:
+            job["presentation_contract"] = FULL_CLIENT_PRESENTATION_CONTRACT
         manifest = staging / "render-job.json"
         manifest.write_text(json.dumps(job, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         staging.rename(output)
@@ -429,6 +432,16 @@ def launch_render_job(config: RecorderConfig, job: RenderJobResult) -> dict[str,
         or result_no_gui != expected_no_gui
     ):
         raise RecorderError("renderer result no_gui does not match the render job")
+    expected_presentation = job_manifest.get("presentation_contract")
+    if expected_presentation is not None:
+        if expected_presentation != FULL_CLIENT_PRESENTATION_CONTRACT:
+            raise RecorderError("render job presentation_contract is not supported")
+        if expected_no_gui:
+            raise RecorderError("render job presentation_contract requires no_gui=false")
+        if result.get("presentation_contract") != FULL_CLIENT_PRESENTATION_CONTRACT:
+            raise RecorderError(
+                "renderer result presentation_contract does not match the render job"
+            )
     if result.get("status") == "no_coverage":
         timeline = job_manifest.get("timeline")
         if not isinstance(timeline, dict) or timeline.get("range_policy") != "intersection":

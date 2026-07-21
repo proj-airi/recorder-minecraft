@@ -25,6 +25,7 @@ final class RenderJobSpecTest {
         assertNull(spec.segmentId());
         assertNull(spec.segmentOrdinal());
         assertTrue(spec.noGui());
+        assertNull(spec.presentationContract());
         assertEquals(temporary.resolve("progress.json").toAbsolutePath().normalize(), spec.progress());
     }
 
@@ -35,6 +36,34 @@ final class RenderJobSpecTest {
         RenderJobSpec spec = RenderJobSpec.read(job);
 
         assertFalse(spec.noGui());
+        assertNull(spec.presentationContract());
+    }
+
+    @Test
+    void acceptsCurrentPresentationContractForGuiJob() throws Exception {
+        Path job = writeJob(
+            ",\"no_gui\":false,\"presentation_contract\":\"flashback_server_spectate_v1\""
+        );
+
+        RenderJobSpec spec = RenderJobSpec.read(job);
+
+        assertEquals(ReplayPresentation.FULL_CLIENT_PRESENTATION_CONTRACT, spec.presentationContract());
+    }
+
+    @Test
+    void rejectsUnsupportedPresentationContractForGuiJob() throws Exception {
+        Path job = writeJob(",\"no_gui\":false,\"presentation_contract\":\"direct_camera_v0\"");
+
+        assertThrows(IllegalArgumentException.class, () -> RenderJobSpec.read(job));
+    }
+
+    @Test
+    void rejectsPresentationContractForNoGuiJob() throws Exception {
+        Path job = writeJob(
+            ",\"presentation_contract\":\"flashback_server_spectate_v1\""
+        );
+
+        assertThrows(IllegalArgumentException.class, () -> RenderJobSpec.read(job));
     }
 
     @Test

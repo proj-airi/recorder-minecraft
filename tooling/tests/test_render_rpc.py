@@ -13,6 +13,10 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
 from mc_recorder.errors import RecorderError
+from mc_recorder.render_contract import (
+    FULL_CLIENT_PRESENTATION_CAPABILITY_KEY,
+    FULL_CLIENT_PRESENTATION_CONTRACT,
+)
 from mc_recorder.render_rpc import RenderRpcService
 from mc_recorder.render_sources import ReplayNotReadyError, ReplaySegmentSource
 from mc_recorder.render_transfer import ImportedRenderResult
@@ -58,6 +62,9 @@ class RenderRpcServiceTest(unittest.TestCase):
                 "name": "ephemeral-test",
                 "capabilities": {
                     "portable_request_no_gui": True,
+                    FULL_CLIENT_PRESENTATION_CAPABILITY_KEY: (
+                        FULL_CLIENT_PRESENTATION_CONTRACT
+                    ),
                     "structured_claim_failure": True,
                 },
             },
@@ -280,13 +287,43 @@ class RenderRpcServiceTest(unittest.TestCase):
 
         self.assertEqual("queued", self.service.queue.get(self.job["id"])["state"])
 
+    def test_worker_must_advertise_matching_full_client_presentation_contract(self) -> None:
+        incompatible_worker = "88888888-8888-4888-8888-888888888888"
+        self.service.dispatch(
+            "register",
+            {
+                "worker_id": incompatible_worker,
+                "name": "pre-spectate-worker",
+                "capabilities": {"portable_request_no_gui": True},
+            },
+        )
+
+        with self.assertRaisesRegex(
+            RecorderError, "required full-client presentation contract"
+        ):
+            self.service.dispatch(
+                "claim",
+                {
+                    "worker_id": incompatible_worker,
+                    "job_id": self.job["id"],
+                    "lease_seconds": 120,
+                },
+            )
+
+        self.assertEqual("queued", self.service.queue.get(self.job["id"])["state"])
+
     def test_old_worker_receives_nonzero_error_for_a_failed_claim_plan(self) -> None:
         self.service.dispatch(
             "register",
             {
                 "worker_id": WORKER_ID,
                 "name": "pre-persistent-worker",
-                "capabilities": {"portable_request_no_gui": True},
+                "capabilities": {
+                    "portable_request_no_gui": True,
+                    FULL_CLIENT_PRESENTATION_CAPABILITY_KEY: (
+                        FULL_CLIENT_PRESENTATION_CONTRACT
+                    ),
+                },
             },
         )
 
@@ -328,6 +365,21 @@ class RenderRpcServiceTest(unittest.TestCase):
                 "worker-heartbeat",
                 {"worker_id": WORKER_ID, "job_id": self.job["id"]},
             )
+
+    def test_registration_advertises_the_required_presentation_contract(self) -> None:
+        result = self.service.dispatch(
+            "register",
+            {
+                "worker_id": "77777777-7777-4777-8777-777777777777",
+                "name": "contract-probe",
+                "capabilities": {},
+            },
+        )
+
+        self.assertEqual(
+            FULL_CLIENT_PRESENTATION_CONTRACT,
+            result["server_capabilities"][FULL_CLIENT_PRESENTATION_CAPABILITY_KEY],
+        )
 
     def test_claim_validates_optional_dataset_selection_bounds(self) -> None:
         base = dict(self.job["payload"])
@@ -406,7 +458,11 @@ class RenderRpcServiceTest(unittest.TestCase):
         self.job = self.service.queue.create(
             {
                 **base,
-                "render": {**base["render"], "no_gui": False},
+                "render": {
+                    **base["render"],
+                    "no_gui": False,
+                    "presentation_contract": FULL_CLIENT_PRESENTATION_CONTRACT,
+                },
             }
         )
         source = self._source(NEW_SEGMENT, 5, b"new replay")
@@ -414,6 +470,10 @@ class RenderRpcServiceTest(unittest.TestCase):
         _request, calls = self._request(claimed, NEW_SEGMENT)
 
         self.assertFalse(calls[0]["no_gui"])
+        self.assertEqual(
+            FULL_CLIENT_PRESENTATION_CONTRACT,
+            calls[0]["presentation_contract"],
+        )
 
     def test_wider_dataset_selection_authors_only_the_renderable_sample_range(self) -> None:
         payload = {

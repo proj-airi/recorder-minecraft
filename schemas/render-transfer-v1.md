@@ -49,16 +49,19 @@ Registration failures use bounded retry backoff. A lost or invalid `claim` RPC
 response is fail-stop because the server may already have leased or failed a
 job even when the worker did not receive the response.
 
-Workers advertise `portable_request_no_gui: true` and
+Workers advertise `portable_request_no_gui: true`,
+`full_client_presentation_contract: "flashback_server_spectate_v1"`, and
 `structured_claim_failure: true` before claiming. The server rejects workers
-without the portable-request capability so a strict pre-extension V1 worker
-cannot claim a request containing the optional `render.no_gui` field. The
-`register` response advertises
-`server_capabilities.structured_claim_failure: true`; continuous workers fail
-closed with upgrade guidance when that marker is absent. For a worker that
-does not advertise structured claim failures, a server-side plan failure still
-fences the attempt but returns a nonzero RPC error so an older one-shot worker
-cannot misreport it as an empty queue.
+without the portable-request capability or current presentation contract so a
+strict pre-extension V1 worker cannot claim a GUI request whose pixels require
+the replay-server spectate synchronization path. The `register` response
+advertises both `server_capabilities.structured_claim_failure: true` and the
+same full-client presentation contract. All workers fail closed when the
+contract is absent or mismatched; continuous workers additionally fail closed
+with upgrade guidance when the structured-failure marker is absent. For a
+worker that does not advertise structured claim failures, a server-side plan
+failure still fences the attempt but returns a nonzero RPC error so an older
+one-shot worker cannot misreport it as an empty queue.
 
 The SSH connection is the worker's authority boundary. RPC calls invoke only the
 deployed `mc-recorder render-rpc` actions beneath the configured remote recorder
@@ -86,8 +89,8 @@ The exact bytes of a persisted request are bound by SHA-256. Its top-level
   `newer_cutoff` for overlap ownership;
 - an opaque replay `segment_id`, monotonic `segment_ordinal`, Flashback format,
   stable byte size, and SHA-256; and
-- bounded resolution, 20 FPS, first-person-head camera, explicit `no_gui`, and
-  optional voxel radii.
+- bounded resolution, 20 FPS, first-person-head camera, explicit `no_gui`, the
+  GUI `presentation_contract`, and optional voxel radii.
 
 New requests set `render.no_gui: false`, binding full recorded client-HUD pixels
 and the normal first-person hand/item view into the request hash. A missing
@@ -99,6 +102,10 @@ For `no_gui: false`, the renderer must enter Flashback's replay-server spectate
 mode and wait for the server-confirmed camera switch. Directly changing the
 client camera is not equivalent: it bypasses Flashback's forwarding of the
 recorded hotbar, selected slot, food, saturation, and experience state.
+New GUI requests bind
+`presentation_contract: "flashback_server_spectate_v1"` into their request
+hash. A historical GUI request or result without that marker remains readable
+but is not evidence of synchronized full-client HUD pixels.
 
 Requests contain no paths, URLs, commands, JVM flags, or environment values.
 The request schema rejects unknown fields so a worker cannot smuggle executable
@@ -134,8 +141,8 @@ contains machine-specific absolute paths required by the Java client, but it
 also records the portable request ID and exact request-byte SHA-256. The local
 paths never appear in the portable request or canonical imported result. The
 worker result and canonical imported result repeat the effective `no_gui`
-policy so an artifact cannot claim a different pixel presentation than its
-request.
+policy and presentation contract so an artifact cannot claim a different pixel
+presentation than its request.
 
 ## Upload bundle
 

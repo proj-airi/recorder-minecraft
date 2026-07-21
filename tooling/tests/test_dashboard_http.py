@@ -270,6 +270,7 @@ class DashboardHTTPTest(unittest.TestCase):
                 height=720,
                 fps=20,
                 no_gui=False,
+                replace_legacy_rgb=False,
             )
 
         with mock.patch.object(
@@ -290,6 +291,28 @@ class DashboardHTTPTest(unittest.TestCase):
                 height=360,
                 fps=20,
                 no_gui=True,
+                replace_legacy_rgb=False,
+            )
+
+        with mock.patch.object(
+            self.application.service,
+            "create_render_job",
+            return_value=queued,
+        ) as replace_legacy:
+            response = self._request(
+                f"/api/v1/recordings/{recording_id}/render",
+                method="POST",
+                body=json.dumps({"replace_legacy_rgb": True}).encode(),
+                headers=headers,
+            )
+            self.assertEqual(202, response.status)
+            replace_legacy.assert_called_once_with(
+                recording_id,
+                width=640,
+                height=360,
+                fps=20,
+                no_gui=False,
+                replace_legacy_rgb=True,
             )
 
         with self.assertRaises(urllib.error.HTTPError) as raised:
@@ -301,6 +324,17 @@ class DashboardHTTPTest(unittest.TestCase):
             )
         self.assertEqual(400, raised.exception.code)
         self.assertIn("no_gui must be a boolean", raised.exception.read().decode())
+        raised.exception.close()
+
+        with self.assertRaises(urllib.error.HTTPError) as raised:
+            self._request(
+                f"/api/v1/recordings/{recording_id}/render",
+                method="POST",
+                body=json.dumps({"replace_legacy_rgb": 1}).encode(),
+                headers=headers,
+            )
+        self.assertEqual(400, raised.exception.code)
+        self.assertIn("replace_legacy_rgb must be a boolean", raised.exception.read().decode())
         raised.exception.close()
 
         with self.assertRaises(urllib.error.HTTPError) as raised:

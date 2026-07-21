@@ -135,7 +135,10 @@ Generation is structured-first: it writes JSONL immediately and treats missing
 RGB/voxel modalities as explicit, non-fatal metadata. Once the structured
 dataset is complete, choose a resolution and click **Render RGB**. This queues a
 leased job on the recorder host; it does not attempt to start a graphics client
-on the headless server.
+on the headless server. GUI renders are versioned with the
+`flashback_server_spectate_v1` presentation contract. A pre-contract GUI render
+is shown as unsynchronized legacy RGB and can be replaced explicitly with
+**Re-render RGB**; its verified original import remains preserved for audit.
 
 On a GUI-capable machine, use the same project revision as the recorder host,
 install the Python tooling, initialize a local `recorder.toml`, and make Java 21
@@ -166,9 +169,10 @@ or another machine-wide renderer dependency is broken; fix the local problem
 and restart the foreground worker. Transient registration failures use bounded
 retry backoff without failing queue jobs. A lost or invalid `claim` response
 instead stops the worker because the server may already have leased work;
-inspect the dashboard queue before restarting. Continuous mode requires the
-matching upgraded server tooling, while `--once` remains available for an
-intentional one-shot against older tooling.
+inspect the dashboard queue before restarting. Both continuous and one-shot
+modes require server tooling that advertises the same full-client presentation
+contract, preventing an upgraded worker from attaching pixels through a server
+that would discard their fidelity provenance.
 
 Downloaded replays persist in a content-addressed cache under
 `$XDG_CACHE_HOME/mc-recorder/replays/` when that variable is set, or

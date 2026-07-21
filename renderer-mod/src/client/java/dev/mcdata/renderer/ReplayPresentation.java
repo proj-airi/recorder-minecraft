@@ -5,6 +5,8 @@ import com.moulberry.flashback.visuals.ReplayVisuals;
 import java.util.UUID;
 
 final class ReplayPresentation {
+    static final String FULL_CLIENT_PRESENTATION_CONTRACT = "flashback_server_spectate_v1";
+
     private ReplayPresentation() {
     }
 
@@ -34,5 +36,9 @@ final class ReplayPresentation {
 
     static String stopSpectatingCommand() {
         return "spectate";
+    }
+
+    static String resultPresentationContract(boolean noGui) {
+        return noGui ? null : FULL_CLIENT_PRESENTATION_CONTRACT;
     }
 }

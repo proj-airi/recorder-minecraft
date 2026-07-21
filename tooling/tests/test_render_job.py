@@ -12,12 +12,14 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
 from mc_recorder.errors import RecorderError
+from mc_recorder.render_contract import FULL_CLIENT_PRESENTATION_CONTRACT
 from mc_recorder.render_job import (
     OWNER,
     RENDER_JOB_TYPE,
     RenderJobResult,
     _owned_render_directory,
     launch_render_job,
+    prepare_render_job,
     resolve_replay,
 )
 
@@ -26,6 +28,70 @@ PLAYER_UUID = "12345678-1234-5678-1234-567812345678"
 
 
 class ReplayResolutionTest(unittest.TestCase):
+    def test_prepared_gui_jobs_declare_current_presentation_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            episode = root / "episode"
+            episode.mkdir()
+            (episode / "manifest.json").write_text("{}", encoding="utf-8")
+            replay = root / "replay.zip"
+            replay.write_bytes(b"replay")
+            validation = SimpleNamespace(valid=True, sealed_epochs=1, session_id="session")
+            connection = "22222222-2222-2222-2222-222222222222"
+            patches = (
+                mock.patch("mc_recorder.render_job.validate_episode", return_value=validation),
+                mock.patch(
+                    "mc_recorder.render_job._select_connection",
+                    return_value=(connection, 10, 20),
+                ),
+                mock.patch("mc_recorder.render_job._detect_replay_format", return_value="flashback"),
+                mock.patch(
+                    "mc_recorder.render_job._stable_file_digest",
+                    return_value=(hashlib.sha256(b"replay").hexdigest(), 6),
+                ),
+                mock.patch("mc_recorder.render_job.sha256_file", return_value="a" * 64),
+            )
+            for patch in patches:
+                patch.start()
+                self.addCleanup(patch.stop)
+
+            gui = prepare_render_job(
+                episode,
+                replay,
+                root / "gui-job",
+                player_uuid=PLAYER_UUID,
+                connection_id=connection,
+                width=640,
+                height=360,
+                fps=20,
+                first_tick=10,
+                last_tick=20,
+                force=False,
+                no_gui=False,
+            )
+            no_gui = prepare_render_job(
+                episode,
+                replay,
+                root / "no-gui-job",
+                player_uuid=PLAYER_UUID,
+                connection_id=connection,
+                width=640,
+                height=360,
+                fps=20,
+                first_tick=10,
+                last_tick=20,
+                force=False,
+                no_gui=True,
+            )
+
+            gui_manifest = json.loads(gui.manifest.read_text(encoding="utf-8"))
+            no_gui_manifest = json.loads(no_gui.manifest.read_text(encoding="utf-8"))
+            self.assertEqual(
+                FULL_CLIENT_PRESENTATION_CONTRACT,
+                gui_manifest["presentation_contract"],
+            )
+            self.assertNotIn("presentation_contract", no_gui_manifest)
+
     def test_rejects_invalid_player_before_building_a_replay_path(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             with self.assertRaisesRegex(RecorderError, "invalid player UUID"):
@@ -121,6 +187,103 @@ class ReplayResolutionTest(unittest.TestCase):
                     config,
                     RenderJobResult(directory, manifest, replay, "connection"),
                 )
+
+    @mock.patch("mc_recorder.render_job.subprocess.run")
+    def test_launcher_validates_gui_presentation_contract(self, run: mock.Mock) -> None:
+        run.return_value = SimpleNamespace(returncode=0)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            project = root / "renderer-mod"
+            project.mkdir()
+            (root / "gradlew").write_text("wrapper", encoding="utf-8")
+            replay = root / "replay.zip"
+            replay.write_bytes(b"replay")
+            digest = hashlib.sha256(b"replay").hexdigest()
+            directory = root / "job"
+            directory.mkdir()
+            manifest = directory / "render-job.json"
+            manifest_value = {
+                "no_gui": False,
+                "presentation_contract": FULL_CLIENT_PRESENTATION_CONTRACT,
+                "source_replay": {"sha256": digest, "size_bytes": 6},
+            }
+            manifest.write_text(json.dumps(manifest_value), encoding="utf-8")
+            result_path = directory / "result.json"
+            result_value = {
+                "status": "complete",
+                "no_gui": False,
+                "presentation_contract": FULL_CLIENT_PRESENTATION_CONTRACT,
+                "replay_sha256": digest,
+                "replay_bytes": 6,
+            }
+            result_path.write_text(json.dumps(result_value), encoding="utf-8")
+            config = SimpleNamespace(
+                mods=SimpleNamespace(renderer_project=project),
+                paths=SimpleNamespace(base=root, runtime=root / "runtime"),
+            )
+            job = RenderJobResult(directory, manifest, replay, "connection")
+
+            result = launch_render_job(config, job)
+            self.assertEqual(
+                FULL_CLIENT_PRESENTATION_CONTRACT,
+                result["presentation_contract"],
+            )
+
+            result_value["presentation_contract"] = "direct_camera_v0"
+            result_path.write_text(json.dumps(result_value), encoding="utf-8")
+            with self.assertRaisesRegex(RecorderError, "presentation_contract does not match"):
+                launch_render_job(config, job)
+
+            manifest_value["presentation_contract"] = "direct_camera_v0"
+            manifest.write_text(json.dumps(manifest_value), encoding="utf-8")
+            with self.assertRaisesRegex(RecorderError, "presentation_contract is not supported"):
+                launch_render_job(config, job)
+
+    @mock.patch("mc_recorder.render_job.subprocess.run")
+    def test_launcher_preserves_legacy_unmarked_gui_results(self, run: mock.Mock) -> None:
+        run.return_value = SimpleNamespace(returncode=0)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            project = root / "renderer-mod"
+            project.mkdir()
+            (root / "gradlew").write_text("wrapper", encoding="utf-8")
+            replay = root / "replay.zip"
+            replay.write_bytes(b"replay")
+            digest = hashlib.sha256(b"replay").hexdigest()
+            directory = root / "job"
+            directory.mkdir()
+            manifest = directory / "render-job.json"
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "no_gui": False,
+                        "source_replay": {"sha256": digest, "size_bytes": 6},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (directory / "result.json").write_text(
+                json.dumps(
+                    {
+                        "status": "complete",
+                        "no_gui": False,
+                        "replay_sha256": digest,
+                        "replay_bytes": 6,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            config = SimpleNamespace(
+                mods=SimpleNamespace(renderer_project=project),
+                paths=SimpleNamespace(base=root, runtime=root / "runtime"),
+            )
+
+            result = launch_render_job(
+                config,
+                RenderJobResult(directory, manifest, replay, "connection"),
+            )
+
+            self.assertEqual("complete", result["status"])
 
 
 if __name__ == "__main__":

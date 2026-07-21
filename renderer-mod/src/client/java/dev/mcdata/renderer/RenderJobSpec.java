@@ -29,6 +29,7 @@ record RenderJobSpec(
     int voxelHorizontalRadius,
     int voxelVerticalRadius,
     boolean noGui,
+    String presentationContract,
     boolean stopWhenDone,
     Path result
 ) {
@@ -95,6 +96,7 @@ record RenderJobSpec(
         int voxelHorizontalRadius = integer(json, "voxel_horizontal_radius", 0);
         int voxelVerticalRadius = integer(json, "voxel_vertical_radius", 0);
         boolean noGui = bool(json, "no_gui", true);
+        String presentationContract = optionalString(json, "presentation_contract");
         boolean stop = bool(json, "stop_when_done", true);
         Path result = json.has("result")
             ? resolve(base, json.get("result").getAsString())
@@ -143,10 +145,21 @@ record RenderJobSpec(
         if (voxelHorizontalRadius > 0 && voxelCount > 2_000_000L) {
             throw new IllegalArgumentException("Voxel crop is too large; maximum is 2,000,000 cells per tick");
         }
+        if (presentationContract != null) {
+            if (!ReplayPresentation.FULL_CLIENT_PRESENTATION_CONTRACT.equals(presentationContract)) {
+                throw new IllegalArgumentException(
+                    "Unsupported presentation_contract for GUI render job: " + presentationContract
+                );
+            }
+            if (noGui) {
+                throw new IllegalArgumentException("presentation_contract requires no_gui=false");
+            }
+        }
         return new RenderJobSpec(normalizedJob, replay, replaySha256, replayBytes,
             output, sessionId, connectionId, playerId, segmentId, segmentOrdinal, rangePolicy, newerCutoff,
             globalStartTick, globalEndTick,
-            width, height, fps, voxelHorizontalRadius, voxelVerticalRadius, noGui, stop, result);
+            width, height, fps, voxelHorizontalRadius, voxelVerticalRadius, noGui, presentationContract,
+            stop, result);
     }
 
     boolean capturesVoxels() {

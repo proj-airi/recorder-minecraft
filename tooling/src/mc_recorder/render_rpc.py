@@ -13,6 +13,10 @@ from typing import Any, Mapping
 
 from .config import RecorderConfig
 from .errors import RecorderError
+from .render_contract import (
+    FULL_CLIENT_PRESENTATION_CAPABILITY_KEY,
+    FULL_CLIENT_PRESENTATION_CONTRACT,
+)
 from .render_queue import (
     DEFAULT_DEFER_COOLDOWN_SECONDS,
     MAX_LEASE_SECONDS,
@@ -276,7 +280,7 @@ def _validate_job_payload(value: object) -> dict[str, Any]:
     render = _strict_object(
         payload["render"],
         required={"width", "height", "fps"},
-        optional={"no_gui"},
+        optional={"no_gui", "presentation_contract"},
         label="render settings",
     )
     width = _bounded_integer(render["width"], "render width", 160, 3840)
@@ -287,6 +291,12 @@ def _validate_job_payload(value: object) -> dict[str, Any]:
         raise RecorderError("remote rendering supports exactly 20 FPS")
     if "no_gui" in render and not isinstance(render["no_gui"], bool):
         raise RecorderError("render no_gui must be a boolean")
+    presentation_contract = render.get("presentation_contract")
+    if presentation_contract is not None:
+        if presentation_contract != FULL_CLIENT_PRESENTATION_CONTRACT:
+            raise RecorderError("render presentation_contract is unsupported")
+        if render.get("no_gui", True):
+            raise RecorderError("render presentation_contract requires no_gui=false")
     return payload
 
 
@@ -447,6 +457,9 @@ class RenderRpcService:
             "worker": worker,
             "server_capabilities": {
                 STRUCTURED_CLAIM_FAILURE_CAPABILITY: True,
+                FULL_CLIENT_PRESENTATION_CAPABILITY_KEY: (
+                    FULL_CLIENT_PRESENTATION_CONTRACT
+                ),
                 "worker_presence_heartbeat": True,
                 "deferred_job_cooldown": True,
             },
@@ -482,6 +495,14 @@ class RenderRpcService:
         ):
             raise RecorderError(
                 "render worker is too old for GUI-mode-bound requests; update its mc-recorder tooling"
+            )
+        if (
+            capabilities.get(FULL_CLIENT_PRESENTATION_CAPABILITY_KEY)
+            != FULL_CLIENT_PRESENTATION_CONTRACT
+        ):
+            raise RecorderError(
+                "render worker does not support the required full-client presentation contract; "
+                "update its mc-recorder tooling"
             )
         job_id = (
             _canonical_uuid(request["job_id"], "render job ID")
@@ -800,6 +821,7 @@ class RenderRpcService:
             range_policy="intersection",
             newer_cutoff=cutoff,
             no_gui=payload["render"].get("no_gui", True),
+            presentation_contract=payload["render"].get("presentation_contract"),
         )
         portable = write_portable_render_request(request_path, portable_value)
         return {

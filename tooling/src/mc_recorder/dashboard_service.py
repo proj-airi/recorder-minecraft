@@ -20,6 +20,7 @@ from .errors import RecorderError
 from .exporter import export_episode
 from .operations import operation_lock
 from .render_queue import RenderQueueStore
+from .render_contract import FULL_CLIENT_PRESENTATION_CONTRACT
 from .server import compose_status, start_server, stop_server
 
 
@@ -32,6 +33,9 @@ MIN_RENDER_HEIGHT = 90
 MAX_RENDER_HEIGHT = 2160
 MAX_RENDER_PIXELS = 3840 * 2160
 RENDER_FPS = 20
+STALE_RGB_PRESENTATIONS = frozenset(
+    {"legacy_gui_unsynchronized", "mixed_legacy_gui_unsynchronized"}
+)
 
 
 def _read_json_object(path: Path, *, maximum: int = MAX_CONTROL_JSON_BYTES) -> dict[str, Any] | None:
@@ -319,12 +323,17 @@ class DashboardService:
                 rgb_presentation = metadata.rgb_presentation
                 sample_start_tick = metadata.first_tick
                 sample_end_tick = metadata.last_tick
-            rgb_complete = (
+            rgb_coverage_complete = (
                 sample_count is not None
                 and rgb_samples is not None
                 and sample_count > 0
                 and rgb_samples >= sample_count
             )
+            legacy_rgb_complete = (
+                rgb_coverage_complete
+                and rgb_presentation in STALE_RGB_PRESENTATIONS
+            )
+            rgb_complete = rgb_coverage_complete and not legacy_rgb_complete
             sealed_sequence = sealed_by_session.get(session_id, -1)
             current_capture = session_id == current_session
             capture_recording = fresh and current_capture and capture_state == "recording"
@@ -378,8 +387,10 @@ class DashboardService:
                     "sample_start_tick": sample_start_tick,
                     "sample_end_tick": sample_end_tick,
                     "rgb_samples": rgb_samples,
+                    "rgb_coverage_complete": rgb_coverage_complete,
                     "rgb_complete": rgb_complete,
                     "rgb_presentation": rgb_presentation,
+                    "can_replace_legacy_rgb": legacy_rgb_complete,
                     "can_render": dataset_ready
                     and not rgb_complete
                     and sample_start_tick is not None
@@ -387,6 +398,10 @@ class DashboardService:
                     and (
                         render_job is None
                         or render_job["state"] in {"failed", "partial", "canceled"}
+                        or (
+                            legacy_rgb_complete
+                            and render_job["state"] == "complete"
+                        )
                     ),
                     "render_job": render_job,
                     "error": (
@@ -418,14 +433,32 @@ class DashboardService:
         height: int = 360,
         fps: int = RENDER_FPS,
         no_gui: bool = False,
+        replace_legacy_rgb: bool = False,
     ) -> dict[str, Any]:
         self._validate_render_settings(width, height, fps, no_gui)
+        if not isinstance(replace_legacy_rgb, bool):
+            raise RecorderError("replace_legacy_rgb must be a boolean")
         row = next((item for item in self.recordings() if item["id"] == recording_id), None)
         if row is None:
             raise RecorderError("recording not found")
         if row["state"] != "complete" or not row.get("dataset_id"):
             raise RecorderError("a structured dataset must be complete before RGB rendering")
-        if row.get("rgb_complete"):
+        coverage_complete, legacy_rgb_complete = self._rgb_coverage_state(row)
+        if replace_legacy_rgb:
+            if not legacy_rgb_complete:
+                raise RecorderError(
+                    "replace_legacy_rgb is only allowed for fully covered legacy GUI RGB"
+                )
+            if no_gui:
+                raise RecorderError(
+                    "legacy GUI RGB can only be replaced by a full-client render"
+                )
+        elif legacy_rgb_complete:
+            raise RecorderError(
+                "the dataset has legacy unsynchronized GUI RGB; "
+                "set replace_legacy_rgb=true to re-render it"
+            )
+        elif coverage_complete:
             raise RecorderError("the dataset already has complete RGB coverage")
         payload = self._render_job_payload(
             row,
@@ -462,6 +495,14 @@ class DashboardService:
         assert isinstance(render_end, int)
         if not selection_start <= render_start <= render_end <= selection_end:
             raise RecorderError("the dataset sample tick range is outside its connection selection")
+        render: dict[str, Any] = {
+            "width": width,
+            "height": height,
+            "fps": fps,
+            "no_gui": no_gui,
+        }
+        if not no_gui:
+            render["presentation_contract"] = FULL_CLIENT_PRESENTATION_CONTRACT
         return {
             "recording_id": row["id"],
             "session_id": row["session_id"],
@@ -472,12 +513,7 @@ class DashboardService:
             "end_tick": render_end,
             "selection_start_tick": selection_start,
             "selection_end_tick": selection_end,
-            "render": {
-                "width": width,
-                "height": height,
-                "fps": fps,
-                "no_gui": no_gui,
-            },
+            "render": render,
         }
 
     def render_jobs(self, limit: int = 50) -> list[dict[str, Any]]:
@@ -501,7 +537,12 @@ class DashboardService:
             or row.get("dataset_id") != original["payload"].get("dataset_id")
         ):
             raise RecorderError("the source dataset is no longer available for this render job")
-        if row.get("rgb_complete"):
+        coverage_complete, legacy_rgb_complete = self._rgb_coverage_state(row)
+        if legacy_rgb_complete:
+            raise RecorderError(
+                "legacy GUI RGB must be explicitly replaced with a new render request"
+            )
+        if coverage_complete:
             raise RecorderError("the dataset already has complete RGB coverage")
         render = original["payload"].get("render")
         if not isinstance(render, dict):
@@ -514,6 +555,20 @@ class DashboardService:
             no_gui=render.get("no_gui", True),
         )
         return self.render_queue.create(payload, retry_of=original["id"])
+
+    @staticmethod
+    def _rgb_coverage_state(row: dict[str, Any]) -> tuple[bool, bool]:
+        raw_coverage = row.get("rgb_coverage_complete")
+        coverage_complete = (
+            raw_coverage
+            if isinstance(raw_coverage, bool)
+            else bool(row.get("rgb_complete"))
+        )
+        legacy_rgb_complete = (
+            coverage_complete
+            and row.get("rgb_presentation") in STALE_RGB_PRESENTATIONS
+        )
+        return coverage_complete, legacy_rgb_complete
 
     def register_render_worker(
         self,

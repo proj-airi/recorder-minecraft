@@ -12,9 +12,14 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
 from mc_recorder.errors import RecorderError
+from mc_recorder.render_contract import (
+    FULL_CLIENT_PRESENTATION_CAPABILITY_KEY,
+    FULL_CLIENT_PRESENTATION_CONTRACT,
+)
 from mc_recorder.render_worker import (
     _ClaimedJobError,
     _IncompatibleServerError,
+    _register_worker,
     RemoteRecorder,
     call_remote_json,
     create_job_workspace,
@@ -26,6 +31,12 @@ from mc_recorder.render_worker import (
     run_render_worker,
     ssh_rpc_command,
 )
+
+
+SERVER_CAPABILITIES = {
+    "structured_claim_failure": True,
+    FULL_CLIENT_PRESENTATION_CAPABILITY_KEY: FULL_CLIENT_PRESENTATION_CONTRACT,
+}
 
 
 class RemoteRecorderTest(unittest.TestCase):
@@ -188,6 +199,32 @@ class EphemeralWorkerTest(unittest.TestCase):
             remove_job_workspace(owned)
             self.assertFalse(owned.exists())
 
+    def test_registration_requires_matching_server_presentation_contract_in_all_modes(self) -> None:
+        remote = RemoteRecorder.parse("mcdatacol", "/srv/mc-play-recorder")
+        worker_id = "00000000-0000-4000-8000-000000000012"
+        for persistent, capabilities in (
+            (False, {}),
+            (
+                True,
+                {FULL_CLIENT_PRESENTATION_CAPABILITY_KEY: "older_contract_v0"},
+            ),
+        ):
+            with (
+                self.subTest(persistent=persistent),
+                mock.patch(
+                    "mc_recorder.render_worker.call_remote_json",
+                    return_value={
+                        "worker": {"id": worker_id},
+                        "server_capabilities": capabilities,
+                    },
+                ),
+                self.assertRaisesRegex(
+                    _IncompatibleServerError,
+                    "required full-client presentation contract",
+                ),
+            ):
+                _register_worker(remote, worker_id, persistent=persistent)
+
     @mock.patch("mc_recorder.render_worker._RemoteLease.stop")
     @mock.patch("mc_recorder.render_worker._RemoteLease.start")
     @mock.patch("mc_recorder.render_worker.upload_bundle")
@@ -218,7 +255,10 @@ class EphemeralWorkerTest(unittest.TestCase):
         def rpc(_remote: object, arguments: list[str], **_kwargs: object) -> dict[str, object]:
             action = arguments[-1]
             if action == "register":
-                return {"worker": {"state": "ready"}}
+                return {
+                    "worker": {"state": "ready"},
+                    "server_capabilities": SERVER_CAPABILITIES,
+                }
             if action == "claim":
                 return {
                     "claim": {
@@ -291,6 +331,10 @@ class EphemeralWorkerTest(unittest.TestCase):
             registration["capabilities"]["portable_request_no_gui"],
             True,
         )
+        self.assertEqual(
+            FULL_CLIENT_PRESENTATION_CONTRACT,
+            registration["capabilities"][FULL_CLIENT_PRESENTATION_CAPABILITY_KEY],
+        )
         self.assertIs(
             registration["capabilities"]["structured_claim_failure"],
             True,
@@ -308,7 +352,10 @@ class EphemeralWorkerTest(unittest.TestCase):
             nonlocal request_count
             action = arguments[-1]
             if action == "register":
-                return {"worker": {"state": "ready"}}
+                return {
+                    "worker": {"state": "ready"},
+                    "server_capabilities": SERVER_CAPABILITIES,
+                }
             if action == "claim":
                 return {
                     "claim": {
@@ -428,7 +475,7 @@ class PersistentWorkerTest(unittest.TestCase):
             if arguments[-1] == "register":
                 return {
                     "worker": {"id": worker_id},
-                    "server_capabilities": {"structured_claim_failure": True},
+                    "server_capabilities": SERVER_CAPABILITIES,
                 }
             if arguments[-1] == "claim":
                 return {"claim": None, "sources": [], "upload_directory": None}
@@ -469,7 +516,14 @@ class PersistentWorkerTest(unittest.TestCase):
             _remote: object, arguments: list[str], **_kwargs: object
         ) -> dict[str, object]:
             if arguments[-1] == "register":
-                return {"worker": {"state": "online"}}
+                return {
+                    "worker": {"state": "online"},
+                    "server_capabilities": {
+                        FULL_CLIENT_PRESENTATION_CAPABILITY_KEY: (
+                            FULL_CLIENT_PRESENTATION_CONTRACT
+                        )
+                    },
+                }
             self.fail(f"persistent worker should not call {arguments[-1]}")
 
         with (
@@ -500,7 +554,7 @@ class PersistentWorkerTest(unittest.TestCase):
             if arguments[-1] == "register":
                 return {
                     "worker": {"state": "online"},
-                    "server_capabilities": {"structured_claim_failure": True},
+                    "server_capabilities": SERVER_CAPABILITIES,
                 }
             if arguments[-1] == "claim":
                 raise RecorderError("SSH timed out after sending the request")
@@ -540,7 +594,7 @@ class PersistentWorkerTest(unittest.TestCase):
             if action == "register":
                 return {
                     "worker": {"id": worker_id},
-                    "server_capabilities": {"structured_claim_failure": True},
+                    "server_capabilities": SERVER_CAPABILITIES,
                 }
             if action == "claim":
                 return {
@@ -786,7 +840,7 @@ class PersistentWorkerTest(unittest.TestCase):
             if action == "register":
                 return {
                     "worker": {"id": worker_id},
-                    "server_capabilities": {"structured_claim_failure": True},
+                    "server_capabilities": SERVER_CAPABILITIES,
                 }
             if action == "claim":
                 return {
@@ -880,7 +934,7 @@ class PersistentWorkerTest(unittest.TestCase):
             if action == "register":
                 return {
                     "worker": {"id": worker_id},
-                    "server_capabilities": {"structured_claim_failure": True},
+                    "server_capabilities": SERVER_CAPABILITIES,
                 }
             if action == "claim":
                 return {
@@ -957,7 +1011,7 @@ class PersistentWorkerTest(unittest.TestCase):
             if action == "register":
                 return {
                     "worker": {"id": worker_id},
-                    "server_capabilities": {"structured_claim_failure": True},
+                    "server_capabilities": SERVER_CAPABILITIES,
                 }
             if action == "claim":
                 return {

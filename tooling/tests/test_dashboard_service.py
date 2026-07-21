@@ -16,6 +16,7 @@ from mc_recorder.config import initialize, load_config
 from mc_recorder.dashboard_service import DashboardService
 from mc_recorder.dataset_viewer import DatasetCatalogResult
 from mc_recorder.errors import RecorderError
+from mc_recorder.render_contract import FULL_CLIENT_PRESENTATION_CONTRACT
 
 
 PLAYER = "00000000-0000-4000-8000-000000000001"
@@ -128,7 +129,94 @@ class DashboardServiceTest(unittest.TestCase):
                 ):
                     row = service.recordings()[0]
                 self.assertTrue(row["rgb_complete"])
+                self.assertTrue(row["rgb_coverage_complete"])
                 self.assertEqual("full_client", row["rgb_presentation"])
+                self.assertFalse(row["can_replace_legacy_rgb"])
+                with mock.patch.object(service, "recordings", return_value=[row]):
+                    with self.assertRaisesRegex(RecorderError, "complete RGB coverage"):
+                        service.create_render_job(row["id"])
+                    with self.assertRaisesRegex(
+                        RecorderError, "only allowed for fully covered legacy GUI RGB"
+                    ):
+                        service.create_render_job(
+                            row["id"], replace_legacy_rgb=True
+                        )
+            finally:
+                service.close()
+
+    def test_fully_covered_legacy_gui_rgb_is_explicitly_replaceable(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            config = load_config(initialize(root / "recorder.toml", accept_eula=True))
+            session = "20260721T000000.000Z-deadbeef"
+            control = config.paths.runtime / "control"
+            control.mkdir(parents=True)
+            (control / "connections.json").write_text(
+                json.dumps(
+                    {
+                        "session_id": session,
+                        "connections": [
+                            {
+                                "player_uuid": PLAYER,
+                                "player_name": "Player",
+                                "connection_id": ENDED,
+                                "join_server_tick": 5,
+                                "end_server_tick": 10,
+                                "end_sequence": 99,
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            service = DashboardService(config)
+            metadata = mock.Mock(
+                sample_count=6,
+                rgb_samples=6,
+                rgb_presentation="legacy_gui_unsynchronized",
+                first_tick=5,
+                last_tick=10,
+            )
+            completed = {"state": "complete"}
+            try:
+                with (
+                    mock.patch.object(
+                        service, "_dataset_match", return_value=("matching", None)
+                    ),
+                    mock.patch.object(
+                        service.dataset_viewer,
+                        "get_dataset_metadata",
+                        return_value=metadata,
+                    ),
+                    mock.patch.object(
+                        service.render_queue,
+                        "latest_for_recording",
+                        return_value=completed,
+                    ),
+                ):
+                    row = service.recordings()[0]
+                self.assertTrue(row["rgb_coverage_complete"])
+                self.assertFalse(row["rgb_complete"])
+                self.assertTrue(row["can_replace_legacy_rgb"])
+                self.assertTrue(row["can_render"])
+
+                with mock.patch.object(service, "recordings", return_value=[row]):
+                    with self.assertRaisesRegex(
+                        RecorderError, "replace_legacy_rgb=true"
+                    ):
+                        service.create_render_job(row["id"])
+                    with self.assertRaisesRegex(RecorderError, "full-client"):
+                        service.create_render_job(
+                            row["id"], no_gui=True, replace_legacy_rgb=True
+                        )
+                    job = service.create_render_job(
+                        row["id"], replace_legacy_rgb=True
+                    )
+                self.assertEqual("queued", job["state"])
+                self.assertEqual(
+                    FULL_CLIENT_PRESENTATION_CONTRACT,
+                    job["payload"]["render"]["presentation_contract"],
+                )
             finally:
                 service.close()
 
@@ -541,7 +629,13 @@ class DashboardServiceTest(unittest.TestCase):
                         ),
                     )
                     self.assertEqual(
-                        {"width": 1280, "height": 720, "fps": 20, "no_gui": False},
+                        {
+                            "width": 1280,
+                            "height": 720,
+                            "fps": 20,
+                            "no_gui": False,
+                            "presentation_contract": FULL_CLIENT_PRESENTATION_CONTRACT,
+                        },
                         job["payload"]["render"],
                     )
                     with self.assertRaisesRegex(RecorderError, "width"):
@@ -552,6 +646,16 @@ class DashboardServiceTest(unittest.TestCase):
                         service.create_render_job(recording_id, width=True)
                     with self.assertRaisesRegex(RecorderError, "no_gui must be a boolean"):
                         service.create_render_job(recording_id, no_gui=0)  # type: ignore[arg-type]
+                    with self.assertRaisesRegex(RecorderError, "replace_legacy_rgb"):
+                        service.create_render_job(
+                            recording_id,
+                            replace_legacy_rgb=True,
+                        )
+                    with self.assertRaisesRegex(RecorderError, "replace_legacy_rgb"):
+                        service.create_render_job(
+                            recording_id,
+                            replace_legacy_rgb=1,  # type: ignore[arg-type]
+                        )
                     with self.assertRaisesRegex(RecorderError, "retried while queued"):
                         service.retry_render_job(job["id"])
                     service.cancel_render_job(job["id"])
@@ -560,6 +664,10 @@ class DashboardServiceTest(unittest.TestCase):
                     self.assertNotEqual(job["id"], retry["id"])
                     self.assertEqual((6, 9), (retry["payload"]["start_tick"], retry["payload"]["end_tick"]))
                     self.assertFalse(retry["payload"]["render"]["no_gui"])
+                    self.assertEqual(
+                        FULL_CLIENT_PRESENTATION_CONTRACT,
+                        retry["payload"]["render"]["presentation_contract"],
+                    )
 
                     legacy_payload = json.loads(json.dumps(job["payload"]))
                     legacy_payload["render"].pop("no_gui")

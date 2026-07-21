@@ -718,6 +718,10 @@ public final class McRecorderRenderer implements ClientModInitializer {
         result.addProperty("width", this.job.width());
         result.addProperty("height", this.job.height());
         result.addProperty("no_gui", this.job.noGui());
+        String presentationContract = ReplayPresentation.resultPresentationContract(this.job.noGui());
+        if (presentationContract != null) {
+            result.addProperty("presentation_contract", presentationContract);
+        }
         result.addProperty("voxel_snapshots", this.voxelIndexRows.size());
         result.addProperty("voxel_horizontal_radius", this.job.voxelHorizontalRadius());
         result.addProperty("voxel_vertical_radius", this.job.voxelVerticalRadius());

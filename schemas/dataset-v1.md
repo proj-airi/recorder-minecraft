@@ -199,6 +199,15 @@ the camera entity with only tracked equipment. GUI exports therefore use the
 normal replay `spectate <player UUID>` command path and do not begin until its
 camera acknowledgement is visible on the client.
 
+Synchronized GUI results also record
+`presentation_contract: "flashback_server_spectate_v1"`. A `no_gui: false`
+attachment without that exact marker was produced before replay-server HUD
+synchronization was enforced and is classified as
+`legacy_gui_unsynchronized`, not `full_client`. The dashboard offers an
+explicit RGB re-render for that state. The replacement uses a new immutable
+render-job identity and is attached only after verification and atomic dataset
+re-export; the previous verified import remains available as audit provenance.
+
 `frames.jsonl` rows include frame number, global `server_tick`, replay tick,
 session ID, connection ID, player UUID, and image path. The rendered image is a
 reconstruction from server-visible replay packets, not the original client
@@ -212,10 +221,11 @@ matching attached frame remain explicitly unavailable. Referenced paths and
 every image are containment-checked and hashed. PNG chunk ordering, CRCs,
 IHDR/IDAT/IEND presence, and dimensions are validated against `result.json`;
 absolute, escaping, missing, or symlinked references are rejected.
-The dataset manifest's frame-attachment provenance preserves `no_gui`, so
-consumers can distinguish full-client RGB from historical HUD-free RGB. The
-dashboard labels complete coverage as `full client + hand`, `HUD-free
-(legacy)`, or `mixed presentation` when a dataset combines both source modes.
+The dataset manifest's frame-attachment provenance preserves `no_gui` and the
+presentation contract, so consumers can distinguish synchronized full-client
+RGB, unsynchronized legacy GUI RGB, and historical HUD-free RGB. The dashboard
+labels these states rather than inferring pixel fidelity from frame count
+alone.
 
 Legacy local renderer results identify their replay and output with absolute
 local paths. An imported `mc-recorder-render-result-v2` instead uses contained

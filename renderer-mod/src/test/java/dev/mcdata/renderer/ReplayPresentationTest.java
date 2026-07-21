@@ -7,6 +7,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class ReplayPresentationTest {
@@ -48,5 +49,10 @@ final class ReplayPresentationTest {
 
         assertEquals("spectate " + playerId, ReplayPresentation.startSpectatingCommand(playerId));
         assertEquals("spectate", ReplayPresentation.stopSpectatingCommand());
+        assertEquals(
+            "flashback_server_spectate_v1",
+            ReplayPresentation.resultPresentationContract(false)
+        );
+        assertNull(ReplayPresentation.resultPresentationContract(true));
     }
 }
