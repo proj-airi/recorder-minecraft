@@ -636,11 +636,12 @@ END;
 _ENTITY_BOX_SQL = """
 SELECT source.*
 FROM entity_versions_rtree AS search
-JOIN entity_versions AS source ON source.rowid = search.version_rowid
+CROSS JOIN entity_versions AS source
 WHERE search.min_tick <= ? AND search.max_tick > ?
   AND search.max_x > ? AND search.min_x < ?
   AND search.max_y > ? AND search.min_y < ?
   AND search.max_z > ? AND search.min_z < ?
+  AND source.rowid = search.version_rowid
   AND source.dimension = ?
   AND source.start_tick <= ? AND source.end_tick > ?
   AND source.max_x > ? AND source.min_x < ?
@@ -653,11 +654,12 @@ ORDER BY source.instance_id
 _BLOCK_ENTITY_BOX_SQL = """
 SELECT source.*
 FROM block_entity_versions_rtree AS search
-JOIN block_entity_versions AS source ON source.rowid = search.version_rowid
+CROSS JOIN block_entity_versions AS source
 WHERE search.min_tick <= ? AND search.max_tick > ?
   AND search.max_x > ? AND search.min_x < ?
   AND search.max_y > ? AND search.min_y < ?
   AND search.max_z > ? AND search.min_z < ?
+  AND source.rowid = search.version_rowid
   AND source.dimension = ?
   AND source.start_tick <= ? AND source.end_tick > ?
   AND source.block_x >= ? AND source.block_x < ?
@@ -901,9 +903,9 @@ def _validated_extraction_provenance(
             "changes_size_bytes",
         )
     }
-    if counts["frame_count"] < frame_count:
+    if counts["frame_count"] != frame_count:
         raise SceneStoreValidationError(
-            "scene extraction stream frame_count cannot cover the store"
+            "scene extraction stream frame_count does not match the store"
         )
     if counts["frames_size_bytes"] == 0 or counts["changes_size_bytes"] == 0:
         raise SceneStoreValidationError(

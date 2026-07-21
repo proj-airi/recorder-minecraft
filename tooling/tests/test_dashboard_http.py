@@ -201,7 +201,12 @@ def _write_viewer_dataset(exports: Path) -> None:
         "created_at": "2026-07-21T00:00:00+00:00",
         "session_id": "session-http",
         "source": {"sealed_epochs": 1, "active_epochs_skipped": 0},
-        "selection": {"players": [], "from_tick": None, "to_tick": None},
+        "selection": {
+            "players": [],
+            "from_tick": None,
+            "to_tick": None,
+            "scene_attachment": None,
+        },
         "modalities": {
             "scene": {
                 "availability": "per-sample",
@@ -219,6 +224,23 @@ def _write_viewer_dataset(exports: Path) -> None:
     manifest["files"]["scene/scene-v1.sqlite3"] = {
         "size_bytes": len(scene_data),
         "sha256": hashlib.sha256(scene_data).hexdigest(),
+    }
+    manifest["selection"]["scene_attachment"] = {
+        "format": "mc-recorder-scene-store-v1",
+        "path": "/source/http-scene.sqlite3",
+        "sha256": hashlib.sha256(scene_data).hexdigest(),
+        "size_bytes": len(scene_data),
+        "session_id": identity.session_id,
+        "player_uuid": identity.player_uuid,
+        "connection_id": identity.connection_id,
+        "global_start_tick": 20,
+        "global_end_tick": 20,
+        "frame_count": 1,
+        "scope": "client_visible",
+        "metadata_policy": "full_packet_metadata",
+        "result": result,
+        "sensitive": True,
+        "source_replays": list(sources),
     }
     (directory / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
 

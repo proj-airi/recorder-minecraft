@@ -7,6 +7,7 @@ import sqlite3
 import sys
 import tempfile
 import unittest
+from collections.abc import Mapping
 from contextlib import closing
 from pathlib import Path
 from unittest import mock
@@ -22,11 +23,27 @@ from mc_recorder.dataset_viewer import (
     opaque_dataset_id,
 )
 from mc_recorder.render_contract import FULL_CLIENT_PRESENTATION_CONTRACT
-from mc_recorder.scene_store import SceneIdentity, SceneStoreBuilder
+from mc_recorder.scene_store import (
+    SceneIdentity,
+    SceneStoreBuilder,
+    validate_scene_attachment_provenance,
+    validate_scene_store,
+)
+
+
+_AUTO_SCENE_ATTACHMENT = object()
 
 
 def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def _plain_json(value: object) -> object:
+    if isinstance(value, Mapping):
+        return {str(key): _plain_json(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_plain_json(item) for item in value]
+    return value
 
 
 def _missing_modality(reason: str) -> dict[str, object]:
@@ -143,6 +160,7 @@ def _write_dataset(
     format_name: str = "mc-recorder-jsonl-v2",
     frame_attachments: list[dict[str, object]] | None = None,
     scene_store: bytes | None = None,
+    scene_attachment: object = _AUTO_SCENE_ATTACHMENT,
 ) -> Path:
     directory = exports / name
     directory.mkdir(parents=True, exist_ok=True)
@@ -223,6 +241,29 @@ def _write_dataset(
             "size_bytes": len(scene_store),
             "sha256": _sha256(scene_store),
         }
+        if scene_attachment is _AUTO_SCENE_ATTACHMENT:
+            info = validate_scene_store(scene_path)
+            extraction = validate_scene_attachment_provenance(info)
+            scene_attachment = {
+                "format": "mc-recorder-scene-store-v1",
+                "path": "/source/source-scene.sqlite3",
+                "sha256": info.sha256,
+                "size_bytes": info.size_bytes,
+                "session_id": info.identity.session_id,
+                "player_uuid": info.identity.player_uuid,
+                "connection_id": info.identity.connection_id,
+                "global_start_tick": info.start_tick,
+                "global_end_tick": info.end_tick,
+                "frame_count": info.frame_count,
+                "scope": extraction.scope,
+                "metadata_policy": extraction.metadata_policy,
+                "result": _plain_json(extraction.result),
+                "sensitive": info.sensitive,
+                "source_replays": _plain_json(info.source_replays),
+            }
+    if scene_attachment is _AUTO_SCENE_ATTACHMENT:
+        scene_attachment = None
+    manifest["selection"]["scene_attachment"] = scene_attachment
     (directory / "manifest.json").write_text(
         json.dumps(manifest, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
@@ -834,6 +875,7 @@ class DatasetArtifactTest(unittest.TestCase):
                 exports,
                 [_sample(7, scene=scene)],
                 scene_store=_scene_store_bytes(root, authenticated=False),
+                scene_attachment={},
             )
 
             catalog = DatasetViewer(exports, root / "runtime").catalog()
@@ -842,6 +884,131 @@ class DatasetArtifactTest(unittest.TestCase):
             self.assertIn(
                 "authenticated extraction provenance", catalog.rejected[0].message
             )
+
+    def test_scene_attachment_presence_exactly_tracks_the_contained_store(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            exports = root / "exports"
+            exports.mkdir()
+            scene = {
+                "available": True,
+                "valid": True,
+                "coverage_complete": True,
+                "reference": "scene/scene-v1.sqlite3",
+                "frame_id": "scene-frame-7",
+                "reason": None,
+            }
+            _write_dataset(
+                exports,
+                [_sample(7, scene=scene)],
+                name="null-attachment.dataset",
+                scene_store=_scene_store_bytes(root),
+                scene_attachment=None,
+            )
+            _write_dataset(
+                exports,
+                [_sample(8)],
+                name="orphan-attachment.dataset",
+                scene_attachment={},
+            )
+
+            catalog = DatasetViewer(exports, root / "runtime").catalog()
+
+            self.assertEqual((), catalog.datasets)
+            rejected = {issue.name: issue.message for issue in catalog.rejected}
+            self.assertIn("scene_attachment is required", rejected["null-attachment.dataset"])
+            self.assertIn(
+                "requires a contained scene store",
+                rejected["orphan-attachment.dataset"],
+            )
+
+    def test_scene_attachment_exactly_binds_authenticated_store_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            exports = root / "exports"
+            exports.mkdir()
+            scene = {
+                "available": True,
+                "valid": True,
+                "coverage_complete": True,
+                "reference": "scene/scene-v1.sqlite3",
+                "frame_id": "scene-frame-7",
+                "reason": None,
+            }
+            mutations = {
+                "format": "other-scene-format",
+                "path": "",
+                "sha256": "0" * 64,
+                "size_bytes": 0,
+                "session_id": "other-session",
+                "player_uuid": "other-player",
+                "connection_id": "other-connection",
+                "global_start_tick": 6,
+                "global_end_tick": 8,
+                "frame_count": 2,
+                "scope": "privileged",
+                "metadata_policy": "redacted",
+                "result": None,
+                "sensitive": False,
+                "source_replays": [],
+            }
+            scene_bytes = _scene_store_bytes(root)
+            for field, replacement in mutations.items():
+                name = f"bad-{field.replace('_', '-')}.dataset"
+                directory = _write_dataset(
+                    exports,
+                    [_sample(7, scene=scene)],
+                    name=name,
+                    scene_store=scene_bytes,
+                )
+                manifest_path = directory / "manifest.json"
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                manifest["selection"]["scene_attachment"][field] = replacement
+                manifest_path.write_text(
+                    json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )
+
+            catalog = DatasetViewer(exports, root / "runtime").catalog()
+
+            self.assertEqual((), catalog.datasets)
+            self.assertEqual(set(mutations), {
+                issue.name.removeprefix("bad-").removesuffix(".dataset").replace("-", "_")
+                for issue in catalog.rejected
+            })
+
+    def test_scene_attachment_path_is_opaque_provenance_text(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            exports = root / "exports"
+            exports.mkdir()
+            scene = {
+                "available": True,
+                "valid": True,
+                "coverage_complete": True,
+                "reference": "scene/scene-v1.sqlite3",
+                "frame_id": "scene-frame-7",
+                "reason": None,
+            }
+            directory = _write_dataset(
+                exports,
+                [_sample(7, scene=scene)],
+                scene_store=_scene_store_bytes(root),
+            )
+            manifest_path = directory / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["selection"]["scene_attachment"]["path"] = (
+                "historical source path, not a viewer input"
+            )
+            manifest_path.write_text(
+                json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+
+            catalog = DatasetViewer(exports, root / "runtime").catalog()
+
+            self.assertEqual(1, len(catalog.datasets))
+            self.assertEqual((), catalog.rejected)
 
     def test_resolves_only_contained_hash_verified_rgb(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

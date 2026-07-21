@@ -487,6 +487,37 @@ class SceneStoreValidationTest(unittest.TestCase):
             ):
                 validate_scene_attachment_provenance(info)
 
+    def test_rejects_persisted_result_frame_count_that_exceeds_store(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "scene.sqlite3"
+            sources = _sources()
+            with SceneStoreBuilder(
+                IDENTITY,
+                start_tick=1,
+                end_tick=2,
+                source_replays=sources,
+                provenance=_provenance(IDENTITY, (1, 2), sources),
+            ) as builder:
+                _add_frames(builder, (1, 2))
+                builder.publish(path, expected_ticks=(1, 2))
+            with closing(sqlite3.connect(path)) as connection:
+                provenance = json.loads(
+                    connection.execute(
+                        "SELECT provenance_json FROM scene_meta"
+                    ).fetchone()[0]
+                )
+                provenance["result"]["stream"]["frame_count"] = 3
+                connection.execute(
+                    "UPDATE scene_meta SET provenance_json = ?",
+                    (json.dumps(provenance, sort_keys=True, separators=(",", ":")),),
+                )
+                connection.commit()
+
+            with self.assertRaisesRegex(
+                SceneStoreValidationError, "frame_count does not match"
+            ):
+                validate_scene_store(path)
+
 
 class SceneStoreLongHistoryTest(unittest.TestCase):
     def _store(self, root: Path, interval_count: int = 6_000) -> Path:
@@ -601,16 +632,33 @@ class SceneStoreLongHistoryTest(unittest.TestCase):
                     query_parameters,
                 ).fetchall()
 
-            self.assertTrue(
-                any("VIRTUAL TABLE INDEX" in row[3] for row in entity_plan),
-                entity_plan,
-            )
-            self.assertTrue(
-                any("VIRTUAL TABLE INDEX" in row[3] for row in block_entity_plan),
-                block_entity_plan,
-            )
+            for plan in (entity_plan, block_entity_plan):
+                access = [
+                    row[3]
+                    for row in plan
+                    if "search" in row[3] or "source" in row[3]
+                ]
+                self.assertGreaterEqual(len(access), 2, plan)
+                self.assertIn("SCAN search VIRTUAL TABLE INDEX", access[0], plan)
+                self.assertIn(
+                    "SEARCH source USING INTEGER PRIMARY KEY", access[1], plan
+                )
+                self.assertFalse(
+                    any("SCAN source" in detail for detail in access), plan
+                )
             with SceneStore(path, validate=False) as store:
+                callbacks = 0
+
+                def progress() -> int:
+                    nonlocal callbacks
+                    callbacks += 1
+                    return int(callbacks > 250)
+
+                assert store._connection is not None
+                store._connection.set_progress_handler(progress, 100)
                 crop = store.materialize_crop(5_999, (0, 64, 0), (1, 1, 1))
+                store._connection.set_progress_handler(None, 0)
+            self.assertLess(callbacks, 250)
             self.assertEqual(
                 [entity.instance_id for entity in crop.entities],
                 ["history-5999"],
@@ -715,53 +763,11 @@ class SceneStreamCompactorTest(unittest.TestCase):
                     },
                 },
                 {
-                    "frame_id": "segment-b:1",
-                    "server_tick": 5,
-                    "replay_tick": 1,
-                    "segment_id": "segment-b",
-                    "segment_ordinal": 1,
-                    "dimension": DIMENSION,
-                    "subject_position": [0.5, 1.0, 0.5],
-                    "complete": True,
-                    "reasons": [],
-                    "metadata": {
-                        "entity_count": 1,
-                        "event_sequence": 50,
-                        "loaded_section_count": 1,
-                        "metadata_policy": "full_packet_metadata",
-                        "scene_snapshot_sha256": snapshot_five,
-                        "scope": "client_visible",
-                        "subject_entity_id": 2,
-                    },
-                },
-                {
                     "frame_id": "segment-a:52",
                     "server_tick": 7,
                     "replay_tick": 52,
                     "segment_id": "segment-a",
                     "segment_ordinal": 0,
-                    "dimension": DIMENSION,
-                    "subject_position": [0.5, 1.0, 0.5],
-                    "complete": True,
-                    "reasons": [],
-                    "metadata": {
-                        "entity_count": 0,
-                        "event_sequence": 52,
-                        "loaded_section_count": 1,
-                        "metadata_policy": "full_packet_metadata",
-                        "scene_snapshot_sha256": snapshot_seven,
-                        "scope": "client_visible",
-                        "subject_entity_id": 2,
-                    },
-                },
-                # The next replay segment overlaps tick 7. Its replay-local
-                # identity differs, but its complete logical snapshot agrees.
-                {
-                    "frame_id": "segment-b:3",
-                    "server_tick": 7,
-                    "replay_tick": 3,
-                    "segment_id": "segment-b",
-                    "segment_ordinal": 1,
                     "dimension": DIMENSION,
                     "subject_position": [0.5, 1.0, 0.5],
                     "complete": True,

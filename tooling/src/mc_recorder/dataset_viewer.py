@@ -13,7 +13,7 @@ import time
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Iterator, Mapping
 
 from .errors import RecorderError
 from .render_contract import FULL_CLIENT_PRESENTATION_CONTRACT
@@ -37,6 +37,25 @@ _SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
 _OPAQUE_ID_RE = re.compile(r"^[0-9a-f]{32}$")
 _INDEX_SCHEMA_VERSION = 2
 _MAX_SQLITE_INTEGER = 2**63 - 1
+_SCENE_ATTACHMENT_FIELDS = frozenset(
+    {
+        "format",
+        "path",
+        "sha256",
+        "size_bytes",
+        "session_id",
+        "player_uuid",
+        "connection_id",
+        "global_start_tick",
+        "global_end_tick",
+        "frame_count",
+        "scope",
+        "metadata_policy",
+        "result",
+        "sensitive",
+        "source_replays",
+    }
+)
 
 __all__ = (
     "ArtifactUnavailableError",
@@ -1005,6 +1024,21 @@ class DatasetViewer:
                 raise DatasetValidationError(
                     "dataset manifest files must contain the v2 streams and only supported artifacts"
                 )
+            selection = manifest.get("selection")
+            if not isinstance(selection, dict) or "scene_attachment" not in selection:
+                raise DatasetValidationError(
+                    "dataset selection must declare scene_attachment"
+                )
+            scene_attachment = selection.get("scene_attachment")
+            if SCENE_STORE_REFERENCE in declared_files:
+                if not isinstance(scene_attachment, dict):
+                    raise DatasetValidationError(
+                        "selection scene_attachment is required for the contained scene store"
+                    )
+            elif scene_attachment is not None:
+                raise DatasetValidationError(
+                    "selection scene_attachment requires a contained scene store"
+                )
             if set(entries) != {"manifest.json", *declared_files}:
                 raise DatasetValidationError(
                     "dataset entries do not exactly match the manifest files"
@@ -1043,6 +1077,7 @@ class DatasetViewer:
             scene_identity: tuple[str, str, str] | None = None
             if SCENE_STORE_REFERENCE in verified:
                 from .scene_store import (
+                    SCENE_STORE_SCHEMA,
                     validate_scene_attachment_provenance,
                     validate_scene_store,
                 )
@@ -1055,7 +1090,7 @@ class DatasetViewer:
                         verified[SCENE_STORE_REFERENCE].path,
                         expected_session_id=expected_session,
                     )
-                    validate_scene_attachment_provenance(scene_info)
+                    extraction = validate_scene_attachment_provenance(scene_info)
                 except RecorderError as exc:
                     raise DatasetValidationError(
                         f"dataset scene store is invalid: {exc}"
@@ -1065,6 +1100,28 @@ class DatasetViewer:
                         "dataset scene store must have complete reconstruction coverage"
                     )
                 identity = scene_info.identity
+                scene_file = verified[SCENE_STORE_REFERENCE]
+                _validate_scene_attachment(
+                    scene_attachment,
+                    {
+                        "format": SCENE_STORE_SCHEMA,
+                        "sha256": scene_file.sha256,
+                        "size_bytes": scene_file.size_bytes,
+                        "session_id": identity.session_id,
+                        "player_uuid": identity.player_uuid,
+                        "connection_id": identity.connection_id,
+                        "global_start_tick": scene_info.start_tick,
+                        "global_end_tick": scene_info.end_tick,
+                        "frame_count": scene_info.frame_count,
+                        "scope": extraction.scope,
+                        "metadata_policy": extraction.metadata_policy,
+                        "result": _plain_json_value(extraction.result),
+                        "sensitive": scene_info.sensitive,
+                        "source_replays": _plain_json_value(
+                            scene_info.source_replays
+                        ),
+                    },
+                )
                 scene_identity = (
                     identity.session_id,
                     identity.player_uuid,
@@ -1668,6 +1725,33 @@ def _required_string(mapping: dict[str, Any], key: str, context: str) -> str:
     if not isinstance(value, str) or not value:
         raise DatasetValidationError(f"{context} {key} must be a non-empty string")
     return value
+
+
+def _plain_json_value(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {str(key): _plain_json_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_plain_json_value(item) for item in value]
+    return value
+
+
+def _validate_scene_attachment(
+    value: object, expected: Mapping[str, Any]
+) -> None:
+    if not isinstance(value, dict):
+        raise DatasetValidationError(
+            "selection scene_attachment must be an object when a scene store exists"
+        )
+    if set(value) != _SCENE_ATTACHMENT_FIELDS:
+        raise DatasetValidationError(
+            "selection scene_attachment fields do not match the v2 contract"
+        )
+    _required_string(value, "path", "selection scene_attachment provenance")
+    for key, expected_value in expected.items():
+        if value.get(key) != expected_value:
+            raise DatasetValidationError(
+                f"selection scene_attachment {key} does not match the authenticated store"
+            )
 
 
 def _mapping_int(mapping: object, key: str) -> int | None:
