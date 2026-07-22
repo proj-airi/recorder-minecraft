@@ -9,7 +9,7 @@ import tempfile
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, BinaryIO, Mapping
+from typing import TYPE_CHECKING, Any, BinaryIO, Mapping, Protocol, cast
 
 from .errors import RecorderError
 
@@ -24,6 +24,10 @@ MAX_HUD_SIDECAR_LINE_BYTES = 1024 * 1024
 MAX_STACK_SNBT_BYTES = 256 * 1024
 _SHA256_LENGTH = 64
 _ITEM_RE = re.compile(r"^[a-z0-9_.-]+:[a-z0-9_./-]+$")
+
+
+class _Digest(Protocol):
+    def update(self, data: bytes, /) -> object: ...
 
 
 def _dataset_error(message: str) -> RecorderError:
@@ -70,7 +74,9 @@ class StructuredHudSidecar:
         }
 
 
-def _canonical_uuid(value: str, label: str) -> str:
+def _canonical_uuid(value: object, label: str) -> str:
+    if not isinstance(value, str):
+        raise RecorderError(f"{label} must be a UUID")
     try:
         canonical = str(uuid.UUID(value))
     except (ValueError, TypeError, AttributeError) as exc:
@@ -81,12 +87,7 @@ def _canonical_uuid(value: str, label: str) -> str:
 
 
 def _integer(value: object, label: str, minimum: int, maximum: int) -> int:
-    if (
-        not isinstance(value, int)
-        or isinstance(value, bool)
-        or value < minimum
-        or value > maximum
-    ):
+    if not isinstance(value, int) or isinstance(value, bool) or value < minimum or value > maximum:
         raise RecorderError(f"{label} must be an integer in {minimum}..{maximum}")
     return value
 
@@ -97,24 +98,13 @@ def _number(
     minimum: float,
     maximum: float,
 ) -> int | float:
-    if (
-        not isinstance(value, (int, float))
-        or isinstance(value, bool)
-        or not math.isfinite(value)
-        or value < minimum
-        or value > maximum
-    ):
+    if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(value) or value < minimum or value > maximum:
         raise RecorderError(f"{label} must be a finite number in {minimum}..{maximum}")
     return value
 
 
 def _string(value: object, label: str, maximum_bytes: int) -> str:
-    if (
-        not isinstance(value, str)
-        or not value
-        or len(value.encode("utf-8")) > maximum_bytes
-        or any(ord(character) < 0x20 for character in value)
-    ):
+    if not isinstance(value, str) or not value or len(value.encode("utf-8")) > maximum_bytes or any(ord(character) < 0x20 for character in value):
         raise RecorderError(f"{label} must be a bounded non-empty string")
     return value
 
@@ -126,9 +116,7 @@ def _inventory(value: object, tick: int) -> list[dict[str, Any]]:
     seen: set[int] = set()
     for ordinal, raw in enumerate(value):
         if not isinstance(raw, dict):
-            raise RecorderError(
-                f"dataset HUD inventory entry {ordinal} at tick {tick} is not an object"
-            )
+            raise RecorderError(f"dataset HUD inventory entry {ordinal} at tick {tick} is not an object")
         slot = _integer(raw.get("slot"), f"inventory slot at tick {tick}", 0, 42)
         if slot in seen:
             raise RecorderError(f"dataset HUD inventory repeats slot {slot} at tick {tick}")
@@ -141,12 +129,8 @@ def _inventory(value: object, tick: int) -> list[dict[str, Any]]:
         item = _string(raw.get("item"), f"inventory item for slot {slot} at tick {tick}", 512)
         if _ITEM_RE.fullmatch(item) is None:
             raise RecorderError(f"inventory item for slot {slot} at tick {tick} is invalid")
-        count = _integer(
-            raw.get("count"), f"inventory count for slot {slot} at tick {tick}", 1, 999
-        )
-        damage = _integer(
-            raw.get("damage"), f"inventory damage for slot {slot} at tick {tick}", 0, 2**31 - 1
-        )
+        count = _integer(raw.get("count"), f"inventory count for slot {slot} at tick {tick}", 1, 999)
+        damage = _integer(raw.get("damage"), f"inventory damage for slot {slot} at tick {tick}", 0, 2**31 - 1)
         max_damage = _integer(
             raw.get("max_damage"),
             f"inventory max_damage for slot {slot} at tick {tick}",
@@ -167,48 +151,27 @@ def _inventory(value: object, tick: int) -> list[dict[str, Any]]:
 
 
 def _hud_row(
-    sample: Mapping[str, Any],
+    state: Mapping[str, Any],
     *,
     tick: int,
     session_id: str,
     player_uuid: str,
     connection_id: str,
 ) -> dict[str, Any]:
-    if sample.get("session_id") != session_id:
-        raise RecorderError(f"dataset sample at tick {tick} has the wrong session")
-    if sample.get("player_uuid") != player_uuid or sample.get("connection_id") != connection_id:
-        raise RecorderError(f"dataset sample at tick {tick} has the wrong player connection")
-    key = sample.get("sample_key")
-    if not isinstance(key, dict) or (
-        key.get("session_id"),
-        key.get("server_tick"),
-        key.get("player_uuid"),
-        key.get("connection_id"),
-    ) != (session_id, tick, player_uuid, connection_id):
-        raise RecorderError(f"dataset sample key is inconsistent at tick {tick}")
-    state = sample.get("state")
-    if not isinstance(state, dict):
-        raise RecorderError(f"dataset sample at tick {tick} has no state object")
+    if state.get("session_id") != session_id:
+        raise RecorderError(f"dataset state at tick {tick} has the wrong session")
+    if state.get("server_tick") != tick:
+        raise RecorderError(f"dataset state tick is inconsistent at tick {tick}")
     if state.get("player_uuid") != player_uuid or state.get("connection_id") != connection_id:
         raise RecorderError(f"dataset state identity is inconsistent at tick {tick}")
     hud = {
         "health": _number(state.get("health"), f"health at tick {tick}", 0.0, 2048.0),
-        "max_health": _number(
-            state.get("max_health"), f"max_health at tick {tick}", 0.01, 2048.0
-        ),
-        "absorption": _number(
-            state.get("absorption"), f"absorption at tick {tick}", 0.0, 2048.0
-        ),
+        "max_health": _number(state.get("max_health"), f"max_health at tick {tick}", 0.01, 2048.0),
+        "absorption": _number(state.get("absorption"), f"absorption at tick {tick}", 0.0, 2048.0),
         "air": _integer(state.get("air"), f"air at tick {tick}", -1_000_000, 1_000_000),
-        "max_air": _integer(
-            state.get("max_air"), f"max_air at tick {tick}", 1, 1_000_000
-        ),
-        "food_level": _integer(
-            state.get("food_level"), f"food_level at tick {tick}", 0, 20
-        ),
-        "saturation": _number(
-            state.get("saturation"), f"saturation at tick {tick}", 0.0, 20.0
-        ),
+        "max_air": _integer(state.get("max_air"), f"max_air at tick {tick}", 1, 1_000_000),
+        "food_level": _integer(state.get("food_level"), f"food_level at tick {tick}", 0, 20),
+        "saturation": _number(state.get("saturation"), f"saturation at tick {tick}", 0.0, 20.0),
         "experience_progress": _number(
             state.get("experience_progress"),
             f"experience_progress at tick {tick}",
@@ -227,9 +190,7 @@ def _hud_row(
             0,
             2**31 - 1,
         ),
-        "selected_slot": _integer(
-            state.get("selected_slot"), f"selected_slot at tick {tick}", 0, 8
-        ),
+        "selected_slot": _integer(state.get("selected_slot"), f"selected_slot at tick {tick}", 0, 8),
         "inventory": _inventory(state.get("inventory"), tick),
     }
     return {
@@ -243,7 +204,7 @@ def _hud_row(
     }
 
 
-def _write_line(handle: BinaryIO, digest: Any, row: Mapping[str, Any], total: int) -> int:
+def _write_line(handle: BinaryIO, digest: _Digest, row: Mapping[str, Any], total: int) -> int:
     try:
         encoded = (
             json.dumps(
@@ -286,12 +247,8 @@ def create_structured_hud_sidecar(
     connection_id = _canonical_uuid(connection_id, "HUD connection UUID")
     first_tick = _integer(first_tick, "HUD first tick", 0, 2**63 - 1)
     last_tick = _integer(last_tick, "HUD last tick", first_tick, 2**63 - 1)
-    selection_first_tick = _integer(
-        selection_first_tick, "HUD selection first tick", 0, first_tick
-    )
-    selection_last_tick = _integer(
-        selection_last_tick, "HUD selection last tick", last_tick, 2**63 - 1
-    )
+    selection_first_tick = _integer(selection_first_tick, "HUD selection first tick", 0, first_tick)
+    selection_last_tick = _integer(selection_last_tick, "HUD selection last tick", last_tick, 2**63 - 1)
     dataset = viewer._dataset_by_id(dataset_id)
     manifest = dataset.manifest
     if manifest.get("session_id") != session_id:
@@ -305,21 +262,18 @@ def create_structured_hud_sidecar(
         raise RecorderError("render dataset does not select the requested player")
     if not isinstance(connections, list) or connection_id not in connections:
         raise RecorderError("render dataset does not select the requested connection")
-    if selection.get("from_tick") != selection_first_tick or selection.get(
-        "to_tick"
-    ) != selection_last_tick:
+    if selection.get("from_tick") != selection_first_tick or selection.get("to_tick") != selection_last_tick:
         raise RecorderError("render dataset selection range does not match its queue job")
 
-    verified = dataset.files["samples.jsonl"]
-    samples_path = verified.path
+    verified_states = dataset.files["states.jsonl"]
+    states_path = verified_states.path
+    verified_samples = dataset.files["samples.jsonl"]
     requested = output.expanduser()
     if requested.exists() or requested.is_symlink():
         raise RecorderError(f"structured HUD sidecar output already exists: {requested}")
     target = requested.resolve()
     target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    descriptor, temporary_name = tempfile.mkstemp(
-        prefix=f".{target.name}.tmp-", dir=target.parent
-    )
+    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{target.name}.tmp-", dir=target.parent)
     temporary = Path(temporary_name)
     output_digest = hashlib.sha256()
     total = 0
@@ -329,56 +283,43 @@ def create_structured_hud_sidecar(
         os.fchmod(descriptor, 0o600)
         with os.fdopen(descriptor, "wb") as destination:
             try:
-                before = samples_path.stat()
+                before = states_path.stat()
                 if (
-                    samples_path.is_symlink()
-                    or before.st_dev != verified.device
-                    or before.st_ino != verified.inode
-                    or before.st_size != verified.size_bytes
-                    or before.st_mtime_ns != verified.modified_ns
-                    or before.st_ctime_ns != verified.changed_ns
+                    states_path.is_symlink()
+                    or before.st_dev != verified_states.device
+                    or before.st_ino != verified_states.inode
+                    or before.st_size != verified_states.size_bytes
+                    or before.st_mtime_ns != verified_states.modified_ns
+                    or before.st_ctime_ns != verified_states.changed_ns
                 ):
-                    raise _dataset_error("samples.jsonl changed after dataset verification")
+                    raise _dataset_error("states.jsonl changed after dataset verification")
                 source_digest = hashlib.sha256()
-                with samples_path.open("rb") as source:
+                with states_path.open("rb") as source:
                     for line_number, raw in enumerate(source, 1):
                         source_digest.update(raw)
                         if len(raw) > viewer.max_sample_line_bytes:
-                            raise _dataset_error(
-                                f"samples.jsonl line {line_number} exceeds the size limit"
-                            )
+                            raise _dataset_error(f"states.jsonl line {line_number} exceeds the size limit")
                         try:
-                            sample = json.loads(raw)
+                            state = json.loads(raw)
                         except (ValueError, RecursionError) as exc:
-                            raise _dataset_error(
-                                f"samples.jsonl line {line_number} is invalid JSON"
-                            ) from exc
-                        if not isinstance(sample, dict):
-                            raise _dataset_error(
-                                f"samples.jsonl line {line_number} is not an object"
-                            )
-                        if (
-                            sample.get("player_uuid") != player_uuid
-                            or sample.get("connection_id") != connection_id
-                        ):
+                            raise _dataset_error(f"states.jsonl line {line_number} is invalid JSON") from exc
+                        if not isinstance(state, dict):
+                            raise _dataset_error(f"states.jsonl line {line_number} is not an object")
+                        if state.get("player_uuid") != player_uuid or state.get("connection_id") != connection_id:
                             continue
-                        tick = sample.get("server_tick")
+                        tick = state.get("server_tick")
                         if not isinstance(tick, int) or isinstance(tick, bool):
-                            raise RecorderError(
-                                "selected dataset sample has an invalid server tick"
-                            )
+                            raise RecorderError("selected dataset state has an invalid server tick")
                         if tick < first_tick or tick > last_tick:
                             continue
                         if tick != expected_tick:
                             detail = "duplicate" if tick < expected_tick else "missing"
-                            raise RecorderError(
-                                f"structured HUD dataset has a {detail} tick at {expected_tick}"
-                            )
+                            raise RecorderError(f"structured HUD dataset has a {detail} tick at {expected_tick}")
                         total = _write_line(
                             destination,
                             output_digest,
                             _hud_row(
-                                sample,
+                                state,
                                 tick=tick,
                                 session_id=session_id,
                                 player_uuid=player_uuid,
@@ -388,33 +329,27 @@ def create_structured_hud_sidecar(
                         )
                         count += 1
                         expected_tick += 1
-                after = samples_path.stat()
-                if (
-                    (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns, before.st_ctime_ns)
-                    != (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns)
-                    or source_digest.hexdigest() != verified.sha256
-                ):
-                    raise _dataset_error(
-                        "samples.jsonl changed while the HUD sidecar was generated"
-                    )
+                after = states_path.stat()
+                if (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (
+                    after.st_dev,
+                    after.st_ino,
+                    after.st_size,
+                    after.st_mtime_ns,
+                    after.st_ctime_ns,
+                ) or source_digest.hexdigest() != verified_states.sha256:
+                    raise _dataset_error("states.jsonl changed while the HUD sidecar was generated")
             except OSError as exc:
-                raise _dataset_error("cannot read verified samples.jsonl") from exc
+                raise _dataset_error("cannot read verified states.jsonl") from exc
             if expected_tick != last_tick + 1:
-                raise RecorderError(
-                    f"structured HUD dataset is missing tick {expected_tick}"
-                )
+                raise RecorderError(f"structured HUD dataset is missing tick {expected_tick}")
             destination.flush()
             os.fsync(destination.fileno())
         if count != last_tick - first_tick + 1 or total <= 0:
-            raise RecorderError(
-                "structured HUD sidecar does not cover its exact tick range"
-            )
+            raise RecorderError("structured HUD sidecar does not cover its exact tick range")
         try:
             os.link(temporary, target, follow_symlinks=False)
         except FileExistsError as exc:
-            raise RecorderError(
-                f"structured HUD sidecar was concurrently published: {target}"
-            ) from exc
+            raise RecorderError(f"structured HUD sidecar was concurrently published: {target}") from exc
         parent_descriptor = os.open(target.parent, os.O_RDONLY)
         try:
             os.fsync(parent_descriptor)
@@ -432,7 +367,9 @@ def create_structured_hud_sidecar(
         last_tick=last_tick,
         dataset_id=dataset.dataset_id,
         dataset_manifest_sha256=dataset.manifest_sha256,
-        samples_sha256=verified.sha256,
+        # The wire contract retains the samples digest for compatibility. The
+        # manifest digest binds the verified states stream used above.
+        samples_sha256=verified_samples.sha256,
         session_id=session_id,
         player_uuid=player_uuid,
         connection_id=connection_id,
@@ -460,35 +397,21 @@ def validate_hud_sidecar_envelope(value: object, label: str = "structured HUD si
     }
     if set(value) != required:
         raise RecorderError(f"{label} has unsupported or missing fields")
-    if (
-        value.get("schema_version") != 1
-        or value.get("sidecar_type") != HUD_SIDECAR_TYPE
-        or value.get("format") != HUD_SIDECAR_FORMAT
-    ):
+    if value.get("schema_version") != 1 or value.get("sidecar_type") != HUD_SIDECAR_TYPE or value.get("format") != HUD_SIDECAR_FORMAT:
         raise RecorderError(f"{label} has an unsupported contract")
     for key in ("sha256", "dataset_manifest_sha256", "samples_sha256"):
         digest = value.get(key)
-        if (
-            not isinstance(digest, str)
-            or len(digest) != _SHA256_LENGTH
-            or any(character not in "0123456789abcdef" for character in digest)
-        ):
+        if not isinstance(digest, str) or len(digest) != _SHA256_LENGTH or any(character not in "0123456789abcdef" for character in digest):
             raise RecorderError(f"{label} {key} must be lowercase SHA-256")
     dataset_id = value.get("dataset_id")
-    if (
-        not isinstance(dataset_id, str)
-        or len(dataset_id) != 32
-        or any(character not in "0123456789abcdef" for character in dataset_id)
-    ):
+    if not isinstance(dataset_id, str) or len(dataset_id) != 32 or any(character not in "0123456789abcdef" for character in dataset_id):
         raise RecorderError(f"{label} dataset_id is invalid")
     _string(value.get("session_id"), f"{label} session_id", 512)
     _canonical_uuid(value.get("player_uuid"), f"{label} player UUID")
     _canonical_uuid(value.get("connection_id"), f"{label} connection UUID")
     first = _integer(value.get("first_tick"), f"{label} first_tick", 0, 2**63 - 1)
     last = _integer(value.get("last_tick"), f"{label} last_tick", first, 2**63 - 1)
-    records = _integer(
-        value.get("record_count"), f"{label} record_count", 1, 2**63 - 1
-    )
+    records = _integer(value.get("record_count"), f"{label} record_count", 1, 2**63 - 1)
     if records != last - first + 1:
         raise RecorderError(f"{label} record count does not match its exact tick range")
     _integer(
@@ -497,7 +420,7 @@ def validate_hud_sidecar_envelope(value: object, label: str = "structured HUD si
         1,
         MAX_HUD_SIDECAR_BYTES,
     )
-    return value
+    return cast(dict[str, Any], value)
 
 
 def hud_result_envelope(value: Mapping[str, Any]) -> dict[str, Any]:
@@ -533,9 +456,7 @@ def hud_result_envelope(value: Mapping[str, Any]) -> dict[str, Any]:
     )
 
 
-def validate_hud_result_envelope(
-    value: object, label: str = "renderer structured_hud"
-) -> dict[str, Any]:
+def validate_hud_result_envelope(value: object, label: str = "renderer structured_hud") -> dict[str, Any]:
     if not isinstance(value, dict) or set(value) != {
         "schema_version",
         "type",

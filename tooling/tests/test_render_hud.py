@@ -6,7 +6,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, cast
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
@@ -66,10 +66,7 @@ def _sample(tick: int, *, with_snbt: bool = True) -> dict[str, object]:
                     "count": 1,
                     "damage": tick,
                     "max_damage": 59,
-                    "stack_snbt": (
-                        '{id:"minecraft:wooden_pickaxe",count:1,components:'
-                        f'{{"minecraft:damage":{tick}}}}}'
-                    ),
+                    "stack_snbt": (f'{{id:"minecraft:wooden_pickaxe",count:1,components:{{"minecraft:damage":{tick}}}}}'),
                 },
                 stack,
             ],
@@ -77,15 +74,31 @@ def _sample(tick: int, *, with_snbt: bool = True) -> dict[str, object]:
     }
 
 
-def _dataset(exports: Path, samples: list[dict[str, object]]) -> tuple[Path, str]:
+def _state(sample: dict[str, object]) -> dict[str, object]:
+    state = dict(cast(dict[str, object], sample["state"]))
+    state.update(
+        {
+            "schema_version": 2,
+            "session_id": sample["session_id"],
+            "server_tick": sample["server_tick"],
+            "player_uuid": sample["player_uuid"],
+            "connection_id": sample["connection_id"],
+        }
+    )
+    return state
+
+
+def _dataset(
+    exports: Path,
+    samples: list[dict[str, object]],
+    *,
+    states: list[dict[str, object]] | None = None,
+) -> tuple[Path, str]:
     directory = exports / "session-a-player-connection.dataset"
     directory.mkdir()
     streams = {
-        "samples.jsonl": b"".join(
-            json.dumps(row, sort_keys=True, separators=(",", ":")).encode() + b"\n"
-            for row in samples
-        ),
-        "states.jsonl": b"",
+        "samples.jsonl": b"".join(json.dumps(row, sort_keys=True, separators=(",", ":")).encode() + b"\n" for row in samples),
+        "states.jsonl": b"".join(json.dumps(row, sort_keys=True, separators=(",", ":")).encode() + b"\n" for row in (states if states is not None else [_state(sample) for sample in samples])),
         "actions.jsonl": b"",
         "modalities.jsonl": b"",
     }
@@ -111,9 +124,7 @@ def _dataset(exports: Path, samples: list[dict[str, object]]) -> tuple[Path, str
             for name, data in streams.items()
         },
     }
-    (directory / "manifest.json").write_text(
-        json.dumps(manifest, sort_keys=True), encoding="utf-8"
-    )
+    (directory / "manifest.json").write_text(json.dumps(manifest, sort_keys=True), encoding="utf-8")
     return directory, opaque_dataset_id(exports, directory.name)
 
 
@@ -134,9 +145,7 @@ class StructuredHudSidecarTest(unittest.TestCase):
             ),
             (
                 "stack_snbt",
-                lambda sample: sample["state"]["inventory"][0].__setitem__(
-                    "stack_snbt", "x" * (256 * 1024 + 1)
-                ),
+                lambda sample: sample["state"]["inventory"][0].__setitem__("stack_snbt", "x" * (256 * 1024 + 1)),
             ),
         ]
         for message, mutate in cases:
@@ -172,7 +181,10 @@ class StructuredHudSidecarTest(unittest.TestCase):
             runtime.mkdir()
             samples = [_sample(10), _sample(11), _sample(12)]
             for sample in samples:
-                sample["state"]["inventory"][1]["slot"] = 42  # type: ignore[index]
+                state = cast(dict[str, object], sample["state"])
+                inventory = cast(list[object], state["inventory"])
+                stack = cast(dict[str, object], inventory[1])
+                stack["slot"] = 42
             _directory, dataset_id = _dataset(exports, samples)
             result = create_structured_hud_sidecar(
                 DatasetViewer(exports, runtime),
@@ -198,6 +210,37 @@ class StructuredHudSidecarTest(unittest.TestCase):
             self.assertIn("stack_snbt", rows[0]["state"]["inventory"][1])
             self.assertEqual(result.envelope(), validate_hud_sidecar_envelope(result.envelope()))
             self.assertNotIn("path", result.envelope())
+
+    def test_sidecar_includes_terminal_state_without_a_transition_sample(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            exports = root / "exports"
+            runtime = root / "runtime"
+            exports.mkdir()
+            runtime.mkdir()
+            terminal = _sample(12)
+            _directory, dataset_id = _dataset(
+                exports,
+                [_sample(10), _sample(11)],
+                states=[_state(_sample(10)), _state(_sample(11)), _state(terminal)],
+            )
+
+            result = create_structured_hud_sidecar(
+                DatasetViewer(exports, runtime),
+                dataset_id,
+                root / "hud.jsonl",
+                session_id=SESSION,
+                player_uuid=PLAYER,
+                connection_id=CONNECTION,
+                first_tick=10,
+                last_tick=12,
+                selection_first_tick=10,
+                selection_last_tick=12,
+            )
+
+            self.assertEqual((3, 10, 12), (result.record_count, result.first_tick, result.last_tick))
+            rows = [json.loads(line) for line in result.path.read_text().splitlines()]
+            self.assertEqual([10, 11, 12], [row["server_tick"] for row in rows])
 
     def test_sidecar_fails_closed_on_missing_tick_or_authoritative_stack(self) -> None:
         for samples, message in (
@@ -225,19 +268,17 @@ class StructuredHudSidecarTest(unittest.TestCase):
                         selection_last_tick=12,
                     )
 
-    def test_sidecar_rechecks_verified_sample_identity_and_hash_during_stream(self) -> None:
+    def test_sidecar_rechecks_verified_state_identity_and_hash_during_stream(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             exports = root / "exports"
             runtime = root / "runtime"
             exports.mkdir()
             runtime.mkdir()
-            directory, dataset_id = _dataset(
-                exports, [_sample(10), _sample(11), _sample(12)]
-            )
+            directory, dataset_id = _dataset(exports, [_sample(10), _sample(11), _sample(12)])
             viewer = DatasetViewer(exports, runtime)
             verified = viewer._dataset_by_id(dataset_id)
-            with (directory / "samples.jsonl").open("ab") as handle:
+            with (directory / "states.jsonl").open("ab") as handle:
                 handle.write(b"{}\n")
             with (
                 mock.patch.object(viewer, "_dataset_by_id", return_value=verified),
