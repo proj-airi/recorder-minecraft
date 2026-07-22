@@ -20,6 +20,7 @@ dependencies {
     mappings(loom.officialMojangMappings())
     modImplementation("net.fabricmc:fabric-loader:${property("loader_version")}")
     modImplementation("net.fabricmc.fabric-api:fabric-api:${property("fabric_version")}")
+    modImplementation("net.fabricmc:fabric-language-kotlin:${property("fabric_kotlin_version")}")
     modImplementation("net.casualchampionships:arcade-replay:${property("arcade_version")}")
 
     testImplementation("org.junit.jupiter:junit-jupiter:6.1.2")
@@ -53,4 +54,7 @@ tasks.processResources {
 
 tasks.test {
     useJUnitPlatform()
+    systemProperty("mcRecorder.fabricVersion", project.property("fabric_version"))
+    systemProperty("mcRecorder.fabricKotlinVersion", project.property("fabric_kotlin_version"))
+    systemProperty("mcRecorder.arcadeVersion", project.property("arcade_version"))
 }
