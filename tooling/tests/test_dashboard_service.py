@@ -35,16 +35,6 @@ class DashboardServiceTest(unittest.TestCase):
             (episode / "manifest.json").write_text(json.dumps({"session_id": session}), encoding="utf-8")
             control = config.paths.runtime / "control"
             control.mkdir(parents=True)
-            (control / "status.json").write_text(
-                json.dumps(
-                    {
-                        "session_id": session,
-                        "state": "recording",
-                        "heartbeat_unix_ms": int(time.time() * 1000),
-                    }
-                ),
-                encoding="utf-8",
-            )
             (control / "connections.json").write_text(
                 json.dumps(
                     {
@@ -72,6 +62,16 @@ class DashboardServiceTest(unittest.TestCase):
             )
             service = DashboardService(config)
             try:
+                (control / "status.json").write_text(
+                    json.dumps(
+                        {
+                            "session_id": session,
+                            "state": "recording",
+                            "heartbeat_unix_ms": int(time.time() * 1000),
+                        }
+                    ),
+                    encoding="utf-8",
+                )
                 rows = service.recordings()
                 self.assertEqual(["recording", "waiting_for_seal"], [row["state"] for row in rows])
                 active = next(row for row in rows if row["connection_id"] == ACTIVE)
