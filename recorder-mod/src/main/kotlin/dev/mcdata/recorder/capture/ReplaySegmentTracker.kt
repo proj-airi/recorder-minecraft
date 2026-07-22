@@ -149,6 +149,12 @@ class ReplaySegmentTracker internal constructor(
             addProperty("segment_ordinal", segment.segmentOrdinal)
             addProperty("player_uuid", segment.playerUuid.toString())
             addProperty("hotbar_snapshot_contract", ReplayPacketSnapshots.HOTBAR_SNAPSHOT_CONTRACT)
+            if (segment.replayFormat == FLASHBACK_FORMAT) {
+                addProperty(
+                    "flashback_capture_contract",
+                    ReplayScenePacketContract.FLASHBACK_CAPTURE_CONTRACT
+                )
+            }
             segment.connection?.let { addProperty("connection_id", it.connectionId) }
         })
     }
@@ -189,6 +195,11 @@ class ReplaySegmentTracker internal constructor(
             terminalReason = terminalReason,
             replayFormat = replayFormat,
             hotbarSnapshotContract = ReplayPacketSnapshots.HOTBAR_SNAPSHOT_CONTRACT,
+            flashbackCaptureContract = if (replayFormat == FLASHBACK_FORMAT) {
+                ReplayScenePacketContract.FLASHBACK_CAPTURE_CONTRACT
+            } else {
+                null
+            },
             sourceLocation = sourceLocation,
             state = state,
             startedAtUnixMs = startedAtUnixMs,
@@ -205,7 +216,8 @@ class ReplaySegmentTracker internal constructor(
     )
 
     companion object {
-        private const val REPLAY_METADATA_SCHEMA_VERSION = 2
+        private const val REPLAY_METADATA_SCHEMA_VERSION = 3
+        private const val FLASHBACK_FORMAT = "flashback"
         private const val SEGMENT_RECORDING = "recording"
         private const val SEGMENT_SAVED = "saved"
     }

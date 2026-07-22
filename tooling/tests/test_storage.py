@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import json
 import os
@@ -13,7 +14,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
 from mc_recorder.episodes import directory_size
-from mc_recorder.storage import enforce_quota
+from mc_recorder.storage import enforce_quota, pin_sealed_epochs
 
 
 def _epoch(root: Path, session: str, index: int, size: int, *, active: bool = False) -> Path:
@@ -125,6 +126,54 @@ class StorageTest(unittest.TestCase):
             self.assertTrue(active_directory.is_dir())
             self.assertEqual(("replay_archive",), tuple(item.source_kind for item in report.evicted))
             self.assertEqual("players/player-a/old.zip", report.evicted[0].source_path)
+
+    def test_does_not_evict_a_replay_pinned_by_scene_extraction(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            captures = base / "captures"
+            replays = base / "replays"
+            captures.mkdir()
+            player = replays / "players" / "player-a"
+            player.mkdir(parents=True)
+            replay = player / "pinned.zip"
+            with zipfile.ZipFile(replay, "w") as archive:
+                archive.writestr("metadata.json", "x" * 1500)
+                archive.writestr("c0.flashback", "complete")
+            old = time.time() - 600
+            os.utime(replay, (old, old))
+
+            with replay.open("rb") as handle:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_SH)
+                report = enforce_quota(
+                    captures,
+                    replays_root=replays,
+                    quota_bytes=1,
+                    warn_percent=80,
+                    evict_oldest=True,
+                    replay_stable_seconds=60,
+                )
+
+            self.assertEqual("full", report.status)
+            self.assertTrue(replay.is_file())
+            self.assertEqual((), report.evicted)
+
+    def test_does_not_evict_an_epoch_pinned_by_dataset_generation(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "captures"
+            epoch = _epoch(root, "session-a", 0, 2000)
+
+            with pin_sealed_epochs(root / "session-a") as pinned:
+                self.assertEqual((epoch.resolve(),), pinned)
+                report = enforce_quota(
+                    root,
+                    quota_bytes=1,
+                    warn_percent=80,
+                    evict_oldest=True,
+                )
+
+            self.assertEqual("full", report.status)
+            self.assertTrue(epoch.is_dir())
+            self.assertEqual((), report.evicted)
 
     def test_replay_bytes_trigger_warning_when_eviction_is_disabled(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

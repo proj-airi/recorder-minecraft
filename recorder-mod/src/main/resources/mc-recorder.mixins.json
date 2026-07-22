@@ -3,8 +3,10 @@
   "package": "dev.mcdata.recorder.mixin",
   "compatibilityLevel": "JAVA_21",
   "mixins": [
+    "FlashbackWriterScenePacketMixin",
     "PacketUtilsMixin",
-    "ReplayInventorySnapshotMixin",
+    "ReplayOptimizerScenePacketMixin",
+    "ReplayPacketSnapshotMixin",
     "ServerboundInteractPacketAccessor"
   ],
   "injectors": {

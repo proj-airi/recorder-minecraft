@@ -13,6 +13,7 @@ from .errors import RecorderError
 MAX_LEDGER_BYTES = 8 * 1024 * 1024
 MAX_ARCHIVE_METADATA_BYTES = 1024 * 1024
 HOTBAR_SNAPSHOT_CONTRACT = "item_stack_copy_v1"
+FLASHBACK_CAPTURE_CONTRACT = "client_visible_scene_v1"
 
 
 class ReplayNotReadyError(RecorderError):
@@ -29,10 +30,13 @@ class ReplaySegmentSource:
     replay_format: str
     sha256: str
     size_bytes: int
+    flashback_capture_contract: str | None = None
 
     def as_json(self) -> dict[str, Any]:
         value = asdict(self)
         value["path"] = str(self.path)
+        if self.flashback_capture_contract is None:
+            value.pop("flashback_capture_contract")
         return value
 
 
@@ -220,10 +224,20 @@ def resolve_replay_segments(
         archive_schema = archive_identity.get("schema_version")
         ledger_hotbar_contract = raw.get("hotbar_snapshot_contract")
         archive_hotbar_contract = archive_identity.get("hotbar_snapshot_contract")
+        ledger_flashback_contract = raw.get("flashback_capture_contract")
+        archive_flashback_contract = archive_identity.get("flashback_capture_contract")
         if archive_schema == 1:
-            if ledger_hotbar_contract is not None or archive_hotbar_contract is not None:
+            if any(
+                value is not None
+                for value in (
+                    ledger_hotbar_contract,
+                    archive_hotbar_contract,
+                    ledger_flashback_contract,
+                    archive_flashback_contract,
+                )
+            ):
                 raise RecorderError(
-                    f"legacy replay archive has inconsistent hotbar snapshot metadata: {path}"
+                    f"legacy replay archive has inconsistent capture metadata: {path}"
                 )
         elif archive_schema == 2:
             if (
@@ -232,6 +246,25 @@ def resolve_replay_segments(
             ):
                 raise RecorderError(
                     f"replay archive hotbar snapshot contract does not match its segment ledger: {path}"
+                )
+            if ledger_flashback_contract is not None or archive_flashback_contract is not None:
+                raise RecorderError(
+                    f"schema-two replay archive has inconsistent scene capture metadata: {path}"
+                )
+        elif archive_schema == 3:
+            if (
+                ledger_hotbar_contract != HOTBAR_SNAPSHOT_CONTRACT
+                or archive_hotbar_contract != HOTBAR_SNAPSHOT_CONTRACT
+            ):
+                raise RecorderError(
+                    f"replay archive hotbar snapshot contract does not match its segment ledger: {path}"
+                )
+            if (
+                ledger_flashback_contract != FLASHBACK_CAPTURE_CONTRACT
+                or archive_flashback_contract != FLASHBACK_CAPTURE_CONTRACT
+            ):
+                raise RecorderError(
+                    f"replay archive scene capture contract does not match its segment ledger: {path}"
                 )
         else:
             raise RecorderError(f"replay archive has an unsupported mc_recorder schema: {path}")
@@ -252,6 +285,9 @@ def resolve_replay_segments(
                 replay_format="flashback",
                 sha256=sha256,
                 size_bytes=size_bytes,
+                flashback_capture_contract=(
+                    FLASHBACK_CAPTURE_CONTRACT if archive_schema == 3 else None
+                ),
             )
         )
 

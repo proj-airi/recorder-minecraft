@@ -22,9 +22,11 @@ mc-recorder = { path = "tooling", editable = true }
 setup-jvm = "proto install --config-mode local"
 test-python = "python -m unittest discover -s tooling/tests -v"
 build-recorder-mod = "gradle --project-dir recorder-mod build"
+build-scene-extractor-mod = "gradle --project-dir scene-extractor-mod build"
 build-renderer-mod = "gradle --project-dir renderer-mod build"
 build-mods = { depends-on = [
   "build-recorder-mod",
+  "build-scene-extractor-mod",
   "build-renderer-mod"
 ] }
 check = { depends-on = [

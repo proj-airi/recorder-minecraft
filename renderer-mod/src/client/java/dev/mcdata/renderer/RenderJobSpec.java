@@ -27,8 +27,6 @@ record RenderJobSpec(
     int width,
     int height,
     double framesPerSecond,
-    int voxelHorizontalRadius,
-    int voxelVerticalRadius,
     boolean noGui,
     String presentationContract,
     StructuredHudSpec structuredHud,
@@ -95,8 +93,6 @@ record RenderJobSpec(
         int width = integer(json, "width", 640);
         int height = integer(json, "height", 360);
         double fps = decimal(json, "fps", 20.0);
-        int voxelHorizontalRadius = integer(json, "voxel_horizontal_radius", 0);
-        int voxelVerticalRadius = integer(json, "voxel_vertical_radius", 0);
         boolean noGui = bool(json, "no_gui", true);
         String presentationContract = optionalString(json, "presentation_contract");
         StructuredHudSpec structuredHud = structuredHud(
@@ -142,21 +138,6 @@ record RenderJobSpec(
         if (Math.abs(fps - 20.0) > 0.0001) {
             throw new IllegalArgumentException("Renderer v1 requires fps=20");
         }
-        if ((voxelHorizontalRadius == 0) != (voxelVerticalRadius == 0)) {
-            throw new IllegalArgumentException(
-                "voxel_horizontal_radius and voxel_vertical_radius must both be zero or both be positive"
-            );
-        }
-        if (voxelHorizontalRadius < 0 || voxelHorizontalRadius > 64
-            || voxelVerticalRadius < 0 || voxelVerticalRadius > 64) {
-            throw new IllegalArgumentException("Voxel radii must be between 0 and 64 blocks");
-        }
-        long voxelCount = (2L * voxelHorizontalRadius + 1L)
-            * (2L * voxelHorizontalRadius + 1L)
-            * (2L * voxelVerticalRadius + 1L);
-        if (voxelHorizontalRadius > 0 && voxelCount > 2_000_000L) {
-            throw new IllegalArgumentException("Voxel crop is too large; maximum is 2,000,000 cells per tick");
-        }
         if (presentationContract != null) {
             if (!ReplayPresentation.FULL_CLIENT_PRESENTATION_CONTRACT.equals(presentationContract)) {
                 throw new IllegalArgumentException(
@@ -175,13 +156,9 @@ record RenderJobSpec(
         return new RenderJobSpec(normalizedJob, replay, replaySha256, replayBytes,
             output, sessionId, connectionId, playerId, segmentId, segmentOrdinal, rangePolicy, newerCutoff,
             globalStartTick, globalEndTick,
-            width, height, fps, voxelHorizontalRadius, voxelVerticalRadius, noGui, presentationContract,
+            width, height, fps, noGui, presentationContract,
             structuredHud,
             stop, result);
-    }
-
-    boolean capturesVoxels() {
-        return this.voxelHorizontalRadius > 0;
     }
 
     Path progress() {

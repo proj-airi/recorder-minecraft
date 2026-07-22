@@ -1,12 +1,10 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-
 import ControlPanel from './ControlPanel.vue'
+import SceneSlice from './SceneSlice.vue'
 import TrajectoryPanel from './TrajectoryPanel.vue'
-import VoxelSlice from './VoxelSlice.vue'
 
 defineProps<{
-  canLoadVoxel: boolean
+  canLoadScene: boolean
   connections: any[]
   currentRecord?: any
   dataset?: any
@@ -23,13 +21,18 @@ defineProps<{
   sampleProvenanceText: string
   sampleSummary?: any
   samples: any[]
+  sceneError?: string
+  sceneLoading: boolean
+  sceneSlice?: any
   stateDiffText: string
   trajectory?: any
+  trajectoryError?: string
+  trajectoryLoading: boolean
 }>()
 
 const emit = defineEmits<{
   applyFilters: []
-  loadVoxel: [axis: string, index: number]
+  loadScene: [axis: string, coordinate: number, radius: number]
   nextPage: []
   nextSample: []
   previousPage: []
@@ -37,18 +40,6 @@ const emit = defineEmits<{
   setSample: [index: number]
   togglePlay: []
 }>()
-
-const voxel = ref<InstanceType<typeof VoxelSlice>>()
-
-async function handleVoxel(axis: string, index: number) {
-  emit('loadVoxel', axis, index)
-}
-
-defineExpose({
-  drawVoxel(slice: any) {
-    voxel.value?.draw(slice)
-  },
-})
 </script>
 
 <template>
@@ -56,7 +47,7 @@ defineExpose({
     <div v-if="!dataset" class="empty-state">
       <p class="eyebrow">SAMPLE INSPECTOR</p>
       <h2>Select a verified dataset</h2>
-      <p>Samples are indexed by byte offset; large JSONL files stay on the server.</p>
+      <p>Every canonical state tick is indexed on the server; transition controls appear when a matching sample exists.</p>
     </div>
     <div v-else>
       <div class="viewer-filters">
@@ -73,7 +64,7 @@ defineExpose({
           </select>
         </label>
         <label>Validity<select v-model="filters.validity"><option value="">Any</option><option value="valid">Valid</option><option value="invalid">Invalid</option></select></label>
-        <label>Modality<select v-model="filters.modality"><option value="">Any</option><option value="rgb">RGB attached</option><option value="voxels">Voxels attached</option></select></label>
+        <label>Modality<select v-model="filters.modality"><option value="">Any</option><option value="rgb">RGB attached</option><option value="scene">Scene attached</option></select></label>
         <label>From tick<input v-model="filters.from_tick" type="number" min="0"></label>
         <label>To tick<input v-model="filters.to_tick" type="number" min="0"></label>
         <button class="quiet" @click="emit('applyFilters')">Apply filters</button>
@@ -91,7 +82,12 @@ defineExpose({
         <span>{{ samplePosition }}</span>
       </div>
       <div class="observation-grid">
-        <TrajectoryPanel :trajectory="trajectory" :current-record="currentRecord" />
+        <TrajectoryPanel
+          :current-record="currentRecord"
+          :error="trajectoryError"
+          :loading="trajectoryLoading"
+          :trajectory="trajectory"
+        />
         <ControlPanel :sample="currentRecord" />
       </div>
       <div class="sample-grid">
@@ -108,15 +104,22 @@ defineExpose({
               <dt>Connection</dt><dd>{{ sampleSummary.connection }}</dd>
               <dt>Transition</dt><dd>{{ sampleSummary.transition }}</dd>
               <dt>RGB</dt><dd>{{ sampleSummary.rgb }}</dd>
-              <dt>Voxels</dt><dd>{{ sampleSummary.voxels }}</dd>
+              <dt>Scene</dt><dd>{{ sampleSummary.scene }}</dd>
             </dl>
           </template>
         </div>
       </div>
-      <details open><summary>State -> next state</summary><pre>{{ stateDiffText }}</pre></details>
+      <details open><summary>State -> next state (when available)</summary><pre>{{ stateDiffText }}</pre></details>
       <details><summary>Controls and ordered actions</summary><pre>{{ sampleActionsText }}</pre></details>
       <details><summary>Peers, validity, and provenance</summary><pre>{{ sampleProvenanceText }}</pre></details>
-      <VoxelSlice ref="voxel" :can-load="canLoadVoxel" :sample="currentRecord" @load="handleVoxel" />
+      <SceneSlice
+        :can-load="canLoadScene"
+        :error="sceneError"
+        :loading="sceneLoading"
+        :sample="currentRecord"
+        :slice="sceneSlice"
+        @load="(axis, coordinate, radius) => emit('loadScene', axis, coordinate, radius)"
+      />
     </div>
   </section>
 </template>

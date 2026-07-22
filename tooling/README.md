@@ -1,14 +1,15 @@
 # `mc-recorder` CLI
 
-The Python 3.11+ CLI provisions the pinned Minecraft 1.21.8 Fabric server,
+The Python 3.14 CLI provisions the pinned Minecraft 1.21.8 Fabric server,
 inspects verified sidecar epochs, exports state/action JSONL, enforces combined
-capture/replay retention, and launches the local Flashback RGB/voxel renderer.
-Pixi owns the Python environment. proto owns OpenJDK 21 and Gradle. Docker
-Compose is required on the recorder host. A graphical desktop, OpenSSH, and
-`rsync` are required on a remote renderer; the recorder host also needs an SSH
-server and `rsync` for that workflow.
+capture/replay retention, extracts headless random-access scene stores, and
+launches the local Flashback RGB renderer. Pixi owns the Python environment;
+proto owns OpenJDK 21 and Gradle. Docker Compose is required on the recorder
+host. A graphical desktop, OpenSSH, and `rsync` are required on a remote
+renderer; the recorder host also needs an SSH server and `rsync` for that
+workflow.
 
-V1 defaults to the exact `itzg/minecraft-server:2026.7.0-java21` image and the
+The capture stack defaults to the exact `itzg/minecraft-server:2026.7.0-java21` image and the
 immutable ServerReplay Modrinth selector `server-replay:TbWIikrT`. The companion
 storage monitor is pinned to `python:3.11.15-alpine3.24`.
 
@@ -97,9 +98,14 @@ without mounting the Docker socket into a container, and it stays reachable
 while Minecraft is stopped. Run it with the same workspace/configuration and a
 host account allowed to use Docker Compose. Use launchd, systemd, or another
 host service manager to keep it running independently of an interactive shell.
+Dataset generation launches the proto-managed Gradle executable for scene
+extraction. Service-manager environments often omit proto's shim path; set
+`MC_RECORDER_GRADLE` to an absolute executable Gradle path when `gradle` is not
+on the service's `PATH`. Relative overrides are rejected and the executable is
+invoked directly without a shell.
 
 Both credential environment variables are mandatory. HTTP Basic authentication
-applies to HTML, static assets, API data, frames, and voxel slices. Mutations
+applies to HTML, static assets, API data, frames, and scene slices. Mutations
 also require a same-origin request and the dashboard CSRF token; CORS is not
 enabled and responses use `Cache-Control: no-store`. Basic credentials are only
 encoded, not encrypted, over plain HTTP. Bind this service only to a trusted LAN
@@ -137,9 +143,11 @@ artifacts/exports/<session>-<player>-<connection>.dataset/
 ```
 
 Repeated clicks reuse a matching verified export. The dashboard never
-automatically overwrites an invalid or conflicting output. Initial generation
-is intentionally structured-only; explicit unavailable RGB/voxel entries do
-not make the dataset invalid.
+automatically overwrites an invalid or conflicting output. Generation waits for
+the saved replay, extracts and verifies every selected scene frame headlessly,
+then atomically publishes Dataset V2. A failed or incomplete scene extraction
+does not attach a partial dataset. RGB remains explicitly unavailable until a
+separate GUI render succeeds.
 
 ### Queued RGB rendering and viewer refresh
 
@@ -255,11 +263,12 @@ for long captures. Synchronized held-control buttons, camera movement, and
 selected slot are explicitly labeled as server-reconstructed rather than raw
 device input. Detail includes state-to-next-state differences, reconstructed
 controls, ordered packet actions, peer state, transition validity, and
-provenance. Attached RGB is fetched on demand. Valid voxel data is rendered as
-axis-selectable 2D slices with uncovered cells shown as unknown; V1 does not
-provide a full interactive 3D view.
+provenance. Attached RGB is fetched on demand. The contained scene store is
+queried directly by `frame_id` for axis-selectable block slices, with entities
+and block entities projected onto the selected plane. Unknown positions remain
+unknown; slice navigation never requires replaying preceding ticks.
 
-Dataset, sample, frame, and voxel routes use opaque IDs. The server rejects
+Dataset, sample, frame, and scene routes use opaque IDs. The server rejects
 browser-supplied paths, symlinks, artifacts outside `paths.exports`, missing
 files, and declared size/hash mismatches.
 
@@ -273,7 +282,7 @@ The versioned HTTP interface includes:
 - `POST /api/v1/recordings/{id}/render` and
   `/api/v1/render-jobs/{id}/cancel` or `/api/v1/render-jobs/{id}/retry`; and
 - `GET /api/v1/datasets` plus dataset metadata, bounded `trajectory`, paginated
-  `samples`, opaque sample detail, `frame`, and `voxel-slice` routes below
+  `samples`, opaque sample detail, `frame`, and `scene-slice` routes below
   `/api/v1/datasets/{id}`.
 
 ## Inspect and export
@@ -284,7 +293,7 @@ pixi run mc-recorder episodes validate [SESSION_ID] [--json]
 pixi run mc-recorder export SESSION_ID \
   [--player UUID] [--connection UUID] \
   [--from-tick N] [--to-tick N] \
-  [--frames RENDER_OUTPUT] [--voxels RENDER_OUTPUT] \
+  [--frames RENDER_OUTPUT] [--scene SCENE_STORE] \
   [--output PATH] [--force]
 ```
 
@@ -307,28 +316,29 @@ artifacts/exports/<session-id>.dataset/
   states.jsonl
   actions.jsonl
   modalities.jsonl
+  scene/
+    scene-v1.sqlite3       # only when attached
 ```
 
 `samples.jsonl` is canonical: authoritative post-state at tick `t`, ordered
 applied semantic actions through the next state barrier, and post-state at tick
 `t+1`. Identity includes player UUID and per-join connection ID. `states.jsonl`
 and `actions.jsonl` are supporting streams; `modalities.jsonl` makes missing
-voxel/RGB references explicit.
+scene/RGB references explicit.
 
 The action stream represents decoded, server-observed intent at 20 Hz—not raw
-keyboard/mouse telemetry or canonical packet bytes. `--frames` and `--voxels`
-are repeatable. They attach completed renderer artifacts only by exact session,
-player, connection, and global-tick identity; unmatched samples remain
-explicitly invalid. Completed indexes must be contiguous. Path traversal,
-absolute references, missing files, and symlinks are rejected, and the export
-records hashes and byte sizes for attached artifacts. PNG structure, CRC, and
-dimensions are checked; voxel gzip payloads are size-bounded and validated down
-to palette indexes and coverage bits.
+keyboard/mouse telemetry or canonical packet bytes. `--frames` is repeatable;
+it attaches completed renderer artifacts only by exact session, player,
+connection, and global-tick identity. `--scene` accepts at most one complete,
+identity-bound scene store. Unmatched modalities remain explicitly invalid.
+Path traversal, missing files, symlinks, and size/hash mismatches are rejected;
+PNG structure, CRC, and dimensions are checked, and the scene store is copied
+into the published dataset with a manifest integrity envelope.
 
-## Render RGB and voxels
+## Render RGB
 
-This lower-level command remains useful for a manual local render or optional
-voxel capture. Dashboard RGB jobs use `render-worker` instead and attach their
+This lower-level command remains useful for a manual local render. Dashboard RGB
+jobs use `render-worker` instead and attach their
 verified results automatically.
 
 ```sh
@@ -338,22 +348,20 @@ pixi run mc-recorder render SESSION_ID \
   [--replay PATH] \
   [--from-tick N] [--to-tick N] \
   [--width 640] [--height 360] [--fps 20] \
-  [--voxel-horizontal-radius N --voxel-vertical-radius N] \
   [--no-gui] [--output PATH] [--prepare-only] [--force]
 ```
 
-V1 accepts completed Flashback replay ZIPs and exactly 20 FPS. The command
+The renderer accepts completed Flashback replay ZIPs and exactly 20 FPS. The command
 validates/hashes the source episode and replay, selects one recorded connection,
-and writes `render-job.json`. Optional positive voxel radii request a crop around
-the player on every selected tick; use zero/omit both for RGB only. Unless
-`--prepare-only` is used, the command launches `renderer-mod` through Gradle.
+and writes `render-job.json`. Unless `--prepare-only` is used, the command
+launches `renderer-mod` through Gradle.
 New jobs include the recorded first-person hand/item and full recorded in-game
 HUD by default. `--no-gui` is the explicit HUD-free opt-out; it does not
 remove the requirement for a graphical Java client.
 
 The job stores a replay byte-size/SHA-256 integrity envelope produced while the
 archive is stable. The renderer checks that envelope before opening the replay
-and after producing all requested RGB/voxel artifacts. The launching CLI then
+and after producing all requested RGB artifacts. The launching CLI then
 rehashes the replay and requires `result.json` to report the same size and hash
 before it accepts the job as complete.
 
@@ -370,24 +378,70 @@ writes:
     frame_000001.png
     ...
     frames.jsonl
-    voxels.jsonl                       # when voxel conversion is enabled
-    voxels/
-      voxel_<server-tick>.json.gz
 ```
 
 `frames.jsonl` identifies every PNG by session, connection, player, global
 server tick, and replay tick. These are reconstructed server-visible views, not
-original client pixels. `voxels.jsonl` indexes palette-based gzip crops with an
-explicit per-cell coverage bitset; unloaded cells are unknown, not known air.
-Block entities are not materialized in voxel V1.
+original client pixels.
 
 Attach the completed artifacts during export:
 
 ```sh
 pixi run mc-recorder export SESSION_ID \
-  --frames artifacts/exports/render-jobs/JOB \
-  --voxels artifacts/exports/render-jobs/JOB
+  --frames artifacts/exports/render-jobs/JOB
 ```
+
+## Extract random-access scenes
+
+The scene extractor is a Fabric dedicated server process, not a graphical
+client. It consumes the immutable replay packets with Minecraft's registry-aware
+codecs, emits one logical frame at every matching timeline marker, and compacts
+the stream into a structurally shared SQLite store:
+
+```sh
+pixi run mc-recorder scene extract SESSION_ID \
+  --player UUID \
+  --connection UUID \
+  [--from-tick N] [--to-tick N] \
+  --output PATH \
+  [--force] \
+  [--prepare-only]
+```
+
+The only supported scope is `client_visible`. No captured/source world is
+mounted; any dedicated-server bootstrap world lives in the job-owned
+`runtime/scene-jobs/<job-id>/server-run` directory and is never scene input.
+The job binds an ephemeral server port with query and RCON disabled, so it does
+not share `scene-extractor-mod/run` or conflict with the capture server.
+
+Every selected `player_state` tick must resolve. Segment overlaps must describe
+identical logical frames, while gaps, source mutation, unknown state-affecting
+packets, and identity mismatch fail the job. Before compaction the CLI verifies
+the terminal identity, policy, capture contract, sources, frame/change counts,
+index sizes and SHA-256 hashes, and every referenced canonical blob's name,
+digest, count, and bytes. The selected player's pose is copied from sealed,
+hash-verified `player_state` epochs into an owned integrity-enveloped stream and
+overlaid before each frame and overlap hash; ServerReplay's sampled local-player
+position is not treated as authoritative. A frozen verification envelope is
+checked again before reads and before publication, then persisted with the
+store's extraction provenance.
+
+Scene extraction accepts only schema-v3 Flashback archives whose embedded
+metadata and replay-segment ledger both declare
+`flashback_capture_contract: "client_visible_scene_v1"`. Older archives remain
+usable by RGB tooling but are rejected as scene sources.
+
+The output includes block states, entities, block entities, full captured
+metadata, exact source replay provenance, and a `sensitive: true` marker.
+Output parents are created safely; symlinked parents/outputs are rejected.
+Existing output fails by default, while `--force` replaces only a scene store
+that already validates. Python consumers can use `SceneStore.frame`,
+`materialize_crop`, and `slice` for independent random access without replaying
+earlier ticks.
+
+Attach it manually with `pixi run mc-recorder export SESSION_ID --scene PATH`; the
+dashboard generation path performs extraction, compaction, validation, and
+attachment automatically.
 
 ## Retention
 
@@ -403,10 +457,17 @@ warning threshold. Eligible units are verified whole sidecar epochs and stable,
 readable completed `.zip`/`.mcpr` replay archives. Replay archives must be
 unchanged and at least five minutes old. Active/incomplete epochs,
 recent/partial archives, directories, symlinks, and unexpected paths are never
-candidates.
+candidates. Dataset publication holds shared locks on its sealed epochs and
+replays, so retention skips them. Successful scene jobs are removed; only the
+newest failed or `--prepare-only` marker-owned job is retained, and older crash
+jobs are pruned without touching symlinked or non-owned directories.
 
 ## Tests
 
 ```sh
-PYTHONPATH=tooling/src python3 -m unittest discover -s tooling/tests -v
+pixi run test-python
+pixi run build-recorder-mod
+pixi run build-scene-extractor-mod
+pixi run build-renderer-mod
+pixi run check
 ```

@@ -4,7 +4,7 @@
 
 - `tooling/src/mc_recorder/` contains the Python provisioning, validation, export, retention, and render-job CLI. Its tests live in `tooling/tests/`.
 - `recorder-mod/` is the Kotlin/Java Fabric server mod; production code is under `src/main/` and JUnit tests under `src/test/`.
-- `renderer-mod/` is the Java Fabric client mod that replays Flashback archives into RGB frames and optional voxel crops.
+- `scene-extractor-mod/` is the Java Fabric dedicated-server extractor for random-access block/entity scene stores; `renderer-mod/` is the client-only first-person RGB renderer.
 - `schemas/` defines the source JSONL and dataset contracts. Update these documents when changing persisted fields or invariants.
 - `deploy/` contains Docker Compose configuration. `ServerReplay/` is upstream source; avoid unrelated edits there.
 - `artifacts/`, `.mc-recorder/`, `runtime/`, and renderer `run/` directories are generated and must not be committed.
@@ -23,6 +23,7 @@ Run the automated checks:
 ```sh
 pixi run test-python
 pixi run build-recorder-mod
+pixi run build-scene-extractor-mod
 pixi run build-renderer-mod
 ```
 
@@ -30,7 +31,7 @@ Use `MC_RECORDER_FLASHBACK_JAR=/path/to/Flashback-0.39.5.jar` for renderer build
 
 ## Coding Style & Naming Conventions
 
-Use four-space indentation. Follow standard Python `snake_case`, Java/Kotlin `UpperCamelCase` types, and `lowerCamelCase` members. Keep CLI errors actionable and preserve explicit type hints. Prefer small functions around integrity boundaries; never weaken containment, SHA-256, sealing, or provenance checks. No repository-wide autoformatter is configured, so match adjacent code and keep `git diff --check` clean.
+Use four-space indentation. Follow standard Python `snake_case`, Java/Kotlin `UpperCamelCase` types, and `lowerCamelCase` members. Keep CLI errors actionable and preserve explicit type hints. Prefer small functions around integrity boundaries; never weaken containment, SHA-256, sealing, or provenance checks. Use the configured Ruff tasks for Python formatting and linting, match adjacent Java/Kotlin code, and keep `git diff --check` clean.
 
 ## Testing Guidelines
 

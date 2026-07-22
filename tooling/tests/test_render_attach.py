@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import base64
-import gzip
 import hashlib
 import json
 import struct
@@ -132,50 +130,6 @@ def _png() -> bytes:
     )
 
 
-def _voxel(tick: int) -> tuple[dict[str, object], bytes]:
-    total = 27
-    snapshot = {
-        "schema_version": 1,
-        "format": "mc-recorder-voxel-palette-v1",
-        "session_id": SESSION,
-        "connection_id": CONNECTION,
-        "player_uuid": PLAYER,
-        "server_tick": tick,
-        "replay_tick": tick - 10,
-        "dimension": "minecraft:overworld",
-        "center": {"x": 1, "y": 64, "z": 2},
-        "origin": {"x": 0, "y": 63, "z": 1},
-        "shape": {"x": 3, "y": 3, "z": 3},
-        "linear_order": "x_fastest_then_z_then_y",
-        "index_dtype": "uint16",
-        "index_byte_order": "little_endian",
-        "indices_base64": base64.b64encode(b"\0\0" * total).decode(),
-        "coverage_bitset_base64": base64.b64encode(((1 << 26) - 1).to_bytes(4, "little")).decode(),
-        "coverage_bit_order": "lsb0",
-        "covered_cells": 26,
-        "total_cells": total,
-        "coverage_complete": False,
-        "palette": ["minecraft:air"],
-        "block_entities_included": False,
-        "block_entities_note": "not materialized in v1",
-    }
-    row = {
-        "schema_version": 1,
-        "session_id": SESSION,
-        "connection_id": CONNECTION,
-        "player_uuid": PLAYER,
-        "server_tick": tick,
-        "replay_tick": tick - 10,
-        "reference": f"voxels/voxel_{tick:012d}.json.gz",
-        "origin": snapshot["origin"],
-        "shape": snapshot["shape"],
-        "covered_cells": 26,
-        "total_cells": total,
-        "coverage_complete": False,
-    }
-    return row, gzip.compress(json.dumps(snapshot).encode(), mtime=0)
-
-
 def _dataset(config, episode: Path, *, matching: bool = True) -> Path:
     output = config.paths.exports / f"{SESSION}-{PLAYER}-{CONNECTION}.dataset"
     export_episode(
@@ -213,7 +167,6 @@ def _import(
     replay: Path,
     *,
     status: str = "complete",
-    voxels: bool = False,
     segment_id: str = "segment-0001",
     first_tick: int = 10,
     last_tick: int = 12,
@@ -261,8 +214,6 @@ def _import(
         height=64,
         first_tick=first_tick,
         last_tick=last_tick,
-        voxel_horizontal_radius=1 if voxels else 0,
-        voxel_vertical_radius=1 if voxels else 0,
         request_id=str(uuid.uuid5(uuid.NAMESPACE_DNS, segment_id)),
         range_policy="intersection",
         presentation_contract=(
@@ -290,9 +241,6 @@ def _import(
     else:
         frames = materialized.directory / "frames"
         frame_rows: list[dict[str, object]] = []
-        voxel_rows: list[dict[str, object]] = []
-        if voxels:
-            (frames / "voxels").mkdir()
         for number, tick in enumerate(range(first_tick, last_tick + 1), 1):
             name = f"frame_{number:06d}.png"
             (frames / name).write_bytes(_png())
@@ -308,17 +256,9 @@ def _import(
                     "path": name,
                 }
             )
-            if voxels:
-                voxel_row, compressed = _voxel(tick)
-                (frames / "voxels" / f"voxel_{tick:012d}.json.gz").write_bytes(compressed)
-                voxel_rows.append(voxel_row)
         (frames / "frames.jsonl").write_text(
             "".join(json.dumps(row) + "\n" for row in frame_rows), encoding="utf-8"
         )
-        if voxels:
-            (frames / "voxels.jsonl").write_text(
-                "".join(json.dumps(row) + "\n" for row in voxel_rows), encoding="utf-8"
-            )
         raw_result = {
             "status": "complete",
             "replay": str(replay.resolve()),
@@ -337,12 +277,7 @@ def _import(
             "width": 64,
             "height": 64,
             "no_gui": request["render"].get("no_gui", True),
-            "voxel_snapshots": last_tick - first_tick + 1 if voxels else 0,
-            "voxel_horizontal_radius": 1 if voxels else 0,
-            "voxel_vertical_radius": 1 if voxels else 0,
         }
-        if voxels:
-            raw_result["voxel_index"] = str((frames / "voxels.jsonl").resolve())
     if full_client:
         assert structured_hud is not None
         raw_result["presentation_contract"] = FULL_CLIENT_PRESENTATION_CONTRACT
@@ -372,17 +307,17 @@ class RenderAttachmentTest(unittest.TestCase):
         output = _dataset(config, episode)
         return config, episode, replay, output, _job(config, output)
 
-    def test_attaches_complete_rgb_and_voxels_then_validates_viewer_counts(self) -> None:
+    def test_attaches_complete_rgb_then_validates_viewer_counts(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             config, episode, replay, output, job = self._fixture(Path(temporary))
-            imported = _import(config, episode, replay, voxels=True)
+            imported = _import(config, episode, replay)
 
             result = attach_imported_renders(config, job, [imported])
 
             self.assertFalse(result.partial)
             self.assertEqual(2, result.sample_count)
             self.assertEqual(2, result.rgb_sample_count)
-            self.assertEqual(2, result.voxel_sample_count)
+            self.assertEqual(0, result.scene_sample_count)
             self.assertEqual(3, result.rendered_tick_count)
             self.assertEqual((10, 12), (result.coverage_start_tick, result.coverage_end_tick))
             self.assertEqual(output, result.output)

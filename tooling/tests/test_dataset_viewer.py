@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import base64
-import gzip
 import hashlib
 import json
 import os
@@ -9,6 +7,7 @@ import sqlite3
 import sys
 import tempfile
 import unittest
+from collections.abc import Mapping
 from contextlib import closing
 from pathlib import Path
 from unittest import mock
@@ -24,10 +23,26 @@ from mc_recorder.dataset_viewer import (
     opaque_dataset_id,
 )
 from mc_recorder.render_contract import FULL_CLIENT_PRESENTATION_CONTRACT
+from mc_recorder.scene_store import (
+    SceneIdentity,
+    SceneStoreBuilder,
+    validate_scene_attachment_provenance,
+    validate_scene_store,
+)
+
+_AUTO_SCENE_ATTACHMENT = object()
 
 
 def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def _plain_json(value: object) -> object:
+    if isinstance(value, Mapping):
+        return {str(key): _plain_json(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_plain_json(item) for item in value]
+    return value
 
 
 def _missing_modality(reason: str) -> dict[str, object]:
@@ -80,11 +95,11 @@ def _sample(
     connection: str = "connection-a",
     transition_valid: bool = True,
     rgb: dict[str, object] | None = None,
-    voxels: dict[str, object] | None = None,
+    scene: dict[str, object] | None = None,
 ) -> dict[str, object]:
     reasons = [] if transition_valid else ["synthetic_invalid_transition"]
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "sample_key": {
             "session_id": "session-test",
             "server_tick": tick,
@@ -117,12 +132,54 @@ def _sample(
         "peers": {"state": [], "next_state": []},
         "modalities": {
             "rgb": rgb if rgb is not None else _missing_modality("no RGB"),
-            "voxels": voxels if voxels is not None else _missing_modality("no voxels"),
+            "scene": scene
+            if scene is not None
+            else {
+                "available": False,
+                "valid": False,
+                "coverage_complete": False,
+                "reference": None,
+                "frame_id": None,
+                "reason": "scene_not_attached",
+            },
         },
         "transition_valid": transition_valid,
         "transition_invalid_reasons": reasons,
         "source": {},
         "source_manifest_sha256": "0" * 64,
+    }
+
+
+def _state_stream_row(tick: dict[str, object]) -> dict[str, object]:
+    state = dict(tick["state"])
+    state.update(
+        {
+            "schema_version": 2,
+            "source_schema_version": 1,
+            "session_id": tick["session_id"],
+            "epoch_index": tick.get("epoch_index", 0),
+            "server_tick": tick["server_tick"],
+            "sequence": tick["server_tick"],
+            "recorded_at_ns": tick["server_tick"] * 100,
+            "player_uuid": tick["player_uuid"],
+            "connection_id": tick["connection_id"],
+            "source": {},
+        }
+    )
+    return state
+
+
+def _modality_stream_row(tick: dict[str, object]) -> dict[str, object]:
+    return {
+        "schema_version": 2,
+        "session_id": tick["session_id"],
+        "epoch_index": tick.get("epoch_index", 0),
+        "server_tick": tick["server_tick"],
+        "player_uuid": tick["player_uuid"],
+        "connection_id": tick["connection_id"],
+        "scene": tick["modalities"]["scene"],
+        "rgb": tick["modalities"]["rgb"],
+        "source": {},
     }
 
 
@@ -132,24 +189,36 @@ def _write_dataset(
     *,
     name: str = "session-test.dataset",
     owner: str = "mc-recorder",
-    format_name: str = "mc-recorder-jsonl-v1",
+    format_name: str = "mc-recorder-jsonl-v2",
     frame_attachments: list[dict[str, object]] | None = None,
+    scene_store: bytes | None = None,
+    scene_attachment: object = _AUTO_SCENE_ATTACHMENT,
+    ticks: list[dict[str, object]] | None = None,
 ) -> Path:
     directory = exports / name
     directory.mkdir(parents=True, exist_ok=True)
+    tick_rows = samples if ticks is None else ticks
     streams = {
         "samples.jsonl": b"".join(
             json.dumps(row, sort_keys=True, separators=(",", ":")).encode() + b"\n"
             for row in samples
         ),
-        "states.jsonl": b"",
+        "states.jsonl": b"".join(
+            json.dumps(_state_stream_row(row), sort_keys=True, separators=(",", ":")).encode()
+            + b"\n"
+            for row in tick_rows
+        ),
         "actions.jsonl": b"",
-        "modalities.jsonl": b"",
+        "modalities.jsonl": b"".join(
+            json.dumps(_modality_stream_row(row), sort_keys=True, separators=(",", ":")).encode()
+            + b"\n"
+            for row in tick_rows
+        ),
     }
     for file_name, content in streams.items():
         (directory / file_name).write_bytes(content)
     manifest = {
-        "schema_version": 1,
+        "schema_version": 2,
         "owner": owner,
         "format": format_name,
         "created_at": "2026-07-21T00:00:00+00:00",
@@ -164,7 +233,7 @@ def _write_dataset(
             "from_tick": None,
             "to_tick": None,
             "frame_attachments": frame_attachments or [],
-            "voxel_attachments": [],
+            "scene_attachment": None,
         },
         "timeline": {"tick_rate_hz": 20, "sample_rate_hz": 20},
         "modalities": {
@@ -175,28 +244,30 @@ def _write_dataset(
             },
             "state": {
                 "available": True,
-                "records": len(samples),
+                "records": len(tick_rows),
                 "file": "states.jsonl",
             },
             "actions": {
                 "available": True,
-                "records": len(samples),
+                "records": 0,
                 "file": "actions.jsonl",
             },
             "rgb": {
                 "availability": "per-sample",
                 "records_attached": sum(
-                    row["modalities"]["rgb"].get("available") is True for row in samples
+                    row["modalities"]["rgb"].get("available") is True
+                    for row in tick_rows
                 ),
                 "index": "modalities.jsonl",
             },
-            "voxels": {
+            "scene": {
                 "availability": "per-sample",
                 "records_attached": sum(
-                    row["modalities"]["voxels"].get("available") is True
-                    for row in samples
+                    row["modalities"]["scene"].get("available") is True
+                    for row in tick_rows
                 ),
                 "index": "modalities.jsonl",
+                "store": "scene/scene-v1.sqlite3" if scene_store is not None else None,
             },
         },
         "files": {
@@ -204,11 +275,176 @@ def _write_dataset(
             for file_name, content in streams.items()
         },
     }
+    if scene_store is not None:
+        scene_directory = directory / "scene"
+        scene_directory.mkdir(exist_ok=True)
+        scene_path = scene_directory / "scene-v1.sqlite3"
+        scene_path.write_bytes(scene_store)
+        manifest["files"]["scene/scene-v1.sqlite3"] = {
+            "size_bytes": len(scene_store),
+            "sha256": _sha256(scene_store),
+        }
+        if scene_attachment is _AUTO_SCENE_ATTACHMENT:
+            info = validate_scene_store(scene_path)
+            extraction = validate_scene_attachment_provenance(info)
+            scene_attachment = {
+                "format": "mc-recorder-scene-store-v1",
+                "path": "/source/source-scene.sqlite3",
+                "sha256": info.sha256,
+                "size_bytes": info.size_bytes,
+                "session_id": info.identity.session_id,
+                "player_uuid": info.identity.player_uuid,
+                "connection_id": info.identity.connection_id,
+                "global_start_tick": info.start_tick,
+                "global_end_tick": info.end_tick,
+                "frame_count": info.frame_count,
+                "scope": extraction.scope,
+                "metadata_policy": extraction.metadata_policy,
+                "result": _plain_json(extraction.result),
+                "sensitive": info.sensitive,
+                "source_replays": _plain_json(info.source_replays),
+            }
+    if scene_attachment is _AUTO_SCENE_ATTACHMENT:
+        scene_attachment = None
+    manifest["selection"]["scene_attachment"] = scene_attachment
     (directory / "manifest.json").write_text(
         json.dumps(manifest, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
     return directory
+
+
+def _scene_store_bytes(
+    root: Path,
+    *,
+    tick: int = 7,
+    authenticated: bool = True,
+    dimension: str = "minecraft:overworld",
+    subject_position: tuple[float, float, float] | None = None,
+) -> bytes:
+    output = root / "source-scene.sqlite3"
+    identity = SceneIdentity("session-test", "player-a", "connection-a")
+    sources = (
+        {
+            "segment_id": "segment-viewer",
+            "segment_ordinal": 0,
+            "path": "/sealed/viewer-replay.zip",
+            "sha256": "ab" * 32,
+            "size_bytes": 123,
+            "format": "flashback",
+        },
+    )
+    result = {
+        "schema_version": 1,
+        "result_type": "mc-recorder-scene-extraction-result-v1",
+        "status": "complete",
+        "job_id": "job-viewer-test",
+        "session_id": identity.session_id,
+        "player_uuid": identity.player_uuid,
+        "connection_id": identity.connection_id,
+        "global_start_tick": tick,
+        "global_end_tick": tick,
+        "scope": "client_visible",
+        "metadata_policy": "full_packet_metadata",
+        "flashback_capture_contract": "client_visible_scene_v1",
+        "source_replays": list(sources),
+        "subject_poses": {
+            "format": "mc-recorder-subject-poses-v1",
+            "path": "/verified/viewer-job/subject-poses.jsonl",
+            "sha256": "12" * 32,
+            "size_bytes": 100,
+            "record_count": 1,
+            "first_tick": tick,
+            "last_tick": tick,
+            "source_epochs": [{
+                "epoch_index": 0,
+                "events_sha256": "34" * 32,
+                "events_size_bytes": 1000,
+                "record_count": 20,
+            }],
+        },
+        "stream": {
+            "format": "mc-recorder-scene-stream-v1",
+            "path": "/verified/viewer-test-stream",
+            "frames_index": "frames.jsonl",
+            "changes_index": "changes.jsonl",
+            "blobs_directory": "blobs",
+            "frame_count": 1,
+            "change_count": 1,
+            "blob_count": 1,
+            "blob_bytes": 1,
+            "frames_sha256": "cd" * 32,
+            "frames_size_bytes": 1,
+            "changes_sha256": "ef" * 32,
+            "changes_size_bytes": 1,
+        },
+        "ignored_packet_counts": {},
+        "covered_tick_count": 1,
+    }
+    builder = SceneStoreBuilder(
+        identity,
+        start_tick=tick,
+        end_tick=tick,
+        source_replays=sources if authenticated else (),
+        provenance=(
+            {
+                "scope": "client_visible",
+                "metadata_policy": "full_packet_metadata",
+                "result": result,
+            }
+            if authenticated
+            else {}
+        ),
+        sensitive=True,
+    )
+    try:
+        builder.set_section(
+            tick,
+            "minecraft:overworld",
+            (0, 4, 0),
+            ({"name": "minecraft:stone"},),
+            (0,) * 4096,
+        )
+        builder.set_entity(
+            tick,
+            "pig-1",
+            {
+                "dimension": "minecraft:overworld",
+                "type_id": "minecraft:pig",
+                "network_id": 12,
+                "uuid": "00000000-0000-4000-8000-000000000012",
+                "position": [7.5, 64.0, -0.5],
+                "velocity": [0.0, 0.0, 0.0],
+                "rotation": [0.0, 0.0],
+                "aabb": [7.1, 63.5, -0.9, 7.9, 64.5, -0.1],
+                "custom_name": "Viewer Pig",
+            },
+        )
+        builder.set_block_entity(
+            tick,
+            "minecraft:overworld",
+            (8, 64, 0),
+            {
+                "type_id": "minecraft:chest",
+                "custom_name": "Viewer Chest",
+            },
+        )
+        builder.add_frame(
+            tick,
+            frame_id=f"scene-frame-{tick}",
+            replay_tick=tick,
+            dimension=dimension,
+            subject_position=(
+                subject_position
+                if subject_position is not None
+                else (tick + 0.25, 64.0, -tick - 0.5)
+            ),
+            coverage_complete=True,
+        )
+        builder.publish(output, expected_ticks=(tick,))
+    finally:
+        builder.close()
+    return output.read_bytes()
 
 
 class DatasetCatalogTest(unittest.TestCase):
@@ -239,7 +475,7 @@ class DatasetCatalogTest(unittest.TestCase):
             bad_schema_manifest = json.loads(
                 (bad_schema / "manifest.json").read_text(encoding="utf-8")
             )
-            bad_schema_manifest["schema_version"] = 2
+            bad_schema_manifest["schema_version"] = 1
             (bad_schema / "manifest.json").write_text(
                 json.dumps(bad_schema_manifest), encoding="utf-8"
             )
@@ -255,7 +491,7 @@ class DatasetCatalogTest(unittest.TestCase):
                 json.dumps(bad_files_manifest), encoding="utf-8"
             )
             extra = _write_dataset(exports, [_sample(1)], name="extra.dataset")
-            (extra / "unexpected.txt").write_text("not part of v1", encoding="utf-8")
+            (extra / "unexpected.txt").write_text("not part of v2", encoding="utf-8")
             bad_hash = _write_dataset(exports, [_sample(1)], name="bad-hash.dataset")
             (bad_hash / "samples.jsonl").write_bytes(b"changed after manifest\n")
             try:
@@ -357,6 +593,7 @@ class DatasetIndexTest(unittest.TestCase):
 
             summary = viewer.list_datasets()[0]
             self.assertEqual(4, summary.sample_count)
+            self.assertEqual(4, summary.state_count)
             self.assertEqual(2, summary.player_count)
             self.assertEqual(2, summary.connection_count)
             self.assertEqual((10, 12), (summary.first_tick, summary.last_tick))
@@ -379,8 +616,9 @@ class DatasetIndexTest(unittest.TestCase):
             primary = next(
                 item for item in connections if item.player_uuid == "player-a"
             )
-            self.assertEqual(3, primary.sample_count)
+            self.assertEqual(3, primary.state_count)
             self.assertEqual(2, primary.valid_transitions)
+            self.assertEqual(0, primary.scene_states)
 
             first_page = viewer.list_sample_summaries(summary.dataset_id, limit=2)
             self.assertEqual(4, first_page.total)
@@ -391,6 +629,10 @@ class DatasetIndexTest(unittest.TestCase):
             )
             self.assertEqual(2, len(second_page.items))
             self.assertIsNone(second_page.next_cursor)
+            without_scene = viewer.list_sample_summaries(
+                summary.dataset_id, scene_available=False
+            )
+            self.assertEqual(4, without_scene.total)
 
             invalid = viewer.list_sample_summaries(
                 summary.dataset_id,
@@ -455,10 +697,82 @@ class DatasetIndexTest(unittest.TestCase):
             self.assertEqual(11, detail.record["server_tick"])
             self.assertNotIn("reference", detail.record["modalities"]["rgb"])
             self.assertIsNone(detail.record["modalities"]["rgb"]["artifact_id"])
+            self.assertNotIn("reference", detail.record["modalities"]["scene"])
+            self.assertIsNone(detail.record["modalities"]["scene"]["artifact_id"])
             with self.assertRaises(ArtifactUnavailableError):
                 viewer.resolve_rgb_artifact(
                     summary.dataset_id, invalid.items[0].sample_id
                 )
+            with self.assertRaises(ArtifactUnavailableError):
+                viewer.get_scene_slice(
+                    summary.dataset_id, invalid.items[0].sample_id, axis="y"
+                )
+            with self.assertRaisesRegex(DatasetViewerError, "axis"):
+                viewer.get_scene_slice(
+                    summary.dataset_id,
+                    invalid.items[0].sample_id,
+                    axis="north",
+                )
+            with self.assertRaisesRegex(DatasetViewerError, "radius"):
+                viewer.get_scene_slice(
+                    summary.dataset_id,
+                    invalid.items[0].sample_id,
+                    axis="y",
+                    radius=65,
+                )
+
+    def test_terminal_state_is_selectable_and_completes_the_trajectory(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            exports = root / "exports"
+            exports.mkdir()
+            _write_dataset(
+                exports,
+                [_sample(20)],
+                ticks=[_sample(20), _sample(21)],
+            )
+            viewer = DatasetViewer(exports, root / "runtime")
+            summary = viewer.list_datasets()[0]
+
+            page = viewer.list_sample_summaries(summary.dataset_id)
+            first, terminal = page.items
+            detail = viewer.get_sample_detail(
+                summary.dataset_id, terminal.sample_id
+            ).record
+            trajectory = viewer.get_trajectory(summary.dataset_id)
+
+            self.assertEqual((1, 2), (summary.sample_count, summary.state_count))
+            self.assertEqual(2, page.total)
+            self.assertTrue(first.transition_available)
+            self.assertTrue(first.transition_valid)
+            self.assertEqual(21, first.next_server_tick)
+            self.assertFalse(terminal.transition_available)
+            self.assertIsNone(terminal.transition_valid)
+            self.assertIsNone(terminal.next_server_tick)
+            self.assertEqual(21, detail["server_tick"])
+            self.assertFalse(detail["transition_available"])
+            self.assertIsNone(detail["action"])
+            self.assertIsNone(detail["next_state"])
+            self.assertEqual(2, trajectory.total_points)
+            self.assertEqual(
+                [20, 21],
+                [point.server_tick for point in trajectory.tracks[0].points],
+            )
+            self.assertEqual(
+                [False, True],
+                [
+                    point.continuous_from_previous
+                    for point in trajectory.tracks[0].points
+                ],
+            )
+            self.assertAlmostEqual(
+                2**0.5, trajectory.tracks[0].horizontal_distance_blocks
+            )
+            valid_only = viewer.list_sample_summaries(
+                summary.dataset_id, transition_valid=True
+            )
+            self.assertEqual(1, valid_only.total)
+            self.assertEqual(20, valid_only.items[0].server_tick)
 
     def test_reports_verified_rgb_presentation_provenance(self) -> None:
         rgb = {"available": True, "valid": True}
@@ -618,6 +932,297 @@ class DatasetIndexTest(unittest.TestCase):
 
 
 class DatasetArtifactTest(unittest.TestCase):
+    def test_reads_random_access_scene_slice_with_entities(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            exports = root / "exports"
+            exports.mkdir()
+            scene = {
+                "available": True,
+                "valid": True,
+                "coverage_complete": True,
+                "reference": "scene/scene-v1.sqlite3",
+                "frame_id": "scene-frame-7",
+                "reason": None,
+            }
+            _write_dataset(
+                exports,
+                [],
+                ticks=[_sample(7, scene=scene)],
+                scene_store=_scene_store_bytes(root),
+            )
+            viewer = DatasetViewer(exports, root / "runtime")
+            summary = viewer.list_datasets()[0]
+            page = viewer.list_sample_summaries(
+                summary.dataset_id, scene_available=True
+            )
+            sample_id = page.items[0].sample_id
+
+            detail = viewer.get_sample_detail(summary.dataset_id, sample_id)
+            metadata = viewer.get_dataset_metadata(summary.dataset_id)
+            policy = viewer.get_scene_policy(summary.dataset_id)
+            plane = viewer.get_scene_slice(
+                summary.dataset_id,
+                sample_id,
+                axis="y",
+                radius=8,
+            )
+            for coordinate in (10**100, -(10**100)):
+                with self.subTest(coordinate=coordinate), self.assertRaisesRegex(
+                    DatasetViewerError, "SQLite-safe world bounds"
+                ):
+                    viewer.get_scene_slice(
+                        summary.dataset_id,
+                        sample_id,
+                        axis="y",
+                        coordinate=coordinate,
+                    )
+            with self.assertRaisesRegex(DatasetViewerError, "radius"):
+                viewer.get_scene_slice(
+                    summary.dataset_id,
+                    sample_id,
+                    axis="y",
+                    radius=10**100,
+                )
+
+            self.assertEqual(0, summary.scene_samples)
+            self.assertEqual(1, summary.scene_states)
+            self.assertEqual(0, summary.sample_count)
+            self.assertEqual(1, summary.state_count)
+            self.assertEqual(1, page.total)
+            self.assertTrue(page.items[0].scene_available)
+            self.assertFalse(page.items[0].transition_available)
+            self.assertFalse(detail.record["transition_available"])
+            self.assertNotIn("reference", detail.record["modalities"]["scene"])
+            self.assertEqual(
+                sample_id, detail.record["modalities"]["scene"]["artifact_id"]
+            )
+            self.assertEqual("client_visible", metadata.scene_scope)
+            self.assertEqual(
+                "full_packet_metadata", metadata.scene_metadata_policy
+            )
+            self.assertTrue(metadata.scene_sensitive)
+            self.assertEqual(
+                {
+                    "scope": "client_visible",
+                    "metadata_policy": "full_packet_metadata",
+                    "sensitive": True,
+                },
+                policy,
+            )
+            self.assertEqual(
+                "client_visible", detail.record["modalities"]["scene"]["scope"]
+            )
+            self.assertEqual(
+                "full_packet_metadata",
+                detail.record["modalities"]["scene"]["metadata_policy"],
+            )
+            self.assertIs(
+                True, detail.record["modalities"]["scene"]["sensitive"]
+            )
+            self.assertEqual((64, 17, 17), (plane.coordinate, plane.width, plane.height))
+            self.assertGreater(sum(cell.covered for cell in plane.cells), 0)
+            covered = next(cell for cell in plane.cells if cell.covered)
+            self.assertEqual("minecraft:stone", covered.block_state["name"])
+            self.assertEqual("minecraft:pig", plane.entities[0].type_id)
+            self.assertEqual("minecraft:chest", plane.block_entities[0].type_id)
+            self.assertFalse(plane.coverage_complete)
+
+    def test_rejects_full_metadata_dataset_scene_not_marked_sensitive(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            exports = root / "exports"
+            exports.mkdir()
+            scene = {
+                "available": True,
+                "valid": True,
+                "coverage_complete": True,
+                "reference": "scene/scene-v1.sqlite3",
+                "frame_id": "scene-frame-7",
+                "reason": None,
+            }
+            directory = _write_dataset(
+                exports,
+                [_sample(7, scene=scene)],
+                scene_store=_scene_store_bytes(root),
+            )
+            scene_path = directory / "scene" / "scene-v1.sqlite3"
+            with sqlite3.connect(scene_path) as connection:
+                connection.execute("UPDATE scene_meta SET sensitive = 0")
+                connection.commit()
+            scene_bytes = scene_path.read_bytes()
+            manifest_path = directory / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["files"]["scene/scene-v1.sqlite3"] = {
+                "size_bytes": len(scene_bytes),
+                "sha256": _sha256(scene_bytes),
+            }
+            manifest["selection"]["scene_attachment"]["sensitive"] = False
+            manifest_path.write_text(
+                json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+
+            catalog = DatasetViewer(exports, root / "runtime").catalog()
+
+            self.assertEqual((), catalog.datasets)
+            self.assertIn(
+                "full_packet_metadata scene stores must be marked sensitive",
+                catalog.rejected[0].message,
+            )
+
+    def test_rejects_scene_store_without_authenticated_extraction(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            exports = root / "exports"
+            exports.mkdir()
+            scene = {
+                "available": True,
+                "valid": True,
+                "coverage_complete": True,
+                "reference": "scene/scene-v1.sqlite3",
+                "frame_id": "scene-frame-7",
+                "reason": None,
+            }
+            _write_dataset(
+                exports,
+                [_sample(7, scene=scene)],
+                scene_store=_scene_store_bytes(root, authenticated=False),
+                scene_attachment={},
+            )
+
+            catalog = DatasetViewer(exports, root / "runtime").catalog()
+
+            self.assertEqual((), catalog.datasets)
+            self.assertIn(
+                "authenticated extraction provenance", catalog.rejected[0].message
+            )
+
+    def test_scene_attachment_presence_exactly_tracks_the_contained_store(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            exports = root / "exports"
+            exports.mkdir()
+            scene = {
+                "available": True,
+                "valid": True,
+                "coverage_complete": True,
+                "reference": "scene/scene-v1.sqlite3",
+                "frame_id": "scene-frame-7",
+                "reason": None,
+            }
+            _write_dataset(
+                exports,
+                [_sample(7, scene=scene)],
+                name="null-attachment.dataset",
+                scene_store=_scene_store_bytes(root),
+                scene_attachment=None,
+            )
+            _write_dataset(
+                exports,
+                [_sample(8)],
+                name="orphan-attachment.dataset",
+                scene_attachment={},
+            )
+
+            catalog = DatasetViewer(exports, root / "runtime").catalog()
+
+            self.assertEqual((), catalog.datasets)
+            rejected = {issue.name: issue.message for issue in catalog.rejected}
+            self.assertIn("scene_attachment is required", rejected["null-attachment.dataset"])
+            self.assertIn(
+                "requires a contained scene store",
+                rejected["orphan-attachment.dataset"],
+            )
+
+    def test_scene_attachment_exactly_binds_authenticated_store_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            exports = root / "exports"
+            exports.mkdir()
+            scene = {
+                "available": True,
+                "valid": True,
+                "coverage_complete": True,
+                "reference": "scene/scene-v1.sqlite3",
+                "frame_id": "scene-frame-7",
+                "reason": None,
+            }
+            mutations = {
+                "format": "other-scene-format",
+                "path": "",
+                "sha256": "0" * 64,
+                "size_bytes": 0,
+                "session_id": "other-session",
+                "player_uuid": "other-player",
+                "connection_id": "other-connection",
+                "global_start_tick": 6,
+                "global_end_tick": 8,
+                "frame_count": 2,
+                "scope": "privileged",
+                "metadata_policy": "redacted",
+                "result": None,
+                "sensitive": False,
+                "source_replays": [],
+            }
+            scene_bytes = _scene_store_bytes(root)
+            for field, replacement in mutations.items():
+                name = f"bad-{field.replace('_', '-')}.dataset"
+                directory = _write_dataset(
+                    exports,
+                    [_sample(7, scene=scene)],
+                    name=name,
+                    scene_store=scene_bytes,
+                )
+                manifest_path = directory / "manifest.json"
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                manifest["selection"]["scene_attachment"][field] = replacement
+                manifest_path.write_text(
+                    json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )
+
+            catalog = DatasetViewer(exports, root / "runtime").catalog()
+
+            self.assertEqual((), catalog.datasets)
+            self.assertEqual(set(mutations), {
+                issue.name.removeprefix("bad-").removesuffix(".dataset").replace("-", "_")
+                for issue in catalog.rejected
+            })
+
+    def test_scene_attachment_path_is_opaque_provenance_text(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            exports = root / "exports"
+            exports.mkdir()
+            scene = {
+                "available": True,
+                "valid": True,
+                "coverage_complete": True,
+                "reference": "scene/scene-v1.sqlite3",
+                "frame_id": "scene-frame-7",
+                "reason": None,
+            }
+            directory = _write_dataset(
+                exports,
+                [_sample(7, scene=scene)],
+                scene_store=_scene_store_bytes(root),
+            )
+            manifest_path = directory / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["selection"]["scene_attachment"]["path"] = (
+                "historical source path, not a viewer input"
+            )
+            manifest_path.write_text(
+                json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+
+            catalog = DatasetViewer(exports, root / "runtime").catalog()
+
+            self.assertEqual(1, len(catalog.datasets))
+            self.assertEqual((), catalog.rejected)
+
     def test_resolves_only_contained_hash_verified_rgb(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -691,119 +1296,92 @@ class DatasetArtifactTest(unittest.TestCase):
             with self.assertRaisesRegex(DatasetValidationError, "symlink"):
                 viewer.resolve_rgb_artifact(dataset_id, sample_id)
 
-    def test_decodes_bounded_voxel_slice_and_preserves_unknown_cells(self) -> None:
+    def test_rejects_scene_reference_without_manifest_owned_store(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             exports = root / "exports"
             exports.mkdir()
-            voxel_path = exports / "render-jobs" / "job" / "voxel.json.gz"
-            voxel_path.parent.mkdir(parents=True)
-            indices = b"".join(value.to_bytes(2, "little") for value in (0, 1, 1, 0))
-            snapshot = {
-                "schema_version": 1,
-                "format": "mc-recorder-voxel-palette-v1",
-                "session_id": "session-test",
-                "player_uuid": "player-a",
-                "connection_id": "connection-a",
-                "server_tick": 7,
-                "replay_tick": 7,
-                "dimension": "minecraft:overworld",
-                "center": {"x": 10, "y": 20, "z": 30},
-                "origin": {"x": 10, "y": 20, "z": 30},
-                "shape": {"x": 2, "y": 1, "z": 2},
-                "linear_order": "x_fastest_then_z_then_y",
-                "index_dtype": "uint16",
-                "index_byte_order": "little_endian",
-                "indices_base64": base64.b64encode(indices).decode(),
-                "coverage_bitset_base64": base64.b64encode(b"\x05").decode(),
-                "coverage_bit_order": "lsb0",
-                "covered_cells": 2,
-                "total_cells": 4,
-                "coverage_complete": False,
-                "palette": ["minecraft:air", "minecraft:stone"],
-                "block_entities_included": False,
+            scene = {
+                "available": True,
+                "valid": True,
+                "coverage_complete": True,
+                "reference": "scene/scene-v1.sqlite3",
+                "frame_id": "scene-frame-1",
+                "reason": None,
             }
-            compressed = gzip.compress(
-                json.dumps(snapshot, separators=(",", ":")).encode()
+            _write_dataset(exports, [_sample(1, scene=scene)])
+
+            catalog = DatasetViewer(exports, root / "runtime").catalog()
+
+            self.assertEqual((), catalog.datasets)
+            self.assertIn("absent scene store", catalog.rejected[0].message)
+
+    def test_rejects_scene_frame_id_for_a_different_tick(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            exports = root / "exports"
+            exports.mkdir()
+            scene = {
+                "available": True,
+                "valid": True,
+                "coverage_complete": True,
+                "reference": "scene/scene-v1.sqlite3",
+                "frame_id": "scene-frame-7",
+                "reason": None,
+            }
+            _write_dataset(
+                exports,
+                [_sample(8, scene=scene)],
+                scene_store=_scene_store_bytes(root, tick=7),
             )
-            voxel_path.write_bytes(compressed)
-            voxels = {
-                "available": True,
-                "valid": True,
-                "reference": str(voxel_path),
-                "coverage_mask_reference": str(voxel_path),
-                "artifact_bytes": len(compressed),
-                "artifact_sha256": _sha256(compressed),
-                "origin": snapshot["origin"],
-                "shape": snapshot["shape"],
-                "covered_cells": 2,
-                "total_cells": 4,
-                "coverage_complete": False,
-                "dimension": "minecraft:overworld",
-            }
-            _write_dataset(exports, [_sample(7, voxels=voxels)])
-            viewer = DatasetViewer(exports, root / "runtime")
-            dataset_id = viewer.list_datasets()[0].dataset_id
-            sample_id = viewer.list_sample_summaries(dataset_id).items[0].sample_id
 
-            plane = viewer.get_voxel_slice(dataset_id, sample_id, axis="y", index=0)
+            catalog = DatasetViewer(exports, root / "runtime").catalog()
 
-            self.assertEqual((2, 1, 2), plane.shape)
-            self.assertEqual(("z", "x"), (plane.row_axis, plane.column_axis))
-            self.assertEqual("minecraft:air", plane.cells[0][0].block_state)
-            self.assertTrue(plane.cells[0][0].covered)
-            self.assertFalse(plane.cells[0][1].covered)
-            self.assertIsNone(plane.cells[0][1].block_state)
-            self.assertEqual("minecraft:stone", plane.cells[1][0].block_state)
-            self.assertFalse(plane.coverage_complete)
-            with self.assertRaisesRegex(Exception, "outside"):
-                viewer.get_voxel_slice(dataset_id, sample_id, axis="y", index=1)
+            self.assertEqual((), catalog.datasets)
+            self.assertIn("resolves to tick 7, not state tick 8", catalog.rejected[0].message)
 
-            original_resolver = viewer._verified_artifact
-
-            def resolve_then_tamper(*args, **kwargs):
-                artifact = original_resolver(*args, **kwargs)
-                voxel_path.write_bytes(compressed + b"tampered")
-                return artifact
-
-            with mock.patch.object(
-                viewer,
-                "_verified_artifact",
-                side_effect=resolve_then_tamper,
-            ):
-                with self.assertRaisesRegex(DatasetValidationError, "changed after validation"):
-                    viewer.get_voxel_slice(dataset_id, sample_id, axis="y", index=0)
-
-    def test_stops_voxel_gzip_expansion_at_configured_limit(self) -> None:
+    def test_rejects_scene_pose_that_disagrees_with_canonical_state(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             exports = root / "exports"
             exports.mkdir()
-            voxel_path = exports / "voxel.json.gz"
-            payload = b"{" + b" " * 256 + b"}"
-            compressed = gzip.compress(payload)
-            voxel_path.write_bytes(compressed)
-            voxels = {
+            scene = {
                 "available": True,
                 "valid": True,
-                "reference": str(voxel_path),
-                "coverage_mask_reference": str(voxel_path),
-                "artifact_bytes": len(compressed),
-                "artifact_sha256": _sha256(compressed),
-                "origin": {"x": 0, "y": 0, "z": 0},
-                "shape": {"x": 1, "y": 1, "z": 1},
-                "covered_cells": 0,
-                "total_cells": 1,
-                "coverage_complete": False,
-                "dimension": "minecraft:overworld",
+                "coverage_complete": True,
+                "reference": "scene/scene-v1.sqlite3",
+                "frame_id": "scene-frame-7",
+                "reason": None,
             }
-            _write_dataset(exports, [_sample(1, voxels=voxels)])
-            viewer = DatasetViewer(exports, root / "runtime", max_voxel_json_bytes=64)
-            dataset_id = viewer.list_datasets()[0].dataset_id
-            sample_id = viewer.list_sample_summaries(dataset_id).items[0].sample_id
+            _write_dataset(
+                exports,
+                [],
+                name="bad-scene-dimension.dataset",
+                ticks=[_sample(7, scene=scene)],
+                scene_store=_scene_store_bytes(
+                    root, dimension="minecraft:the_nether"
+                ),
+            )
+            _write_dataset(
+                exports,
+                [],
+                name="bad-scene-position.dataset",
+                ticks=[_sample(7, scene=scene)],
+                scene_store=_scene_store_bytes(
+                    root, subject_position=(7.250000000000001, 64.0, -7.5)
+                ),
+            )
 
-            with self.assertRaisesRegex(DatasetValidationError, "expands beyond"):
-                viewer.get_voxel_slice(dataset_id, sample_id, axis="y", index=0)
+            catalog = DatasetViewer(exports, root / "runtime").catalog()
+
+            self.assertEqual((), catalog.datasets)
+            rejected = {issue.name: issue.message for issue in catalog.rejected}
+            self.assertIn(
+                "scene frame dimension", rejected["bad-scene-dimension.dataset"]
+            )
+            self.assertIn(
+                "scene frame subject_position", rejected["bad-scene-position.dataset"]
+            )
 
 
 if __name__ == "__main__":

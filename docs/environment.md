@@ -10,7 +10,7 @@ toolchain. Gradle is installed by proto instead of the Gradle wrapper.
 | Python 3.14 development interpreter, editable `mc-recorder` install, and root tasks | Pixi | `pixi.toml`, `pixi.lock` |
 | OpenJDK 21 and Gradle 9.6.1 | proto | `.prototools` |
 | Python package metadata | setuptools | `tooling/pyproject.toml` |
-| Fabric/Kotlin build logic and dependencies | Gradle projects | `recorder-mod/`, `renderer-mod/` |
+| Fabric/Kotlin build logic and dependencies | Gradle projects | `recorder-mod/`, `scene-extractor-mod/`, `renderer-mod/` |
 | Docker Compose runtime | `mc-recorder` CLI | `deploy/docker-compose.yml`, generated `.mc-recorder/compose.env` |
 | Pull request verification | GitHub Actions | `.github/workflows/ci.yml` |
 
@@ -48,6 +48,7 @@ repository.
 ./hack/start-dashboard
 pixi run test-python
 pixi run build-recorder-mod
+pixi run build-scene-extractor-mod
 pixi run build-renderer-mod
 pixi run check
 ```
@@ -57,10 +58,16 @@ commands used by the dashboard and CI-oriented docs. They keep Compose behind
 the CLI so mod staging, generated configuration, EULA validation, and retention
 checks still run before Docker starts.
 
-`pixi run check` runs the Python test suite and both Gradle builds. Renderer
+`pixi run check` runs the Python test suite and all three Gradle builds. Renderer
 builds normally resolve Flashback from the pinned Modrinth version ID in
 `renderer-mod/gradle.properties`. If Modrinth is unavailable, set
 `MC_RECORDER_FLASHBACK_JAR` to the Flashback 0.39.5 JAR for Minecraft 1.21.8.
+
+Scene extraction launches the proto-managed Gradle executable directly. An
+interactive shell normally exposes it through proto's shims. A service manager
+often has a narrower `PATH`; in that case set `MC_RECORDER_GRADLE` to an
+absolute executable Gradle path in the service environment. The launcher does
+not invoke a shell and rejects relative overrides.
 
 ## macOS Notes
 

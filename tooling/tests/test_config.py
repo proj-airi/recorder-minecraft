@@ -23,6 +23,10 @@ class ConfigTest(unittest.TestCase):
             self.assertEqual((workspace / "artifacts" / "captures").resolve(), config.paths.captures)
             self.assertTrue(config.paths.server_data.is_dir())
             self.assertTrue(config.paths.runtime.is_dir())
+            self.assertEqual(
+                (workspace / "scene-extractor-mod").resolve(),
+                config.mods.scene_extractor_project,
+            )
             self.assertEqual("0.0.0.0", config.dashboard.bind)
             self.assertEqual(8765, config.dashboard.port)
 

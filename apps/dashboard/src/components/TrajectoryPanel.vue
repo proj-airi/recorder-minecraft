@@ -5,13 +5,25 @@ import { finiteCoordinate, shortDimension } from '../utils'
 
 const props = defineProps<{
   currentRecord?: any
+  error?: string
+  loading: boolean
   trajectory?: any
 }>()
 
 const canvas = ref<HTMLCanvasElement>()
 const trajectoryColors = ['#78e08f', '#74b9ff', '#f1c75b', '#ff8f70', '#c7a6ff', '#61d6d0', '#f58bc8', '#b4d273']
+let resizeObserver: ResizeObserver | undefined
 
 const tracks = computed(() => props.trajectory?.tracks || [])
+const emptyMessage = computed(() => {
+  if (props.loading)
+    return 'Loading indexed positions...'
+  if (props.error)
+    return props.error
+  if (props.trajectory)
+    return 'No indexed positions match these filters.'
+  return 'Player trajectory is unavailable.'
+})
 const note = computed(() => {
   if (!props.trajectory?.bounds || !tracks.value.length)
     return ''
@@ -43,8 +55,10 @@ function drawTrajectory() {
   context.clearRect(0, 0, width, height)
 
   const bounds = props.trajectory?.bounds
-  if (!bounds || !tracks.value.length)
+  if (!bounds || !tracks.value.length) {
+    canvas.value.setAttribute('aria-label', emptyMessage.value)
     return
+  }
 
   const padding = { top: 24, right: 24, bottom: 32, left: 40 }
   const plotWidth = width - padding.left - padding.right
@@ -103,6 +117,18 @@ function drawTrajectory() {
         context.lineTo(projected.x, projected.y)
     })
     context.stroke()
+    ;(track.points || []).forEach((point: any, pointIndex: number) => {
+      if (pointIndex > 0 && point.continuous_from_previous)
+        return
+      const projected = project(point)
+      context.beginPath()
+      context.fillStyle = '#080d0a'
+      context.strokeStyle = color
+      context.lineWidth = 1.5
+      context.arc(projected.x, projected.y, 3, 0, Math.PI * 2)
+      context.fill()
+      context.stroke()
+    })
   })
 
   const position = props.currentRecord?.state?.position
@@ -115,15 +141,28 @@ function drawTrajectory() {
     context.arc(current.x, current.y, 5, 0, Math.PI * 2)
     context.fill()
     context.stroke()
+    context.beginPath()
+    context.strokeStyle = '#edf5ef'
+    context.lineWidth = 1
+    context.arc(current.x, current.y, 9, 0, Math.PI * 2)
+    context.stroke()
   }
+  canvas.value.setAttribute('aria-label', `Top-down trajectory with ${tracks.value.length} track${tracks.value.length === 1 ? '' : 's'} and ${props.trajectory.total_points} indexed positions`)
 }
 
-watch(() => [props.trajectory, props.currentRecord], () => nextTick(drawTrajectory), { deep: true })
+watch(() => [props.trajectory, props.currentRecord, props.loading, props.error], () => nextTick(drawTrajectory), { deep: true })
 onMounted(() => {
   drawTrajectory()
-  window.addEventListener('resize', drawTrajectory)
+  if (typeof ResizeObserver === 'function' && canvas.value?.parentElement) {
+    resizeObserver = new ResizeObserver(drawTrajectory)
+    resizeObserver.observe(canvas.value.parentElement)
+  }
+  else {
+    window.addEventListener('resize', drawTrajectory)
+  }
 })
 onBeforeUnmount(() => {
+  resizeObserver?.disconnect()
   window.removeEventListener('resize', drawTrajectory)
 })
 </script>
@@ -135,15 +174,15 @@ onBeforeUnmount(() => {
       <span class="axis-note">top-down X / Z · N ↑</span>
     </div>
     <div class="trajectory-canvas-wrap">
-      <canvas ref="canvas" role="img" aria-label="Top-down player trajectory" />
-      <p v-if="!trajectory?.bounds || !tracks.length" class="empty">
-        {{ trajectory ? 'No indexed positions match these filters.' : 'Loading indexed positions...' }}
+      <canvas ref="canvas" class="trajectory-canvas" role="img" aria-label="Top-down player trajectory" />
+      <p v-if="!trajectory?.bounds || !tracks.length" class="empty" aria-live="polite">
+        {{ emptyMessage }}
       </p>
     </div>
     <div class="trajectory-legend">
-      <span v-for="(track, trackIndex) in tracks" :key="`${track.player_uuid}:${track.dimension}`" class="trajectory-legend-item">
+      <span v-for="(track, trackIndex) in tracks" :key="`${track.player_uuid}:${track.connection_id}:${track.dimension}`" class="trajectory-legend-item">
         <i class="trajectory-swatch" :style="{ background: trajectoryColors[Number(trackIndex) % trajectoryColors.length] }" />
-        {{ track.player_name || track.player_uuid }} · {{ shortDimension(track.dimension) }} · {{ track.horizontal_distance_blocks.toFixed(1) }} blocks
+        {{ track.player_name || track.player_uuid }} · connection {{ track.connection_id }} · {{ shortDimension(track.dimension) }} · {{ track.horizontal_distance_blocks.toFixed(1) }} blocks
       </span>
     </div>
     <p class="muted trajectory-note">

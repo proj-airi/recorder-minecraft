@@ -70,6 +70,7 @@ class PathConfig:
 class ModConfig:
     recorder_project: Path
     renderer_project: Path
+    scene_extractor_project: Path
     recorder_jar: Path | None
     build_on_start: bool
     server_replay_project: str
@@ -167,6 +168,10 @@ def load_config(path: str | Path = DEFAULT_CONFIG_NAME) -> RecorderConfig:
     mods = ModConfig(
         recorder_project=_resolve(base, _value(mods_raw, "recorder_project", "recorder-mod", str)),
         renderer_project=_resolve(base, _value(mods_raw, "renderer_project", "renderer-mod", str)),
+        scene_extractor_project=_resolve(
+            base,
+            _value(mods_raw, "scene_extractor_project", "scene-extractor-mod", str),
+        ),
         recorder_jar=_resolve(base, recorder_jar_raw) if recorder_jar_raw else None,
         build_on_start=_value(mods_raw, "build_on_start", True, bool),
         server_replay_project=_value(mods_raw, "server_replay_project", "server-replay:TbWIikrT", str),
@@ -286,6 +291,7 @@ compose_file = "deploy/docker-compose.yml"
 [mods]
 recorder_project = "recorder-mod"
 renderer_project = "renderer-mod"
+scene_extractor_project = "scene-extractor-mod"
 # Optional explicit JAR. When empty, build/libs is discovered after a local build.
 recorder_jar = ""
 build_on_start = true

@@ -89,8 +89,8 @@ The exact bytes of a persisted request are bound by SHA-256. Its top-level
   `newer_cutoff` for overlap ownership;
 - an opaque replay `segment_id`, monotonic `segment_ordinal`, Flashback format,
   stable byte size, and SHA-256; and
-- bounded resolution, 20 FPS, first-person-head camera, explicit `no_gui`, the
-  GUI `presentation_contract`, and optional voxel radii.
+- bounded resolution, 20 FPS, first-person-head camera, explicit `no_gui`, and
+  the GUI `presentation_contract`.
 
 Current GUI requests also carry a path-free `structured_hud` envelope. It binds
 the exact dataset ID, dataset-manifest and `samples.jsonl` hashes, session,
@@ -182,8 +182,6 @@ payload-files.jsonl
 worker-result.json
 frames/frames.jsonl                 # complete coverage only
 frames/frame_<number>.png           # complete coverage only
-frames/voxels.jsonl                 # optional
-frames/voxels/voxel_<tick>.json.gz  # optional
 ```
 
 `bundle.json` has type `mc-recorder-render-bundle-v1` and binds the authoritative
@@ -203,13 +201,12 @@ file-count or total-byte limit violations. A `no_coverage` bundle contains only
 Import always receives the server's saved request and authoritative replay
 path separately. It rehashes both, verifies every uploaded file, copies through
 no-follow file descriptors into a hidden staging directory, and validates PNG,
-index, identity, timeline, voxel, and coverage contracts. The Mac result's
-`replay`, `output`, and `voxel_index` paths are ignored.
+index, identity, timeline, and coverage contracts. The Mac result's `replay`
+and `output` paths are ignored.
 
 The importer derives `result.json` with schema version 2 and type
 `mc-recorder-render-result-v2`. Its artifact references are contained relative
-paths (`frames`, `frames/frames.jsonl`, and optional
-`frames/voxels.jsonl`). Provenance records the portable request, segment ID and
+paths (`frames` and `frames/frames.jsonl`). Provenance records the portable request, segment ID and
 ordinal, range policy, cutoff, and actual/requested tick ranges. The original
 worker result remains immutable as non-authoritative provenance.
 

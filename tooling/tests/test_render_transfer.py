@@ -260,9 +260,6 @@ def _complete_job(
                     if "presentation_contract" in request["render"]
                     else {}
                 ),
-                "voxel_snapshots": 0,
-                "voxel_horizontal_radius": 0,
-                "voxel_vertical_radius": 0,
             }
         ),
         encoding="utf-8",

@@ -11,7 +11,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
 from mc_recorder.errors import RecorderError
-from mc_recorder.render_sources import resolve_replay_segments
+from mc_recorder.render_sources import (
+    FLASHBACK_CAPTURE_CONTRACT,
+    resolve_replay_segments,
+)
 
 SESSION = "20260721T000000.000Z-deadbeef"
 PLAYER = "00000000-0000-4000-8000-000000000001"
@@ -25,6 +28,7 @@ def _write_archive(
     segment: str = SEGMENT,
     schema_version: int = 1,
     hotbar_snapshot_contract: str | None = None,
+    flashback_capture_contract: str | None = None,
 ) -> None:
     arcade_metadata = {
         "mc_recorder": {
@@ -40,6 +44,10 @@ def _write_archive(
         arcade_metadata["mc_recorder"][
             "hotbar_snapshot_contract"
         ] = hotbar_snapshot_contract
+    if flashback_capture_contract is not None:
+        arcade_metadata["mc_recorder"][
+            "flashback_capture_contract"
+        ] = flashback_capture_contract
     path.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(path, "w") as archive:
         archive.writestr("metadata.json", json.dumps({"uuid": str(uuid.uuid4())}))
@@ -144,6 +152,58 @@ class ReplaySegmentResolutionTest(unittest.TestCase):
             )
 
             self.assertEqual([SEGMENT], [source.segment_id for source in sources])
+
+    def test_accepts_schema_three_archive_with_matching_scene_capture_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            replay = root / "replays" / "players" / PLAYER / "segment.zip"
+            _write_archive(
+                replay,
+                schema_version=3,
+                hotbar_snapshot_contract="item_stack_copy_v1",
+                flashback_capture_contract=FLASHBACK_CAPTURE_CONTRACT,
+            )
+            _write_ledger(
+                root / "control",
+                str(replay),
+                hotbar_snapshot_contract="item_stack_copy_v1",
+                flashback_capture_contract=FLASHBACK_CAPTURE_CONTRACT,
+            )
+
+            sources = resolve_replay_segments(
+                control_root=root / "control",
+                replays_root=root / "replays",
+                session_id=SESSION,
+                player_uuid=PLAYER,
+                connection_id=CONNECTION,
+            )
+
+            self.assertEqual(FLASHBACK_CAPTURE_CONTRACT, sources[0].flashback_capture_contract)
+
+    def test_rejects_schema_three_archive_without_matching_scene_capture_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            replay = root / "replays" / "players" / PLAYER / "segment.zip"
+            _write_archive(
+                replay,
+                schema_version=3,
+                hotbar_snapshot_contract="item_stack_copy_v1",
+                flashback_capture_contract=FLASHBACK_CAPTURE_CONTRACT,
+            )
+            _write_ledger(
+                root / "control",
+                str(replay),
+                hotbar_snapshot_contract="item_stack_copy_v1",
+            )
+
+            with self.assertRaisesRegex(RecorderError, "scene capture contract"):
+                resolve_replay_segments(
+                    control_root=root / "control",
+                    replays_root=root / "replays",
+                    session_id=SESSION,
+                    player_uuid=PLAYER,
+                    connection_id=CONNECTION,
+                )
 
     def test_rejects_schema_two_archive_without_matching_hotbar_contract(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

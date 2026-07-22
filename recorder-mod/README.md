@@ -70,6 +70,13 @@ Once per player per tick the mod also sends `mc_recorder:timeline/v1` with the s
 connection ID, global server tick, and matching event sequence. ServerReplay records this payload
 inside its independently rotated Flashback archive; the local renderer uses it for exact alignment.
 
+Scene-capable captures declare
+`flashback_capture_contract: "client_visible_scene_v1"` in the session manifest, `session_start`,
+replay-segment ledgers, and embedded Flashback `mc_recorder` metadata. The recorder narrowly
+overrides upstream packet exclusions for chunk unloads, player corrections, minecart steps, and
+explicit entity movement/teleport/velocity. It does not override pause state or unrelated capture
+settings. Mutable packet collections are copied before ServerReplay's asynchronous encoding.
+
 ## Intentional limitations
 
 - The decoded packet object is available, but canonical raw bytes are not: re-encoding requires the
@@ -77,8 +84,8 @@ inside its independently rotated Flashback archive; the local renderer uses it f
   fields are normalized, and unknown packet types retain class/type/order metadata.
 - Chat, commands, and custom payload contents are redacted by default.
 - `player_state.replay_coverage` is only a best-effort client-visible center/view-distance hint and
-  declares `complete=false`. The local renderer can materialize coverage-masked voxel crops from
-  replay state, but block entities are not materialized in voxel V1.
+  declares `complete=false`. The headless scene extractor materializes loaded block sections,
+  entities, and block entities from replay state; unloaded positions remain explicitly unknown.
 - Storage quota warnings and eviction of verified sealed epochs or stable completed replay archives
   are orchestrator responsibilities; the recorder itself only seals immutable sidecar units.
 

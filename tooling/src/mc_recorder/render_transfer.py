@@ -18,7 +18,6 @@ from .errors import RecorderError
 from .exporter import (
     CANONICAL_RENDER_RESULT_TYPE,
     _load_frame_attachments,
-    _load_voxel_attachments,
 )
 from .render_contract import FULL_CLIENT_PRESENTATION_CONTRACT
 from .render_hud import (
@@ -49,7 +48,6 @@ MAX_IDENTIFIER_LENGTH = 160
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _SEGMENT_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$")
 _FRAME_RE = re.compile(r"^frames/frame_[0-9]+\.png$")
-_VOXEL_RE = re.compile(r"^frames/voxels/voxel_[0-9]+\.json\.gz$")
 _ALLOWED_POLICIES = {"exact", "intersection"}
 
 
@@ -250,7 +248,7 @@ def _validate_request(value: Any) -> dict[str, Any]:
     render = _object(request.get("render"), "portable render request render")
     _required_keys(
         render,
-        {"width", "height", "fps", "camera", "voxel_crop"},
+        {"width", "height", "fps", "camera"},
         {"no_gui", "presentation_contract"},
         "request render",
     )
@@ -291,15 +289,6 @@ def _validate_request(value: Any) -> dict[str, Any]:
         raise RecorderError(
             "current full-client presentation requests require structured_hud"
         )
-    crop = _object(render.get("voxel_crop"), "portable render request voxel_crop")
-    _required_keys(crop, {"horizontal_radius", "vertical_radius"}, set(), "request voxel_crop")
-    horizontal = _integer(crop.get("horizontal_radius"), "request horizontal voxel radius", 0, 64)
-    vertical = _integer(crop.get("vertical_radius"), "request vertical voxel radius", 0, 64)
-    if (horizontal == 0) != (vertical == 0):
-        raise RecorderError("request voxel radii must both be zero or both be positive")
-    cells = (horizontal * 2 + 1) ** 2 * (vertical * 2 + 1)
-    if horizontal and cells > 2_000_000:
-        raise RecorderError("request voxel crop exceeds 2,000,000 cells per tick")
     return request
 
 
@@ -344,8 +333,6 @@ def create_portable_render_request(
     fps: int = 20,
     first_tick: int | None = None,
     last_tick: int | None = None,
-    voxel_horizontal_radius: int = 0,
-    voxel_vertical_radius: int = 0,
     request_id: str | None = None,
     range_policy: str = "exact",
     newer_cutoff: int | None = None,
@@ -423,10 +410,6 @@ def create_portable_render_request(
             "fps": fps,
             "camera": "first_person_head",
             "no_gui": no_gui,
-            "voxel_crop": {
-                "horizontal_radius": voxel_horizontal_radius,
-                "vertical_radius": voxel_vertical_radius,
-            },
         },
     }
     if presentation_contract is not None:
@@ -601,12 +584,8 @@ def materialize_portable_render_job(
     timeline = value["timeline"]
     render = value["render"]
     requested_no_gui = render.get("no_gui", True)
-    crop = render["voxel_crop"]
     source = value["source_replay"]
     subject = value["subject"]
-    horizontal = crop["horizontal_radius"]
-    vertical = crop["vertical_radius"]
-    cells = (horizontal * 2 + 1) ** 2 * (vertical * 2 + 1) if horizontal else 0
     staging = Path(
         tempfile.mkdtemp(prefix=f".{resolved_output.name}.tmp-", dir=resolved_output.parent)
     )
@@ -629,8 +608,6 @@ def materialize_portable_render_job(
             "width": render["width"],
             "height": render["height"],
             "fps": render["fps"],
-            "voxel_horizontal_radius": horizontal,
-            "voxel_vertical_radius": vertical,
             # Requests authored before no_gui became portable omit the field and
             # retain the original world-only renderer behavior.
             "no_gui": requested_no_gui,
@@ -653,19 +630,10 @@ def materialize_portable_render_job(
                 "width": render["width"],
                 "height": render["height"],
             },
-            "voxel_crop": {
-                "enabled": horizontal > 0,
-                "horizontal_radius": horizontal,
-                "vertical_radius": vertical,
-                "cells_per_tick": cells,
-                "format": "mc-recorder-voxel-palette-v1",
-                "coverage": "explicit bitset; uncovered cells are unknown, not air",
-            },
             "output_metadata": {
                 "frames_directory": str((resolved_output / "frames").resolve()),
                 "frame_index": str((resolved_output / "frames" / "frames.jsonl").resolve()),
                 "result_manifest": str((resolved_output / "result.json").resolve()),
-                "voxel_index": str((resolved_output / "frames" / "voxels.jsonl").resolve()),
             },
             "portable_request": {
                 "request_id": portable.request_id,
@@ -799,8 +767,6 @@ def _raw_result_range(
         "fps": render["fps"],
         "width": render["width"],
         "height": render["height"],
-        "voxel_horizontal_radius": render["voxel_crop"]["horizontal_radius"],
-        "voxel_vertical_radius": render["voxel_crop"]["vertical_radius"],
     }
     for key, expected in expected_ints.items():
         if result.get(key) != expected or isinstance(result.get(key), bool):
@@ -826,11 +792,6 @@ def _raw_result_range(
         raise RecorderError("worker replay/global ranges have different lengths")
     if offset + replay_start != first or offset + replay_end != last:
         raise RecorderError("worker global tick offset is inconsistent")
-    snapshots = _integer(result.get("voxel_snapshots", 0), "worker voxel_snapshots", 0)
-    voxel_enabled = render["voxel_crop"]["horizontal_radius"] > 0
-    expected_snapshots = last - first + 1 if voxel_enabled else 0
-    if snapshots != expected_snapshots:
-        raise RecorderError("worker voxel snapshot count does not match its request and coverage")
     return status_text, first, last
 
 
@@ -945,8 +906,7 @@ def _allowed_payload_path(relative: str) -> bool:
     return relative in {
         "worker-result.json",
         "frames/frames.jsonl",
-        "frames/voxels.jsonl",
-    } or _FRAME_RE.fullmatch(relative) is not None or _VOXEL_RE.fullmatch(relative) is not None
+    } or _FRAME_RE.fullmatch(relative) is not None
 
 
 def _safe_relative_path(value: Any, context: str) -> str:
@@ -1186,38 +1146,6 @@ def _declared_payload_files(staging: Path, request: PortableRenderRequest, statu
             raise RecorderError(f"frame index contains duplicate artifact {payload_path}")
         expected.add(payload_path)
 
-    voxel_enabled = request.data["render"]["voxel_crop"]["horizontal_radius"] > 0
-    voxel_index = staging / "frames" / "voxels.jsonl"
-    if not voxel_enabled:
-        if voxel_index.exists():
-            raise RecorderError("RGB-only request returned an unexpected voxel index")
-        return expected
-    if voxel_index.is_symlink() or not voxel_index.is_file():
-        raise RecorderError("voxel-enabled request returned no voxel index")
-    expected.add("frames/voxels.jsonl")
-    try:
-        if voxel_index.stat().st_size > MAX_PAYLOAD_INDEX_BYTES:
-            raise RecorderError("voxel index exceeds the transfer size limit")
-        lines = voxel_index.read_bytes().splitlines()
-    except OSError as exc:
-        raise RecorderError("cannot read transferred voxel index") from exc
-    for line_number, line in enumerate(lines, 1):
-        if not line or len(line) > MAX_PAYLOAD_INDEX_LINE_BYTES:
-            raise RecorderError(f"voxel index line {line_number} is empty or oversized")
-        try:
-            row = json.loads(line)
-        except (ValueError, RecursionError) as exc:
-            raise RecorderError(f"voxel index line {line_number} is invalid JSON") from exc
-        row = _object(row, f"voxel index line {line_number}")
-        relative = _safe_relative_path(
-            row.get("reference"), f"voxel index line {line_number} reference"
-        )
-        payload_path = f"frames/{relative}"
-        if _VOXEL_RE.fullmatch(payload_path) is None:
-            raise RecorderError(f"voxel index line {line_number} names a non-canonical artifact")
-        if payload_path in expected:
-            raise RecorderError(f"voxel index contains duplicate artifact {payload_path}")
-        expected.add(payload_path)
     return expected
 
 
@@ -1278,16 +1206,10 @@ def _canonical_result(
         "fps",
         "width",
         "height",
-        "voxel_horizontal_radius",
-        "voxel_vertical_radius",
     ):
         result[key] = raw[key]
     result["output"] = "frames"
     result["frames_index"] = "frames/frames.jsonl"
-    snapshots = raw.get("voxel_snapshots", 0)
-    result["voxel_snapshots"] = snapshots
-    if snapshots:
-        result["voxel_index"] = "frames/voxels.jsonl"
     return result
 
 
@@ -1380,8 +1302,6 @@ def _validate_imported(
     _assert_payload_inventory(root, payload, request, status_value)
     if status_value == "complete":
         _load_frame_attachments([root], request.data["episode"]["session_id"])
-        if (root / "frames" / "voxels.jsonl").is_file():
-            _load_voxel_attachments([root], request.data["episode"]["session_id"])
     return ImportedRenderResult(
         directory=root,
         result=result_path,
@@ -1449,8 +1369,6 @@ def import_render_bundle(
         result_path.write_bytes(_json_bytes(canonical))
         if status_value == "complete":
             _load_frame_attachments([staging], portable.data["episode"]["session_id"])
-            if (staging / "frames" / "voxels.jsonl").is_file():
-                _load_voxel_attachments([staging], portable.data["episode"]["session_id"])
         if _stable_file_digest(replay, "authoritative replay") != (
             portable.data["source_replay"]["sha256"],
             portable.data["source_replay"]["size_bytes"],

@@ -42,12 +42,16 @@ class ReplaySegmentTrackerTest {
         metadataProvider(metadata)
 
         val embedded = metadata.getAsJsonObject("mc_recorder")
-        assertEquals(2, embedded.get("schema_version").asInt)
+        assertEquals(3, embedded.get("schema_version").asInt)
         assertEquals(SESSION, embedded.get("session_id").asString)
         assertEquals(PLAYER, embedded.get("player_uuid").asString)
         assertEquals(CONNECTION_ONE, embedded.get("connection_id").asString)
         assertEquals(0, embedded.get("segment_ordinal").asLong)
         assertEquals("item_stack_copy_v1", embedded.get("hotbar_snapshot_contract").asString)
+        assertEquals(
+            "client_visible_scene_v1",
+            embedded.get("flashback_capture_contract").asString
+        )
         assertTrue(UUID.fromString(embedded.get("segment_id").asString).toString().isNotBlank())
         assertEquals(CONNECTION_ONE, publications.last().single().connectionId)
     }
@@ -86,6 +90,26 @@ class ReplaySegmentTrackerTest {
     }
 
     @Test
+    fun `non flashback segments do not claim the flashback capture contract`() {
+        val tracker = ReplaySegmentTracker(SESSION, {}, logger)
+        val metadataProvider = tracker.segmentStarted(
+            Any(),
+            UUID.fromString(PLAYER),
+            "alex",
+            temporary.resolve("other-replay"),
+            "other"
+        )
+        val metadata = JsonObject()
+
+        metadataProvider(metadata)
+
+        assertFalse(
+            metadata.getAsJsonObject("mc_recorder").has("flashback_capture_contract")
+        )
+        assertNull(tracker.snapshots().single().flashbackCaptureContract)
+    }
+
+    @Test
     fun `control plane publishes current and durable replay ledgers`() {
         val sessionDirectory = temporary.resolve("captures").resolve(SESSION)
         Files.createDirectories(sessionDirectory)
@@ -114,6 +138,10 @@ class ReplaySegmentTrackerTest {
         assertEquals(CONNECTION_ONE, segment.get("connection_id").asString)
         assertEquals("saved", segment.get("state").asString)
         assertEquals("item_stack_copy_v1", segment.get("hotbar_snapshot_contract").asString)
+        assertEquals(
+            "client_visible_scene_v1",
+            segment.get("flashback_capture_contract").asString
+        )
         assertEquals(7, segment.get("output_size_bytes").asLong)
     }
 

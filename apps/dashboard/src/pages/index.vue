@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { Pane, Splitpanes } from 'splitpanes'
-import { ref } from 'vue'
 
 import ConfirmationDialog from '../components/ConfirmationDialog.vue'
 import DatasetList from '../components/DatasetList.vue'
@@ -11,13 +10,6 @@ import ToastMessage from '../components/ToastMessage.vue'
 import { useDashboard } from '../composables/useDashboard'
 
 const dashboard = useDashboard()
-const inspector = ref<InstanceType<typeof SampleInspector>>()
-
-async function loadVoxel(axis: string, index: number) {
-  const slice = await dashboard.loadVoxel(axis, index)
-  if (slice)
-    inspector.value?.drawVoxel(slice)
-}
 </script>
 
 <template>
@@ -77,8 +69,7 @@ async function loadVoxel(axis: string, index: number) {
         </Pane>
         <Pane :min-size="35" :size="72">
           <SampleInspector
-            ref="inspector"
-            :can-load-voxel="dashboard.canLoadVoxel.value"
+            :can-load-scene="dashboard.canLoadScene.value"
             :connections="dashboard.connections.value"
             :current-record="dashboard.currentRecord.value"
             :dataset="dashboard.dataset.value"
@@ -95,10 +86,15 @@ async function loadVoxel(axis: string, index: number) {
             :sample-provenance-text="dashboard.sampleProvenanceText.value"
             :sample-summary="dashboard.sampleSummary.value"
             :samples="dashboard.samples.value"
+            :scene-error="dashboard.sceneError.value"
+            :scene-loading="dashboard.sceneLoading.value"
+            :scene-slice="dashboard.sceneSlice.value"
             :state-diff-text="dashboard.stateDiffText.value"
             :trajectory="dashboard.trajectory.value"
+            :trajectory-error="dashboard.trajectoryError.value"
+            :trajectory-loading="dashboard.trajectoryLoading.value"
             @apply-filters="dashboard.applyFilters"
-            @load-voxel="loadVoxel"
+            @load-scene="dashboard.loadScene"
             @next-page="dashboard.nextSamplePage"
             @next-sample="dashboard.showSample(dashboard.sampleIndex.value + 1)"
             @previous-page="dashboard.previousSamplePage"

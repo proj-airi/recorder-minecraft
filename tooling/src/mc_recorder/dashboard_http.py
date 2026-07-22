@@ -4,12 +4,14 @@ import base64
 import hashlib
 import hmac
 import json
+import math
 import mimetypes
 import os
 import re
 import sys
 import threading
-from dataclasses import asdict
+from collections.abc import Mapping
+from dataclasses import asdict, fields, is_dataclass
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -29,6 +31,7 @@ from .dataset_viewer import (
 from .errors import RecorderError
 
 MAX_REQUEST_BYTES = 64 * 1024
+MAX_JSON_RESPONSE_BYTES = 64 * 1024 * 1024
 JOB_PATH = re.compile(r"^/api/v1/jobs/([0-9a-f-]{36})$")
 GENERATE_PATH = re.compile(r"^/api/v1/recordings/([0-9a-f]{24})/generate$")
 RENDER_PATH = re.compile(r"^/api/v1/recordings/([0-9a-f]{24})/render$")
@@ -172,7 +175,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._error(HTTPStatus.BAD_REQUEST, str(exc))
         except RecorderError as exc:
             self._error(HTTPStatus.CONFLICT, str(exc))
-        except (ValueError, KeyError) as exc:
+        except (ValueError, KeyError, OverflowError) as exc:
             self._error(HTTPStatus.BAD_REQUEST, str(exc))
 
     def do_POST(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler contract
@@ -373,18 +376,18 @@ class DashboardHandler(BaseHTTPRequestHandler):
             modality = self._query_one(query, "modality")
             transition_valid = self._query_bool(query, "transition_valid")
             rgb_available = self._query_bool(query, "rgb_available")
-            voxel_available = self._query_bool(query, "voxel_available")
+            scene_available = self._query_bool(query, "scene_available")
             if validity is not None:
                 if validity not in {"valid", "invalid"}:
                     raise ValueError("validity must be valid or invalid")
                 transition_valid = validity == "valid"
             if modality is not None:
-                if modality not in {"rgb", "voxels"}:
-                    raise ValueError("modality must be rgb or voxels")
+                if modality not in {"rgb", "scene"}:
+                    raise ValueError("modality must be rgb or scene")
                 if modality == "rgb":
                     rgb_available = True
                 else:
-                    voxel_available = True
+                    scene_available = True
             trajectory = viewer.get_trajectory(
                 dataset_id,
                 player_uuid=self._query_one(query, "player_uuid"),
@@ -393,7 +396,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 to_tick=self._query_optional_int(query, "to_tick"),
                 transition_valid=transition_valid,
                 rgb_available=rgb_available,
-                voxel_available=voxel_available,
+                scene_available=scene_available,
                 max_points=self._query_int(query, "max_points", 2_400),
             )
             self._json(HTTPStatus.OK, asdict(trajectory))
@@ -403,18 +406,18 @@ class DashboardHandler(BaseHTTPRequestHandler):
             modality = self._query_one(query, "modality")
             transition_valid = self._query_bool(query, "transition_valid")
             rgb_available = self._query_bool(query, "rgb_available")
-            voxel_available = self._query_bool(query, "voxel_available")
+            scene_available = self._query_bool(query, "scene_available")
             if validity is not None:
                 if validity not in {"valid", "invalid"}:
                     raise ValueError("validity must be valid or invalid")
                 transition_valid = validity == "valid"
             if modality is not None:
-                if modality not in {"rgb", "voxels"}:
-                    raise ValueError("modality must be rgb or voxels")
+                if modality not in {"rgb", "scene"}:
+                    raise ValueError("modality must be rgb or scene")
                 if modality == "rgb":
                     rgb_available = True
                 else:
-                    voxel_available = True
+                    scene_available = True
             page = viewer.list_sample_summaries(
                 dataset_id,
                 player_uuid=self._query_one(query, "player_uuid"),
@@ -423,7 +426,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 to_tick=self._query_optional_int(query, "to_tick"),
                 transition_valid=transition_valid,
                 rgb_available=rgb_available,
-                voxel_available=voxel_available,
+                scene_available=scene_available,
                 cursor=self._query_one(query, "cursor"),
                 limit=self._query_int(query, "limit", 100),
             )
@@ -450,30 +453,21 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 data = self._read_verified_artifact(artifact)
                 self._bytes(HTTPStatus.OK, data, artifact.media_type, etag=artifact.sha256)
                 return
-            if len(parts) == 7 and parts[6] == "voxel-slice":
+            if len(parts) == 7 and parts[6] == "scene-slice":
                 axis = self._query_one(query, "axis") or "y"
-                index = self._query_int(query, "index", -1)
-                if index < 0:
-                    detail = viewer.get_sample_detail(dataset_id, sample_id)
-                    index = self._default_voxel_index(detail.record, axis)
-                voxel_slice = viewer.get_voxel_slice(
+                scene_slice = viewer.get_scene_slice(
                     dataset_id,
                     sample_id,
                     axis=axis,
-                    index=index,
+                    coordinate=self._query_optional_int(query, "coordinate"),
+                    radius=self._query_int(query, "radius", 32),
                 )
-                payload = asdict(voxel_slice)
-                rows = payload["cells"]
-                payload["height"] = len(rows)
-                payload["width"] = len(rows[0]) if rows else 0
-                payload["cells"] = [
-                    {
-                        **cell,
-                        "color": self._block_color(cell["block_state"]) if cell["covered"] else None,
-                    }
-                    for row in rows
-                    for cell in row
-                ]
+                from .scene_store import scene_slice_to_json
+
+                payload = self._scene_slice_payload(
+                    scene_slice_to_json(scene_slice)
+                )
+                payload.update(viewer.get_scene_policy(dataset_id))
                 self._json(HTTPStatus.OK, payload)
                 return
         self._error(HTTPStatus.NOT_FOUND, "not found")
@@ -492,23 +486,153 @@ class DashboardHandler(BaseHTTPRequestHandler):
         return data
 
     @staticmethod
-    def _default_voxel_index(record: dict[str, Any], axis: str) -> int:
-        if axis not in {"x", "y", "z"}:
-            raise ValueError("voxel axis must be x, y, or z")
-        modalities = record.get("modalities")
-        voxels = modalities.get("voxels") if isinstance(modalities, dict) else None
-        shape = voxels.get("shape") if isinstance(voxels, dict) else None
-        if not isinstance(shape, dict) or set(shape) != {"x", "y", "z"}:
-            raise ValueError("voxel modality does not declare a three-axis shape")
-        value = shape[axis]
-        if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
-            raise ValueError("voxel modality shape is invalid")
-        return value // 2
+    def _block_color(block_state: object) -> list[int]:
+        canonical = json.dumps(
+            block_state,
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        digest = hashlib.blake2s(canonical.encode("utf-8"), digest_size=3).digest()
+        return [48 + component * 159 // 255 for component in digest]
+
+    @classmethod
+    def _scene_slice_payload(cls, scene_slice: object) -> dict[str, Any]:
+        payload = _json_value(scene_slice)
+        if not isinstance(payload, dict):
+            raise DatasetValidationError("scene slice result must be an object")
+        width = payload.get("width")
+        height = payload.get("height")
+        palette = payload.get("palette")
+        cells = payload.get("cells")
+        if (
+            not isinstance(width, int)
+            or isinstance(width, bool)
+            or width <= 0
+            or not isinstance(height, int)
+            or isinstance(height, bool)
+            or height <= 0
+            or not isinstance(palette, list)
+            or not isinstance(cells, list)
+            or len(cells) != width * height
+        ):
+            raise DatasetValidationError("scene slice dimensions do not match its cells")
+        palette_colors = [
+            None if block_state is None else cls._block_color(block_state)
+            for block_state in palette
+        ]
+        colored_cells: list[dict[str, Any]] = []
+        for cell in cells:
+            if not isinstance(cell, dict) or not isinstance(cell.get("covered"), bool):
+                raise DatasetValidationError("scene slice contains an invalid cell")
+            world_position = cell.get("world_position")
+            if (
+                not isinstance(world_position, list)
+                or len(world_position) != 3
+                or any(
+                    isinstance(coordinate, bool) or not isinstance(coordinate, int)
+                    for coordinate in world_position
+                )
+            ):
+                raise DatasetValidationError(
+                    "scene slice cell world_position must contain three integers"
+                )
+            palette_index = cell.get("palette_index")
+            if cell["covered"]:
+                if (
+                    isinstance(palette_index, bool)
+                    or not isinstance(palette_index, int)
+                    or not 0 <= palette_index < len(palette)
+                ):
+                    raise DatasetValidationError(
+                        "covered scene slice cell references an invalid palette entry"
+                    )
+            elif palette_index is not None:
+                raise DatasetValidationError(
+                    "uncovered scene slice cell must not reference the palette"
+                )
+            colored_cells.append(
+                {
+                    "world_position": world_position,
+                    "covered": cell["covered"],
+                    "palette_index": palette_index,
+                    "color": None
+                    if palette_index is None
+                    else palette_colors[palette_index],
+                }
+            )
+        payload["cells"] = colored_cells
+        row_axis = payload.get("row_axis")
+        column_axis = payload.get("column_axis")
+        if row_axis not in {"x", "y", "z"} or column_axis not in {"x", "y", "z"}:
+            raise DatasetValidationError("scene slice projection axes are invalid")
+        for key in ("entities", "block_entities"):
+            values = payload.get(key)
+            if not isinstance(values, list):
+                raise DatasetValidationError(f"scene slice {key} must be an array")
+            payload[key] = [
+                cls._project_scene_summary(
+                    value,
+                    row_axis,
+                    column_axis,
+                    block_entity=key == "block_entities",
+                )
+                for value in values
+            ]
+        return payload
 
     @staticmethod
-    def _block_color(block_state: object) -> list[int]:
-        digest = hashlib.blake2s(str(block_state).encode("utf-8"), digest_size=3).digest()
-        return [48 + component * 159 // 255 for component in digest]
+    def _project_scene_summary(
+        value: object,
+        row_axis: str,
+        column_axis: str,
+        *,
+        block_entity: bool,
+    ) -> dict[str, Any]:
+        if not isinstance(value, dict):
+            raise DatasetValidationError("scene slice object summary must be an object")
+        position = _spatial_position(value.get("position"))
+        if position is None:
+            position = _spatial_position(value.get("world_position"))
+        if position is None:
+            position = _spatial_position(value)
+        projection: dict[str, float] | None = None
+        if position is not None:
+            projection = {
+                "row": position[{"x": 0, "y": 1, "z": 2}[row_axis]],
+                "column": position[{"x": 0, "y": 1, "z": 2}[column_axis]],
+            }
+            bounds = _spatial_bounds(
+                value.get("aabb", value.get("bounds", value.get("bounding_box")))
+            )
+            if bounds is not None:
+                projection.update(
+                    {
+                        "min_row": bounds[f"min_{row_axis}"],
+                        "max_row": bounds[f"max_{row_axis}"],
+                        "min_column": bounds[f"min_{column_axis}"],
+                        "max_column": bounds[f"max_{column_axis}"],
+                    }
+                )
+        fields_to_keep = (
+            ("dimension", "type_id", "position")
+            if block_entity
+            else (
+                "instance_id",
+                "dimension",
+                "type_id",
+                "network_id",
+                "uuid",
+                "position",
+                "aabb",
+            )
+        )
+        summary = {key: value[key] for key in fields_to_keep if key in value}
+        custom_name = _scene_custom_name(value.get("payload"))
+        if custom_name is not None:
+            summary["custom_name"] = custom_name
+        summary["projection"] = projection
+        return summary
 
     def _static(self, name: str) -> None:
         root = self.application.static_root.resolve()
@@ -557,6 +681,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     def _json(self, status: HTTPStatus, value: object) -> None:
         data = (json.dumps(value, separators=(",", ":"), ensure_ascii=False) + "\n").encode("utf-8")
+        if len(data) > MAX_JSON_RESPONSE_BYTES:
+            raise DatasetValidationError(
+                f"serialized JSON response exceeds {MAX_JSON_RESPONSE_BYTES} bytes"
+            )
         self._bytes(status, data, "application/json; charset=utf-8")
 
     def _error(self, status: HTTPStatus, message: str) -> None:
@@ -588,6 +716,97 @@ class DashboardHandler(BaseHTTPRequestHandler):
             "Content-Security-Policy",
             "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; object-src 'none'; frame-ancestors 'none'",
         )
+
+
+def _json_value(value: object) -> Any:
+    if is_dataclass(value) and not isinstance(value, type):
+        return {
+            field.name: _json_value(getattr(value, field.name))
+            for field in fields(value)
+        }
+    if isinstance(value, Mapping):
+        return {str(key): _json_value(item) for key, item in value.items()}
+    if isinstance(value, (tuple, list)):
+        return [_json_value(item) for item in value]
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float) and math.isfinite(value):
+        return value
+    raise DatasetValidationError(
+        f"scene slice contains a non-JSON value: {type(value).__name__}"
+    )
+
+
+def _spatial_position(value: object) -> tuple[float, float, float] | None:
+    coordinates: list[object]
+    if isinstance(value, Mapping):
+        coordinates = [value.get(axis) for axis in ("x", "y", "z")]
+    elif isinstance(value, (tuple, list)) and len(value) == 3:
+        coordinates = list(value)
+    else:
+        return None
+    if not all(
+        isinstance(item, (int, float))
+        and not isinstance(item, bool)
+        and math.isfinite(float(item))
+        for item in coordinates
+    ):
+        return None
+    return float(coordinates[0]), float(coordinates[1]), float(coordinates[2])
+
+
+def _spatial_bounds(value: object) -> dict[str, float] | None:
+    raw: dict[str, object]
+    if isinstance(value, Mapping):
+        if all(f"{edge}_{axis}" in value for edge in ("min", "max") for axis in ("x", "y", "z")):
+            raw = {
+                f"{edge}_{axis}": value[f"{edge}_{axis}"]
+                for edge in ("min", "max")
+                for axis in ("x", "y", "z")
+            }
+        else:
+            minimum = _spatial_position(value.get("min"))
+            maximum = _spatial_position(value.get("max"))
+            if minimum is None or maximum is None:
+                return None
+            raw = {
+                **{f"min_{axis}": minimum[index] for index, axis in enumerate(("x", "y", "z"))},
+                **{f"max_{axis}": maximum[index] for index, axis in enumerate(("x", "y", "z"))},
+            }
+    elif isinstance(value, (tuple, list)) and len(value) == 6:
+        raw = dict(
+            zip(
+                ("min_x", "min_y", "min_z", "max_x", "max_y", "max_z"),
+                value,
+                strict=True,
+            )
+        )
+    else:
+        return None
+    if not all(
+        isinstance(item, (int, float))
+        and not isinstance(item, bool)
+        and math.isfinite(float(item))
+        for item in raw.values()
+    ):
+        return None
+    return {key: float(item) for key, item in raw.items()}
+
+
+def _scene_custom_name(value: object) -> str | None:
+    if not isinstance(value, Mapping):
+        return None
+    for key in ("custom_name", "display_name", "name"):
+        candidate = value.get(key)
+        if isinstance(candidate, str) and candidate:
+            return candidate[:256]
+    metadata = value.get("metadata")
+    if isinstance(metadata, Mapping):
+        for key in ("custom_name", "display_name", "name"):
+            candidate = metadata.get(key)
+            if isinstance(candidate, str) and candidate:
+                return candidate[:256]
+    return None
 
 
 def serve_dashboard(config: RecorderConfig) -> None:

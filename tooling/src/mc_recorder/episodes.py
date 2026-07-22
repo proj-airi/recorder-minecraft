@@ -5,7 +5,7 @@ import json
 import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Iterable, Iterator
 
 from .errors import RecorderError
 
@@ -30,6 +30,8 @@ class EpochInfo:
     first_tick: int | None
     last_tick: int | None
     event_count: int | None
+    events_bytes: int | None
+    events_sha256: str | None
 
 
 @dataclass(frozen=True)
@@ -176,6 +178,13 @@ def inspect_epoch(path: Path) -> EpochInfo | None:
         first_tick=_optional_int(manifest, "first_server_tick", "first_tick", "start_tick", "start_server_tick"),
         last_tick=_optional_int(manifest, "last_server_tick", "last_tick", "end_tick", "end_server_tick"),
         event_count=_manifest_int(manifest, "record_count"),
+        events_bytes=_manifest_int(manifest, "events_bytes"),
+        events_sha256=(
+            str(manifest["events_sha256"]).lower()
+            if isinstance(manifest.get("events_sha256"), str)
+            and re.fullmatch(r"[0-9a-fA-F]{64}", str(manifest["events_sha256"]))
+            else None
+        ),
     )
 
 
@@ -287,7 +296,11 @@ def iter_events(epoch: EpochInfo) -> Iterator[tuple[int, dict[str, Any]]]:
             yield line_number, record
 
 
-def validate_episode(episode: Path) -> ValidationResult:
+def validate_episode(
+    episode: Path,
+    *,
+    epochs: Iterable[EpochInfo] | None = None,
+) -> ValidationResult:
     issues: list[ValidationIssue] = []
     manifest_path = episode / "manifest.json"
     manifest = _read_json(manifest_path)
@@ -302,8 +315,8 @@ def validate_episode(episode: Path) -> ValidationResult:
                 ValidationIssue("warning", str(manifest_path), "manifest session_id differs from directory name")
             )
 
-    epochs = list(iter_epochs(episode))
-    if not epochs:
+    epoch_infos = list(iter_epochs(episode) if epochs is None else epochs)
+    if not epoch_infos:
         issues.append(ValidationIssue("error", str(episode / "epochs"), "no epoch directories found"))
     seen_indexes: set[int] = set()
     sealed_count = 0
@@ -312,7 +325,7 @@ def validate_episode(episode: Path) -> ValidationResult:
     previous_sequence: int | None = None
     previous_tick: int | None = None
 
-    for epoch in epochs:
+    for epoch in epoch_infos:
         relative = str(epoch.path.relative_to(episode))
         if epoch.index in seen_indexes:
             issues.append(ValidationIssue("error", relative, f"duplicate epoch index {epoch.index}"))

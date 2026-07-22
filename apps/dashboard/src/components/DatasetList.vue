@@ -27,7 +27,7 @@ const emit = defineEmits<{
       </p>
       <button v-for="dataset in datasets" v-else :key="dataset.id" :class="['dataset-item', { active: dataset.id === activeDatasetId }]" @click="emit('select', dataset.id)">
         <strong>{{ dataset.session_id }}</strong>
-        <small>{{ dataset.status || 'indexed' }} · {{ dataset.sample_count ?? '-' }} samples · {{ fmtBytes(dataset.size_bytes) }}</small>
+        <small>{{ dataset.status || 'indexed' }} · {{ dataset.state_count ?? '-' }} observations · {{ dataset.sample_count ?? '-' }} transitions · {{ fmtBytes(dataset.size_bytes) }}</small>
       </button>
     </div>
     <p class="dataset-issues">

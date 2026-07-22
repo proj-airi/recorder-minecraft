@@ -542,7 +542,6 @@ def _register_worker(
                 "portable_request_no_gui": True,
                 FULL_CLIENT_PRESENTATION_CAPABILITY_KEY: FULL_CLIENT_PRESENTATION_CONTRACT,
                 _STRUCTURED_CLAIM_FAILURE_CAPABILITY: True,
-                "voxel_capture": True,
             },
         },
     )

@@ -21,13 +21,21 @@ export function useDashboard() {
   const sampleIndex = ref(0)
   const currentSample = ref<any>(null)
   const sampleRequest = ref(0)
+  const samplePageRequest = ref(0)
   const playing = ref(false)
   const currentCursor = ref<null | string>(null)
   const nextCursor = ref<null | string>(null)
   const pageHistory = ref<Array<null | string>>([])
   const sampleTotal = ref(0)
   const trajectory = ref<any>(null)
+  const trajectoryError = ref('')
+  const trajectoryLoading = ref(false)
   const trajectoryRequest = ref(0)
+  const sceneSlice = ref<any>(null)
+  const sceneLoading = ref(false)
+  const sceneError = ref('')
+  const sceneRequest = ref(0)
+  const datasetSelectionRequest = ref(0)
   const datasetIssues = ref('')
   const filters = reactive({
     connection_id: '',
@@ -41,6 +49,7 @@ export function useDashboard() {
   let playbackTimer: ReturnType<typeof setTimeout> | undefined
   let refreshTimer: ReturnType<typeof setInterval> | undefined
   let datasetRefreshTimer: ReturnType<typeof setTimeout> | undefined
+  let sceneAbort: AbortController | undefined
 
   const serverState = computed(() => status.value?.server?.state ?? 'loading')
   const serverDetail = computed(() => {
@@ -90,33 +99,49 @@ export function useDashboard() {
       return null
     const key = sample.sample_key || {}
     const rgb = sample.modalities?.rgb || {}
-    const voxels = sample.modalities?.voxels || {}
+    const scene = sample.modalities?.scene || {}
+    const transition = sample.transition_available === true
+      ? (sample.transition_valid ? 'valid' : 'invalid')
+      : 'unavailable'
+    const scenePolicy = [
+      scene.scope,
+      scene.sensitive === true
+        ? 'sensitive / privileged metadata'
+        : scene.sensitive === false
+          ? 'non-sensitive metadata'
+          : null,
+      scene.metadata_policy,
+    ].filter(Boolean).join(' · ')
     return {
       connection: key.connection_id || sample.connection_id,
       player: sample.state?.player_name || key.player_uuid || sample.player_uuid,
       rgb: rgb.available && rgb.valid ? 'available' : rgb.reason || 'missing',
+      scene: `${sceneUsable(scene) ? 'available' : scene.reason || 'missing'}${scenePolicy ? ` · ${scenePolicy}` : ''}`,
       tick: key.server_tick ?? sample.server_tick,
-      transition: sample.transition_valid ? 'valid' : 'invalid',
-      voxels: voxels.available && voxels.valid ? 'available' : voxels.reason || 'missing',
+      transition,
     }
   })
   const stateDiffText = computed(() => {
     const sample = currentRecord.value
     if (!sample)
       return JSON.stringify({ unavailable: 'no matching sample' }, null, 2)
+    if (sample.transition_available !== true)
+      return JSON.stringify({ unavailable: 'no following transition from this tick' }, null, 2)
     const difference = stateDifference(sample.state, sample.next_state)
     return JSON.stringify(Object.keys(difference).length ? difference : { unchanged: true }, null, 2)
   })
   const sampleActionsText = computed(() => {
     const sample = currentRecord.value
     return JSON.stringify(sample
-      ? { ordered_packets: sample.action?.ordered_packets || [], reconstructed_control: sample.action?.reconstructed_control }
+      ? sample.transition_available === true
+        ? { ordered_packets: sample.action?.ordered_packets || [], reconstructed_control: sample.action?.reconstructed_control }
+        : { unavailable: 'no following transition from this tick' }
       : { unavailable: 'no matching sample' }, null, 2)
   })
   const sampleProvenanceText = computed(() => {
     const sample = currentRecord.value
     return JSON.stringify(sample
-      ? { peers: sample.peers, source: sample.source, source_manifest_sha256: sample.source_manifest_sha256, transition_invalid_reasons: sample.transition_invalid_reasons, transition_valid: sample.transition_valid }
+      ? { peers: sample.peers, source: sample.source, source_manifest_sha256: sample.source_manifest_sha256, transition_available: sample.transition_available, transition_invalid_reasons: sample.transition_invalid_reasons, transition_valid: sample.transition_valid }
       : { unavailable: 'no matching sample' }, null, 2)
   })
   const rgbFrameUrl = computed(() => {
@@ -125,10 +150,14 @@ export function useDashboard() {
       ? `/api/v1/datasets/${dataset.value.id}/samples/${currentSampleId.value}/frame`
       : ''
   })
-  const canLoadVoxel = computed(() => {
-    const voxels = currentRecord.value?.modalities?.voxels
-    return Boolean(voxels?.available && voxels.valid && voxels.artifact_id)
+  const canLoadScene = computed(() => {
+    const scene = currentRecord.value?.modalities?.scene
+    return sceneUsable(scene) && Boolean(scene?.artifact_id && typeof scene?.frame_id === 'string' && scene.frame_id)
   })
+
+  function sceneUsable(scene: any) {
+    return Boolean(scene?.available === true && scene?.valid === true && scene?.coverage_complete === true)
+  }
 
   function showToast(message: unknown) {
     toastMessage.value = errorMessageFrom(message) ?? String(message)
@@ -307,8 +336,13 @@ export function useDashboard() {
 
   async function selectDataset(id: string) {
     stopPlayback()
+    cancelSceneLoad()
+    const request = ++datasetSelectionRequest.value
     try {
-      dataset.value = await api(`/api/v1/datasets/${id}`)
+      const selected = await api(`/api/v1/datasets/${id}`)
+      if (request !== datasetSelectionRequest.value)
+        return
+      dataset.value = selected
       currentSample.value = null
       trajectory.value = null
       sampleRequest.value += 1
@@ -318,7 +352,8 @@ export function useDashboard() {
       await Promise.all([loadTrajectory(), loadSamplePage()])
     }
     catch (error) {
-      showToast(error)
+      if (request === datasetSelectionRequest.value)
+        showToast(error)
     }
   }
 
@@ -326,25 +361,45 @@ export function useDashboard() {
     if (!dataset.value)
       return
     const request = ++trajectoryRequest.value
+    trajectory.value = null
+    trajectoryError.value = ''
+    trajectoryLoading.value = true
     try {
       const data = await api(`/api/v1/datasets/${dataset.value.id}/trajectory?${trajectoryQuery()}`)
       if (request === trajectoryRequest.value)
         trajectory.value = data
     }
     catch (error) {
-      if (request === trajectoryRequest.value)
+      if (request === trajectoryRequest.value) {
         trajectory.value = null
-      showToast(error)
+        trajectoryError.value = `Player trajectory failed: ${errorMessageFrom(error) ?? String(error)}`
+        showToast(error)
+      }
+    }
+    finally {
+      if (request === trajectoryRequest.value)
+        trajectoryLoading.value = false
     }
   }
 
   async function loadSamplePage() {
     if (!dataset.value)
       return
+    const request = ++samplePageRequest.value
+    const datasetId = dataset.value.id
+    const query = sampleQuery().toString()
+    cancelSceneLoad()
+    sampleRequest.value += 1
+    samples.value = []
+    sampleIndex.value = 0
+    sampleTotal.value = 0
+    nextCursor.value = null
+    currentSample.value = null
     try {
-      const page = await api(`/api/v1/datasets/${dataset.value.id}/samples?${sampleQuery()}`)
+      const page = await api(`/api/v1/datasets/${datasetId}/samples?${query}`)
+      if (request !== samplePageRequest.value || datasetId !== dataset.value?.id)
+        return
       samples.value = page.samples || []
-      sampleIndex.value = 0
       sampleTotal.value = page.total || 0
       nextCursor.value = page.next_cursor
       if (samples.value.length)
@@ -353,12 +408,20 @@ export function useDashboard() {
         currentSample.value = null
     }
     catch (error) {
+      if (request !== samplePageRequest.value || datasetId !== dataset.value?.id)
+        return
+      samples.value = []
+      sampleIndex.value = 0
+      sampleTotal.value = 0
+      nextCursor.value = null
+      currentSample.value = null
       showToast(error)
     }
   }
 
   async function applyFilters() {
     stopPlayback()
+    cancelSceneLoad()
     sampleRequest.value += 1
     currentSample.value = null
     currentCursor.value = null
@@ -387,6 +450,7 @@ export function useDashboard() {
   async function showSample(index: number) {
     if (!samples.value.length)
       return
+    cancelSceneLoad()
     const bounded = Math.max(0, Math.min(index, samples.value.length - 1))
     const summary = samples.value[bounded]
     const request = ++sampleRequest.value
@@ -440,15 +504,47 @@ export function useDashboard() {
     playbackTimer = setTimeout(playbackStep, 50)
   }
 
-  async function loadVoxel(axis: string, index: number) {
-    if (!currentSample.value || !dataset.value)
-      return null
+  function cancelSceneLoad() {
+    sceneRequest.value += 1
+    sceneAbort?.abort()
+    sceneAbort = undefined
+    sceneLoading.value = false
+    sceneError.value = ''
+    sceneSlice.value = null
+  }
+
+  async function loadScene(axis: string, coordinate: number, radius: number) {
+    if (!currentSample.value || !dataset.value || !canLoadScene.value)
+      return
+    cancelSceneLoad()
+    const request = sceneRequest.value
+    const sampleId = currentSample.value.id
+    const datasetId = dataset.value.id
+    const controller = new AbortController()
+    sceneAbort = controller
+    sceneLoading.value = true
     try {
-      return await api(`/api/v1/datasets/${dataset.value.id}/samples/${currentSample.value.id}/voxel-slice?axis=${axis}&index=${index}`)
+      const query = new URLSearchParams({
+        axis,
+        coordinate: String(coordinate),
+        radius: String(radius),
+      })
+      const slice = await api(`/api/v1/datasets/${datasetId}/samples/${sampleId}/scene-slice?${query}`, { signal: controller.signal })
+      if (request === sceneRequest.value && sampleId === currentSample.value?.id)
+        sceneSlice.value = slice
     }
     catch (error) {
+      if ((error as any)?.name === 'AbortError' || request !== sceneRequest.value)
+        return
+      const message = errorMessageFrom(error) ?? String(error)
+      sceneError.value = `Scene slice failed: ${message}`
       showToast(error)
-      return null
+    }
+    finally {
+      if (request === sceneRequest.value) {
+        sceneAbort = undefined
+        sceneLoading.value = false
+      }
     }
   }
 
@@ -463,17 +559,22 @@ export function useDashboard() {
 
   onMounted(start)
   onBeforeUnmount(() => {
+    datasetSelectionRequest.value += 1
+    samplePageRequest.value += 1
+    sampleRequest.value += 1
+    trajectoryRequest.value += 1
     if (refreshTimer)
       clearInterval(refreshTimer)
     if (datasetRefreshTimer)
       clearTimeout(datasetRefreshTimer)
+    cancelSceneLoad()
     stopPlayback()
   })
 
   return {
     answerConfirmation,
     applyFilters,
-    canLoadVoxel,
+    canLoadScene,
     capture,
     captureMetrics,
     confirmation,
@@ -486,7 +587,7 @@ export function useDashboard() {
     filters,
     fmtBytes,
     groupedRecordings,
-    loadVoxel,
+    loadScene,
     mutate,
     nextCursor,
     nextSamplePage,
@@ -511,6 +612,9 @@ export function useDashboard() {
     sampleProvenanceText,
     samples,
     sampleSummary,
+    sceneError,
+    sceneLoading,
+    sceneSlice,
     selectDataset,
     serverDetail,
     serverState,
@@ -525,6 +629,8 @@ export function useDashboard() {
     toastVisible,
     togglePlay,
     trajectory,
+    trajectoryError,
+    trajectoryLoading,
     view,
   }
 }

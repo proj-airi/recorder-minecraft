@@ -39,8 +39,6 @@ import java.security.DigestInputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.List;
 
 public final class McRecorderRenderer implements ClientModInitializer {
     private static final Logger LOGGER = LoggerFactory.getLogger("mc-recorder-renderer");
@@ -49,7 +47,6 @@ public final class McRecorderRenderer implements ClientModInitializer {
     private static final int LOAD_TIMEOUT_TICKS = 20 * 120;
     private static final int MAX_ANCHOR_SCAN_TICKS = 200;
     private static final int ANCHOR_SETTLE_CLIENT_TICKS = 3;
-    private static final int VOXEL_SETTLE_CLIENT_TICKS = 2;
     private static final long EXPORT_SETTLE_NANOS = 1_000_000_000L;
 
     private RenderJobSpec job;
@@ -71,9 +68,6 @@ public final class McRecorderRenderer implements ClientModInitializer {
     private TimelineObservation firstTimelineObservation;
     private TimelineObservation lastTimelineObservation;
     private int progressTicks;
-    private int voxelReplayTick;
-    private int voxelSettleTicks;
-    private boolean voxelsComplete;
     private boolean clientPresentationRequested;
     private boolean clientPresentationActive;
     private boolean clientPresentationNeedsServerRebind;
@@ -83,7 +77,6 @@ public final class McRecorderRenderer implements ClientModInitializer {
     private boolean previousHideGui;
     private long exportSettleStartedNanos;
     private StructuredHudTimeline structuredHud;
-    private final List<JsonObject> voxelIndexRows = new ArrayList<>();
 
     @Override
     public void onInitializeClient() {
@@ -145,7 +138,6 @@ public final class McRecorderRenderer implements ClientModInitializer {
                 case WAIT_REPLAY -> this.waitForReplay(minecraft);
                 case FIND_FIRST_ANCHOR -> this.findFirstTimelineAnchor(minecraft);
                 case FIND_LAST_ANCHOR -> this.findLastTimelineAnchor(minecraft);
-                case CAPTURE_VOXELS -> this.captureVoxelTick(minecraft);
                 case WAIT_TARGET -> this.waitForTargetAndExport(minecraft);
                 case EXPORTING -> this.finishWhenExportCompletes(minecraft);
                 default -> {
@@ -172,11 +164,6 @@ public final class McRecorderRenderer implements ClientModInitializer {
         }
         if (Files.exists(this.job.output().resolve("frames.jsonl"))) {
             throw new IOException("Output already contains frames.jsonl: " + this.job.output());
-        }
-        if (this.job.capturesVoxels()
-            && (Files.exists(this.job.output().resolve("voxels.jsonl"))
-                || Files.exists(this.job.output().resolve("voxels")))) {
-            throw new IOException("Output already contains voxel artifacts: " + this.job.output());
         }
     }
 
@@ -428,11 +415,6 @@ public final class McRecorderRenderer implements ClientModInitializer {
             return;
         }
 
-        if (this.job.capturesVoxels() && !this.voxelsComplete) {
-            this.beginVoxelCapture();
-            return;
-        }
-
         if (!this.activateClientPresentation(minecraft, target)) {
             this.checkTimeout("Flashback replay-server spectate for player " + this.job.playerId());
             return;
@@ -475,76 +457,6 @@ public final class McRecorderRenderer implements ClientModInitializer {
         );
     }
 
-    private void beginVoxelCapture() throws IOException {
-        ReplayServer replayServer = Flashback.getReplayServer();
-        if (replayServer == null) {
-            throw new IOException("Replay server disappeared before voxel conversion");
-        }
-        this.voxelReplayTick = this.resolvedStartTick;
-        this.voxelSettleTicks = 0;
-        this.voxelIndexRows.clear();
-        this.writeStatus("running", null);
-        this.writeProgress("capturing_voxels", 0, this.resolvedEndTick - this.resolvedStartTick + 1);
-        replayServer.goToReplayTick(this.voxelReplayTick);
-        replayServer.replayPaused = true;
-        this.phase = Phase.CAPTURE_VOXELS;
-        this.waitTicks = 0;
-        LOGGER.info(
-            "Starting voxel conversion for replay ticks {}..{} with radii xz={} y={}",
-            this.resolvedStartTick, this.resolvedEndTick,
-            this.job.voxelHorizontalRadius(), this.job.voxelVerticalRadius()
-        );
-    }
-
-    private void captureVoxelTick(Minecraft minecraft) throws IOException {
-        ReplayServer replayServer = Flashback.getReplayServer();
-        if (replayServer == null || minecraft.level == null) {
-            this.checkTimeout("replay world during voxel conversion");
-            return;
-        }
-        replayServer.replayPaused = true;
-        if (replayServer.getReplayTick() != this.voxelReplayTick) {
-            this.checkTimeout("replay tick " + this.voxelReplayTick + " during voxel conversion");
-            return;
-        }
-        if (++this.voxelSettleTicks < VOXEL_SETTLE_CLIENT_TICKS) {
-            return;
-        }
-
-        Entity target = this.findTarget(minecraft);
-        if (target == null) {
-            this.checkTimeout("target player during voxel conversion at replay tick " + this.voxelReplayTick);
-            return;
-        }
-        long serverTick = this.globalTickOffset + this.voxelReplayTick;
-        this.voxelIndexRows.add(
-            VoxelSnapshotWriter.write(minecraft.level, target, this.job, this.voxelReplayTick, serverTick)
-        );
-        if (this.voxelIndexRows.size() % 20 == 0 || this.voxelReplayTick >= this.resolvedEndTick) {
-            this.writeProgress(
-                "capturing_voxels",
-                this.voxelIndexRows.size(),
-                this.resolvedEndTick - this.resolvedStartTick + 1
-            );
-        }
-        this.waitTicks = 0;
-
-        if (this.voxelReplayTick >= this.resolvedEndTick) {
-            this.writeVoxelIndex();
-            this.voxelsComplete = true;
-            replayServer.goToReplayTick(this.resolvedStartTick);
-            replayServer.replayPaused = true;
-            this.phase = Phase.WAIT_TARGET;
-            LOGGER.info("Completed {} voxel snapshots", this.voxelIndexRows.size());
-            return;
-        }
-
-        this.voxelReplayTick++;
-        this.voxelSettleTicks = 0;
-        replayServer.goToReplayTick(this.voxelReplayTick);
-        replayServer.replayPaused = true;
-    }
-
     private Entity findTarget(Minecraft minecraft) {
         if (minecraft.level == null) {
             return null;
@@ -555,21 +467,6 @@ public final class McRecorderRenderer implements ClientModInitializer {
             }
         }
         return null;
-    }
-
-    private void writeVoxelIndex() throws IOException {
-        Path index = this.job.output().resolve("voxels.jsonl");
-        Path partial = index.resolveSibling(index.getFileName() + ".inprogress");
-        Files.deleteIfExists(partial);
-        try (BufferedWriter writer = Files.newBufferedWriter(partial, StandardCharsets.UTF_8,
-            StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)) {
-            for (JsonObject row : this.voxelIndexRows) {
-                writer.write(row.toString());
-                writer.newLine();
-            }
-        }
-        forceFile(partial);
-        atomicMove(partial, index);
     }
 
     private EditorState firstPersonEditorState() {
@@ -799,11 +696,6 @@ public final class McRecorderRenderer implements ClientModInitializer {
                 this.resolvedGlobalStartTick, this.resolvedGlobalEndTick
             );
         }
-        if (this.job.capturesVoxels() && this.voxelIndexRows.size() != expectedFrames) {
-            throw new IOException(
-                "Expected " + expectedFrames + " voxel snapshots, found " + this.voxelIndexRows.size()
-            );
-        }
         int actualFrames = this.writeFrameIndex();
         if (actualFrames != expectedFrames) {
             throw new IOException("Expected " + expectedFrames + " frames, found " + actualFrames);
@@ -908,12 +800,6 @@ public final class McRecorderRenderer implements ClientModInitializer {
         }
         if (this.structuredHud != null) {
             result.add("structured_hud", this.structuredHud.resultEnvelope());
-        }
-        result.addProperty("voxel_snapshots", this.voxelIndexRows.size());
-        result.addProperty("voxel_horizontal_radius", this.job.voxelHorizontalRadius());
-        result.addProperty("voxel_vertical_radius", this.job.voxelVerticalRadius());
-        if (this.job.capturesVoxels()) {
-            result.addProperty("voxel_index", this.job.output().resolve("voxels.jsonl").toString());
         }
         if (failure != null) {
             result.addProperty("error", failure.getClass().getSimpleName() + ": " + failure.getMessage());
@@ -1031,7 +917,6 @@ public final class McRecorderRenderer implements ClientModInitializer {
         FIND_FIRST_ANCHOR,
         FIND_LAST_ANCHOR,
         NO_COVERAGE,
-        CAPTURE_VOXELS,
         WAIT_TARGET,
         EXPORTING,
         COMPLETE,
