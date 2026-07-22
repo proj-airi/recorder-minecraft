@@ -177,6 +177,15 @@ the payload-index SHA-256/count/byte total. `payload-files.jsonl` is sorted and
 declares the relative POSIX path, byte size, and lowercase SHA-256 of every
 payload file. The worker's raw `result.json` is renamed `worker-result.json`.
 
+Automated RGB playback may encounter packets that Flashback can decode but explicitly does not
+support applying. The renderer catches only Flashback's `UnsupportedPacketException`, continues
+playback, and writes an optional `unsupported_packets` provenance object to both the immutable
+worker result and canonical result. Its policy is
+`ignore_flashback_unsupported_v1`; `total_count` equals the sum of the positive per-type counts in
+the lexicographically ordered `types` array. At most 256 namespaced packet types may be reported.
+The canonical replay is not rewritten, and decoding, integrity, I/O, and unrelated runtime errors
+remain fatal. Dataset frame-attachment provenance preserves this object.
+
 The transfer layer rejects absolute paths, `.`/`..`, backslashes, case-folding
 collisions, unknown files, empty or oversized rows, symlinks, hardlinks,
 devices, missing files, unstable files, size/hash mismatches, and configured

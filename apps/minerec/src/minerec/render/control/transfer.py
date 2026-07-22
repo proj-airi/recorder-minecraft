@@ -35,6 +35,7 @@ from minerec.processing.render.job import (
     _stable_file_digest,
 )
 from minerec.render.control.contract import FULL_CLIENT_PRESENTATION_CONTRACT
+from minerec.render_compat import validate_unsupported_packet_summary
 
 PORTABLE_REQUEST_TYPE = "mc-recorder-portable-render-request-v1"
 RENDER_BUNDLE_TYPE = "mc-recorder-render-bundle-v1"
@@ -681,6 +682,11 @@ def _raw_result_range(result: Mapping[str, Any], request: PortableRenderRequest)
             raise RecorderError("worker result structured_hud does not match its request")
     elif result_hud is not None:
         raise RecorderError("worker result structured_hud was not requested")
+    unsupported_packets = result.get("unsupported_packets")
+    if unsupported_packets is not None:
+        validate_unsupported_packet_summary(
+            unsupported_packets, "worker result unsupported_packets"
+        )
     if status_text == "no_coverage":
         if timeline["range_policy"] != "intersection":
             raise RecorderError("no_coverage is valid only for an intersection request")
@@ -1105,6 +1111,10 @@ def _canonical_result(
         result["presentation_contract"] = raw["presentation_contract"]
     if "structured_hud" in raw:
         result["structured_hud"] = raw["structured_hud"]
+    if "unsupported_packets" in raw:
+        result["unsupported_packets"] = validate_unsupported_packet_summary(
+            raw["unsupported_packets"], "worker result unsupported_packets"
+        )
     if status_value == "no_coverage":
         reason = raw.get("reason")
         result["reason"] = reason if isinstance(reason, str) and reason else "segment_has_no_coverage"

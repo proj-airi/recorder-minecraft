@@ -10,6 +10,9 @@
       "dev.mcdata.renderer.McRecorderRenderer"
     ]
   },
+  "mixins": [
+    "mc-recorder-renderer.mixins.json"
+  ],
   "depends": {
     "fabricloader": ">=0.19.3",
     "fabric-api": "*",

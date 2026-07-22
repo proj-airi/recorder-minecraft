@@ -1,5 +1,6 @@
 package dev.mcdata.renderer;
 
+import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.moulberry.flashback.Flashback;
 import com.moulberry.flashback.combo_options.TrackingBodyPart;
@@ -120,6 +121,7 @@ public final class McRecorderRenderer implements ClientModInitializer {
             this.job = RenderJobSpec.read(Path.of(jobValue));
             this.validateInputs();
             this.structuredHud = StructuredHudTimeline.load(this.job);
+            ReplayPacketCompatibility.beginAutomatedRender();
             this.writeProgress("prepared", 0, 0);
             this.phase = Phase.OPEN_REPLAY;
             LOGGER.info("Loaded render job {}", this.job.jobPath());
@@ -368,6 +370,7 @@ public final class McRecorderRenderer implements ClientModInitializer {
     private void completeNoCoverage(Minecraft minecraft) throws IOException {
         this.writeStatus("no_coverage", null);
         this.writeProgress("no_coverage", 0, 0);
+        ReplayPacketCompatibility.endAutomatedRender();
         this.phase = Phase.COMPLETE;
         LOGGER.info(
             "Replay segment {} has no coverage for requested global ticks {}..{}",
@@ -708,6 +711,7 @@ public final class McRecorderRenderer implements ClientModInitializer {
 
         this.writeStatus("complete", null);
         this.writeProgress("complete", actualFrames, expectedFrames);
+        ReplayPacketCompatibility.endAutomatedRender();
         this.phase = Phase.COMPLETE;
         LOGGER.info("Completed render job with {} frames in {}", actualFrames, this.job.output());
         if (this.job.stopWhenDone()) {
@@ -801,6 +805,7 @@ public final class McRecorderRenderer implements ClientModInitializer {
         if (this.structuredHud != null) {
             result.add("structured_hud", this.structuredHud.resultEnvelope());
         }
+        result.add("unsupported_packets", unsupportedPacketEnvelope());
         if (failure != null) {
             result.addProperty("error", failure.getClass().getSimpleName() + ": " + failure.getMessage());
         }
@@ -877,6 +882,8 @@ public final class McRecorderRenderer implements ClientModInitializer {
             }
         } catch (IOException statusFailure) {
             LOGGER.error("Unable to write render failure status", statusFailure);
+        } finally {
+            ReplayPacketCompatibility.endAutomatedRender();
         }
         if (this.job == null || this.job.stopWhenDone()) {
             minecraft.stop();
@@ -890,6 +897,22 @@ public final class McRecorderRenderer implements ClientModInitializer {
             StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
         forceFile(partial);
         atomicMove(partial, destination);
+    }
+
+    private static JsonObject unsupportedPacketEnvelope() {
+        ReplayPacketCompatibility.Snapshot snapshot = ReplayPacketCompatibility.snapshot();
+        JsonObject envelope = new JsonObject();
+        envelope.addProperty("policy", snapshot.policy());
+        envelope.addProperty("total_count", snapshot.totalCount());
+        JsonArray types = new JsonArray();
+        snapshot.packetTypes().forEach((packetType, count) -> {
+            JsonObject entry = new JsonObject();
+            entry.addProperty("packet_type", packetType);
+            entry.addProperty("count", count);
+            types.add(entry);
+        });
+        envelope.add("types", types);
+        return envelope;
     }
 
     private static void forceFile(Path path) throws IOException {

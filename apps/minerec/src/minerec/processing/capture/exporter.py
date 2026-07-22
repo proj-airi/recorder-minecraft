@@ -18,6 +18,7 @@ from minerec.errors import RecorderError
 from minerec.processing.capture.episodes import EpochInfo, iter_epochs, iter_events, sha256_file, validate_episode
 from minerec.processing.capture.storage import pin_sealed_epochs
 from minerec.processing.render.hud import validate_hud_result_envelope
+from minerec.render_compat import validate_unsupported_packet_summary
 from minerec.render.control.contract import FULL_CLIENT_PRESENTATION_CONTRACT
 
 EXPORT_SCHEMA_VERSION = 2
@@ -967,6 +968,11 @@ def _load_frame_attachments(paths: Iterable[Path], expected_session: str) -> tup
             structured_hud = validate_hud_result_envelope(result.get("structured_hud"), "renderer result structured_hud")
         elif result.get("structured_hud") is not None:
             raise RecorderError(f"renderer result structured_hud requires a presentation_contract: {result_path}")
+        unsupported_packets = None
+        if result.get("unsupported_packets") is not None:
+            unsupported_packets = validate_unsupported_packet_summary(
+                result["unsupported_packets"], "renderer result unsupported_packets"
+            )
         replay_sha, replay_bytes, replay_path = _renderer_replay_integrity(result, result_path)
         session = result.get("session_id")
         player = result.get("player_uuid")
@@ -1111,6 +1117,11 @@ def _load_frame_attachments(paths: Iterable[Path], expected_session: str) -> tup
                 "no_gui": no_gui,
                 **({"presentation_contract": presentation_contract} if presentation_contract is not None else {}),
                 **({"structured_hud": structured_hud} if structured_hud is not None else {}),
+                **(
+                    {"unsupported_packets": unsupported_packets}
+                    if unsupported_packets is not None
+                    else {}
+                ),
                 "frame_count": row_count,
                 "replay": replay_path,
                 "replay_sha256": replay_sha,
