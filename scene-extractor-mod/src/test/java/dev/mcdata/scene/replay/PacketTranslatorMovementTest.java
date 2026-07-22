@@ -1,15 +1,23 @@
 package dev.mcdata.scene.replay;
 
+import com.mojang.datafixers.util.Pair;
 import dev.mcdata.scene.core.SceneEvent;
 import dev.mcdata.scene.core.SceneReducer;
 import dev.mcdata.scene.core.SceneSnapshot;
 import dev.mcdata.scene.job.SceneJob;
+import net.minecraft.DetectedVersion;
+import net.minecraft.SharedConstants;
 import net.minecraft.core.RegistryAccess;
 import net.minecraft.network.protocol.game.ClientboundMoveMinecartPacket;
 import net.minecraft.network.protocol.game.ClientboundMoveVehiclePacket;
 import net.minecraft.network.protocol.game.ClientboundPlayerRotationPacket;
+import net.minecraft.network.protocol.game.ClientboundSetEquipmentPacket;
+import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.vehicle.NewMinecartBehavior;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.Vec3;
+import net.minecraft.server.Bootstrap;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
@@ -19,9 +27,16 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class PacketTranslatorMovementTest {
+    @BeforeAll
+    static void bootstrapMinecraftRegistries() {
+        SharedConstants.setVersion(DetectedVersion.BUILT_IN);
+        Bootstrap.bootStrap();
+    }
+
     @Test
     void appliesTheFinalMinecartStepWithoutClobberingGroundOrHeadRotation() throws IOException {
         SceneReducer reducer = reducer();
@@ -93,6 +108,27 @@ final class PacketTranslatorMovementTest {
         assertEquals(-20.0F, after.pitch());
         assertEquals(before.headYaw(), after.headYaw());
         assertTrue(after.onGround());
+    }
+
+    @Test
+    void encodesAnEmptyEquipmentStackWhenThePacketClearsASlot() throws IOException {
+        PacketTranslator translator = new PacketTranslator(RegistryAccess.EMPTY, reducer());
+
+        PacketTranslator.Translation translated = translator.translate(new ClientboundSetEquipmentPacket(
+            8, List.of(Pair.of(EquipmentSlot.MAINHAND, ItemStack.EMPTY))
+        ));
+
+        SceneEvent.EntityEquipmentChanged changed = assertInstanceOf(
+            SceneEvent.EntityEquipmentChanged.class, translated.events().getFirst()
+        );
+        SceneEvent.EquipmentValue equipment = changed.equipment().getFirst();
+        assertEquals(8, changed.entityId());
+        assertEquals("mainhand", equipment.slot());
+        assertEquals("minecraft:air", equipment.item());
+        assertEquals(0, equipment.count());
+        assertEquals("minecraft:item_stack", equipment.encodedStack().logicalType());
+        assertEquals("minecraft_registry_packet_base64", equipment.encodedStack().encoding());
+        assertEquals("AA==", equipment.encodedStack().base64());
     }
 
     @Test

@@ -429,7 +429,7 @@ public final class PacketTranslator {
     }
 
     private SceneEvent.EncodedValue encodeStack(ItemStack stack) {
-        return encodeValue("minecraft:item_stack", -1, ItemStack.STREAM_CODEC, stack);
+        return encodeValue("minecraft:item_stack", -1, ItemStack.OPTIONAL_STREAM_CODEC, stack);
     }
 
     private <T> SceneEvent.EncodedValue encodeValue(
