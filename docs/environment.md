@@ -65,6 +65,13 @@ builds normally resolve Flashback from the pinned Modrinth version ID in
 `mods/renderer-mod/gradle.properties`. If Modrinth is unavailable, set
 `MC_RECORDER_FLASHBACK_JAR` to the Flashback 0.39.5 JAR for Minecraft 1.21.8.
 
+`minerec render-worker` runs `prepareRendererRuntime` before registering
+with a remote queue. This resolves Flashback, Minecraft libraries, launch files,
+natives, and assets without consuming a render attempt; claimed renders then run
+with Gradle offline. The preparation uses Gradle's normal user cache, or the
+operator-provided `GRADLE_USER_HOME`, so direct builds and workers share verified
+downloads instead of maintaining a second recorder-private cache.
+
 Scene extraction launches the proto-managed Gradle executable directly. An
 interactive shell normally exposes it through proto's shims. A service manager
 often has a narrower `PATH`; in that case set `MC_RECORDER_GRADLE` to an

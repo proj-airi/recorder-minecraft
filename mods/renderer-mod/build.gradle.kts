@@ -48,6 +48,15 @@ val nestedFlashbackJars = fileTree(nestedJarDirectory) { include("*.jar") }.appl
     builtBy(extractFlashbackNested)
 }
 
+// Resolve every prerequisite of runClient without launching Minecraft. Remote
+// render workers run this before registering with the queue so transient Maven
+// or asset-CDN failures cannot consume a render attempt.
+tasks.register("prepareRendererRuntime") {
+    group = "fabric"
+    description = "Prepare the complete offline-capable renderer runtime"
+    dependsOn("configureClientLaunch")
+}
+
 dependencies {
     minecraft("com.mojang:minecraft:${property("minecraft_version")}")
     mappings(loom.officialMojangMappings())

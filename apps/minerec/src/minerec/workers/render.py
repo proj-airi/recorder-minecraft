@@ -16,7 +16,7 @@ from typing import Any, Callable, Sequence
 from minerec.config import RecorderConfig, load_runtime_env
 from minerec.errors import RecorderError
 from minerec.processing.render.hud import MAX_HUD_SIDECAR_BYTES, validate_hud_sidecar_envelope
-from minerec.processing.render.job import launch_render_job
+from minerec.processing.render.job import launch_render_job, prepare_renderer_runtime
 from minerec.render.control.contract import (
     FULL_CLIENT_PRESENTATION_CAPABILITY_KEY,
     FULL_CLIENT_PRESENTATION_CONTRACT,
@@ -681,7 +681,7 @@ def _run_registered_worker_once(
                 structured_hud=local_hud,
             )
             lease.set_phase("rendering", f"Rendering replay {index}/{len(sources)}")
-            result = launch_render_job(config, render_job)
+            result = launch_render_job(config, render_job, offline=True)
             bundle = create_render_bundle(
                 render_job,
                 bundles_root / segment_id,
@@ -773,6 +773,7 @@ def run_ephemeral_worker(
     selected_job = _canonical_uuid(job_id, "render job ID") if job_id is not None else None
     worker_id = ephemeral_worker_id()
     cache = default_worker_cache() if cache_root is None else cache_root
+    prepare_renderer_runtime(config)
     _register_worker(remote, worker_id)
     return _run_registered_worker_once(
         config,
@@ -801,6 +802,7 @@ def run_render_worker(
     selected_job = _canonical_uuid(job_id, "render job ID") if job_id is not None else None
     worker_id = ephemeral_worker_id()
     cache = default_worker_cache() if cache_root is None else cache_root
+    prepare_renderer_runtime(config)
     _register_worker(remote, worker_id)
     poll = _run_registered_worker_once(
         config,

@@ -19,6 +19,7 @@ from minerec.processing.render.job import (
     _owned_render_directory,
     launch_render_job,
     prepare_render_job,
+    prepare_renderer_runtime,
     resolve_replay,
 )
 from minerec.render.control.contract import FULL_CLIENT_PRESENTATION_CONTRACT
@@ -28,6 +29,55 @@ CONNECTION_UUID = "87654321-4321-4678-9234-567812345678"
 
 
 class ReplayResolutionTest(unittest.TestCase):
+    def test_runtime_preflight_uses_normal_gradle_cache_and_complete_client_task(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            project = root / "renderer-mod"
+            project.mkdir()
+            config = SimpleNamespace(
+                mods=SimpleNamespace(renderer_project=project),
+                paths=SimpleNamespace(base=root),
+            )
+            runner = mock.Mock(return_value=SimpleNamespace(returncode=0))
+
+            with mock.patch(
+                "minerec.processing.render.job.current_process_environment",
+                return_value={"GRADLE_USER_HOME": "/operator/gradle-cache"},
+            ):
+                prepare_renderer_runtime(config, runner=runner)
+
+            self.assertEqual(
+                [
+                    "gradle",
+                    "--project-dir",
+                    str(project),
+                    "prepareRendererRuntime",
+                    "--no-daemon",
+                    "--console=plain",
+                ],
+                runner.call_args.args[0],
+            )
+            self.assertEqual(
+                "/operator/gradle-cache",
+                runner.call_args.kwargs["env"]["GRADLE_USER_HOME"],
+            )
+
+    def test_runtime_preflight_reports_gradle_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            project = root / "renderer-mod"
+            project.mkdir()
+            config = SimpleNamespace(
+                mods=SimpleNamespace(renderer_project=project),
+                paths=SimpleNamespace(base=root),
+            )
+            runner = mock.Mock(return_value=SimpleNamespace(returncode=1))
+
+            with self.assertRaisesRegex(
+                RecorderError, "runtime preparation failed with exit code 1"
+            ):
+                prepare_renderer_runtime(config, runner=runner)
+
     def test_direct_prepared_gui_job_does_not_claim_dataset_bound_contract(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -167,6 +217,7 @@ class ReplayResolutionTest(unittest.TestCase):
             result = launch_render_job(
                 config,  # ty:ignore[invalid-argument-type]
                 RenderJobResult(directory, manifest, replay, "connection"),
+                offline=True,
             )
 
             self.assertEqual("no_coverage", result["status"])
@@ -178,6 +229,7 @@ class ReplayResolutionTest(unittest.TestCase):
                     "runClient",
                     "--no-daemon",
                     "--console=plain",
+                    "--offline",
                 ],
                 run.call_args.args[0],
             )

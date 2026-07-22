@@ -10,7 +10,7 @@ import zipfile
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 from minerec.config import ENV_RENDER_JOB, current_process_environment
 from minerec.errors import RecorderError
@@ -322,7 +322,49 @@ def prepare_render_job(
     )
 
 
-def launch_render_job(config: RecorderConfig, job: RenderJobResult) -> dict[str, Any]:
+def prepare_renderer_runtime(
+    config: RecorderConfig,
+    *,
+    runner: Callable[..., subprocess.CompletedProcess[Any]] = subprocess.run,
+) -> None:
+    """Resolve the complete client runtime before a remote job is claimed."""
+    project = config.mods.renderer_project
+    if not project.is_dir():
+        raise RecorderError(f"renderer mod project not found: {project}")
+
+    # Respect Gradle's normal user cache (or an operator-provided
+    # GRADLE_USER_HOME). Direct builds and renderer workers then share the same
+    # verified dependencies instead of downloading a second private copy.
+    environment = current_process_environment()
+    command = [
+        "gradle",
+        "--project-dir",
+        str(project),
+        "prepareRendererRuntime",
+        "--no-daemon",
+        "--console=plain",
+    ]
+    try:
+        process = runner(
+            command,
+            cwd=config.paths.base,
+            env=environment,
+            check=False,
+        )
+    except OSError as exc:
+        raise RecorderError(f"cannot prepare renderer runtime with Gradle: {exc}") from exc
+    if process.returncode != 0:
+        raise RecorderError(
+            f"renderer runtime preparation failed with exit code {process.returncode}"
+        )
+
+
+def launch_render_job(
+    config: RecorderConfig,
+    job: RenderJobResult,
+    *,
+    offline: bool = False,
+) -> dict[str, Any]:
     project = config.mods.renderer_project
     if not project.is_dir():
         raise RecorderError(f"renderer mod project not found: {project}")
@@ -335,25 +377,25 @@ def launch_render_job(config: RecorderConfig, job: RenderJobResult) -> dict[str,
 
     environment = current_process_environment()
     environment[ENV_RENDER_JOB] = str(job.manifest)
-    gradle_cache = config.paths.runtime / "gradle-cache"
-    gradle_cache.mkdir(parents=True, exist_ok=True)
-    environment["GRADLE_USER_HOME"] = str(gradle_cache)
+    command = [
+        "gradle",
+        "--project-dir",
+        str(project),
+        "runClient",
+        "--no-daemon",
+        "--console=plain",
+    ]
+    if offline:
+        command.append("--offline")
     try:
         process = subprocess.run(
-            [
-                "gradle",
-                "--project-dir",
-                str(project),
-                "runClient",
-                "--no-daemon",
-                "--console=plain",
-            ],
+            command,
             cwd=config.paths.base,
             env=environment,
             check=False,
         )
-    except FileNotFoundError as exc:
-        raise RecorderError(f"cannot launch renderer with gradle project {project}") from exc
+    except OSError as exc:
+        raise RecorderError(f"cannot launch renderer with Gradle: {exc}") from exc
 
     result_path = job.directory / "result.json"
     result: dict[str, Any] | None = None

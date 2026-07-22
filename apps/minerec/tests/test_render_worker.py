@@ -152,6 +152,12 @@ class ReplayTransferTest(unittest.TestCase):
 
 
 class RenderWorkerTest(unittest.TestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        patcher = mock.patch("minerec.workers.render.prepare_renderer_runtime")
+        self.prepare_runtime = patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_workspace_cleanup_requires_the_worker_ownership_marker(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -288,6 +294,7 @@ class RenderWorkerTest(unittest.TestCase):
         claim_body = rpc_mock.call_args_list[1].kwargs["body"]
         self.assertEqual(job_id, claim_body["job_id"])
         upload.assert_called_once()
+        self.prepare_runtime.assert_called_once()
 
     def test_render_worker_is_one_shot_only(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -348,6 +355,24 @@ class RenderWorkerTest(unittest.TestCase):
                     cache_root=Path(temporary) / "cache",
                     once=True,
                 )
+
+    def test_preflight_failure_never_registers_or_claims(self) -> None:
+        self.prepare_runtime.side_effect = RecorderError("assets unavailable")
+        with tempfile.TemporaryDirectory() as temporary:
+            with (
+                mock.patch("minerec.workers.render._register_worker") as register,
+                mock.patch("minerec.workers.render._run_registered_worker_once") as process,
+                self.assertRaisesRegex(RecorderError, "assets unavailable"),
+            ):
+                run_render_worker(
+                    mock.Mock(),
+                    LocalRecorder(Path(temporary)),
+                    cache_root=Path(temporary) / "cache",
+                    once=True,
+                )
+
+        register.assert_not_called()
+        process.assert_not_called()
 
 
 if __name__ == "__main__":
