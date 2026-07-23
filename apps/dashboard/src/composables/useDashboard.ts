@@ -1,268 +1,114 @@
 import { errorMessageFrom } from '@moeru/std'
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 
-import { fmtBytes, stateDifference } from '../utils'
+import type {
+  ArtifactCatalog,
+  DatasetConnection,
+  RenderJob,
+  RenderWorker,
+} from '../types/dashboard'
 
-type ViewName = 'datasets' | 'operations'
+type ViewName = 'artifacts' | 'renders'
+
+const EMPTY_CATALOG: ArtifactCatalog = {
+  capture_sessions: [],
+  datasets: [],
+  datasets_indexing: false,
+  issues: [],
+  rejected_datasets: [],
+  replay_archives: [],
+  truncated: false,
+}
 
 export function useDashboard() {
   const csrf = ref('')
-  const view = ref<ViewName>('operations')
+  const view = ref<ViewName>('artifacts')
+  const artifacts = ref<ArtifactCatalog>(EMPTY_CATALOG)
+  const selectedDataset = ref<any>(null)
+  const renderJobs = ref<RenderJob[]>([])
+  const renderWorkers = ref<RenderWorker[]>([])
+  const loading = ref(false)
   const toastMessage = ref('')
   const toastVisible = ref(false)
-  const confirmation = ref<null | { message: string, resolve: (accepted: boolean) => void }>(null)
-  const status = ref<any>(null)
-  const recordings = ref<any[]>([])
-  const renderJobs = ref<any[]>([])
-  const renderWorkers = ref<any[]>([])
-  const datasets = ref<any[]>([])
-  const dataset = ref<any>(null)
-  const samples = ref<any[]>([])
-  const sampleIndex = ref(0)
-  const currentSample = ref<any>(null)
-  const sampleRequest = ref(0)
-  const samplePageRequest = ref(0)
-  const playing = ref(false)
-  const currentCursor = ref<null | string>(null)
-  const nextCursor = ref<null | string>(null)
-  const pageHistory = ref<Array<null | string>>([])
-  const sampleTotal = ref(0)
-  const trajectory = ref<any>(null)
-  const trajectoryError = ref('')
-  const trajectoryLoading = ref(false)
-  const trajectoryRequest = ref(0)
-  const sceneSlice = ref<any>(null)
-  const sceneLoading = ref(false)
-  const sceneError = ref('')
-  const sceneRequest = ref(0)
-  const datasetSelectionRequest = ref(0)
-  const datasetIssues = ref('')
-  const filters = reactive({
-    connection_id: '',
-    from_tick: '',
-    modality: '',
-    player_uuid: '',
-    to_tick: '',
-    validity: '',
-  })
-
-  let playbackTimer: ReturnType<typeof setTimeout> | undefined
   let refreshTimer: ReturnType<typeof setInterval> | undefined
-  let datasetRefreshTimer: ReturnType<typeof setTimeout> | undefined
-  let sceneAbort: AbortController | undefined
 
-  const serverState = computed(() => status.value?.server?.state ?? 'loading')
-  const serverDetail = computed(() => {
-    const server = status.value?.server
-    return server?.message
-      || (server?.services || []).map((service: any) => `${service.service}: ${service.state}${service.health ? `/${service.health}` : ''}`).join(' · ')
-      || 'No Compose services found'
-  })
-  const capture = computed(() => status.value?.capture ?? {})
-  const captureMetrics = computed<Array<[string, unknown]>>(() => [
-    ['Session', capture.value.session_id],
-    ['Tick', capture.value.server_tick],
-    ['Epoch', capture.value.epoch_index],
-    ['Players', capture.value.connected_player_count ?? capture.value.active_connection_count],
-    ['Queue', capture.value.writer_queue_depth],
-    ['Heartbeat', capture.value.heartbeat_age_seconds == null ? '-' : `${capture.value.heartbeat_age_seconds}s`],
-  ])
-  const storage = computed(() => status.value?.storage ?? {})
-  const storagePercent = computed(() => storage.value.quota_bytes > 0 ? Math.min(100, storage.value.used_bytes / storage.value.quota_bytes * 100) : 0)
-  const startServerDisabled = computed(() => ['running', 'starting', 'stopping'].includes(serverState.value) || Boolean(status.value?.active_job))
-  const stopServerDisabled = computed(() => !['running', 'unhealthy'].includes(serverState.value) || Boolean(status.value?.active_job))
-  const groupedRecordings = computed(() => {
-    const groups = new Map<string, any[]>()
-    recordings.value.forEach((recording) => {
-      groups.set(recording.player_uuid, [...(groups.get(recording.player_uuid) || []), recording])
-    })
-    return [...groups.entries()].map(([playerUuid, rows]) => ({ playerUuid, rows }))
-  })
-  const connections = computed(() => dataset.value?.connections || [])
-  const players = computed(() => {
-    const rows = new Map<string, string>()
-    connections.value.forEach((connection: any) => {
-      if (!rows.has(connection.player_uuid))
-        rows.set(connection.player_uuid, connection.player_name)
-    })
-    return [...rows.entries()].map(([uuid, name]) => ({ name, uuid }))
-  })
-  const pagePosition = computed(() => samples.value.length
-    ? `${pageHistory.value.length * 100 + 1}-${pageHistory.value.length * 100 + samples.value.length} of ${sampleTotal.value}`
-    : `0 of ${sampleTotal.value}`)
-  const samplePosition = computed(() => samples.value.length ? `${sampleIndex.value + 1} / ${samples.value.length}` : '0 / 0')
-  const currentRecord = computed(() => currentSample.value?.record)
-  const currentSampleId = computed(() => currentSample.value?.id)
-  const sampleSummary = computed(() => {
-    const sample = currentRecord.value
-    if (!sample)
-      return null
-    const key = sample.sample_key || {}
-    const rgb = sample.modalities?.rgb || {}
-    const scene = sample.modalities?.scene || {}
-    const transition = sample.transition_available === true
-      ? (sample.transition_valid ? 'valid' : 'invalid')
-      : 'unavailable'
-    const scenePolicy = [
-      scene.scope,
-      scene.sensitive === true
-        ? 'sensitive / privileged metadata'
-        : scene.sensitive === false
-          ? 'non-sensitive metadata'
-          : null,
-      scene.metadata_policy,
-    ].filter(Boolean).join(' · ')
-    return {
-      connection: key.connection_id || sample.connection_id,
-      player: sample.state?.player_name || key.player_uuid || sample.player_uuid,
-      rgb: rgb.available && rgb.valid ? 'available' : rgb.reason || 'missing',
-      scene: `${sceneUsable(scene) ? 'available' : scene.reason || 'missing'}${scenePolicy ? ` · ${scenePolicy}` : ''}`,
-      tick: key.server_tick ?? sample.server_tick,
-      transition,
-    }
-  })
-  const stateDiffText = computed(() => {
-    const sample = currentRecord.value
-    if (!sample)
-      return JSON.stringify({ unavailable: 'no matching sample' }, null, 2)
-    if (sample.transition_available !== true)
-      return JSON.stringify({ unavailable: 'no following transition from this tick' }, null, 2)
-    const difference = stateDifference(sample.state, sample.next_state)
-    return JSON.stringify(Object.keys(difference).length ? difference : { unchanged: true }, null, 2)
-  })
-  const sampleActionsText = computed(() => {
-    const sample = currentRecord.value
-    return JSON.stringify(sample
-      ? sample.transition_available === true
-        ? { ordered_packets: sample.action?.ordered_packets || [], reconstructed_control: sample.action?.reconstructed_control }
-        : { unavailable: 'no following transition from this tick' }
-      : { unavailable: 'no matching sample' }, null, 2)
-  })
-  const sampleProvenanceText = computed(() => {
-    const sample = currentRecord.value
-    return JSON.stringify(sample
-      ? { peers: sample.peers, source: sample.source, source_manifest_sha256: sample.source_manifest_sha256, transition_available: sample.transition_available, transition_invalid_reasons: sample.transition_invalid_reasons, transition_valid: sample.transition_valid }
-      : { unavailable: 'no matching sample' }, null, 2)
-  })
-  const rgbFrameUrl = computed(() => {
-    const rgb = currentRecord.value?.modalities?.rgb
-    return rgb?.available && rgb.valid && rgb.artifact_id && dataset.value && currentSampleId.value
-      ? `/api/v1/datasets/${dataset.value.id}/samples/${currentSampleId.value}/frame`
-      : ''
-  })
-  const canLoadScene = computed(() => {
-    const scene = currentRecord.value?.modalities?.scene
-    return sceneUsable(scene) && Boolean(scene?.artifact_id && typeof scene?.frame_id === 'string' && scene.frame_id)
-  })
-
-  function sceneUsable(scene: any) {
-    return Boolean(scene?.available === true && scene?.valid === true && scene?.coverage_complete === true)
-  }
-
-  function showToast(message: unknown) {
-    toastMessage.value = errorMessageFrom(message) ?? String(message)
+  function showToast(value: unknown) {
+    toastMessage.value = errorMessageFrom(value) ?? String(value)
     toastVisible.value = true
     setTimeout(() => {
       toastVisible.value = false
     }, 3500)
   }
 
-  function requestConfirmation(message: string) {
-    return new Promise<boolean>((resolve) => {
-      confirmation.value = { message, resolve }
-    })
-  }
-
-  function answerConfirmation(accepted: boolean) {
-    confirmation.value?.resolve(accepted)
-    confirmation.value = null
-  }
-
   async function api(path: string, options: RequestInit = {}) {
-    const mutationHeaders: Record<string, string> = options.body
-      ? { 'Content-Type': 'application/json', 'X-MC-Recorder-CSRF': csrf.value }
-      : {}
-    const optionHeaders = options.headers instanceof Headers
-      ? Object.fromEntries(options.headers.entries())
-      : Array.isArray(options.headers)
-        ? Object.fromEntries(options.headers)
-        : options.headers || {}
     const response = await fetch(path, {
       cache: 'no-store',
       ...options,
-      headers: { ...mutationHeaders, ...optionHeaders },
+      headers: {
+        ...(options.body
+          ? {
+              'Content-Type': 'application/json',
+              'X-MC-Recorder-CSRF': csrf.value,
+            }
+          : {}),
+        ...options.headers,
+      },
     })
-    const type = response.headers.get('content-type') || ''
-    const data = type.includes('json') ? await response.json() : await response.blob()
+    const data = await response.json()
     if (!response.ok)
       throw new Error(data.error || `${response.status} ${response.statusText}`)
     return data
   }
 
   async function refreshStatus() {
+    const status = await api('/api/v1/status')
+    csrf.value = status.csrf_token
+  }
+
+  async function refreshArtifacts() {
+    loading.value = true
     try {
-      const data = await api('/api/v1/status')
-      status.value = data
-      csrf.value = data.csrf_token
+      artifacts.value = await api('/api/v1/artifacts')
+    }
+    catch (error) {
+      showToast(error)
+    }
+    finally {
+      loading.value = false
+    }
+  }
+
+  async function selectDataset(datasetId: string) {
+    try {
+      selectedDataset.value = await api(`/api/v1/datasets/${datasetId}`)
     }
     catch (error) {
       showToast(error)
     }
   }
 
-  async function mutate(path: string, confirmText?: string) {
-    if (confirmText && !(await requestConfirmation(confirmText)))
-      return
-    try {
-      const job = await api(path, { body: '{}', method: 'POST' })
-      showToast(`${job.kind} queued`)
-      await refreshStatus()
-    }
-    catch (error) {
-      showToast(error)
-    }
-  }
-
-  async function refreshRecordings() {
-    try {
-      const data = await api('/api/v1/recordings')
-      recordings.value = data.recordings || []
-    }
-    catch (error) {
-      showToast(error)
-    }
-  }
-
-  async function queueRender(recordingId: string, resolution: string, replaceLegacyRgb = false) {
+  async function queueRender(
+    datasetId: string,
+    connection: DatasetConnection,
+    resolution: string,
+    noGui: boolean,
+  ) {
     const [width, height] = resolution.split('x').map(Number)
     try {
-      const job = await api(`/api/v1/recordings/${recordingId}/render`, {
+      const job = await api(`/api/v1/datasets/${datasetId}/render`, {
         body: JSON.stringify({
+          connection_id: connection.connection_id,
           fps: 20,
           height,
+          no_gui: noGui,
+          player_uuid: connection.player_uuid,
           width,
-          ...(replaceLegacyRgb ? { replace_legacy_rgb: true } : {}),
         }),
         method: 'POST',
       })
-      showToast(`RGB render ${job.state}; RabbitMQ will hand it to the next one-shot render-worker process.`)
-      await Promise.all([refreshRecordings(), refreshRenders()])
-    }
-    catch (error) {
-      showToast(error)
-    }
-  }
-
-  async function renderJobAction(jobId: string, action: 'cancel' | 'retry') {
-    if (action === 'cancel' && !(await requestConfirmation('Cancel this RGB render job?')))
-      return
-    try {
-      const job = await api(`/api/v1/render-jobs/${jobId}/${action}`, {
-        body: '{}',
-        method: 'POST',
-      })
-      showToast(`RGB render ${job.state}`)
-      await Promise.all([refreshRecordings(), refreshRenders()])
+      showToast(`Render ${job.state}`)
+      view.value = 'renders'
+      await refreshRenders()
     }
     catch (error) {
       showToast(error)
@@ -271,366 +117,72 @@ export function useDashboard() {
 
   async function refreshRenders() {
     try {
-      const [jobData, workerData] = await Promise.all([
+      const [jobs, workers] = await Promise.all([
         api('/api/v1/render-jobs'),
         api('/api/v1/render-workers'),
       ])
-      renderJobs.value = jobData.jobs || []
-      renderWorkers.value = workerData.workers || []
+      renderJobs.value = jobs.jobs || []
+      renderWorkers.value = workers.workers || []
     }
     catch (error) {
       showToast(error)
     }
   }
 
-  function renderProgress(job: any) {
-    const progress = job.progress || {}
-    if (Number.isInteger(progress.current) && Number.isInteger(progress.total))
-      return `${progress.current} / ${progress.total}${progress.message ? ` · ${progress.message}` : ''}`
-
-    return progress.message || job.error || job.updated_at
-  }
-
-  async function openDataset(datasetId: string) {
-    view.value = 'datasets'
-    await refreshDatasets()
-    if (datasets.value.some(item => item.id === datasetId))
-      await selectDataset(datasetId)
-    else
-      showToast('The dataset is still being indexed; refresh the catalog shortly.')
-  }
-
-  async function refreshDatasets() {
+  async function renderJobAction(jobId: string, action: 'cancel' | 'retry') {
     try {
-      const data = await api('/api/v1/datasets')
-      datasets.value = data.datasets || []
-      if (datasetRefreshTimer)
-        clearTimeout(datasetRefreshTimer)
-      datasetIssues.value = (data.rejected || []).length ? `${data.rejected.length} export(s) rejected by integrity checks` : ''
-      if (data.indexing)
-        datasetRefreshTimer = setTimeout(refreshDatasets, 1000)
-    }
-    catch (error) {
-      showToast(error)
-    }
-  }
-
-  function appendActiveFilters(query: URLSearchParams) {
-    Object.entries(filters).forEach(([key, value]) => {
-      if (value)
-        query.set(key, value)
-    })
-    return query
-  }
-
-  function sampleQuery() {
-    const query = appendActiveFilters(new URLSearchParams({ limit: '100' }))
-    if (currentCursor.value)
-      query.set('cursor', currentCursor.value)
-    return query
-  }
-
-  function trajectoryQuery() {
-    return appendActiveFilters(new URLSearchParams({ max_points: '2400' }))
-  }
-
-  async function selectDataset(id: string) {
-    stopPlayback()
-    cancelSceneLoad()
-    const request = ++datasetSelectionRequest.value
-    try {
-      const selected = await api(`/api/v1/datasets/${id}`)
-      if (request !== datasetSelectionRequest.value)
-        return
-      dataset.value = selected
-      currentSample.value = null
-      trajectory.value = null
-      sampleRequest.value += 1
-      currentCursor.value = null
-      nextCursor.value = null
-      pageHistory.value = []
-      await Promise.all([loadTrajectory(), loadSamplePage()])
-    }
-    catch (error) {
-      if (request === datasetSelectionRequest.value)
-        showToast(error)
-    }
-  }
-
-  async function loadTrajectory() {
-    if (!dataset.value)
-      return
-    const request = ++trajectoryRequest.value
-    trajectory.value = null
-    trajectoryError.value = ''
-    trajectoryLoading.value = true
-    try {
-      const data = await api(`/api/v1/datasets/${dataset.value.id}/trajectory?${trajectoryQuery()}`)
-      if (request === trajectoryRequest.value)
-        trajectory.value = data
-    }
-    catch (error) {
-      if (request === trajectoryRequest.value) {
-        trajectory.value = null
-        trajectoryError.value = `Player trajectory failed: ${errorMessageFrom(error) ?? String(error)}`
-        showToast(error)
-      }
-    }
-    finally {
-      if (request === trajectoryRequest.value)
-        trajectoryLoading.value = false
-    }
-  }
-
-  async function loadSamplePage() {
-    if (!dataset.value)
-      return
-    const request = ++samplePageRequest.value
-    const datasetId = dataset.value.id
-    const query = sampleQuery().toString()
-    cancelSceneLoad()
-    sampleRequest.value += 1
-    samples.value = []
-    sampleIndex.value = 0
-    sampleTotal.value = 0
-    nextCursor.value = null
-    currentSample.value = null
-    try {
-      const page = await api(`/api/v1/datasets/${datasetId}/samples?${query}`)
-      if (request !== samplePageRequest.value || datasetId !== dataset.value?.id)
-        return
-      samples.value = page.samples || []
-      sampleTotal.value = page.total || 0
-      nextCursor.value = page.next_cursor
-      if (samples.value.length)
-        await showSample(0)
-      else
-        currentSample.value = null
-    }
-    catch (error) {
-      if (request !== samplePageRequest.value || datasetId !== dataset.value?.id)
-        return
-      samples.value = []
-      sampleIndex.value = 0
-      sampleTotal.value = 0
-      nextCursor.value = null
-      currentSample.value = null
-      showToast(error)
-    }
-  }
-
-  async function applyFilters() {
-    stopPlayback()
-    cancelSceneLoad()
-    sampleRequest.value += 1
-    currentSample.value = null
-    currentCursor.value = null
-    nextCursor.value = null
-    pageHistory.value = []
-    await Promise.all([loadTrajectory(), loadSamplePage()])
-  }
-
-  async function nextSamplePage() {
-    if (!nextCursor.value)
-      return
-    stopPlayback()
-    pageHistory.value.push(currentCursor.value)
-    currentCursor.value = nextCursor.value
-    await loadSamplePage()
-  }
-
-  async function previousSamplePage() {
-    if (!pageHistory.value.length)
-      return
-    stopPlayback()
-    currentCursor.value = pageHistory.value.pop() || null
-    await loadSamplePage()
-  }
-
-  async function showSample(index: number) {
-    if (!samples.value.length)
-      return
-    cancelSceneLoad()
-    const bounded = Math.max(0, Math.min(index, samples.value.length - 1))
-    const summary = samples.value[bounded]
-    const request = ++sampleRequest.value
-    try {
-      const detail = await api(`/api/v1/datasets/${dataset.value.id}/samples/${summary.sample_id}`)
-      if (request !== sampleRequest.value)
-        return
-      sampleIndex.value = bounded
-      currentSample.value = { id: detail.sample_id, record: detail.record }
-    }
-    catch (error) {
-      showToast(error)
-    }
-  }
-
-  function stopPlayback() {
-    playing.value = false
-    if (playbackTimer)
-      clearTimeout(playbackTimer)
-    playbackTimer = undefined
-  }
-
-  async function playbackStep() {
-    if (!playing.value)
-      return
-    const started = performance.now()
-    if (sampleIndex.value < samples.value.length - 1) {
-      await showSample(sampleIndex.value + 1)
-    }
-    else if (nextCursor.value) {
-      pageHistory.value.push(currentCursor.value)
-      currentCursor.value = nextCursor.value
-      await loadSamplePage()
-    }
-    else {
-      stopPlayback()
-      return
-    }
-    if (playing.value)
-      playbackTimer = setTimeout(playbackStep, Math.max(0, 50 - (performance.now() - started)))
-  }
-
-  function togglePlay() {
-    if (playing.value) {
-      stopPlayback()
-      return
-    }
-    if (!samples.value.length)
-      return
-    playing.value = true
-    playbackTimer = setTimeout(playbackStep, 50)
-  }
-
-  function cancelSceneLoad() {
-    sceneRequest.value += 1
-    sceneAbort?.abort()
-    sceneAbort = undefined
-    sceneLoading.value = false
-    sceneError.value = ''
-    sceneSlice.value = null
-  }
-
-  async function loadScene(axis: string, coordinate: number, radius: number) {
-    if (!currentSample.value || !dataset.value || !canLoadScene.value)
-      return
-    cancelSceneLoad()
-    const request = sceneRequest.value
-    const sampleId = currentSample.value.id
-    const datasetId = dataset.value.id
-    const controller = new AbortController()
-    sceneAbort = controller
-    sceneLoading.value = true
-    try {
-      const query = new URLSearchParams({
-        axis,
-        coordinate: String(coordinate),
-        radius: String(radius),
+      await api(`/api/v1/render-jobs/${jobId}/${action}`, {
+        body: '{}',
+        method: 'POST',
       })
-      const slice = await api(`/api/v1/datasets/${datasetId}/samples/${sampleId}/scene-slice?${query}`, { signal: controller.signal })
-      if (request === sceneRequest.value && sampleId === currentSample.value?.id)
-        sceneSlice.value = slice
+      await refreshRenders()
     }
     catch (error) {
-      if ((error as any)?.name === 'AbortError' || request !== sceneRequest.value)
-        return
-      const message = errorMessageFrom(error) ?? String(error)
-      sceneError.value = `Scene slice failed: ${message}`
       showToast(error)
     }
-    finally {
-      if (request === sceneRequest.value) {
-        sceneAbort = undefined
-        sceneLoading.value = false
-      }
-    }
+  }
+
+  function renderProgress(job: RenderJob) {
+    const progress = job.progress
+    if (Number.isInteger(progress?.current) && Number.isInteger(progress?.total))
+      return `${progress?.current} / ${progress?.total}${progress?.message ? ` · ${progress.message}` : ''}`
+    return progress?.message || job.error || job.updated_at
   }
 
   async function start() {
-    await Promise.all([refreshStatus(), refreshRecordings(), refreshRenders()])
+    try {
+      await refreshStatus()
+      await Promise.all([refreshArtifacts(), refreshRenders()])
+    }
+    catch (error) {
+      showToast(error)
+    }
     refreshTimer = setInterval(() => {
-      refreshStatus()
-      refreshRecordings()
+      refreshArtifacts()
       refreshRenders()
-    }, 2000)
+    }, 5000)
   }
 
   onMounted(start)
   onBeforeUnmount(() => {
-    datasetSelectionRequest.value += 1
-    samplePageRequest.value += 1
-    sampleRequest.value += 1
-    trajectoryRequest.value += 1
     if (refreshTimer)
       clearInterval(refreshTimer)
-    if (datasetRefreshTimer)
-      clearTimeout(datasetRefreshTimer)
-    cancelSceneLoad()
-    stopPlayback()
   })
 
   return {
-    answerConfirmation,
-    applyFilters,
-    canLoadScene,
-    capture,
-    captureMetrics,
-    confirmation,
-    connections,
-    currentRecord,
-    currentSample,
-    dataset,
-    datasetIssues,
-    datasets,
-    filters,
-    fmtBytes,
-    groupedRecordings,
-    loadScene,
-    mutate,
-    nextCursor,
-    nextSamplePage,
-    openDataset,
-    pageHistory,
-    pagePosition,
-    players,
-    playing,
-    previousSamplePage,
+    artifacts,
+    loading,
     queueRender,
-    refreshDatasets,
-    refreshRecordings,
+    refreshArtifacts,
     refreshRenders,
     renderJobAction,
     renderJobs,
     renderProgress,
     renderWorkers,
-    rgbFrameUrl,
-    sampleActionsText,
-    sampleIndex,
-    samplePosition,
-    sampleProvenanceText,
-    samples,
-    sampleSummary,
-    sceneError,
-    sceneLoading,
-    sceneSlice,
     selectDataset,
-    serverDetail,
-    serverState,
-    showSample,
-    startServerDisabled,
-    stateDiffText,
-    status,
-    stopServerDisabled,
-    storage,
-    storagePercent,
+    selectedDataset,
     toastMessage,
     toastVisible,
-    togglePlay,
-    trajectory,
-    trajectoryError,
-    trajectoryLoading,
     view,
   }
 }
