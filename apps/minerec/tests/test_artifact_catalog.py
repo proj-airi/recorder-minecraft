@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import sys
 import tempfile
 import unittest
 import uuid
 import warnings
 import zipfile
+import zlib
 from pathlib import Path
 from unittest import mock
 
@@ -307,25 +309,41 @@ class ArtifactCatalogReplayTest(unittest.TestCase):
             self.assertEqual("linked.zip", result.issues[0].relative_path)
             self.assertIn("symlink", result.issues[0].message)
 
-    def test_rejects_candidate_outside_replay_root(self) -> None:
+    def test_rejects_symlinked_intermediate_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            outside = root / "outside"
+            _write_archive(outside / "linked.zip")
+            replays = root / "replays"
+            replays.mkdir()
+            (replays / "linked-directory").symlink_to(outside, target_is_directory=True)
+
+            result = ArtifactCatalog(root / "captures", replays).scan()
+
+            self.assertEqual((), result.replay_archives)
+            self.assertEqual(1, len(result.issues))
+            self.assertEqual("linked-directory", result.issues[0].relative_path)
+            self.assertIn("symlink", result.issues[0].message)
+
+    def test_descriptor_traversal_rejects_candidate_outside_replay_root(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             replays = root / "replays"
             replays.mkdir()
             outside = root / "outside.zip"
             _write_archive(outside)
-
-            with mock.patch.object(
-                artifact_catalog,
-                "_iter_replay_candidates",
-                return_value=(outside,),
-            ):
-                result = ArtifactCatalog(root / "captures", replays).scan()
-
-            self.assertEqual((), result.replay_archives)
-            self.assertEqual(1, len(result.issues))
-            self.assertEqual(".", result.issues[0].relative_path)
-            self.assertIn("outside", result.issues[0].message)
+            root_descriptor = os.open(
+                replays,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+            )
+            try:
+                with self.assertRaisesRegex(RecorderError, "outside"):
+                    artifact_catalog._open_replay_candidate(
+                        root_descriptor,
+                        "../outside.zip",
+                    )
+            finally:
+                os.close(root_descriptor)
 
     def test_reports_non_directory_replay_root(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -345,27 +363,31 @@ class ArtifactCatalogReplayTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             replay = Path(temporary) / "mutating.zip"
             _write_archive(replay)
-            before = replay.stat()
+            file_descriptor = os.open(replay, os.O_RDONLY | os.O_NOFOLLOW)
+            before = os.fstat(file_descriptor)
             after = mock.Mock(
                 st_dev=before.st_dev,
                 st_ino=before.st_ino,
                 st_size=before.st_size + 1,
                 st_mtime_ns=before.st_mtime_ns + 1,
             )
+            try:
+                with (
+                    mock.patch.object(os, "fstat", side_effect=(before, after)),
+                    self.assertRaisesRegex(RecorderError, "changed"),
+                ):
+                    artifact_catalog._stable_digest(file_descriptor)
+            finally:
+                os.close(file_descriptor)
 
-            with (
-                mock.patch.object(Path, "stat", side_effect=(before, after)),
-                self.assertRaisesRegex(RecorderError, "changed"),
-            ):
-                artifact_catalog._stable_digest(replay)
-
-    def test_rejects_archive_replacement_between_identity_and_digest(self) -> None:
+    def test_binds_archive_identity_and_digest_to_opened_file(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             replays = root / "replays"
             replay = replays / "replaced.zip"
             replacement = root / "replacement.zip"
             _write_archive(replay)
+            expected_sha256 = hashlib.sha256(replay.read_bytes()).hexdigest()
             _write_archive(
                 replacement,
                 identity={
@@ -381,9 +403,9 @@ class ArtifactCatalogReplayTest(unittest.TestCase):
             )
             archive_identity = artifact_catalog._archive_identity
 
-            def replace_after_read(path: Path) -> object:
-                identity = archive_identity(path)
-                replacement.replace(path)
+            def replace_after_read(source: object) -> object:
+                identity = archive_identity(source)
+                replacement.replace(replay)
                 return identity
 
             with mock.patch.object(
@@ -393,9 +415,114 @@ class ArtifactCatalogReplayTest(unittest.TestCase):
             ):
                 result = ArtifactCatalog(root / "captures", replays).scan()
 
+            self.assertEqual(1, len(result.replay_archives))
+            self.assertEqual(expected_sha256, result.replay_archives[0].sha256)
+            self.assertEqual(SEGMENT, result.replay_archives[0].segment_id)
+            self.assertEqual((), result.issues)
+
+    def test_rejects_duplicate_flashback_payload_name(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            replay = root / "replays" / "duplicate-payload.zip"
+            _write_archive(replay)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", UserWarning)
+                with zipfile.ZipFile(replay, "a") as archive:
+                    archive.writestr("chunks/c0.flashback", b"replacement")
+
+            result = ArtifactCatalog(root / "captures", root / "replays").scan()
+
             self.assertEqual((), result.replay_archives)
             self.assertEqual(1, len(result.issues))
-            self.assertIn("changed", result.issues[0].message)
+            self.assertIn("duplicate", result.issues[0].message)
+
+    def test_malformed_compression_does_not_hide_valid_sibling(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            replays = root / "replays"
+            _write_archive(replays / "bad.zip")
+            _write_archive(replays / "good.zip")
+            archive_open = zipfile.ZipFile.open
+            failed = False
+
+            def fail_first_metadata_read(
+                archive: zipfile.ZipFile,
+                member: object,
+                *args: object,
+                **kwargs: object,
+            ) -> object:
+                nonlocal failed
+                filename = member.filename if isinstance(member, zipfile.ZipInfo) else member
+                if filename == "arcade_replay_meta.json" and not failed:
+                    failed = True
+                    raise zlib.error("malformed compressed stream")
+                return archive_open(archive, member, *args, **kwargs)
+
+            with mock.patch.object(
+                zipfile.ZipFile,
+                "open",
+                autospec=True,
+                side_effect=fail_first_metadata_read,
+            ):
+                result = ArtifactCatalog(root / "captures", replays).scan()
+
+            self.assertEqual(["good.zip"], [artifact.relative_path for artifact in result.replay_archives])
+            self.assertEqual(["bad.zip"], [issue.relative_path for issue in result.issues])
+
+    def test_bounds_replay_candidates_and_reports_truncation(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            replays = root / "replays"
+            for name in ("a.zip", "b.zip", "c.zip"):
+                _write_archive(replays / name)
+
+            with mock.patch.object(artifact_catalog, "MAX_REPLAY_CANDIDATES", 2, create=True):
+                result = ArtifactCatalog(root / "captures", replays).scan()
+
+            self.assertEqual(
+                ["a.zip", "b.zip"],
+                [artifact.relative_path for artifact in result.replay_archives],
+            )
+            self.assertEqual(1, len(result.issues))
+            self.assertIn("candidate limit", result.issues[0].message)
+
+    def test_rejects_archive_over_zip_entry_budget(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            replay = root / "replays" / "too-many-entries.zip"
+            _write_archive(replay)
+            with zipfile.ZipFile(replay, "a") as archive:
+                archive.writestr("extra.txt", "extra")
+
+            with mock.patch.object(artifact_catalog, "MAX_ZIP_ENTRIES", 3, create=True):
+                result = ArtifactCatalog(root / "captures", root / "replays").scan()
+
+            self.assertEqual((), result.replay_archives)
+            self.assertEqual(1, len(result.issues))
+            self.assertIn("entry limit", result.issues[0].message)
+
+    def test_stops_archive_inspection_when_issue_budget_is_full(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            replays = root / "replays"
+            for index in range(5):
+                _write_archive(replays / f"invalid-{index}.zip", include_identity=False)
+            archive_identity = artifact_catalog._archive_identity
+
+            with (
+                mock.patch.object(artifact_catalog, "MAX_ARTIFACT_ISSUES", 2),
+                mock.patch.object(
+                    artifact_catalog,
+                    "_archive_identity",
+                    wraps=archive_identity,
+                ) as inspect_identity,
+            ):
+                result = ArtifactCatalog(root / "captures", replays).scan()
+
+            self.assertEqual((), result.replay_archives)
+            self.assertEqual(2, len(result.issues))
+            self.assertIn("truncated", result.issues[-1].message)
+            self.assertEqual(1, inspect_identity.call_count)
 
     def test_invalid_sibling_does_not_hide_valid_archive(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

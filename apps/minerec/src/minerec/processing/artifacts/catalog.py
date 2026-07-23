@@ -2,18 +2,22 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import stat
 import uuid
 import zipfile
+import zlib
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, BinaryIO, Literal
 
 from minerec.errors import RecorderError
 from minerec.processing.capture.episodes import EpisodeInfo, list_episodes
 
 MAX_ARCHIVE_METADATA_BYTES = 1024 * 1024
 MAX_ARTIFACT_ISSUES = 100
+MAX_REPLAY_CANDIDATES = 512
+MAX_ZIP_ENTRIES = 4096
 HOTBAR_SNAPSHOT_CONTRACT = "item_stack_copy_v1"
 FLASHBACK_CAPTURE_CONTRACT = "client_visible_scene_v1"
 
@@ -113,57 +117,38 @@ def _capture_artifact(episode: EpisodeInfo, root: Path) -> CaptureSessionArtifac
     )
 
 
-def _iter_replay_candidates(root: Path) -> tuple[Path, ...]:
-    return tuple(
-        sorted(
-            (path for path in root.rglob("*") if path.suffix.lower() in {".zip", ".mcpr"}),
-            key=lambda path: path.as_posix(),
-        )
-    )
-
-
-def _stable_digest(path: Path) -> tuple[str, int]:
-    digest = hashlib.sha256()
-    try:
-        before = path.stat()
-        with path.open("rb") as handle:
-            while chunk := handle.read(1024 * 1024):
-                digest.update(chunk)
-        after = path.stat()
-    except OSError as exc:
-        raise RecorderError("cannot hash replay archive") from exc
-    before_identity = (
-        before.st_dev,
-        before.st_ino,
-        before.st_size,
-        before.st_mtime_ns,
-    )
-    after_identity = (
-        after.st_dev,
-        after.st_ino,
-        after.st_size,
-        after.st_mtime_ns,
-    )
-    if before_identity != after_identity:
-        raise RecorderError("replay archive changed while it was hashed")
-    if after.st_size <= 0:
-        raise RecorderError("replay archive is empty")
-    return digest.hexdigest(), after.st_size
-
-
-def _regular_file_identity(path: Path) -> tuple[int, int, int, int]:
-    try:
-        file_stat = path.lstat()
-    except OSError as exc:
-        raise RecorderError("cannot stat replay archive") from exc
-    if not stat.S_ISREG(file_stat.st_mode):
-        raise RecorderError("replay archive changed while it was inspected")
+def _file_identity(file_stat: os.stat_result) -> tuple[int, int, int, int]:
     return (
         file_stat.st_dev,
         file_stat.st_ino,
         file_stat.st_size,
         file_stat.st_mtime_ns,
     )
+
+
+def _stable_digest(file_descriptor: int) -> tuple[str, int]:
+    digest = hashlib.sha256()
+    try:
+        before = os.fstat(file_descriptor)
+        with os.fdopen(os.dup(file_descriptor), "rb") as handle:
+            handle.seek(0)
+            while chunk := handle.read(1024 * 1024):
+                digest.update(chunk)
+        after = os.fstat(file_descriptor)
+    except OSError as exc:
+        raise RecorderError("cannot hash replay archive") from exc
+    if _file_identity(before) != _file_identity(after):
+        raise RecorderError("replay archive changed while it was hashed")
+    if after.st_size <= 0:
+        raise RecorderError("replay archive is empty")
+    return digest.hexdigest(), after.st_size
+
+
+def _regular_file_identity(file_descriptor: int) -> tuple[int, int, int, int]:
+    file_stat = os.fstat(file_descriptor)
+    if not stat.S_ISREG(file_stat.st_mode):
+        raise RecorderError("replay candidate is not a regular file")
+    return _file_identity(file_stat)
 
 
 def _canonical_uuid(value: object, label: str) -> str:
@@ -215,10 +200,21 @@ def _validated_identity(raw: object) -> _ReplayIdentity:
     )
 
 
-def _archive_identity(path: Path) -> _ReplayIdentity:
+def _archive_identity(source: BinaryIO) -> _ReplayIdentity:
     try:
-        with zipfile.ZipFile(path) as archive:
+        source.seek(0)
+        with zipfile.ZipFile(source) as archive:
             entries = archive.infolist()
+            if len(entries) > MAX_ZIP_ENTRIES:
+                raise RecorderError("replay ZIP entry limit exceeded")
+            entry_name_counts: dict[str, int] = {}
+            for entry in entries:
+                entry_name_counts[entry.filename] = entry_name_counts.get(entry.filename, 0) + 1
+            duplicate_security_entries = {
+                entry.filename for entry in entries if entry_name_counts[entry.filename] > 1 and (entry.filename in {"metadata.json", "arcade_replay_meta.json"} or (not entry.is_dir() and entry.filename.endswith(".flashback")))
+            }
+            if duplicate_security_entries:
+                raise RecorderError("replay contains a duplicate security-relevant ZIP entry")
             metadata_entries = [entry for entry in entries if entry.filename == "metadata.json"]
             flashback_entries = [entry for entry in entries if not entry.is_dir() and entry.filename.endswith(".flashback")]
             recorder_entries = [entry for entry in entries if entry.filename == "arcade_replay_meta.json"]
@@ -235,7 +231,15 @@ def _archive_identity(path: Path) -> _ReplayIdentity:
                 raise RecorderError("replay mc_recorder metadata is too large")
     except RecorderError:
         raise
-    except (OSError, RuntimeError, zipfile.BadZipFile, zipfile.LargeZipFile) as exc:
+    except (
+        EOFError,
+        NotImplementedError,
+        OSError,
+        RuntimeError,
+        zipfile.BadZipFile,
+        zipfile.LargeZipFile,
+        zlib.error,
+    ) as exc:
         raise RecorderError("replay is not a readable Flashback archive") from exc
     try:
         metadata = json.loads(raw_metadata)
@@ -246,31 +250,129 @@ def _archive_identity(path: Path) -> _ReplayIdentity:
     return _validated_identity(metadata.get("mc_recorder"))
 
 
-def _relative_replay_path(path: Path, root: Path) -> str:
-    try:
-        return path.relative_to(root).as_posix()
-    except ValueError as exc:
-        raise RecorderError("replay candidate is outside the configured root") from exc
+def _path_parts(relative_path: str) -> tuple[str, ...]:
+    parts = tuple(relative_path.split("/"))
+    if not parts or any(part in {"", ".", ".."} or "/" in part for part in parts):
+        raise RecorderError("replay candidate is outside the configured root")
+    return parts
 
 
-def _validate_replay_path(path: Path, root: Path) -> str:
-    relative_path = _relative_replay_path(path, root)
-    cursor = root
-    for part in Path(relative_path).parts[:-1]:
-        cursor /= part
-        if cursor.is_symlink():
-            raise RecorderError("replay candidate traverses a symlinked directory")
-    if path.is_symlink():
-        raise RecorderError("replay candidate is a symlink")
+def _open_replay_candidate(root_descriptor: int, relative_path: str) -> int:
+    parts = _path_parts(relative_path)
+    directory_descriptor = os.dup(root_descriptor)
+    directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
+    file_flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | getattr(os, "O_CLOEXEC", 0)
     try:
-        mode = path.lstat().st_mode
-        resolved = path.resolve(strict=True)
-        resolved.relative_to(root.resolve(strict=True))
-    except (OSError, ValueError) as exc:
-        raise RecorderError("replay candidate is outside the configured root") from exc
-    if not stat.S_ISREG(mode):
-        raise RecorderError("replay candidate is not a regular file")
-    return relative_path
+        for part in parts[:-1]:
+            try:
+                child_descriptor = os.open(
+                    part,
+                    directory_flags,
+                    dir_fd=directory_descriptor,
+                )
+            except OSError as exc:
+                raise RecorderError("replay candidate traverses a symlink or non-directory component") from exc
+            os.close(directory_descriptor)
+            directory_descriptor = child_descriptor
+        try:
+            file_descriptor = os.open(
+                parts[-1],
+                file_flags,
+                dir_fd=directory_descriptor,
+            )
+        except OSError as exc:
+            raise RecorderError("replay candidate is a symlink or cannot be opened") from exc
+        try:
+            _regular_file_identity(file_descriptor)
+        except OSError, RecorderError:
+            os.close(file_descriptor)
+            raise
+        return file_descriptor
+    finally:
+        os.close(directory_descriptor)
+
+
+def _iter_replay_candidates(
+    root_descriptor: int,
+    issue_limit: int,
+) -> tuple[tuple[str, ...], tuple[ArtifactIssue, ...], Literal["candidate_limit", "issue_limit"] | None]:
+    candidates: list[str] = []
+    issues: list[ArtifactIssue] = []
+    truncation_reason: Literal["candidate_limit", "issue_limit"] | None = None
+    directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
+
+    def add_issue(relative_path: str, message: str) -> bool:
+        nonlocal truncation_reason
+        if len(issues) >= issue_limit:
+            truncation_reason = "issue_limit"
+            return False
+        issues.append(
+            ArtifactIssue(
+                artifact_type="replay",
+                relative_path=relative_path,
+                message=message,
+            )
+        )
+        return True
+
+    def walk(directory_descriptor: int, prefix: tuple[str, ...]) -> bool:
+        nonlocal truncation_reason
+        try:
+            names = sorted(os.listdir(directory_descriptor))
+        except OSError:
+            relative_path = "/".join(prefix) or "."
+            return add_issue(relative_path, "cannot scan replay directory")
+        for name in names:
+            relative_parts = (*prefix, name)
+            relative_path = "/".join(relative_parts)
+            try:
+                entry_stat = os.stat(
+                    name,
+                    dir_fd=directory_descriptor,
+                    follow_symlinks=False,
+                )
+            except OSError:
+                if not add_issue(relative_path, "cannot inspect replay traversal entry"):
+                    return False
+                continue
+            if stat.S_ISLNK(entry_stat.st_mode):
+                if not add_issue(relative_path, "replay traversal entry is a symlink"):
+                    return False
+                continue
+            if stat.S_ISDIR(entry_stat.st_mode):
+                try:
+                    child_descriptor = os.open(
+                        name,
+                        directory_flags,
+                        dir_fd=directory_descriptor,
+                    )
+                except OSError:
+                    if not add_issue(
+                        relative_path,
+                        "replay traversal entry is a symlink or non-directory component",
+                    ):
+                        return False
+                    continue
+                try:
+                    if not walk(child_descriptor, relative_parts):
+                        return False
+                finally:
+                    os.close(child_descriptor)
+                continue
+            if Path(name).suffix.lower() not in {".zip", ".mcpr"}:
+                continue
+            if not stat.S_ISREG(entry_stat.st_mode):
+                if not add_issue(relative_path, "replay candidate is not a regular file"):
+                    return False
+                continue
+            if len(candidates) >= MAX_REPLAY_CANDIDATES:
+                truncation_reason = "candidate_limit"
+                return False
+            candidates.append(relative_path)
+        return True
+
+    walk(root_descriptor, ())
+    return tuple(candidates), tuple(issues), truncation_reason
 
 
 def _artifact_id(identity: _ReplayIdentity, sha256: str) -> str:
@@ -283,28 +385,32 @@ def _artifact_id(identity: _ReplayIdentity, sha256: str) -> str:
     return hashlib.sha256(canonical_identity + b"\0" + sha256.encode("ascii")).hexdigest()[:32]
 
 
-def _replay_artifact(path: Path, root: Path) -> ReplayArchiveArtifact:
-    relative_path = _validate_replay_path(path, root)
-    before_identity = _regular_file_identity(path)
-    identity = _archive_identity(path)
-    sha256, size_bytes = _stable_digest(path)
-    after_identity = _regular_file_identity(path)
-    if before_identity != after_identity:
-        raise RecorderError("replay archive changed while it was inspected")
-    if _validate_replay_path(path, root) != relative_path:
-        raise RecorderError("replay candidate changed while it was inspected")
-    return ReplayArchiveArtifact(
-        artifact_id=_artifact_id(identity, sha256),
-        relative_path=relative_path,
-        size_bytes=size_bytes,
-        sha256=sha256,
-        session_id=identity.session_id,
-        segment_id=identity.segment_id,
-        segment_ordinal=identity.segment_ordinal,
-        player_uuid=identity.player_uuid,
-        connection_id=identity.connection_id,
-        flashback_capture_contract=identity.flashback_capture_contract,
-    )
+def _replay_artifact(relative_path: str, root_descriptor: int) -> ReplayArchiveArtifact:
+    file_descriptor = _open_replay_candidate(root_descriptor, relative_path)
+    try:
+        before_identity = _regular_file_identity(file_descriptor)
+        with os.fdopen(os.dup(file_descriptor), "rb") as archive_source:
+            identity = _archive_identity(archive_source)
+        sha256, size_bytes = _stable_digest(file_descriptor)
+        after_identity = _regular_file_identity(file_descriptor)
+        if before_identity != after_identity:
+            raise RecorderError("replay archive changed while it was inspected")
+        return ReplayArchiveArtifact(
+            artifact_id=_artifact_id(identity, sha256),
+            relative_path=relative_path,
+            size_bytes=size_bytes,
+            sha256=sha256,
+            session_id=identity.session_id,
+            segment_id=identity.segment_id,
+            segment_ordinal=identity.segment_ordinal,
+            player_uuid=identity.player_uuid,
+            connection_id=identity.connection_id,
+            flashback_capture_contract=identity.flashback_capture_contract,
+        )
+    except OSError as exc:
+        raise RecorderError("cannot inspect replay archive") from exc
+    finally:
+        os.close(file_descriptor)
 
 
 class ArtifactCatalog:
@@ -369,20 +475,12 @@ class ArtifactCatalog:
         issue_limit: int,
     ) -> tuple[tuple[ReplayArchiveArtifact, ...], tuple[ArtifactIssue, ...]]:
         root = self._replays_root
-        if root.is_symlink():
-            return (
-                (),
-                (
-                    ArtifactIssue(
-                        artifact_type="replay",
-                        relative_path=".",
-                        message="replay root is a symlink",
-                    ),
-                )[:issue_limit],
-            )
-        if not root.exists():
+        root_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
+        try:
+            root_descriptor = os.open(root, root_flags)
+        except FileNotFoundError:
             return (), ()
-        if not root.is_dir():
+        except OSError:
             return (
                 (),
                 (
@@ -393,9 +491,14 @@ class ArtifactCatalog:
                     ),
                 )[:issue_limit],
             )
+
         try:
-            candidates = _iter_replay_candidates(root)
+            candidates, traversal_issues, candidate_truncated = _iter_replay_candidates(
+                root_descriptor,
+                max(issue_limit - 1, 0),
+            )
         except OSError:
+            os.close(root_descriptor)
             return (
                 (),
                 (
@@ -408,22 +511,40 @@ class ArtifactCatalog:
             )
 
         artifacts: list[ReplayArchiveArtifact] = []
-        issues: list[ArtifactIssue] = []
-        for candidate in candidates:
-            try:
-                artifacts.append(_replay_artifact(candidate, root))
-            except (OSError, RecorderError) as exc:
-                if len(issues) >= issue_limit:
-                    continue
+        issues = list(traversal_issues)
+        inspection_truncated = False
+        try:
+            for index, candidate in enumerate(candidates):
                 try:
-                    relative_path = _relative_replay_path(candidate, root)
-                except RecorderError:
-                    relative_path = "."
-                issues.append(
-                    ArtifactIssue(
-                        artifact_type="replay",
-                        relative_path=relative_path,
-                        message=str(exc),
-                    )
-                )
+                    artifacts.append(_replay_artifact(candidate, root_descriptor))
+                except RecorderError as exc:
+                    has_more = index + 1 < len(candidates) or candidate_truncated
+                    if has_more and len(issues) >= max(issue_limit - 1, 0):
+                        inspection_truncated = True
+                        break
+                    if len(issues) < issue_limit:
+                        issues.append(
+                            ArtifactIssue(
+                                artifact_type="replay",
+                                relative_path=candidate,
+                                message=str(exc),
+                            )
+                        )
+                    if has_more and len(issues) >= max(issue_limit - 1, 0):
+                        inspection_truncated = True
+                        break
+        finally:
+            os.close(root_descriptor)
+
+        if candidate_truncated or inspection_truncated:
+            message = "replay scan truncated at candidate limit" if candidate_truncated and not inspection_truncated else "replay scan truncated at catalog issue limit"
+            truncation_issue = ArtifactIssue(
+                artifact_type="replay",
+                relative_path=".",
+                message=message,
+            )
+            if len(issues) < issue_limit:
+                issues.append(truncation_issue)
+            elif issues:
+                issues[-1] = truncation_issue
         return tuple(artifacts), tuple(issues)
