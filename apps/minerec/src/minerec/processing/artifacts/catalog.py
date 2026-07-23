@@ -79,12 +79,14 @@ class ArtifactCatalogResult:
     capture_sessions: tuple[CaptureSessionArtifact, ...]
     replay_archives: tuple[ReplayArchiveArtifact, ...]
     issues: tuple[ArtifactIssue, ...]
+    truncated: bool = False
 
     def as_json(self) -> dict[str, Any]:
         return {
             "capture_sessions": [artifact.as_json() for artifact in self.capture_sessions],
             "replay_archives": [artifact.as_json() for artifact in self.replay_archives],
             "issues": [issue.as_json() for issue in self.issues],
+            "truncated": self.truncated,
         }
 
 
@@ -487,11 +489,14 @@ class ArtifactCatalog:
 
     def scan(self) -> ArtifactCatalogResult:
         captures, capture_issues = self._scan_captures()
-        replay_archives, replay_issues = self._scan_replays(MAX_ARTIFACT_ISSUES - len(capture_issues))
+        replay_archives, replay_issues, replay_truncated = self._scan_replays(
+            MAX_ARTIFACT_ISSUES - len(capture_issues)
+        )
         return ArtifactCatalogResult(
             capture_sessions=captures,
             replay_archives=replay_archives,
             issues=(capture_issues + replay_issues)[:MAX_ARTIFACT_ISSUES],
+            truncated=replay_truncated,
         )
 
     def _scan_captures(
@@ -540,13 +545,17 @@ class ArtifactCatalog:
     def _scan_replays(
         self,
         issue_limit: int,
-    ) -> tuple[tuple[ReplayArchiveArtifact, ...], tuple[ArtifactIssue, ...]]:
+    ) -> tuple[
+        tuple[ReplayArchiveArtifact, ...],
+        tuple[ArtifactIssue, ...],
+        bool,
+    ]:
         root = self._replays_root
         root_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
         try:
             root_descriptor = os.open(root, root_flags)
         except FileNotFoundError:
-            return (), ()
+            return (), (), False
         except OSError:
             return (
                 (),
@@ -557,6 +566,7 @@ class ArtifactCatalog:
                         message="replay root is not a regular directory",
                     ),
                 )[:issue_limit],
+                False,
             )
 
         try:
@@ -575,6 +585,7 @@ class ArtifactCatalog:
                         message="cannot scan replay root",
                     ),
                 )[:issue_limit],
+                False,
             )
 
         artifacts: list[ReplayArchiveArtifact] = []
@@ -619,4 +630,8 @@ class ArtifactCatalog:
                 issues.append(truncation_issue)
             elif issues:
                 issues[-1] = truncation_issue
-        return tuple(artifacts), tuple(issues)
+        return (
+            tuple(artifacts),
+            tuple(issues),
+            traversal_truncation is not None or inspection_truncated,
+        )

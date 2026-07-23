@@ -163,7 +163,7 @@ class ReplaySegmentResolutionTest(unittest.TestCase):
                 flashback_capture_contract="unsupported_scene_contract",
             )
 
-            with self.assertRaisesRegex(RecorderError, "invalid capture contracts"):
+            with self.assertRaisesRegex(RecorderError, "no exact saved replay"):
                 _resolve(replays)
 
     def test_rejects_requested_identity_with_invalid_archive_identity(self) -> None:
@@ -174,32 +174,29 @@ class ReplaySegmentResolutionTest(unittest.TestCase):
                 segment_ordinal=-1,
             )
 
-            with self.assertRaisesRegex(RecorderError, "invalid segment_ordinal"):
+            with self.assertRaisesRegex(RecorderError, "no exact saved replay"):
                 _resolve(replays)
 
-    def test_rejects_archive_bytes_changed_after_catalog_validation(self) -> None:
+    def test_returns_catalog_integrity_for_rpc_pinning(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             replays = Path(temporary) / "replays"
             replay = replays / "changed.zip"
             _write_archive(replay)
-            original_scan = ArtifactCatalog.scan
+            source = _resolve(replays)[0]
+            self.assertEqual(hashlib.sha256(replay.read_bytes()).hexdigest(), source.sha256)
+            self.assertEqual(replay.stat().st_size, source.size_bytes)
 
-            def scan_then_change(catalog: ArtifactCatalog) -> ArtifactCatalogResult:
-                result = original_scan(catalog)
-                replay.write_bytes(b"changed after catalog validation")
-                return result
-
+    def test_rejects_a_truncated_catalog(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            replays = Path(temporary) / "replays"
+            replays.mkdir()
             with (
                 mock.patch.object(
                     ArtifactCatalog,
                     "scan",
-                    autospec=True,
-                    side_effect=scan_then_change,
+                    return_value=ArtifactCatalogResult((), (), (), truncated=True),
                 ),
-                self.assertRaisesRegex(
-                    RecorderError,
-                    "changed after catalog validation",
-                ),
+                self.assertRaisesRegex(RecorderError, "catalog is incomplete"),
             ):
                 _resolve(replays)
 
