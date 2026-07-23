@@ -1,17 +1,28 @@
 # Docker deployment
 
-`docker-compose.yml` is driven by the generated `.mc-recorder/compose.env` file.
-Do not invoke it directly: `minerec server start` validates the EULA, builds
-and stages the local capture mod, writes both mod configurations, checks the
-combined capture/replay quota, and then invokes Docker Compose.
+`docker-compose.yml` is driven by `deploy/.env`. Copy `deploy/.env.example` to
+`deploy/.env`, edit it for the host, then run Docker Compose directly when you
+only need container lifecycle control:
+
+```sh
+docker compose --env-file deploy/.env --file deploy/docker-compose.yml up --detach
+docker compose --env-file deploy/.env --file deploy/docker-compose.yml stop
+```
+
+Use `hack/minecraft-server prepare` to build and stage the local capture mod and
+write the mod configuration files before the first direct Compose start.
+`hack/minecraft-server start` runs that preparation step and then invokes the
+same Docker Compose command.
 
 The Minecraft service uses the exact
 `itzg/minecraft-server:2026.7.0-java21` image, Fabric, and Minecraft 1.21.8.
 ServerReplay is pinned to the immutable Modrinth project/version selector
-`server-replay:TbWIikrT`. The storage monitor uses the exact
-`python:3.11.15-alpine3.24` image. The local capture mod is bind-mounted through
-the image's documented `/mods` synchronization point. Compose uses the image's
-`mc-health` probe, so `minerec server start --wait` waits for a playable
+`server-replay:TbWIikrT`. Python services share the local `minerec:local` image
+built from `apps/minerec/Dockerfile`; that image installs the locked Pixi
+environment from `pixi.toml` and `pixi.lock`, including the editable
+`apps/minerec` package. The local capture mod is bind-mounted through the
+Minecraft image's documented `/mods` synchronization point. Compose uses the
+image's `mc-health` probe, so `hack/minecraft-server start` waits for a playable
 server rather than only a running container.
 
 The storage monitor sees `/captures` and `/replays`, but cannot access the world

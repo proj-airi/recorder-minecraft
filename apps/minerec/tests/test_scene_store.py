@@ -14,13 +14,13 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
-import mc_recorder.processing.scene.store as scene_store_module
-from mc_recorder.processing.scene.integrity import (
+import minerec.processing.scene.store as scene_store_module
+from minerec.processing.scene.integrity import (
     SceneStreamIntegrity,
     VerifiedSceneStream,
     freeze_json_value,
 )
-from mc_recorder.processing.scene.store import (
+from minerec.processing.scene.store import (
     _BLOCK_ENTITY_BOX_SQL,
     _ENTITY_BOX_SQL,
     DEFAULT_MAX_CROP_CELLS,

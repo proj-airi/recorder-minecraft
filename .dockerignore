@@ -1,0 +1,14 @@
+.git
+.pixi
+.gradle
+.mc-recorder
+artifacts
+runtime
+**/build
+**/run
+**/__pycache__
+**/*.pyc
+node_modules
+apps/dashboard/dist
+ServerReplay
+recorder.toml

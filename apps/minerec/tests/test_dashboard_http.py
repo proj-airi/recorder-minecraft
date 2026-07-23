@@ -19,11 +19,11 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
-from mc_recorder.config import initialize, load_config
-from mc_recorder.errors import RecorderError
-from mc_recorder.processing.dataset.viewer import DatasetValidationError, VerifiedArtifact
-from mc_recorder.processing.scene.store import SceneIdentity, SceneStoreBuilder
-from mc_recorder.serving.dashboard.server import (
+from minerec.config import initialize, load_config
+from minerec.errors import RecorderError
+from minerec.processing.dataset.viewer import DatasetValidationError, VerifiedArtifact
+from minerec.processing.scene.store import SceneIdentity, SceneStoreBuilder
+from minerec.serve.dashboard.server import (
     DashboardApplication,
     DashboardHandler,
     DashboardHTTPServer,
@@ -363,7 +363,7 @@ class DashboardHTTPTest(unittest.TestCase):
     def test_status_returns_csrf_and_mutations_enforce_it(self) -> None:
         status = json.load(self._request("/api/v1/status"))
         self.assertTrue(status["csrf_token"])
-        self.assertEqual("unprepared", status["server"]["state"])
+        self.assertEqual("external", status["server"]["state"])
 
         with self.assertRaises(urllib.error.HTTPError) as raised:
             self._request("/api/v1/server/start", method="POST", body=b"{}")
@@ -773,7 +773,7 @@ class DashboardServeConfigurationTest(unittest.TestCase):
 
     def test_rejects_oversized_json_response_before_writing(self) -> None:
         handler = object.__new__(DashboardHandler)
-        with mock.patch("mc_recorder.serving.dashboard.server.MAX_JSON_RESPONSE_BYTES", 64), mock.patch.object(handler, "_bytes") as write_response:
+        with mock.patch("minerec.serve.dashboard.server.MAX_JSON_RESPONSE_BYTES", 64), mock.patch.object(handler, "_bytes") as write_response:
             with self.assertRaisesRegex(DatasetValidationError, "serialized JSON response exceeds 64 bytes"):
                 handler._json(HTTPStatus.OK, {"payload": "x" * 128})
 

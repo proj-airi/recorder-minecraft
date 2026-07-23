@@ -13,14 +13,14 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
-from mc_recorder.errors import RecorderError
-from mc_recorder.protocol.render.contract import (
+from minerec.errors import RecorderError
+from minerec.render.control.contract import (
     FULL_CLIENT_PRESENTATION_CAPABILITY_KEY,
     FULL_CLIENT_PRESENTATION_CONTRACT,
 )
-from mc_recorder.protocol.render.rpc import RenderRpcService, _PlanLeaseKeeper
-from mc_recorder.protocol.render.sources import ReplayNotReadyError, ReplaySegmentSource
-from mc_recorder.protocol.render.transfer import ImportedRenderResult
+from minerec.render.control.rpc import RenderRpcService, _PlanLeaseKeeper
+from minerec.render.control.sources import ReplayNotReadyError, ReplaySegmentSource
+from minerec.render.control.transfer import ImportedRenderResult
 
 WORKER_ID = "11111111-1111-4111-8111-111111111111"
 PLAYER_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
@@ -126,9 +126,9 @@ class RenderRpcServiceTest(unittest.TestCase):
             "connection_id": payload["connection_id"],  # ty:ignore[not-subscriptable]
         }
         with (
-            mock.patch("mc_recorder.protocol.render.rpc.resolve_replay_segments", return_value=sources),
+            mock.patch("minerec.render.control.rpc.resolve_replay_segments", return_value=sources),
             mock.patch(
-                "mc_recorder.protocol.render.rpc.create_structured_hud_sidecar",
+                "minerec.render.control.rpc.create_structured_hud_sidecar",
                 return_value=SimpleNamespace(envelope=lambda: hud_envelope),
             ),
         ):
@@ -190,8 +190,8 @@ class RenderRpcServiceTest(unittest.TestCase):
             body["newer_cutoff"] = newer_cutoff
         created, create, write = self._portable_mocks()  # ty:ignore[invalid-assignment]
         with (
-            mock.patch("mc_recorder.protocol.render.rpc.create_portable_render_request", create),
-            mock.patch("mc_recorder.protocol.render.rpc.write_portable_render_request", write),
+            mock.patch("minerec.render.control.rpc.create_portable_render_request", create),
+            mock.patch("minerec.render.control.rpc.write_portable_render_request", write),
         ):
             result = self.service.dispatch("request", body)
         return result, created
@@ -229,11 +229,11 @@ class RenderRpcServiceTest(unittest.TestCase):
 
         with (
             mock.patch(
-                "mc_recorder.protocol.render.rpc.resolve_replay_segments",
+                "minerec.render.control.rpc.resolve_replay_segments",
                 return_value=[source],
             ),
             mock.patch(
-                "mc_recorder.protocol.render.rpc.create_structured_hud_sidecar",
+                "minerec.render.control.rpc.create_structured_hud_sidecar",
                 side_effect=fail_after_write,
             ),
         ):
@@ -280,11 +280,11 @@ class RenderRpcServiceTest(unittest.TestCase):
 
         with (
             mock.patch(
-                "mc_recorder.protocol.render.rpc.resolve_replay_segments",
+                "minerec.render.control.rpc.resolve_replay_segments",
                 return_value=[source],
             ),
             mock.patch(
-                "mc_recorder.protocol.render.rpc.create_structured_hud_sidecar",
+                "minerec.render.control.rpc.create_structured_hud_sidecar",
                 side_effect=create_sidecar,
             ),
         ):
@@ -340,7 +340,7 @@ class RenderRpcServiceTest(unittest.TestCase):
 
     def test_claim_defers_while_server_replay_is_still_saving(self) -> None:
         with mock.patch(
-            "mc_recorder.protocol.render.rpc.resolve_replay_segments",
+            "minerec.render.control.rpc.resolve_replay_segments",
             side_effect=ReplayNotReadyError("the exact replay segment is still being saved"),
         ):
             result = self.service.dispatch(
@@ -367,16 +367,16 @@ class RenderRpcServiceTest(unittest.TestCase):
         for offset, width in enumerate((700, 720), 1):
             payload = dict(self.job["payload"])  # ty:ignore[no-matching-overload]
             payload["render"] = {**payload["render"], "width": width}
-            with mock.patch("mc_recorder.protocol.render.queue.time.time", return_value=created + offset):
+            with mock.patch("minerec.render.control.queue.time.time", return_value=created + offset):
                 pending_jobs.append(self.service.queue.create(payload))
         later_payload = dict(self.job["payload"])  # ty:ignore[no-matching-overload]
         later_payload["render"] = {**later_payload["render"], "width": 800}
-        with mock.patch("mc_recorder.protocol.render.queue.time.time", return_value=created + 3):
+        with mock.patch("minerec.render.control.queue.time.time", return_value=created + 3):
             later = self.service.queue.create(later_payload)
         source = self._source(NEW_SEGMENT, 5, b"new replay")
 
         with mock.patch(
-            "mc_recorder.protocol.render.rpc.resolve_replay_segments",
+            "minerec.render.control.rpc.resolve_replay_segments",
             side_effect=[
                 ReplayNotReadyError("the exact replay segment is still being saved"),
                 ReplayNotReadyError("the exact replay segment is still being saved"),
@@ -530,7 +530,7 @@ class RenderRpcServiceTest(unittest.TestCase):
         for payload, message in cases:
             with self.subTest(message=message):
                 job = self.service.queue.create(payload)
-                with mock.patch("mc_recorder.protocol.render.rpc.resolve_replay_segments", return_value=[]):
+                with mock.patch("minerec.render.control.rpc.resolve_replay_segments", return_value=[]):
                     result = self.service.dispatch(
                         "claim",
                         {
@@ -614,7 +614,7 @@ class RenderRpcServiceTest(unittest.TestCase):
         }
         job = self.service.queue.create(payload)
         source = self._source(NEW_SEGMENT, 5, b"new replay")
-        with mock.patch("mc_recorder.protocol.render.rpc.resolve_replay_segments", return_value=[source]):
+        with mock.patch("minerec.render.control.rpc.resolve_replay_segments", return_value=[source]):
             claimed = self.service.dispatch(
                 "claim",
                 {
@@ -657,7 +657,7 @@ class RenderRpcServiceTest(unittest.TestCase):
         claim = claimed["claim"]
         attempt = claim["attempt"]  # ty:ignore[not-subscriptable]
         with (
-            mock.patch("mc_recorder.protocol.render.rpc.create_portable_render_request") as create,
+            mock.patch("minerec.render.control.rpc.create_portable_render_request") as create,
             self.assertRaisesRegex(RecorderError, "integrity envelope"),
         ):
             self.service.dispatch(
@@ -677,7 +677,7 @@ class RenderRpcServiceTest(unittest.TestCase):
         attempt = claimed["claim"]["attempt"]  # ty:ignore[not-subscriptable]
         future = time.time() + 20
         with (
-            mock.patch("mc_recorder.protocol.render.queue.time.time", return_value=future),
+            mock.patch("minerec.render.control.queue.time.time", return_value=future),
             self.assertRaisesRegex(RecorderError, "no longer active"),
         ):
             self.service.dispatch(
@@ -728,7 +728,7 @@ class RenderRpcServiceTest(unittest.TestCase):
             "attempt_id": attempt["id"],
             "lease_token": attempt["lease_token"],
         }
-        with mock.patch("mc_recorder.protocol.render.rpc.import_render_bundle", fake_import):
+        with mock.patch("minerec.render.control.rpc.import_render_bundle", fake_import):
             finalized = self.service.dispatch("finalize", body)
             repeated = self.service.dispatch("finalize", body)
         self.assertEqual("verifying", finalized["job"]["state"])
@@ -749,7 +749,7 @@ class RenderRpcServiceTest(unittest.TestCase):
         upload = Path(claimed["upload_directory"]) / NEW_SEGMENT  # ty:ignore[invalid-argument-type]
         upload.symlink_to(outside, target_is_directory=True)
         with (
-            mock.patch("mc_recorder.protocol.render.rpc.import_render_bundle") as importer,
+            mock.patch("minerec.render.control.rpc.import_render_bundle") as importer,
             self.assertRaisesRegex(RecorderError, "symlink|missing"),
         ):
             self.service.dispatch(

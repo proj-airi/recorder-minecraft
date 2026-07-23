@@ -13,13 +13,13 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
-from mc_recorder.cli import _parser
-from mc_recorder.errors import RecorderError
-from mc_recorder.processing.capture.episodes import inspect_episode, validate_episode
-from mc_recorder.processing.capture.exporter import _safe_replace_directory, export_episode
-from mc_recorder.processing.capture.storage import enforce_quota
-from mc_recorder.processing.render.job import prepare_render_job
-from mc_recorder.processing.scene.store import SceneIdentity, SceneStoreBuilder, validate_scene_store
+from minerec.cli import _parser
+from minerec.errors import RecorderError
+from minerec.processing.capture.episodes import inspect_episode, validate_episode
+from minerec.processing.capture.exporter import _safe_replace_directory, export_episode
+from minerec.processing.capture.storage import enforce_quota
+from minerec.processing.render.job import prepare_render_job
+from minerec.processing.scene.store import SceneIdentity, SceneStoreBuilder, validate_scene_store
 
 PLAYER = "00000000-0000-4000-8000-000000000001"
 CONNECTION = "00000000-0000-4000-8000-000000000002"
@@ -463,7 +463,7 @@ class EpisodeExportTest(unittest.TestCase):
                 self.assertTrue(epoch.is_dir())
                 original_publish(staging, destination, force)
 
-            with mock.patch("mc_recorder.processing.capture.exporter._safe_replace_directory", side_effect=publish):
+            with mock.patch("minerec.processing.capture.exporter._safe_replace_directory", side_effect=publish):
                 result = export_episode(episode, output, players=[PLAYER])
 
             self.assertEqual(output.resolve(), result.output)

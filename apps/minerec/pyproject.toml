@@ -12,10 +12,10 @@ dependencies = [
 ]
 
 [project.scripts]
-minerec = "mc_recorder.cli:main"
+minerec = "minerec.cli:main"
 
 [tool.setuptools.packages.find]
 where = [ "src" ]
 
 [tool.setuptools.package-data]
-mc_recorder = [ "dashboard_dist/**" ]
+minerec = [ "dashboard_dist/**" ]

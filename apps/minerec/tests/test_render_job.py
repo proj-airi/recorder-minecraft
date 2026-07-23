@@ -11,8 +11,8 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
-from mc_recorder.errors import RecorderError
-from mc_recorder.processing.render.job import (
+from minerec.errors import RecorderError
+from minerec.processing.render.job import (
     OWNER,
     RENDER_JOB_TYPE,
     RenderJobResult,
@@ -21,7 +21,7 @@ from mc_recorder.processing.render.job import (
     prepare_render_job,
     resolve_replay,
 )
-from mc_recorder.protocol.render.contract import FULL_CLIENT_PRESENTATION_CONTRACT
+from minerec.render.control.contract import FULL_CLIENT_PRESENTATION_CONTRACT
 
 PLAYER_UUID = "12345678-1234-5678-1234-567812345678"
 CONNECTION_UUID = "87654321-4321-4678-9234-567812345678"
@@ -39,17 +39,17 @@ class ReplayResolutionTest(unittest.TestCase):
             validation = SimpleNamespace(valid=True, sealed_epochs=1, session_id="session")
             connection = "22222222-2222-2222-2222-222222222222"
             patches = (
-                mock.patch("mc_recorder.processing.render.job.validate_episode", return_value=validation),
+                mock.patch("minerec.processing.render.job.validate_episode", return_value=validation),
                 mock.patch(
-                    "mc_recorder.processing.render.job._select_connection",
+                    "minerec.processing.render.job._select_connection",
                     return_value=(connection, 10, 20),
                 ),
-                mock.patch("mc_recorder.processing.render.job._detect_replay_format", return_value="flashback"),
+                mock.patch("minerec.processing.render.job._detect_replay_format", return_value="flashback"),
                 mock.patch(
-                    "mc_recorder.processing.render.job._stable_file_digest",
+                    "minerec.processing.render.job._stable_file_digest",
                     return_value=(hashlib.sha256(b"replay").hexdigest(), 6),
                 ),
-                mock.patch("mc_recorder.processing.render.job.sha256_file", return_value="a" * 64),
+                mock.patch("minerec.processing.render.job.sha256_file", return_value="a" * 64),
             )
             for patch in patches:
                 patch.start()
@@ -127,7 +127,7 @@ class ReplayResolutionTest(unittest.TestCase):
             (frames / "personal-notes.txt").write_text("do not delete", encoding="utf-8")
             self.assertFalse(_owned_render_directory(job))
 
-    @mock.patch("mc_recorder.processing.render.job.subprocess.run")
+    @mock.patch("minerec.processing.render.job.subprocess.run")
     def test_launcher_accepts_atomic_no_coverage_only_for_intersection_jobs(self, run: mock.Mock) -> None:
         run.return_value = SimpleNamespace(returncode=0)
         with tempfile.TemporaryDirectory() as temporary:
@@ -191,7 +191,7 @@ class ReplayResolutionTest(unittest.TestCase):
                     RenderJobResult(directory, manifest, replay, "connection"),
                 )
 
-    @mock.patch("mc_recorder.processing.render.job.subprocess.run")
+    @mock.patch("minerec.processing.render.job.subprocess.run")
     def test_launcher_validates_gui_presentation_contract(self, run: mock.Mock) -> None:
         run.return_value = SimpleNamespace(returncode=0)
         with tempfile.TemporaryDirectory() as temporary:
@@ -284,7 +284,7 @@ class ReplayResolutionTest(unittest.TestCase):
             with self.assertRaisesRegex(RecorderError, "presentation_contract is not supported"):
                 launch_render_job(config, job)  # ty:ignore[invalid-argument-type]
 
-    @mock.patch("mc_recorder.processing.render.job.subprocess.run")
+    @mock.patch("minerec.processing.render.job.subprocess.run")
     def test_launcher_preserves_legacy_unmarked_gui_results(self, run: mock.Mock) -> None:
         run.return_value = SimpleNamespace(returncode=0)
         with tempfile.TemporaryDirectory() as temporary:

@@ -13,11 +13,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
-from mc_recorder.errors import RecorderError
-from mc_recorder.processing.capture.exporter import CANONICAL_RENDER_RESULT_TYPE, export_episode
-from mc_recorder.processing.render.hud import hud_result_envelope
-from mc_recorder.protocol.render.contract import FULL_CLIENT_PRESENTATION_CONTRACT
-from mc_recorder.protocol.render.transfer import (
+from minerec.errors import RecorderError
+from minerec.processing.capture.exporter import CANONICAL_RENDER_RESULT_TYPE, export_episode
+from minerec.processing.render.hud import hud_result_envelope
+from minerec.render.control.contract import FULL_CLIENT_PRESENTATION_CONTRACT
+from minerec.render.control.transfer import (
     PORTABLE_REQUEST_TYPE,
     create_portable_render_request,
     create_render_bundle,

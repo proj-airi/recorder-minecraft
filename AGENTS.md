@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-- `apps/minerec/src/mc_recorder/` contains the Python provisioning, validation, export, retention, and render-job CLI. Its tests live in `apps/minerec/tests/`.
+- `apps/minerec/src/minerec/` contains the Python provisioning, validation, export, retention, and render-job CLI. Its tests live in `apps/minerec/tests/`.
 - `mods/recorder-mod/` is the Kotlin/Java Fabric server mod; production code is under `src/main/` and JUnit tests under `src/test/`.
 - `mods/scene-extractor-mod/` is the Java Fabric dedicated-server extractor for random-access block/entity scene stores; `mods/renderer-mod/` is the client-only first-person RGB renderer.
 - `docs/specs/` defines the source JSONL and dataset contracts. Update these documents when changing persisted fields or invariants.

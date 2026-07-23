@@ -78,22 +78,17 @@ From the workspace root:
 ./hack/install
 ```
 
-`minerec init` always defaults to `server.eula = false`. Read the
-[Minecraft EULA](https://aka.ms/MinecraftEULA), then explicitly opt in by
-editing `recorder.toml`:
+Read the [Minecraft EULA](https://aka.ms/MinecraftEULA), then explicitly opt in
+by editing `deploy/.env`:
 
-```toml
-[server]
-eula = true
+```sh
+MC_EULA=TRUE
 ```
-
-The CLI never accepts the EULA automatically. If you have already reviewed and
-accepted it, `minerec init --accept-eula --force` is an explicit equivalent.
 
 Start the server and connect to `localhost:25565`:
 
 ```sh
-./hack/start-minecraft-server
+./hack/minecraft-server start
 ```
 
 Recording starts automatically when players join. The capture side requires no
@@ -101,7 +96,7 @@ client mod; a normal Minecraft 1.21.8 client can connect. Stop cleanly before
 consuming the latest files, then inspect and validate the capture:
 
 ```sh
-./hack/stop-minecraft-server
+./hack/minecraft-server stop
 pixi run minerec episodes list
 pixi run minerec episodes validate SESSION_ID
 ```
@@ -109,29 +104,28 @@ pixi run minerec episodes validate SESSION_ID
 ### LAN dashboard
 
 The dashboard can run either as a host process or as the Compose-managed
-`dashboard` service prepared by `minerec server start`. It remains available
-while Minecraft is stopped and starts or stops the Compose-managed server by
-calling the same lifecycle code as `minerec server start` and
-`minerec server stop`. Run it as a user that can run Docker Compose, and use
-launchd, systemd, or another host service manager when it should survive logouts
-or reboots. Dataset generation also needs the proto-managed Gradle executable;
-if the service does not inherit proto's shim path, set `MC_RECORDER_GRADLE` to
-its absolute executable path.
+`dashboard` service. Minecraft server lifecycle is managed outside the Python
+package with `hack/minecraft-server start`, `hack/minecraft-server stop`, or
+direct Docker Compose commands using `deploy/.env`. Run the dashboard as a user
+that can read the configured capture/export paths, and use launchd, systemd, or
+another host service manager when it should survive logouts or reboots. Dataset
+generation also needs the proto-managed Gradle executable; if the service does
+not inherit proto's shim path, set `MC_RECORDER_GRADLE` to its absolute
+executable path.
 
 Set both required HTTP Basic credentials, then start the service:
 
 ```sh
 export MC_RECORDER_DASHBOARD_USERNAME=recorder
 export MC_RECORDER_DASHBOARD_PASSWORD='replace-with-a-long-password'
-./hack/start-dashboard
+./hack/dashboard start
 ```
 
-`hack/start-dashboard` installs workspace Node dependencies and builds the
-dashboard before serving it. `minerec server start` also requires an
-existing `apps/dashboard/dist` build so the Compose dashboard can serve the
-frontend; run `pnpm build:dashboard` first when using Compose dashboard startup.
-Set `MC_RECORDER_SKIP_DASHBOARD_BUILD=1` when you want to reuse an existing
-host-mode build.
+`hack/dashboard start` installs workspace Node dependencies and builds the
+dashboard before serving it. Compose dashboard startup also needs an existing
+`apps/dashboard/dist` build; run `hack/dashboard build` first when starting the
+dashboard container directly. Set `MC_RECORDER_SKIP_DASHBOARD_BUILD=1` when you
+want to reuse an existing host-mode build.
 
 The default `[dashboard]` listener is `0.0.0.0:8765`, so another trusted-LAN
 machine can open `http://SERVER_ADDRESS:8765/`. Basic authentication over plain
@@ -368,10 +362,12 @@ pixi run minerec storage enforce
 documents every option with EULA acceptance disabled. Relative paths resolve
 from the configuration file's directory.
 
-For an API-independent local deployment, stage ServerReplay, Fabric API, and
-Fabric Language Kotlin in `.mc-recorder/mods/`, then set
-`mods.server_replay_project = ""`. The default remains the immutable Modrinth
-version selector.
+Docker Compose reads deployment settings from `deploy/.env`. Copy
+`deploy/.env.example` to `deploy/.env`, then edit values such as
+`MC_MODRINTH_PROJECTS`, ports, memory, host paths, and storage quota there. For
+an API-independent local deployment, stage ServerReplay, Fabric API, and Fabric
+Language Kotlin in `.mc-recorder/mods/`, then set `MC_MODRINTH_PROJECTS=` in
+`deploy/.env`.
 
 - [`docs/specs/source-record-v1.md`](docs/specs/source-record-v1.md) defines the
   combined capture stream, barriers, identity, replay alignment, and coverage.

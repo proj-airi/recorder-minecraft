@@ -36,3 +36,4 @@ pnpm-debug.log*
 /datasets/
 /server/
 /recorder.toml
+/deploy/.env

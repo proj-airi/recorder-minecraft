@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
-from mc_recorder.config import (
+from minerec.config import (
     DEFAULT_RENDER_TASK_QUEUE,
     ENV_DASHBOARD_PASSWORD,
     ENV_DASHBOARD_STATIC_ROOT,
@@ -18,13 +18,12 @@ from mc_recorder.config import (
     ENV_STORAGE_EVICT_OLDEST,
     ENV_STORAGE_QUOTA_BYTES,
     ENV_STORAGE_WARN_PERCENT,
-    compose_environment_variables,
     initialize,
     load_config,
     load_runtime_env,
     load_storage_monitor_env,
 )
-from mc_recorder.errors import RecorderError
+from minerec.errors import RecorderError
 
 
 class ConfigTest(unittest.TestCase):
@@ -35,9 +34,7 @@ class ConfigTest(unittest.TestCase):
             config = load_config(source)
 
             self.assertTrue(config.server.eula)
-            self.assertEqual("1.21.8", config.server.minecraft_version)
             self.assertEqual((workspace / "artifacts" / "captures").resolve(), config.paths.captures)
-            self.assertTrue(config.paths.server_data.is_dir())
             self.assertTrue(config.paths.runtime.is_dir())
             self.assertEqual(
                 (workspace / "mods" / "scene-extractor-mod").resolve(),
@@ -65,24 +62,14 @@ class ConfigTest(unittest.TestCase):
                 initialize(link, force=True)
             self.assertEqual("keep me\n", unrelated.read_text(encoding="utf-8"))
 
-    def test_v1_rejects_another_minecraft_version(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            source = initialize(Path(temporary) / "recorder.toml")
-            source.write_text(
-                source.read_text(encoding="utf-8").replace('minecraft_version = "1.21.8"', 'minecraft_version = "1.21.9"'),
-                encoding="utf-8",
-            )
-            with self.assertRaisesRegex(RecorderError, "exactly Minecraft 1.21.8"):
-                load_config(source)
-
-    def test_retention_roots_cannot_overlap_world_or_each_other(self) -> None:
+    def test_retention_roots_cannot_overlap_each_other(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             source = initialize(Path(temporary) / "recorder.toml")
             original = source.read_text(encoding="utf-8")
             source.write_text(
                 original.replace(
                     'captures = "artifacts/captures"',
-                    'captures = "artifacts/server/captures"',
+                    'captures = "artifacts/replays/captures"',
                 ),
                 encoding="utf-8",
             )
@@ -107,7 +94,6 @@ class ConfigTest(unittest.TestCase):
             for old, new in (
                 ('exports = "artifacts/exports"', 'exports = "artifacts/captures/exports"'),
                 ('runtime = ".mc-recorder"', 'runtime = "artifacts/replays/runtime"'),
-                ('server_data = "artifacts/server"', 'server_data = "artifacts"'),
             ):
                 with self.subTest(new=new):
                     source.write_text(original.replace(old, new), encoding="utf-8")
@@ -168,27 +154,6 @@ class ConfigTest(unittest.TestCase):
 
         with self.assertRaisesRegex(RecorderError, ENV_STORAGE_QUOTA_BYTES):
             load_storage_monitor_env({})
-
-    def test_compose_environment_uses_the_same_storage_contract_as_monitor(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            workspace = Path(temporary)
-            source = initialize(workspace / "recorder.toml", accept_eula=True)
-            config = load_config(source)
-            values = compose_environment_variables(
-                config,
-                dashboard_static=workspace / "apps" / "dashboard" / "dist",
-                minerec_source=workspace / "apps" / "minerec" / "src",
-                render_task_queue=DEFAULT_RENDER_TASK_QUEUE,
-            )
-
-            self.assertEqual(config.paths.captures, values[ENV_STORAGE_CAPTURE_ROOT])
-            self.assertEqual(config.storage.quota_bytes, values[ENV_STORAGE_QUOTA_BYTES])
-            self.assertEqual(config.storage.warn_percent, values[ENV_STORAGE_WARN_PERCENT])
-            self.assertEqual(str(config.storage.evict_oldest).lower(), values[ENV_STORAGE_EVICT_OLDEST])
-            self.assertEqual(config.storage.check_interval_seconds, values[ENV_STORAGE_CHECK_INTERVAL])
-            self.assertEqual(config.paths.replays, values[ENV_REPLAY_ROOT])
-            self.assertNotIn("MC_CAPTURE_QUOTA_BYTES", values)
-            self.assertNotIn("MC_STORAGE_CHECK_INTERVAL", values)
 
 
 if __name__ == "__main__":

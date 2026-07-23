@@ -1,15 +1,16 @@
 # `minerec` CLI
 
-The Python 3.14 CLI provisions the pinned Minecraft 1.21.8 Fabric server,
-inspects verified sidecar epochs, exports state/action JSONL, enforces combined
-capture/replay retention, extracts headless random-access scene stores, and
-launches local Flashback RGB/voxel rendering through RabbitMQ-dispatched
-one-shot worker processes. Pixi owns the Python environment. proto owns OpenJDK
-21 and Gradle. Docker Compose is required on the recorder host.
+The Python 3.14 CLI inspects verified sidecar epochs, exports state/action
+JSONL, enforces combined capture/replay retention, extracts headless
+random-access scene stores, serves the LAN dashboard, and launches local
+Flashback RGB/voxel rendering through RabbitMQ-dispatched one-shot worker
+processes. Pixi owns the Python environment. proto owns OpenJDK 21 and Gradle.
+Docker Compose is required on the recorder host.
 
 The capture stack defaults to the exact `itzg/minecraft-server:2026.7.0-java21` image and the
 immutable ServerReplay Modrinth selector `server-replay:TbWIikrT`. The companion
-storage monitor is pinned to `python:3.11.15-alpine3.24`.
+storage monitor, dashboard, and render dispatcher share the Pixi-built
+`minerec:local` image.
 
 ## Install and initialize
 
@@ -19,17 +20,17 @@ From the workspace root:
 ./hack/install
 ```
 
-Initialization creates `recorder.toml` and workspace directories. It
-deliberately writes `server.eula = false`. Review the
-[Minecraft EULA](https://aka.ms/MinecraftEULA), then explicitly change the
-field to `true`. Alternatively, after accepting it, use:
+Initialization creates `recorder.toml` and workspace directories. Copy
+`deploy/.env.example` to `deploy/.env`, review the
+[Minecraft EULA](https://aka.ms/MinecraftEULA), then explicitly set
+`MC_EULA=TRUE`.
+
+`minerec init` still accepts `--accept-eula` for compatibility with older
+workspace config files:
 
 ```sh
 pixi run minerec init --accept-eula --force
 ```
-
-The CLI never accepts the EULA implicitly, and `server start` refuses to run
-while the field is false.
 
 All relative paths resolve from the directory containing `recorder.toml`. Use
 `minerec --config PATH ...` to operate another workspace.
@@ -39,30 +40,21 @@ All relative paths resolve from the directory containing `recorder.toml`. Use
 For the default workspace, use the convenience scripts:
 
 ```sh
-./hack/start-minecraft-server
-./hack/restart-minecraft-server
-./hack/stop-minecraft-server
+./hack/minecraft-server start
+./hack/minecraft-server restart
+./hack/minecraft-server stop
+./hack/minecraft-server status
+./hack/minecraft-server logs --follow
 ```
 
-They are thin wrappers around the CLI below. Use the raw commands when passing
-`--config PATH` or when you need exact subcommand control:
+`hack/minecraft-server start` builds and stages `mods/recorder-mod`, writes the
+capture and ServerReplay configuration files, and starts Docker Compose while
+waiting for Compose health checks. Every connected player is recorded
+automatically. ServerReplay writes a Flashback archive per player, including
+that player's client-visible chunks, under `paths.replays`; the sidecar writes
+combined event slices under `paths.captures`.
 
-```sh
-pixi run minerec server start --wait
-pixi run minerec server status
-pixi run minerec server logs --follow
-pixi run minerec server stop
-```
-
-`server start` builds and stages `mods/recorder-mod`, writes the capture and
-ServerReplay configurations, checks the combined capture/replay quota, and
-starts Docker Compose. With `--wait`, it waits for the image's Minecraft health
-check. Every connected player is recorded automatically. ServerReplay writes a
-Flashback archive per player, including that player's client-visible chunks,
-under `paths.replays`; the sidecar writes combined event slices under
-`paths.captures`.
-
-`server stop` requests a graceful Minecraft shutdown. Sidecar slices are
+`hack/minecraft-server stop` requests a graceful Minecraft shutdown. Sidecar slices are
 exportable only after `events.jsonl.inprogress` has been atomically published
 as `events.jsonl` with a matching manifest. Completed ServerReplay archives
 are independent of sidecar slices.
@@ -72,16 +64,15 @@ are independent of sidecar slices.
 ```sh
 export MC_RECORDER_DASHBOARD_USERNAME=recorder
 export MC_RECORDER_DASHBOARD_PASSWORD='replace-with-a-long-password'
-./hack/start-dashboard
+./hack/dashboard start
 ```
 
-`hack/start-dashboard` runs `pnpm install` and `pnpm build:dashboard` before
+`hack/dashboard start` runs `pnpm install` and `pnpm build:dashboard` before
 serving. Set `MC_RECORDER_SKIP_DASHBOARD_BUILD=1` to reuse an existing
-dashboard build, or run `pixi run minerec dashboard serve` directly for raw
-CLI control.
+dashboard build, or run `hack/dashboard serve` for raw CLI control.
 
-The generated configuration contains the intended LAN defaults, which can be
-changed without altering the credential environment variables:
+Host-mode dashboard defaults come from `recorder.toml` and can be changed
+without altering credential environment variables:
 
 ```toml
 [dashboard]
@@ -90,9 +81,9 @@ port = 8765
 ```
 
 `dashboard serve` runs directly on the recorder host and defaults to
-`0.0.0.0:8765` from the `[dashboard]` configuration. `minerec server start`
-also prepares a Compose dashboard service for containerized runs with the same
-workspace mounts. Run host-mode dashboard commands with the same
+`0.0.0.0:8765` from the `[dashboard]` configuration. `hack/minecraft-server
+start` also prepares a Compose dashboard service for containerized runs with
+the same workspace mounts. Run host-mode dashboard commands with the same
 workspace/configuration and a host account allowed to use Docker Compose. Use
 launchd, systemd, or another host service manager to keep host mode running
 independently of an interactive shell.

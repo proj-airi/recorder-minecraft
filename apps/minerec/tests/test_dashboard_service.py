@@ -13,11 +13,11 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
-from mc_recorder.config import initialize, load_config
-from mc_recorder.errors import RecorderError
-from mc_recorder.processing.dataset.viewer import DatasetCatalogResult
-from mc_recorder.protocol.render.contract import FULL_CLIENT_PRESENTATION_CONTRACT
-from mc_recorder.serving.dashboard.service import DashboardService
+from minerec.config import initialize, load_config
+from minerec.errors import RecorderError
+from minerec.processing.dataset.viewer import DatasetCatalogResult
+from minerec.render.control.contract import FULL_CLIENT_PRESENTATION_CONTRACT
+from minerec.serve.dashboard.service import DashboardService
 
 PLAYER = "00000000-0000-4000-8000-000000000001"
 ACTIVE = "00000000-0000-4000-8000-000000000002"
@@ -516,7 +516,7 @@ class DashboardServiceTest(unittest.TestCase):
                 return DatasetCatalogResult((), ())
 
             with mock.patch(
-                "mc_recorder.processing.dataset.viewer.DatasetViewer.catalog",
+                "minerec.processing.dataset.viewer.DatasetViewer.catalog",
                 autospec=True,
                 side_effect=blocked_catalog,
             ):
@@ -592,11 +592,11 @@ class DashboardServiceTest(unittest.TestCase):
                     with (
                         self.subTest(outcome=type(outcome).__name__),
                         mock.patch(
-                            "mc_recorder.serving.dashboard.service.prepare_scene_job",
+                            "minerec.serve.dashboard.service.prepare_scene_job",
                             return_value=scene_job,
                         ) as prepare,
-                        mock.patch("mc_recorder.serving.dashboard.service.cleanup_scene_job") as cleanup,
-                        mock.patch("mc_recorder.serving.dashboard.service.cleanup_stale_scene_jobs") as cleanup_stale,
+                        mock.patch("minerec.serve.dashboard.service.cleanup_scene_job") as cleanup,
+                        mock.patch("minerec.serve.dashboard.service.cleanup_stale_scene_jobs") as cleanup_stale,
                         mock.patch.object(
                             service,
                             "_publish_prepared_scene_job",
@@ -664,16 +664,16 @@ class DashboardServiceTest(unittest.TestCase):
             try:
                 with (
                     mock.patch(
-                        "mc_recorder.serving.dashboard.service.operation_lock",
+                        "minerec.serve.dashboard.service.operation_lock",
                         return_value=nullcontext(),
                     ),
                     mock.patch.object(service, "_sliced_through_sequence", return_value=99),
                     mock.patch(
-                        "mc_recorder.serving.dashboard.service.resolve_episode",
+                        "minerec.serve.dashboard.service.resolve_episode",
                         return_value=episode,
                     ),
                     mock.patch(
-                        "mc_recorder.serving.dashboard.service.pin_sealed_epochs",
+                        "minerec.serve.dashboard.service.pin_sealed_epochs",
                         return_value=nullcontext(pinned_epochs),
                     ),
                     mock.patch.object(

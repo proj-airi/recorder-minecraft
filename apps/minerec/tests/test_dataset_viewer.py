@@ -15,7 +15,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
-from mc_recorder.processing.dataset.viewer import (
+from minerec.processing.dataset.viewer import (
     ArtifactUnavailableError,
     DatasetValidationError,
     DatasetViewer,
@@ -23,13 +23,13 @@ from mc_recorder.processing.dataset.viewer import (
     SampleNotFoundError,
     opaque_dataset_id,
 )
-from mc_recorder.processing.scene.store import (
+from minerec.processing.scene.store import (
     SceneIdentity,
     SceneStoreBuilder,
     validate_scene_attachment_provenance,
     validate_scene_store,
 )
-from mc_recorder.protocol.render.contract import FULL_CLIENT_PRESENTATION_CONTRACT
+from minerec.render.control.contract import FULL_CLIENT_PRESENTATION_CONTRACT
 
 _AUTO_SCENE_ATTACHMENT = object()
 

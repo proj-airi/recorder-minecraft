@@ -15,11 +15,11 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
-from mc_recorder.cli import _parser, _prepare_scene_output, run
-from mc_recorder.config import RecorderConfig, initialize, load_config
-from mc_recorder.errors import RecorderError
-from mc_recorder.processing.capture.episodes import EpochInfo, inspect_epoch
-from mc_recorder.processing.scene.job import (
+from minerec.cli import _parser, _prepare_scene_output, run
+from minerec.config import RecorderConfig, initialize, load_config
+from minerec.errors import RecorderError
+from minerec.processing.capture.episodes import EpochInfo, inspect_epoch
+from minerec.processing.scene.job import (
     SceneJob,
     SubjectPoseSourceEpoch,
     _resolve_gradle_executable,
@@ -30,8 +30,8 @@ from mc_recorder.processing.scene.job import (
     launch_scene_job,
     prepare_scene_job,
 )
-from mc_recorder.processing.scene.store import SceneStoreError, compact_scene_stream
-from mc_recorder.protocol.render.sources import FLASHBACK_CAPTURE_CONTRACT, ReplaySegmentSource
+from minerec.processing.scene.store import SceneStoreError, compact_scene_stream
+from minerec.render.control.sources import FLASHBACK_CAPTURE_CONTRACT, ReplaySegmentSource
 
 PLAYER = "00000000-0000-4000-8000-000000000001"
 CONNECTION = "00000000-0000-4000-8000-000000000002"
@@ -41,7 +41,7 @@ SEGMENT = "00000000-0000-4000-8000-000000000003"
 class SceneJobTest(unittest.TestCase):
     def setUp(self) -> None:
         self.gradle_lookup = mock.patch(
-            "mc_recorder.processing.scene.job.shutil.which",
+            "minerec.processing.scene.job.shutil.which",
             return_value="/opt/proto/bin/gradle",
         )
         self.gradle_lookup.start()
@@ -148,14 +148,14 @@ class SceneJobTest(unittest.TestCase):
         config, episode, source = self._fixture(root)
         with (
             mock.patch(
-                "mc_recorder.processing.scene.job.validate_episode",
+                "minerec.processing.scene.job.validate_episode",
                 return_value=SimpleNamespace(valid=True, sealed_epochs=1, session_id="session-a"),
             ),
             mock.patch(
-                "mc_recorder.processing.scene.job._select_subject_poses",
+                "minerec.processing.scene.job._select_subject_poses",
                 return_value=self._pose_selection(10, 11),
             ),
-            mock.patch("mc_recorder.processing.scene.job.resolve_replay_segments", return_value=[source]),
+            mock.patch("minerec.processing.scene.job.resolve_replay_segments", return_value=[source]),
         ):
             job = prepare_scene_job(
                 config,
@@ -264,15 +264,15 @@ class SceneJobTest(unittest.TestCase):
             legacy = replace(source, flashback_capture_contract=None)
             with (
                 mock.patch(
-                    "mc_recorder.processing.scene.job.validate_episode",
+                    "minerec.processing.scene.job.validate_episode",
                     return_value=SimpleNamespace(valid=True, sealed_epochs=1, session_id="session-a"),
                 ),
                 mock.patch(
-                    "mc_recorder.processing.scene.job._select_subject_poses",
+                    "minerec.processing.scene.job._select_subject_poses",
                     return_value=self._pose_selection(10, 11),
                 ),
                 mock.patch(
-                    "mc_recorder.processing.scene.job.resolve_replay_segments",
+                    "minerec.processing.scene.job.resolve_replay_segments",
                     return_value=[legacy],
                 ),
             ):
@@ -389,8 +389,8 @@ class SceneJobTest(unittest.TestCase):
                 (path / "manifest.json").write_text(json.dumps({"sealed": True}), encoding="utf-8")
 
             with (
-                mock.patch("mc_recorder.processing.scene.job.inspect_epoch") as inspect,
-                mock.patch("mc_recorder.processing.scene.job.validate_episode") as validate,
+                mock.patch("minerec.processing.scene.job.inspect_epoch") as inspect,
+                mock.patch("minerec.processing.scene.job.validate_episode") as validate,
             ):
                 with self.assertRaisesRegex(RecorderError, "set changed"):
                     prepare_scene_job(
@@ -414,13 +414,13 @@ class SceneJobTest(unittest.TestCase):
             info = SimpleNamespace(index=0, path=epoch, status="sealed")
             validation = SimpleNamespace(valid=True, sealed_epochs=1, session_id="session-a")
             with (
-                mock.patch("mc_recorder.processing.scene.job.inspect_epoch", return_value=info),
-                mock.patch("mc_recorder.processing.scene.job.validate_episode", return_value=validation) as validate,
+                mock.patch("minerec.processing.scene.job.inspect_epoch", return_value=info),
+                mock.patch("minerec.processing.scene.job.validate_episode", return_value=validation) as validate,
                 mock.patch(
-                    "mc_recorder.processing.scene.job._select_subject_poses",
+                    "minerec.processing.scene.job._select_subject_poses",
                     return_value=self._pose_selection(10, 11),
                 ) as subject_poses,
-                mock.patch("mc_recorder.processing.scene.job.resolve_replay_segments", return_value=[source]),
+                mock.patch("minerec.processing.scene.job.resolve_replay_segments", return_value=[source]),
             ):
                 prepare_scene_job(
                     config,
@@ -466,20 +466,20 @@ class SceneJobTest(unittest.TestCase):
             config = SimpleNamespace(paths=SimpleNamespace(captures=root / "captures", runtime=root / "runtime"))
             job = SimpleNamespace(manifest=root / "job" / "scene-job.json")
             with (
-                mock.patch("mc_recorder.cli.load_config", return_value=config),
-                mock.patch("mc_recorder.cli.resolve_episode", return_value=root / "episode"),
-                mock.patch("mc_recorder.cli.operation_lock", return_value=nullcontext()),
+                mock.patch("minerec.cli.load_config", return_value=config),
+                mock.patch("minerec.cli.resolve_episode", return_value=root / "episode"),
+                mock.patch("minerec.cli.operation_lock", return_value=nullcontext()),
                 mock.patch(
-                    "mc_recorder.cli.pin_sealed_epochs",
+                    "minerec.cli.pin_sealed_epochs",
                     return_value=nullcontext(()),
                 ),
-                mock.patch("mc_recorder.cli.prepare_scene_job", return_value=job),
+                mock.patch("minerec.cli.prepare_scene_job", return_value=job),
                 mock.patch(
-                    "mc_recorder.cli.launch_scene_job",
+                    "minerec.cli.launch_scene_job",
                     side_effect=RecorderError("extractor failed"),
                 ),
-                mock.patch("mc_recorder.cli.cleanup_scene_job") as cleanup,
-                mock.patch("mc_recorder.cli.cleanup_stale_scene_jobs") as cleanup_stale,
+                mock.patch("minerec.cli.cleanup_scene_job") as cleanup,
+                mock.patch("minerec.cli.cleanup_stale_scene_jobs") as cleanup_stale,
             ):
                 with self.assertRaisesRegex(RecorderError, "extractor failed"):
                     run(
@@ -504,7 +504,7 @@ class SceneJobTest(unittest.TestCase):
                 cleanup_stale.call_args_list,
             )
 
-    @mock.patch("mc_recorder.processing.scene.job.subprocess.run")
+    @mock.patch("minerec.processing.scene.job.subprocess.run")
     def test_launch_holds_sources_and_accepts_only_an_identity_bound_result(self, run: mock.Mock) -> None:
         run.return_value = SimpleNamespace(returncode=0, stderr="")
         with tempfile.TemporaryDirectory() as temporary:
@@ -554,11 +554,11 @@ class SceneJobTest(unittest.TestCase):
                 )
 
     def test_gradle_resolution_reports_service_setup_when_gradle_is_absent(self) -> None:
-        with mock.patch("mc_recorder.processing.scene.job.shutil.which", return_value=None):
+        with mock.patch("minerec.processing.scene.job.shutil.which", return_value=None):
             with self.assertRaisesRegex(RecorderError, "MC_RECORDER_GRADLE"):
                 _resolve_gradle_executable({"PATH": "/usr/bin"})
 
-    @mock.patch("mc_recorder.processing.scene.job.subprocess.run")
+    @mock.patch("minerec.processing.scene.job.subprocess.run")
     def test_launch_rejects_spool_bytes_that_do_not_match_terminal_result(self, run: mock.Mock) -> None:
         run.return_value = SimpleNamespace(returncode=0, stderr="")
         with tempfile.TemporaryDirectory() as temporary:
@@ -569,7 +569,7 @@ class SceneJobTest(unittest.TestCase):
             with self.assertRaisesRegex(RecorderError, "size|SHA-256"):
                 launch_scene_job(config, job, capture_output=True)
 
-    @mock.patch("mc_recorder.processing.scene.job.subprocess.run")
+    @mock.patch("minerec.processing.scene.job.subprocess.run")
     def test_launch_rejects_subject_pose_tampering_before_extraction(self, run: mock.Mock) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             config, job = self._prepare(Path(temporary))
@@ -580,7 +580,7 @@ class SceneJobTest(unittest.TestCase):
 
             run.assert_not_called()
 
-    @mock.patch("mc_recorder.processing.scene.job.subprocess.run")
+    @mock.patch("minerec.processing.scene.job.subprocess.run")
     def test_launch_requires_the_exact_complete_result_and_canonical_blobs(self, run: mock.Mock) -> None:
         run.return_value = SimpleNamespace(returncode=0, stderr="")
         with tempfile.TemporaryDirectory() as temporary:
@@ -618,7 +618,7 @@ class SceneJobTest(unittest.TestCase):
             with self.assertRaisesRegex(RecorderError, "blob"):
                 launch_scene_job(config, bad_blob, capture_output=True)
 
-    @mock.patch("mc_recorder.processing.scene.job.subprocess.run")
+    @mock.patch("minerec.processing.scene.job.subprocess.run")
     def test_compaction_rechecks_frozen_verified_stream_after_launch(self, run: mock.Mock) -> None:
         run.return_value = SimpleNamespace(returncode=0, stderr="")
         with tempfile.TemporaryDirectory() as temporary:
@@ -663,14 +663,14 @@ class SceneJobTest(unittest.TestCase):
             config, episode, source = self._fixture(root)
             with (
                 mock.patch(
-                    "mc_recorder.processing.scene.job.validate_episode",
+                    "minerec.processing.scene.job.validate_episode",
                     return_value=SimpleNamespace(valid=True, sealed_epochs=1, session_id="session-a"),
                 ),
                 mock.patch(
-                    "mc_recorder.processing.scene.job._select_subject_poses",
+                    "minerec.processing.scene.job._select_subject_poses",
                     return_value=self._pose_selection(10, 11),
                 ),
-                mock.patch("mc_recorder.processing.scene.job.resolve_replay_segments", return_value=[source]),
+                mock.patch("minerec.processing.scene.job.resolve_replay_segments", return_value=[source]),
             ):
                 first = prepare_scene_job(config, episode, player_uuid=PLAYER, connection_id=CONNECTION)
                 second = prepare_scene_job(config, episode, player_uuid=PLAYER, connection_id=CONNECTION)

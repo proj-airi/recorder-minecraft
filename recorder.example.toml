@@ -1,48 +1,21 @@
 version = 1
 
 [server]
-# Set true only after reviewing and accepting https://aka.ms/MinecraftEULA
-# The CLI never changes this value implicitly.
+# Scene extraction launches a local dedicated server; set true only after
+# accepting https://aka.ms/MinecraftEULA.
 eula = false
-image = "itzg/minecraft-server:2026.7.0-java21"
-minecraft_version = "1.21.8"
-fabric_loader_version = "0.19.3"
-port = 25565
-memory = "4G"
-seed = ""
-game_mode = "survival"
-difficulty = "normal"
-view_distance = 10
-simulation_distance = 10
-online_mode = true
-max_players = 20
-level_name = "world"
-motd = "Minecraft dataset recorder"
 
 [paths]
 # Relative paths resolve from this file. Defaults stay inside the workspace.
-server_data = "artifacts/server"
 captures = "artifacts/captures"
 replays = "artifacts/replays"
 exports = "artifacts/exports"
 runtime = ".mc-recorder"
-compose_file = "deploy/docker-compose.yml"
 
 [mods]
 recorder_project = "mods/recorder-mod"
 renderer_project = "mods/renderer-mod"
 scene_extractor_project = "mods/scene-extractor-mod"
-# Optional explicit JAR; when empty, build/libs is discovered after a local build.
-recorder_jar = ""
-build_on_start = true
-# Immutable Modrinth version ID for ServerReplay 3.0.1+1.21.8.
-# Set empty only when ServerReplay and its required dependencies are staged in runtime/mods.
-server_replay_project = "server-replay:TbWIikrT"
-extra_modrinth_projects = []
-
-[capture]
-# Nominally five minutes at 20 ticks/second. Sealed epochs are retention units.
-epoch_ticks = 6000
 
 [storage]
 # Combined quota for sidecar captures and replay archives; world data is excluded.

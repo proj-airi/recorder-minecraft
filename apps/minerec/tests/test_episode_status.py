@@ -12,9 +12,9 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
-from mc_recorder.cli import _list
-from mc_recorder.processing.capture.episodes import inspect_episode
-from mc_recorder.processing.capture.storage import sealed_epoch_paths
+from minerec.cli import _list
+from minerec.processing.capture.episodes import inspect_episode
+from minerec.processing.capture.storage import sealed_epoch_paths
 
 
 def _active_episode(root: Path, *, terminal_status: str | None = None, clean: bool = False) -> Path:
@@ -85,7 +85,7 @@ class EpisodeStatusTest(unittest.TestCase):
                 storage=SimpleNamespace(quota_bytes=1_000_000, warn_percent=80),
             )
             output = io.StringIO()
-            with patch("mc_recorder.cli.load_config", return_value=config), redirect_stdout(output):
+            with patch("minerec.cli.load_config", return_value=config), redirect_stdout(output):
                 self.assertEqual(0, _list("unused.toml", as_json=False))
             self.assertIn("session-a\tincomplete\t0 sealed, 1 unsealed", output.getvalue())
 

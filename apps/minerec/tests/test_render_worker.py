@@ -10,12 +10,12 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
-from mc_recorder.errors import RecorderError
-from mc_recorder.protocol.render.contract import (
+from minerec.errors import RecorderError
+from minerec.render.control.contract import (
     FULL_CLIENT_PRESENTATION_CAPABILITY_KEY,
     FULL_CLIENT_PRESENTATION_CONTRACT,
 )
-from mc_recorder.workers.render import (
+from minerec.workers.render import (
     LocalRecorder,
     _ClaimedJobError,
     _IncompatibleServerError,
@@ -176,7 +176,7 @@ class RenderWorkerTest(unittest.TestCase):
             endpoint = LocalRecorder(Path(temporary))
             with (
                 mock.patch(
-                    "mc_recorder.workers.render.call_recorder_json",
+                    "minerec.workers.render.call_recorder_json",
                     return_value={
                         "worker": {"id": "00000000-0000-4000-8000-000000000012"},
                         "server_capabilities": {},
@@ -189,15 +189,15 @@ class RenderWorkerTest(unittest.TestCase):
             ):
                 _register_worker(endpoint, "00000000-0000-4000-8000-000000000012")
 
-    @mock.patch("mc_recorder.workers.render._RemoteLease.stop")
-    @mock.patch("mc_recorder.workers.render._RemoteLease.start")
-    @mock.patch("mc_recorder.workers.render.upload_bundle")
-    @mock.patch("mc_recorder.workers.render.create_render_bundle")
-    @mock.patch("mc_recorder.workers.render.launch_render_job")
-    @mock.patch("mc_recorder.workers.render.materialize_portable_render_job")
-    @mock.patch("mc_recorder.workers.render.write_portable_render_request")
-    @mock.patch("mc_recorder.workers.render.download_replay")
-    @mock.patch("mc_recorder.workers.render.call_recorder_json")
+    @mock.patch("minerec.workers.render._RemoteLease.stop")
+    @mock.patch("minerec.workers.render._RemoteLease.start")
+    @mock.patch("minerec.workers.render.upload_bundle")
+    @mock.patch("minerec.workers.render.create_render_bundle")
+    @mock.patch("minerec.workers.render.launch_render_job")
+    @mock.patch("minerec.workers.render.materialize_portable_render_job")
+    @mock.patch("minerec.workers.render.write_portable_render_request")
+    @mock.patch("minerec.workers.render.download_replay")
+    @mock.patch("minerec.workers.render.call_recorder_json")
     def test_worker_consumes_exact_job_renders_finalizes_and_exits(
         self,
         rpc_mock: mock.Mock,
@@ -321,7 +321,7 @@ class RenderWorkerTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temporary:
             with (
-                mock.patch("mc_recorder.workers.render.call_recorder_json", side_effect=rpc),
+                mock.patch("minerec.workers.render.call_recorder_json", side_effect=rpc),
                 self.assertRaisesRegex(RecorderError, "not claimable"),
             ):
                 run_render_worker(
@@ -335,9 +335,9 @@ class RenderWorkerTest(unittest.TestCase):
     def test_claimed_job_failure_stops_before_touching_later_jobs(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             with (
-                mock.patch("mc_recorder.workers.render._register_worker"),
+                mock.patch("minerec.workers.render._register_worker"),
                 mock.patch(
-                    "mc_recorder.workers.render._run_registered_worker_once",
+                    "minerec.workers.render._run_registered_worker_once",
                     side_effect=_ClaimedJobError("renderer is unavailable"),
                 ),
                 self.assertRaisesRegex(_ClaimedJobError, "renderer is unavailable"),

@@ -17,12 +17,16 @@ if [[ ! -f recorder.toml ]]; then
   pixi run minerec init
 fi
 
+if [[ ! -f deploy/.env ]]; then
+  cp deploy/.env.example deploy/.env
+fi
+
 cat <<'EOF'
 
 Installed local toolchains and Pixi environment.
 
 Next:
   1. Review https://aka.ms/MinecraftEULA
-  2. Set server.eula = true in recorder.toml
-  3. Run ./hack/start-minecraft-server
+  2. Set MC_EULA=TRUE in deploy/.env
+  3. Run ./hack/minecraft-server start
 EOF

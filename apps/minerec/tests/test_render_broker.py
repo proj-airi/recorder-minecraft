@@ -8,13 +8,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
-from mc_recorder.protocol.render.broker import (
+from minerec.render.control.broker import (
     build_render_task_message,
     consume_one_render_task_message,
     dispatch_mod_emitted_render_jobs,
     publish_render_task_message,
 )
-from mc_recorder.protocol.render.queue import RenderQueueStore
+from minerec.render.control.queue import RenderQueueStore
 
 
 class RenderBrokerTest(unittest.TestCase):

@@ -13,8 +13,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
-from mc_recorder.processing.capture.episodes import directory_size
-from mc_recorder.processing.capture.storage import enforce_quota, pin_sealed_epochs
+from minerec.processing.capture.episodes import directory_size
+from minerec.processing.capture.storage import enforce_quota, pin_sealed_epochs
 
 
 def _epoch(root: Path, session: str, index: int, size: int, *, active: bool = False) -> Path:

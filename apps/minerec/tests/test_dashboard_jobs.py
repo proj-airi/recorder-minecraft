@@ -9,8 +9,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
-from mc_recorder.errors import RecorderError
-from mc_recorder.serving.dashboard.jobs import JobManager, JobStore
+from minerec.errors import RecorderError
+from minerec.serve.dashboard.jobs import JobManager, JobStore
 
 
 class DashboardJobTest(unittest.TestCase):

@@ -25,6 +25,7 @@ test-python = "python -m unittest discover -s apps/minerec/tests -v"
 build-recorder-mod = "gradle --project-dir mods/recorder-mod build"
 build-scene-extractor-mod = "gradle --project-dir mods/scene-extractor-mod build"
 build-renderer-mod = "gradle --project-dir mods/renderer-mod build"
+build-minerec-image = "docker buildx build --platform linux/amd64 -f apps/minerec/Dockerfile . --tag minerec:local --load"
 build-mods = { depends-on = [
   "build-recorder-mod",
   "build-scene-extractor-mod",

@@ -13,9 +13,9 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
-from mc_recorder import cli
-from mc_recorder.errors import RecorderError
-from mc_recorder.processing.capture.storage import enforce_quota
+from minerec import cli
+from minerec.errors import RecorderError
+from minerec.processing.capture.storage import enforce_quota
 
 
 class _Input:

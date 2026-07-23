@@ -11,7 +11,7 @@ toolchain. Gradle is installed by proto instead of the Gradle wrapper.
 | OpenJDK 21 and Gradle 9.6.1 | proto | `.prototools` |
 | Python package metadata | setuptools | `apps/minerec/pyproject.toml` |
 | Fabric/Kotlin build logic and dependencies | Gradle projects | `mods/recorder-mod/`, `mods/scene-extractor-mod/`, `mods/renderer-mod/` |
-| Docker Compose runtime | `minerec` CLI | `deploy/docker-compose.yml`, generated `.mc-recorder/compose.env` |
+| Docker Compose runtime | Docker Compose | `deploy/docker-compose.yml`, `deploy/.env` copied from `deploy/.env.example` |
 | Pull request verification | GitHub Actions | `.github/workflows/ci.yml` |
 
 Do not use a repository-local virtualenv for normal development, and do not add
@@ -42,10 +42,11 @@ repository.
 ## Daily Commands
 
 ```sh
-./hack/start-minecraft-server
-./hack/restart-minecraft-server
-./hack/stop-minecraft-server
-./hack/start-dashboard
+./hack/minecraft-server start
+./hack/minecraft-server restart
+./hack/minecraft-server stop
+./hack/minecraft-server logs --follow
+./hack/dashboard start
 pixi run test-python
 pixi run build-recorder-mod
 pixi run build-scene-extractor-mod
@@ -53,10 +54,11 @@ pixi run build-renderer-mod
 pixi run check
 ```
 
-The `hack/` scripts are thin wrappers around the same `pixi run minerec`
-commands used by the dashboard and CI-oriented docs. They keep Compose behind
-the CLI so mod staging, generated configuration, EULA validation, and retention
-checks still run before Docker starts.
+The Minecraft `hack/minecraft-server` command is a thin wrapper around Docker
+Compose and `hack/minecraft-server prepare`. Use Docker Compose directly with
+`--env-file deploy/.env --file deploy/docker-compose.yml` when you only need
+container lifecycle control. Run `hack/minecraft-server prepare` after changing
+the local recorder mod or mod configuration inputs.
 
 `pixi run check` runs the Python test suite and all three Gradle builds. Renderer
 builds normally resolve Flashback from the pinned Modrinth version ID in
