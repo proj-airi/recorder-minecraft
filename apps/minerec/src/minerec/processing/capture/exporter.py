@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import os
@@ -785,6 +786,120 @@ def _assert_sources_unchanged(epochs: list[VerifiedEpoch]) -> None:
             raise RecorderError(f"sealed source changed during export: {epoch.info.path}")
 
 
+def _validated_source_snapshot(
+    supplied: dict[str, Any],
+    *,
+    session_id: str,
+    session_manifest_sha: str,
+    verified_epochs: list[VerifiedEpoch],
+    selected_players: set[str],
+    selected_connections: set[str],
+) -> dict[str, Any]:
+    if supplied.get("format") != "append_prefix_v1":
+        raise RecorderError("capture snapshot format is unsupported")
+    if supplied.get("session_id") != session_id:
+        raise RecorderError("capture snapshot has the wrong session")
+    player_uuid = supplied.get("player_uuid")
+    connection_id = supplied.get("connection_id")
+    if not isinstance(player_uuid, str) or selected_players != {player_uuid}:
+        raise RecorderError("capture snapshot requires its exact player selection")
+    if not isinstance(connection_id, str) or selected_connections != {connection_id}:
+        raise RecorderError("capture snapshot requires its exact connection selection")
+    source_episode_value = supplied.get("source_episode")
+    if not isinstance(source_episode_value, str):
+        raise RecorderError("capture snapshot source episode is missing")
+    source_episode = Path(source_episode_value)
+    if not source_episode.is_absolute() or source_episode.is_symlink() or not source_episode.is_dir():
+        raise RecorderError("capture snapshot source episode is invalid")
+    source_manifest = source_episode / "manifest.json"
+    if source_manifest.is_symlink() or not source_manifest.is_file():
+        raise RecorderError("capture snapshot source manifest is invalid")
+    if sha256_file(source_manifest) != session_manifest_sha:
+        raise RecorderError("capture snapshot source manifest changed")
+
+    raw_segments = supplied.get("segments")
+    if not isinstance(raw_segments, list) or len(raw_segments) != len(verified_epochs):
+        raise RecorderError("capture snapshot segment count does not match its episode")
+    epoch_by_index = {epoch.info.index: epoch for epoch in verified_epochs}
+    validated_segments: list[dict[str, Any]] = []
+    for ordinal, raw_segment in enumerate(raw_segments):
+        if not isinstance(raw_segment, dict):
+            raise RecorderError(f"capture snapshot segment {ordinal} is not an object")
+        epoch_index = raw_segment.get("epoch_index")
+        epoch = epoch_by_index.get(epoch_index) if isinstance(epoch_index, int) and not isinstance(epoch_index, bool) else None
+        if epoch is None:
+            raise RecorderError(f"capture snapshot segment {ordinal} has an unknown epoch")
+        kind = raw_segment.get("kind")
+        if kind not in {"finalized", "active_prefix"}:
+            raise RecorderError(f"capture snapshot segment {ordinal} has an invalid kind")
+        source_value = raw_segment.get("source")
+        if not isinstance(source_value, str):
+            raise RecorderError(f"capture snapshot segment {ordinal} has no source")
+        relative = Path(source_value)
+        if relative.is_absolute() or ".." in relative.parts:
+            raise RecorderError(f"capture snapshot segment {ordinal} source is not contained")
+        source = source_episode / relative
+        if source.is_symlink() or not source.is_file():
+            raise RecorderError(f"capture snapshot segment {ordinal} source is invalid")
+        resolved_source = source.resolve()
+        try:
+            resolved_source.relative_to(source_episode)
+        except ValueError as exc:
+            raise RecorderError(f"capture snapshot segment {ordinal} source escapes its episode") from exc
+        size_bytes = raw_segment.get("bytes")
+        observed_bytes = raw_segment.get("observed_bytes")
+        record_count = raw_segment.get("record_count")
+        expected_sha = raw_segment.get("sha256")
+        if not isinstance(size_bytes, int) or isinstance(size_bytes, bool) or size_bytes <= 0:
+            raise RecorderError(f"capture snapshot segment {ordinal} byte count is invalid")
+        if not isinstance(observed_bytes, int) or isinstance(observed_bytes, bool) or observed_bytes < size_bytes:
+            raise RecorderError(f"capture snapshot segment {ordinal} observed size is invalid")
+        if not isinstance(record_count, int) or isinstance(record_count, bool) or record_count <= 0:
+            raise RecorderError(f"capture snapshot segment {ordinal} record count is invalid")
+        if not isinstance(expected_sha, str) or re.fullmatch(r"[0-9a-f]{64}", expected_sha) is None:
+            raise RecorderError(f"capture snapshot segment {ordinal} SHA-256 is invalid")
+        if (
+            epoch.events_bytes != size_bytes
+            or epoch.record_count != record_count
+            or epoch.events_sha256 != expected_sha
+        ):
+            raise RecorderError(f"capture snapshot segment {ordinal} does not match its private envelope")
+        try:
+            before = source.stat()
+            with source.open("rb") as handle:
+                prefix = handle.read(size_bytes)
+            after = source.stat()
+        except OSError as exc:
+            raise RecorderError(f"cannot verify capture snapshot segment {ordinal}") from exc
+        if (
+            before.st_dev != after.st_dev
+            or before.st_ino != after.st_ino
+            or before.st_size < size_bytes
+            or after.st_size < size_bytes
+            or len(prefix) != size_bytes
+            or hashlib.sha256(prefix).hexdigest() != expected_sha
+        ):
+            raise RecorderError(f"capture snapshot segment {ordinal} source prefix changed")
+        validated_segments.append(_plain_json(raw_segment))
+
+    try:
+        return json.loads(
+            json.dumps(
+                {
+                    **supplied,
+                    "source_episode": str(source_episode),
+                    "segments": validated_segments,
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=False,
+                allow_nan=False,
+            )
+        )
+    except (TypeError, ValueError, RecursionError) as exc:
+        raise RecorderError("capture snapshot provenance is not valid JSON") from exc
+
+
 def _attachment_input(path: Path, description: str) -> Path:
     expanded = path.expanduser()
     if expanded.is_symlink():
@@ -1248,6 +1363,7 @@ def export_episode(
     last_tick: int | None = None,
     frames: Iterable[Path] = (),
     scenes: Iterable[Path] = (),
+    source_snapshot: dict[str, Any] | None = None,
     force: bool = False,
 ) -> ExportResult:
     """Validate, read, and atomically publish while source epochs are pinned."""
@@ -1262,6 +1378,7 @@ def export_episode(
             last_tick=last_tick,
             frames=frames,
             scenes=scenes,
+            source_snapshot=source_snapshot,
             force=force,
             pinned_epochs=pinned_epochs,
         )
@@ -1277,6 +1394,7 @@ def _export_episode_pinned(
     last_tick: int | None = None,
     frames: Iterable[Path] = (),
     scenes: Iterable[Path] = (),
+    source_snapshot: dict[str, Any] | None,
     force: bool = False,
     pinned_epochs: tuple[Path, ...],
 ) -> ExportResult:
@@ -1309,6 +1427,18 @@ def _export_episode_pinned(
     )
     selected_players = _normalize_players(players)
     selected_connections = _normalize_connections(connections)
+    validated_snapshot = (
+        _validated_source_snapshot(
+            source_snapshot,
+            session_id=validation.session_id,
+            session_manifest_sha=sha256_file(episode / "manifest.json"),
+            verified_epochs=verified_epochs,
+            selected_players=selected_players,
+            selected_connections=selected_connections,
+        )
+        if source_snapshot is not None
+        else None
+    )
     scene_attachment = _load_scene_attachment(scenes, validation.session_id)
     scene_frames = scene_attachment.frames if scene_attachment is not None else {}
     if scene_attachment is not None and scene_frames:
@@ -1487,6 +1617,21 @@ def _export_episode_pinned(
                 "sha256": sha256_file(scene_path),
                 "size_bytes": scene_path.stat().st_size,
             }
+        source_manifest = {
+            "episode": (
+                validated_snapshot["source_episode"]
+                if validated_snapshot is not None
+                else str(episode.resolve())
+            ),
+            "manifest_sha256": session_manifest_sha,
+            "sealed_epochs": len(verified_epochs),
+            "active_epochs_skipped": (
+                0 if validated_snapshot is not None else validation.active_epochs
+            ),
+            "epochs": [epoch.manifest_entry() for epoch in verified_epochs],
+        }
+        if validated_snapshot is not None:
+            source_manifest["snapshot"] = validated_snapshot
         manifest = {
             "schema_version": EXPORT_SCHEMA_VERSION,
             "owner": OWNER,
@@ -1494,13 +1639,7 @@ def _export_episode_pinned(
             "created_at": datetime.now(UTC).isoformat(),
             "session_id": validation.session_id,
             "source_manifest_sha256": session_manifest_sha,
-            "source": {
-                "episode": str(episode.resolve()),
-                "manifest_sha256": session_manifest_sha,
-                "sealed_epochs": len(verified_epochs),
-                "active_epochs_skipped": validation.active_epochs,
-                "epochs": [epoch.manifest_entry() for epoch in verified_epochs],
-            },
+            "source": source_manifest,
             "selection": {
                 "players": sorted(selected_players),
                 "connections": sorted(selected_connections),

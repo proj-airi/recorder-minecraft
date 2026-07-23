@@ -240,6 +240,10 @@ def snapshot_connection(
         raise RecorderError(f"capture episode is not a directory: {source_episode}")
     session_manifest_path = source_episode / "manifest.json"
     session_manifest = _read_object(session_manifest_path, "capture session manifest")
+    session_manifest_bytes = _stable_source_bytes(
+        session_manifest_path,
+        active=False,
+    ).data
     session_id = session_manifest.get("session_id")
     if not isinstance(session_id, str) or not session_id:
         raise RecorderError("capture session manifest has no session_id")
@@ -259,10 +263,7 @@ def snapshot_connection(
     previous_tick: int | None = None
     try:
         (staging / "epochs").mkdir(parents=True)
-        (staging / "manifest.json").write_text(
-            json.dumps(session_manifest, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
-        )
+        (staging / "manifest.json").write_bytes(session_manifest_bytes)
         candidates = sorted(
             (
                 path

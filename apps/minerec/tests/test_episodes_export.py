@@ -17,6 +17,7 @@ from minerec.cli import _parser
 from minerec.errors import RecorderError
 from minerec.processing.capture.episodes import inspect_episode, validate_episode
 from minerec.processing.capture.exporter import _safe_replace_directory, export_episode
+from minerec.processing.capture.snapshot import snapshot_connection
 from minerec.processing.capture.storage import enforce_quota
 from minerec.processing.render.job import prepare_render_job
 from minerec.processing.scene.store import SceneIdentity, SceneStoreBuilder, validate_scene_store
@@ -441,6 +442,78 @@ def _scene_store(
 
 
 class EpisodeExportTest(unittest.TestCase):
+    def test_exports_active_connection_snapshot_with_authenticated_provenance(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            episode = _episode(root, active=True)
+            records = _records()
+            records.insert(
+                1,
+                _event(
+                    "player_join",
+                    10,
+                    0,
+                    player_uuid=PLAYER,
+                    connection_id=CONNECTION,
+                ),
+            )
+            records.insert(
+                -1,
+                _event(
+                    "player_leave",
+                    11,
+                    0,
+                    player_uuid=PLAYER,
+                    connection_id=CONNECTION,
+                ),
+            )
+            for sequence, record in enumerate(records, 1):
+                record["sequence"] = sequence
+                record["recorded_at_ns"] = sequence * 100
+            _seal_epoch(
+                episode / "epochs" / "epoch-000000",
+                records,
+                active=True,
+            )
+
+            output = root / "exports" / "active.dataset"
+            with snapshot_connection(
+                episode,
+                root / "runtime",
+                player_uuid=PLAYER,
+                connection_id=CONNECTION,
+            ) as snapshot:
+                result = export_episode(
+                    snapshot.episode,
+                    output,
+                    players=[PLAYER],
+                    connections=[CONNECTION],
+                    source_snapshot=snapshot.provenance,
+                )
+
+            manifest = json.loads((result.output / "manifest.json").read_text())
+            self.assertEqual(
+                "append_prefix_v1",
+                manifest["source"]["snapshot"]["format"],
+            )
+            self.assertEqual(
+                str(episode.resolve()),
+                manifest["source"]["episode"],
+            )
+            self.assertEqual(
+                CONNECTION,
+                manifest["source"]["snapshot"]["connection_id"],
+            )
+            self.assertEqual([CONNECTION], manifest["selection"]["connections"])
+            self.assertEqual(2, result.state_count)
+            states = [
+                json.loads(line)
+                for line in (result.output / "states.jsonl").read_text().splitlines()
+            ]
+            self.assertEqual({CONNECTION}, {row["connection_id"] for row in states})
+
     def test_epoch_pin_covers_validation_reads_and_atomic_publication(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

@@ -24,6 +24,38 @@ byte size of every file other than the manifest, including the scene store.
 Readers must reject missing, extra, symlinked, escaping, or hash-mismatched
 files. Publication and replacement are atomic directory operations.
 
+## Capture source snapshots
+
+A connection-scoped export may consume a verified prefix of an append-only
+`events.jsonl.inprogress` after that connection has both `player_join` and
+`player_leave` records. Such an export records
+`manifest.source.snapshot.format: "append_prefix_v1"` and binds the selected
+player and connection explicitly.
+
+Every snapshot segment records:
+
+- its source epoch index and root-relative source path;
+- `kind`, either `finalized` or `active_prefix`;
+- the source size observed before reading and the retained prefix byte count;
+- SHA-256 and non-empty record count for the retained prefix;
+- first and last global sequence;
+- first and last server tick.
+
+The consumer reads no bytes beyond the initially observed size and drops a
+final unterminated line. It rejects malformed complete lines, source
+replacement, truncation, prefix mutation, identity mismatch, non-monotonic
+sequence/tick values, and a selected connection without both boundaries.
+Bytes appended after the observed size are allowed. The consumer creates
+finalized envelopes only in a private staging snapshot; it never renames or
+writes recorder source files. `rotation_reason: "consumer_snapshot"` therefore
+describes consumer-generated evidence and must not be interpreted as recorder
+finalization.
+
+The dataset manifest embeds the complete snapshot envelope. Per-row source
+references use hashes from the private verified segment, while
+`source.snapshot.segments[*].sha256` binds those bytes to their original
+append-only source prefix.
+
 ## Timeline and samples
 
 `states.jsonl` contains one post-tick player state per selected subject and

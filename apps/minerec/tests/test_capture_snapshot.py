@@ -230,13 +230,14 @@ class CaptureSnapshotTest(unittest.TestCase):
             episode, complete = _write_episode(root / "captures", _connection_records())
             active = episode / "epochs" / "epoch-000001" / "events.jsonl.inprogress"
             original_read = snapshot_module._read_exact
-            calls = 0
+            active_size = active.stat().st_size
+            appended = False
 
             def append_after_read(descriptor: int, size: int) -> bytes:
-                nonlocal calls
+                nonlocal appended
                 data = original_read(descriptor, size)
-                calls += 1
-                if calls == 1:
+                if size == active_size and not appended:
+                    appended = True
                     with active.open("ab") as handle:
                         handle.write(
                             json.dumps(
@@ -288,13 +289,14 @@ class CaptureSnapshotTest(unittest.TestCase):
                     / "events.jsonl.inprogress"
                 )
                 original_read = snapshot_module._read_exact
-                calls = 0
+                active_size = active.stat().st_size
+                mutated = False
 
                 def mutate_after_read(descriptor: int, size: int) -> bytes:
-                    nonlocal calls
+                    nonlocal mutated
                     data = original_read(descriptor, size)
-                    calls += 1
-                    if calls == 1:
+                    if size == active_size and not mutated:
+                        mutated = True
                         mutate(active)
                     return data
 
