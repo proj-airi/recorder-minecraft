@@ -33,6 +33,7 @@ from minerec.serve.dashboard.service import DashboardService
 MAX_REQUEST_BYTES = 64 * 1024
 MAX_JSON_RESPONSE_BYTES = 64 * 1024 * 1024
 DATASET_RENDER_PATH = re.compile(r"^/api/v1/datasets/([0-9a-f]{32})/render$")
+ARTIFACT_RENDER_PATH = re.compile(r"^/api/v1/replay-artifacts/([0-9a-f]{32})/render$")
 ROUTE_UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 RENDER_JOB_PATH = re.compile(rf"^/api/v1/render-jobs/({ROUTE_UUID})$")
 RENDER_JOB_ACTION_PATH = re.compile(rf"^/api/v1/render-jobs/({ROUTE_UUID})/(cancel|retry)$")
@@ -174,7 +175,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
         path = urlsplit(self.path).path
         try:
             body = self._read_json_body()
-            if match := DATASET_RENDER_PATH.fullmatch(path):
+            dataset_match = DATASET_RENDER_PATH.fullmatch(path)
+            artifact_match = ARTIFACT_RENDER_PATH.fullmatch(path)
+            if dataset_match or artifact_match:
                 unexpected = set(body) - {
                     "player_uuid",
                     "connection_id",
@@ -190,15 +193,27 @@ class DashboardHandler(BaseHTTPRequestHandler):
                         raise ValueError(f"render {setting} must be an integer")
                 if "no_gui" in body and not isinstance(body["no_gui"], bool):
                     raise ValueError("render no_gui must be a boolean")
-                job = self.application.service.create_render_job(
-                    match.group(1),
-                    player_uuid=body.get("player_uuid"),
-                    connection_id=body.get("connection_id"),
-                    width=body.get("width", 640),
-                    height=body.get("height", 360),
-                    fps=body.get("fps", 20),
-                    no_gui=body.get("no_gui", False),
-                )
+                if artifact_match:
+                    if "player_uuid" in body or "connection_id" in body:
+                        raise ValueError("artifact render identity comes from the saved replay")
+                    job = self.application.service.create_artifact_render_request(
+                        artifact_match.group(1),
+                        width=body.get("width", 640),
+                        height=body.get("height", 360),
+                        fps=body.get("fps", 20),
+                        no_gui=body.get("no_gui", False),
+                    )
+                else:
+                    assert dataset_match is not None
+                    job = self.application.service.create_render_job(
+                        dataset_match.group(1),
+                        player_uuid=body.get("player_uuid"),
+                        connection_id=body.get("connection_id"),
+                        width=body.get("width", 640),
+                        height=body.get("height", 360),
+                        fps=body.get("fps", 20),
+                        no_gui=body.get("no_gui", False),
+                    )
             elif match := RENDER_JOB_ACTION_PATH.fullmatch(path):
                 if body:
                     raise ValueError("render job actions do not accept request fields")

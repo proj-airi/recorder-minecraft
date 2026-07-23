@@ -144,6 +144,48 @@ class DashboardServiceTest(unittest.TestCase):
         ):
             self.service.create_render_job(DATASET)
 
+    def test_artifact_render_request_starts_with_dataset_preparation(self) -> None:
+        replay = _replay()
+        with mock.patch.object(
+            self.service.artifact_catalog,
+            "scan",
+            return_value=ArtifactCatalogResult((), (replay,), ()),
+        ):
+            job = self.service.create_artifact_render_request(
+                replay.artifact_id,
+                width=1280,
+                height=720,
+            )
+
+        self.assertEqual("preparing_dataset", job["state"])
+        self.assertIsNone(job["dataset_id"])
+        self.assertEqual(replay.artifact_id, job["source_artifact_id"])
+        self.assertEqual(SESSION, job["payload"]["session_id"])
+        self.assertEqual(PLAYER, job["payload"]["player_uuid"])
+        self.assertEqual(CONNECTION, job["payload"]["connection_id"])
+        self.assertEqual(1280, job["payload"]["render"]["width"])
+        self.assertEqual(
+            FULL_CLIENT_PRESENTATION_CONTRACT,
+            job["payload"]["render"]["presentation_contract"],
+        )
+
+    def test_artifact_render_request_rejects_incomplete_catalog(self) -> None:
+        replay = _replay()
+        with (
+            mock.patch.object(
+                self.service.artifact_catalog,
+                "scan",
+                return_value=ArtifactCatalogResult(
+                    (),
+                    (replay,),
+                    (),
+                    truncated=True,
+                ),
+            ),
+            self.assertRaisesRegex(RecorderError, "catalog is incomplete"),
+        ):
+            self.service.create_artifact_render_request(replay.artifact_id)
+
 
 if __name__ == "__main__":
     unittest.main()

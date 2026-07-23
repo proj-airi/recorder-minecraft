@@ -180,6 +180,47 @@ class DashboardService:
         )
         return self.render_queue.create(payload, retry_of=_retry_of)
 
+    def create_artifact_render_request(
+        self,
+        artifact_id: str,
+        *,
+        width: int = 640,
+        height: int = 360,
+        fps: int = RENDER_FPS,
+        no_gui: bool = False,
+        _retry_of: str | None = None,
+    ) -> dict[str, Any]:
+        self._validate_render_settings(width, height, fps, no_gui)
+        if not isinstance(artifact_id, str) or len(artifact_id) != 32 or any(character not in "0123456789abcdef" for character in artifact_id):
+            raise RecorderError("invalid replay artifact ID")
+        catalog = self.artifact_catalog.scan()
+        if catalog.truncated:
+            raise RecorderError("replay artifact catalog is incomplete; resolve catalog issues before rendering")
+        matches = [replay for replay in catalog.replay_archives if replay.artifact_id == artifact_id]
+        if len(matches) != 1:
+            raise RecorderError("saved Flashback replay artifact is unavailable")
+        replay = matches[0]
+        if replay.connection_id is None:
+            raise RecorderError("saved Flashback replay lacks a connection identity")
+        render: dict[str, Any] = {
+            "width": width,
+            "height": height,
+            "fps": fps,
+            "no_gui": no_gui,
+        }
+        if not no_gui:
+            render["presentation_contract"] = FULL_CLIENT_PRESENTATION_CONTRACT
+        return self.render_queue.create_artifact_request(
+            {
+                "source_artifact_id": replay.artifact_id,
+                "session_id": replay.session_id,
+                "player_uuid": replay.player_uuid,
+                "connection_id": replay.connection_id,
+                "render": render,
+            },
+            retry_of=_retry_of,
+        )
+
     @classmethod
     def _render_job_payload(
         cls,
@@ -230,6 +271,15 @@ class DashboardService:
         if original["state"] not in {"failed", "partial", "canceled"}:
             raise RecorderError(f"render job cannot be retried while {original['state']}")
         payload = original["payload"]
+        if original["source_artifact_id"] is not None:
+            return self.create_artifact_render_request(
+                original["source_artifact_id"],
+                width=payload["render"]["width"],
+                height=payload["render"]["height"],
+                fps=payload["render"]["fps"],
+                no_gui=payload["render"].get("no_gui", False),
+                _retry_of=original["id"],
+            )
         return self.create_render_job(
             original["dataset_id"],
             player_uuid=payload["player_uuid"],

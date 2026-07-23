@@ -645,6 +645,49 @@ class DashboardHTTPTest(unittest.TestCase):
             self.assertEqual("queued", json.load(retry)["state"])
             retry_render.assert_called_once_with(job["id"])
 
+    def test_replay_artifact_render_route_creates_preparation_request(self) -> None:
+        status = json.load(self._request("/api/v1/status"))
+        headers = {
+            "X-MC-Recorder-CSRF": status["csrf_token"],
+            "Content-Type": "application/json",
+            "Origin": self.base,
+        }
+        artifact_id = "d" * 32
+        preparing = {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "dataset_id": None,
+            "source_artifact_id": artifact_id,
+            "state": "preparing_dataset",
+        }
+        with mock.patch.object(
+            self.application.service,
+            "create_artifact_render_request",
+            return_value=preparing,
+        ) as create:
+            response = self._request(
+                f"/api/v1/replay-artifacts/{artifact_id}/render",
+                method="POST",
+                body=json.dumps(
+                    {
+                        "width": 1280,
+                        "height": 720,
+                        "fps": 20,
+                        "no_gui": False,
+                    }
+                ).encode(),
+                headers=headers,
+            )
+
+        self.assertEqual(202, response.status)
+        self.assertEqual("preparing_dataset", json.load(response)["state"])
+        create.assert_called_once_with(
+            artifact_id,
+            width=1280,
+            height=720,
+            fps=20,
+            no_gui=False,
+        )
+
     def _request(
         self,
         path: str,
