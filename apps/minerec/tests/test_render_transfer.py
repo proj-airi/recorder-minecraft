@@ -325,12 +325,8 @@ class PortableRenderTransferTest(unittest.TestCase):
                 ],
             }
             worker_result_path.write_text(json.dumps(worker_result), encoding="utf-8")
-            bundle = create_render_bundle(
-                job, root / "bundle", request_path, use_hardlinks=False
-            )
-            imported = import_render_bundle(
-                request_path, bundle.directory, replay, root / "imported"
-            )
+            bundle = create_render_bundle(job, root / "bundle", request_path, use_hardlinks=False)
+            imported = import_render_bundle(request_path, bundle.directory, replay, root / "imported")
             self.assertFalse(imported.reused)
             self.assertEqual("complete", imported.status)
             result = json.loads(imported.result.read_text())
@@ -350,9 +346,7 @@ class PortableRenderTransferTest(unittest.TestCase):
             source = manifest["selection"]["frame_attachments"][0]
             self.assertEqual("segment-0001", source["source_replay"]["segment_id"])
             self.assertFalse(source["no_gui"])
-            self.assertEqual(
-                worker_result["unsupported_packets"], source["unsupported_packets"]
-            )
+            self.assertEqual(worker_result["unsupported_packets"], source["unsupported_packets"])
 
             result["output"] = str((imported.directory / "frames").resolve())
             imported.result.write_text(json.dumps(result), encoding="utf-8")
