@@ -5,6 +5,8 @@ import json
 import sys
 import tempfile
 import unittest
+import uuid
+import zipfile
 import zlib
 from contextlib import nullcontext
 from dataclasses import replace
@@ -98,6 +100,26 @@ class SceneJobTest(unittest.TestCase):
         config.mods.scene_extractor_executable.parent.mkdir(parents=True, exist_ok=True)
         config.mods.scene_extractor_executable.write_text("#!/bin/sh\n", encoding="utf-8")
         config.mods.scene_extractor_executable.chmod(0o755)
+
+    @staticmethod
+    def _write_flashback_archive(path: Path) -> None:
+        identity = {
+            "schema_version": 3,
+            "session_id": "session-a",
+            "segment_id": SEGMENT,
+            "segment_ordinal": 0,
+            "player_uuid": PLAYER,
+            "connection_id": CONNECTION,
+            "hotbar_snapshot_contract": "item_stack_copy_v1",
+            "flashback_capture_contract": FLASHBACK_CAPTURE_CONTRACT,
+        }
+        with zipfile.ZipFile(path, "w") as archive:
+            archive.writestr("metadata.json", json.dumps({"uuid": str(uuid.uuid4())}))
+            archive.writestr(
+                "arcade_replay_meta.json",
+                json.dumps({"mc_recorder": identity}),
+            )
+            archive.writestr("chunks/c0.flashback", b"replay")
 
     @staticmethod
     def _player_state(tick: int) -> dict[str, object]:
@@ -254,6 +276,40 @@ class SceneJobTest(unittest.TestCase):
             )
             records = [json.loads(line) for line in job.subject_poses.path.read_text(encoding="utf-8").splitlines()]
             self.assertEqual([10, 11], [record["server_tick"] for record in records])
+
+    def test_prepare_resolves_saved_archive_metadata_without_a_control_ledger(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            config, episode, _source = self._fixture(Path(temporary))
+            replay = config.paths.replays / "segment.zip"
+            self._write_flashback_archive(replay)
+            self.assertFalse((config.paths.runtime / "control").exists())
+
+            with (
+                mock.patch(
+                    "minerec.processing.scene.job.validate_episode",
+                    return_value=SimpleNamespace(
+                        valid=True,
+                        sealed_epochs=1,
+                        session_id="session-a",
+                    ),
+                ),
+                mock.patch(
+                    "minerec.processing.scene.job._select_subject_poses",
+                    return_value=self._pose_selection(10, 11),
+                ),
+            ):
+                job = prepare_scene_job(
+                    config,
+                    episode,
+                    player_uuid=PLAYER,
+                    connection_id=CONNECTION,
+                )
+
+            self.assertEqual((replay.absolute(),), tuple(source.path for source in job.sources))
+            self.assertEqual(
+                (FLASHBACK_CAPTURE_CONTRACT,),
+                tuple(source.flashback_capture_contract for source in job.sources),
+            )
 
     def test_prepare_rejects_replays_without_the_scene_capture_contract(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

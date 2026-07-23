@@ -507,7 +507,6 @@ def prepare_scene_job(
 
     sources = tuple(
         resolve_replay_segments(
-            control_root=config.paths.runtime / "control",
             replays_root=config.paths.replays,
             session_id=validation.session_id,
             player_uuid=player,
