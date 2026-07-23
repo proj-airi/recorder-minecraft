@@ -30,6 +30,16 @@ def _payload() -> dict[str, object]:
     }
 
 
+def _artifact_payload() -> dict[str, object]:
+    return {
+        "source_artifact_id": "a" * 32,
+        "session_id": "20260721T000000.000Z-deadbeef",
+        "player_uuid": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        "connection_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        "render": {"width": 640, "height": 360, "fps": 20, "no_gui": False},
+    }
+
+
 class RenderQueueStoreTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
@@ -50,6 +60,88 @@ class RenderQueueStoreTest(unittest.TestCase):
         self.assertEqual("queued", restored["state"])
         self.assertEqual(_payload(), restored["payload"])
         self.assertIsNone(restored["active_attempt"])
+
+    def test_artifact_request_waits_for_preparation_before_publication(self) -> None:
+        request = self.store.create_artifact_request(_artifact_payload())
+        duplicate = self.store.create_artifact_request(_artifact_payload())
+
+        self.assertEqual(request["id"], duplicate["id"])
+        self.assertEqual("preparing_dataset", request["state"])
+        self.assertIsNone(request["dataset_id"])
+        self.assertEqual("a" * 32, request["source_artifact_id"])
+        self.assertEqual([], self.store.pending_publication())
+
+        lease = self.store.claim_preparation("preparer-a", lease_seconds=30)
+        assert lease is not None
+        self.assertEqual(request["id"], lease["job"]["id"])
+        queued = self.store.bind_dataset(
+            request["id"],
+            lease["lease_token"],
+            dataset_id="d" * 32,
+            start_tick=10,
+            end_tick=40,
+        )
+
+        self.assertEqual("queued", queued["state"])
+        self.assertEqual("d" * 32, queued["dataset_id"])
+        self.assertEqual("d" * 32, queued["payload"]["dataset_id"])
+        self.assertEqual(10, queued["payload"]["start_tick"])
+        self.assertEqual(40, queued["payload"]["end_tick"])
+        self.assertEqual(
+            [request["id"]],
+            [job["id"] for job in self.store.pending_publication()],
+        )
+
+    def test_expired_preparation_lease_is_recoverable_and_fenced(self) -> None:
+        base_time = 2_000_000.0
+        with mock.patch(
+            "minerec.render.control.queue.time.time",
+            return_value=base_time,
+        ):
+            request = self.store.create_artifact_request(_artifact_payload())
+            first = self.store.claim_preparation("preparer-a", lease_seconds=10)
+            assert first is not None
+
+        with mock.patch(
+            "minerec.render.control.queue.time.time",
+            return_value=base_time + 20,
+        ):
+            recovered = self.store.get(request["id"])
+            self.assertEqual("preparing_dataset", recovered["state"])
+            second = self.store.claim_preparation("preparer-b", lease_seconds=10)
+            assert second is not None
+            with self.assertRaisesRegex(RecorderError, "not owned"):
+                self.store.bind_dataset(
+                    request["id"],
+                    first["lease_token"],
+                    dataset_id="d" * 32,
+                    start_tick=10,
+                    end_tick=40,
+                )
+            failed = self.store.fail_preparation(
+                request["id"],
+                second["lease_token"],
+                "snapshot rejected",
+            )
+            self.assertEqual("failed", failed["state"])
+            retried = self.store.retry(failed["id"])
+            self.assertEqual("preparing_dataset", retried["state"])
+            self.assertEqual(failed["id"], retried["retry_of"])
+
+    def test_cancel_fences_active_preparation(self) -> None:
+        request = self.store.create_artifact_request(_artifact_payload())
+        lease = self.store.claim_preparation("preparer-a")
+        assert lease is not None
+
+        canceled = self.store.cancel(request["id"])
+
+        self.assertEqual("canceled", canceled["state"])
+        with self.assertRaisesRegex(RecorderError, "not owned"):
+            self.store.heartbeat_preparation(
+                request["id"],
+                lease["lease_token"],
+                message="still working",
+            )
 
     def test_obsolete_database_requires_explicit_recreation(self) -> None:
         legacy_path = Path(self.temporary.name) / "legacy-render.sqlite3"

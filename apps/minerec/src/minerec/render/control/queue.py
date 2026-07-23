@@ -16,7 +16,17 @@ from typing import Any, Iterator
 
 from minerec.errors import RecorderError
 
-ACTIVE_JOB_STATES = frozenset({"queued", "downloading", "rendering", "uploading", "verifying", "attaching"})
+ACTIVE_JOB_STATES = frozenset(
+    {
+        "preparing_dataset",
+        "queued",
+        "downloading",
+        "rendering",
+        "uploading",
+        "verifying",
+        "attaching",
+    }
+)
 TERMINAL_JOB_STATES = frozenset({"complete", "partial", "failed", "canceled"})
 WORKER_PHASES = ("downloading", "rendering", "uploading")
 SERVER_PHASES = frozenset({"verifying", "attaching"})
@@ -121,7 +131,8 @@ class RenderQueueStore:
                 CREATE TABLE IF NOT EXISTS render_jobs (
                     id TEXT PRIMARY KEY,
                     fingerprint TEXT NOT NULL,
-                    dataset_id TEXT NOT NULL,
+                    dataset_id TEXT,
+                    source_artifact_id TEXT,
                     published_at REAL,
                     payload_json TEXT NOT NULL,
                     state TEXT NOT NULL,
@@ -135,7 +146,10 @@ class RenderQueueStore:
                     active_attempt_id TEXT,
                     attempt_count INTEGER NOT NULL DEFAULT 0,
                     retry_of TEXT,
-                    eligible_at REAL NOT NULL DEFAULT 0
+                    eligible_at REAL NOT NULL DEFAULT 0,
+                    preparer_id TEXT,
+                    preparation_lease_token TEXT,
+                    preparation_lease_expires_at REAL
                 );
 
                 CREATE INDEX IF NOT EXISTS render_jobs_recent
@@ -175,7 +189,15 @@ class RenderQueueStore:
                     raise RecorderError("render queue schema is obsolete; remove render-queue.sqlite3 and restart") from exc
                 raise
             job_columns = {str(row["name"]) for row in connection.execute("PRAGMA table_info(render_jobs)").fetchall()}
-            required_columns = {"dataset_id", "published_at", "eligible_at"}
+            required_columns = {
+                "dataset_id",
+                "source_artifact_id",
+                "published_at",
+                "eligible_at",
+                "preparer_id",
+                "preparation_lease_token",
+                "preparation_lease_expires_at",
+            }
             if not required_columns.issubset(job_columns):
                 raise RecorderError("render queue schema is obsolete; remove render-queue.sqlite3 and restart")
             connection.execute(
@@ -253,6 +275,81 @@ class RenderQueueStore:
             assert row is not None
             return self._job(connection, row)
 
+    def create_artifact_request(
+        self,
+        payload: dict[str, Any],
+        *,
+        retry_of: str | None = None,
+    ) -> dict[str, Any]:
+        encoded, value = _json_object(payload, "artifact render request payload")
+        artifact_id = value.get("source_artifact_id")
+        if (
+            not isinstance(artifact_id, str)
+            or len(artifact_id) != 32
+            or any(character not in "0123456789abcdef" for character in artifact_id)
+        ):
+            raise RecorderError("artifact render request has an invalid artifact ID")
+        if value.get("dataset_id") is not None:
+            raise RecorderError("artifact render request may not supply a dataset ID")
+        fingerprint = hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+        retry_id = _uuid(retry_of, "retry job ID") if retry_of is not None else None
+        now = time.time()
+        with self._lock, self._session(immediate=True) as connection:
+            self._reclaim_expired(connection, now)
+            if retry_id is None:
+                existing = connection.execute(
+                    """
+                    SELECT * FROM render_jobs
+                     WHERE fingerprint = ?
+                       AND state IN (
+                           'preparing_dataset', 'queued', 'downloading',
+                           'rendering', 'uploading', 'verifying', 'attaching',
+                           'complete'
+                       )
+                     ORDER BY created_at DESC LIMIT 1
+                    """,
+                    (fingerprint,),
+                ).fetchone()
+                if existing is not None:
+                    return self._job(connection, existing)
+            job_id = str(uuid.uuid4())
+            progress = json.dumps(
+                {
+                    "phase": "preparing_dataset",
+                    "current": None,
+                    "total": None,
+                    "message": "Waiting for dataset preparation",
+                },
+                sort_keys=True,
+            )
+            connection.execute(
+                """
+                INSERT INTO render_jobs(
+                    id, fingerprint, dataset_id, source_artifact_id,
+                    payload_json, state, progress_json, created_at, updated_at,
+                    retry_of, eligible_at
+                ) VALUES (
+                    ?, ?, NULL, ?, ?, 'preparing_dataset', ?, ?, ?, ?, 0
+                )
+                """,
+                (
+                    job_id,
+                    fingerprint,
+                    artifact_id,
+                    encoded,
+                    progress,
+                    now,
+                    now,
+                    retry_id,
+                ),
+            )
+            row = connection.execute(
+                "SELECT * FROM render_jobs WHERE id = ?",
+                (job_id,),
+            ).fetchone()
+            assert row is not None
+            return self._job(connection, row)
+
     def get(self, job_id: str) -> dict[str, Any]:
         canonical = _uuid(job_id, "render job ID")
         with self._lock, self._session(immediate=True) as connection:
@@ -279,7 +376,8 @@ class RenderQueueStore:
             rows = connection.execute(
                 """
                 SELECT * FROM render_jobs
-                 WHERE state = 'queued' AND published_at IS NULL
+                 WHERE state = 'queued' AND dataset_id IS NOT NULL
+                   AND published_at IS NULL
                  ORDER BY created_at, id LIMIT ?
                 """,
                 (limit,),
@@ -295,6 +393,8 @@ class RenderQueueStore:
                 raise KeyError(canonical)
             if row["state"] != "queued":
                 raise RecorderError(f"render job cannot be published while {row['state']}")
+            if row["dataset_id"] is None:
+                raise RecorderError("render job cannot be published without a dataset")
             connection.execute(
                 """
                 UPDATE render_jobs SET published_at = COALESCE(published_at, ?),
@@ -303,6 +403,184 @@ class RenderQueueStore:
                 (now, now, canonical),
             )
             updated = connection.execute("SELECT * FROM render_jobs WHERE id = ?", (canonical,)).fetchone()
+            assert updated is not None
+            return self._job(connection, updated)
+
+    def claim_preparation(
+        self,
+        preparer_id: str,
+        *,
+        lease_seconds: int = DEFAULT_LEASE_SECONDS,
+    ) -> dict[str, Any] | None:
+        if (
+            not isinstance(preparer_id, str)
+            or not preparer_id.strip()
+            or len(preparer_id) > 80
+            or any(ord(character) < 32 for character in preparer_id)
+        ):
+            raise RecorderError("render preparer ID must be between 1 and 80 characters")
+        duration = _lease_seconds(lease_seconds)
+        now = time.time()
+        with self._lock, self._session(immediate=True) as connection:
+            self._reclaim_expired(connection, now)
+            row = connection.execute(
+                """
+                SELECT * FROM render_jobs
+                 WHERE state = 'preparing_dataset'
+                   AND preparation_lease_token IS NULL
+                 ORDER BY created_at, id LIMIT 1
+                """
+            ).fetchone()
+            if row is None:
+                return None
+            token = secrets.token_urlsafe(32)
+            expires = now + duration
+            connection.execute(
+                """
+                UPDATE render_jobs
+                   SET preparer_id = ?, preparation_lease_token = ?,
+                       preparation_lease_expires_at = ?, updated_at = ?
+                 WHERE id = ? AND state = 'preparing_dataset'
+                   AND preparation_lease_token IS NULL
+                """,
+                (preparer_id.strip(), token, expires, now, row["id"]),
+            )
+            updated = connection.execute(
+                "SELECT * FROM render_jobs WHERE id = ?",
+                (row["id"],),
+            ).fetchone()
+            assert updated is not None
+            return {
+                "job": self._job(connection, updated),
+                "lease_token": token,
+                "lease_expires_at": _now_iso(expires),
+            }
+
+    def heartbeat_preparation(
+        self,
+        job_id: str,
+        lease_token: str,
+        *,
+        message: str,
+        lease_seconds: int = DEFAULT_LEASE_SECONDS,
+    ) -> dict[str, Any]:
+        canonical = _uuid(job_id, "render job ID")
+        duration = _lease_seconds(lease_seconds)
+        if not isinstance(message, str) or not message or len(message) > 256:
+            raise RecorderError("preparation progress message must be between 1 and 256 characters")
+        now = time.time()
+        with self._lock, self._session(immediate=True) as connection:
+            row = self._preparation_lease(connection, canonical, lease_token, now)
+            progress = json.dumps(
+                {
+                    "phase": "preparing_dataset",
+                    "current": None,
+                    "total": None,
+                    "message": message,
+                },
+                sort_keys=True,
+            )
+            expires = now + duration
+            connection.execute(
+                """
+                UPDATE render_jobs
+                   SET progress_json = ?, preparation_lease_expires_at = ?,
+                       updated_at = ?
+                 WHERE id = ? AND preparation_lease_token = ?
+                """,
+                (progress, expires, now, row["id"], lease_token),
+            )
+            updated = connection.execute(
+                "SELECT * FROM render_jobs WHERE id = ?",
+                (canonical,),
+            ).fetchone()
+            assert updated is not None
+            return self._job(connection, updated)
+
+    def bind_dataset(
+        self,
+        job_id: str,
+        lease_token: str,
+        *,
+        dataset_id: str,
+        start_tick: int,
+        end_tick: int,
+    ) -> dict[str, Any]:
+        canonical = _uuid(job_id, "render job ID")
+        if (
+            not isinstance(dataset_id, str)
+            or len(dataset_id) != 32
+            or any(character not in "0123456789abcdef" for character in dataset_id)
+        ):
+            raise RecorderError("prepared dataset ID is invalid")
+        if (
+            not isinstance(start_tick, int)
+            or isinstance(start_tick, bool)
+            or not isinstance(end_tick, int)
+            or isinstance(end_tick, bool)
+            or start_tick < 0
+            or end_tick < start_tick
+        ):
+            raise RecorderError("prepared dataset tick bounds are invalid")
+        now = time.time()
+        with self._lock, self._session(immediate=True) as connection:
+            row = self._preparation_lease(connection, canonical, lease_token, now)
+            payload = json.loads(row["payload_json"])
+            payload.update(
+                {
+                    "dataset_id": dataset_id,
+                    "start_tick": start_tick,
+                    "end_tick": end_tick,
+                    "selection_start_tick": start_tick,
+                    "selection_end_tick": end_tick,
+                }
+            )
+            encoded, _ = _json_object(payload, "prepared render job payload")
+            connection.execute(
+                """
+                UPDATE render_jobs
+                   SET dataset_id = ?, payload_json = ?, state = 'queued',
+                       progress_json = NULL, error = NULL, updated_at = ?,
+                       preparer_id = NULL, preparation_lease_token = NULL,
+                       preparation_lease_expires_at = NULL, eligible_at = 0,
+                       published_at = NULL
+                 WHERE id = ? AND preparation_lease_token = ?
+                """,
+                (dataset_id, encoded, now, canonical, lease_token),
+            )
+            updated = connection.execute(
+                "SELECT * FROM render_jobs WHERE id = ?",
+                (canonical,),
+            ).fetchone()
+            assert updated is not None
+            return self._job(connection, updated)
+
+    def fail_preparation(
+        self,
+        job_id: str,
+        lease_token: str,
+        error: str,
+    ) -> dict[str, Any]:
+        canonical = _uuid(job_id, "render job ID")
+        message = str(error)[:MAX_ERROR_CHARS] or "dataset preparation failed"
+        now = time.time()
+        with self._lock, self._session(immediate=True) as connection:
+            self._preparation_lease(connection, canonical, lease_token, now)
+            connection.execute(
+                """
+                UPDATE render_jobs
+                   SET state = 'failed', error = ?, updated_at = ?,
+                       completed_at = ?, preparer_id = NULL,
+                       preparation_lease_token = NULL,
+                       preparation_lease_expires_at = NULL
+                 WHERE id = ? AND preparation_lease_token = ?
+                """,
+                (message, now, now, canonical, lease_token),
+            )
+            updated = connection.execute(
+                "SELECT * FROM render_jobs WHERE id = ?",
+                (canonical,),
+            ).fetchone()
             assert updated is not None
             return self._job(connection, updated)
 
@@ -395,7 +673,8 @@ class RenderQueueStore:
                 row = connection.execute(
                     """
                     SELECT * FROM render_jobs
-                     WHERE state = 'queued' AND eligible_at <= ?
+                     WHERE state = 'queued' AND dataset_id IS NOT NULL
+                       AND eligible_at <= ?
                      ORDER BY created_at, id LIMIT 1
                     """,
                     (now,),
@@ -406,6 +685,8 @@ class RenderQueueStore:
                     raise KeyError(selected_job)
                 if row["state"] != "queued":
                     raise RecorderError(f"render job cannot be claimed while {row['state']}")
+                if row["dataset_id"] is None:
+                    raise RecorderError("render job cannot be claimed without a dataset")
             connection.execute("UPDATE render_workers SET heartbeat_at = ? WHERE id = ?", (now, worker))
             if row is None:
                 return None
@@ -710,7 +991,9 @@ class RenderQueueStore:
             connection.execute(
                 """
                 UPDATE render_jobs SET state = 'failed', error = ?, updated_at = ?,
-                       completed_at = ? WHERE id = ?
+                       completed_at = ?, preparer_id = NULL,
+                       preparation_lease_token = NULL,
+                       preparation_lease_expires_at = NULL WHERE id = ?
                 """,
                 (message, now, now, canonical),
             )
@@ -735,7 +1018,9 @@ class RenderQueueStore:
             connection.execute(
                 """
                 UPDATE render_jobs SET state = 'canceled', error = NULL,
-                       updated_at = ?, completed_at = ? WHERE id = ?
+                       updated_at = ?, completed_at = ?, preparer_id = NULL,
+                       preparation_lease_token = NULL,
+                       preparation_lease_expires_at = NULL WHERE id = ?
                 """,
                 (now, now, canonical),
             )
@@ -747,7 +1032,40 @@ class RenderQueueStore:
         original = self.get(job_id)
         if original["state"] not in {"failed", "partial", "canceled"}:
             raise RecorderError(f"render job cannot be retried while {original['state']}")
+        if original["payload"].get("dataset_id") is None:
+            return self.create_artifact_request(
+                original["payload"],
+                retry_of=original["id"],
+            )
         return self.create(original["payload"], retry_of=original["id"])
+
+    @staticmethod
+    def _preparation_lease(
+        connection: sqlite3.Connection,
+        job_id: str,
+        lease_token: str,
+        now: float,
+    ) -> sqlite3.Row:
+        if not isinstance(lease_token, str):
+            raise RecorderError("invalid preparation lease token")
+        row = connection.execute(
+            "SELECT * FROM render_jobs WHERE id = ?",
+            (job_id,),
+        ).fetchone()
+        if row is None:
+            raise KeyError(job_id)
+        stored = str(row["preparation_lease_token"] or "")
+        expires = row["preparation_lease_expires_at"]
+        owned = hmac.compare_digest(stored, lease_token)
+        if (
+            row["state"] != "preparing_dataset"
+            or not owned
+            or not isinstance(expires, (int, float))
+            or not math.isfinite(expires)
+            or expires <= now
+        ):
+            raise RecorderError("preparation lease is not owned by this preparer")
+        return row
 
     def _leased_attempt(
         self,
@@ -809,6 +1127,30 @@ class RenderQueueStore:
 
     @staticmethod
     def _reclaim_expired(connection: sqlite3.Connection, now: float) -> None:
+        connection.execute(
+            """
+            UPDATE render_jobs
+               SET preparer_id = NULL, preparation_lease_token = NULL,
+                   preparation_lease_expires_at = NULL, updated_at = ?,
+                   progress_json = ?
+             WHERE state = 'preparing_dataset'
+               AND preparation_lease_token IS NOT NULL
+               AND preparation_lease_expires_at <= ?
+            """,
+            (
+                now,
+                json.dumps(
+                    {
+                        "phase": "preparing_dataset",
+                        "current": None,
+                        "total": None,
+                        "message": "Waiting for dataset preparation",
+                    },
+                    sort_keys=True,
+                ),
+                now,
+            ),
+        )
         rows = connection.execute(
             """
             SELECT id, job_id, worker_id FROM render_attempts
@@ -860,6 +1202,7 @@ class RenderQueueStore:
         return {
             "id": row["id"],
             "dataset_id": row["dataset_id"],
+            "source_artifact_id": row["source_artifact_id"],
             "published_at": _now_iso(row["published_at"]),
             "state": row["state"],
             "payload": json.loads(row["payload_json"]),
@@ -873,6 +1216,10 @@ class RenderQueueStore:
             "attempt_count": int(row["attempt_count"]),
             "active_attempt": active_attempt,
             "retry_of": row["retry_of"],
+            "preparer_id": row["preparer_id"],
+            "preparation_lease_expires_at": _now_iso(
+                row["preparation_lease_expires_at"]
+            ),
         }
 
     @staticmethod
