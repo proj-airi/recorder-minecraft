@@ -204,8 +204,8 @@ def _validated_identity(raw: object) -> _ReplayIdentity:
         segment_ordinal=segment_ordinal,
         player_uuid=_canonical_uuid(raw.get("player_uuid"), "player_uuid"),
         connection_id=(_canonical_uuid(connection, "connection_id") if connection is not None else None),
-        hotbar_snapshot_contract=hotbar_contract,
-        flashback_capture_contract=flashback_contract,
+        hotbar_snapshot_contract=(hotbar_contract if isinstance(hotbar_contract, str) else None),
+        flashback_capture_contract=(flashback_contract if isinstance(flashback_contract, str) else None),
     )
 
 

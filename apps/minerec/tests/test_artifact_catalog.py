@@ -12,6 +12,7 @@ import warnings
 import zipfile
 import zlib
 from pathlib import Path
+from typing import Any, BinaryIO, cast
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
@@ -222,7 +223,7 @@ class ArtifactCatalogReplayTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             replays = root / "replays"
-            invalid_identities = (
+            invalid_identities: tuple[dict[str, object], ...] = (
                 {"schema_version": 4},
                 {
                     "schema_version": 1,
@@ -405,7 +406,7 @@ class ArtifactCatalogReplayTest(unittest.TestCase):
             archive_identity = artifact_catalog._archive_identity
 
             def replace_after_read(source: object) -> object:
-                identity = archive_identity(source)
+                identity = archive_identity(cast(BinaryIO, source))
                 replacement.replace(replay)
                 return identity
 
@@ -457,7 +458,7 @@ class ArtifactCatalogReplayTest(unittest.TestCase):
                 if filename == "arcade_replay_meta.json" and not failed:
                     failed = True
                     raise zlib.error("malformed compressed stream")
-                return archive_open(archive, member, *args, **kwargs)
+                return cast(Any, archive_open)(archive, member, *args, **kwargs)
 
             with mock.patch.object(
                 zipfile.ZipFile,
