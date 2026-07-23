@@ -236,7 +236,6 @@ public final class McRecorderRenderer implements ClientModInitializer {
                 }
                 return;
             }
-            this.anchorScanTick = observation.replayTick() + 1;
             this.anchorScanRequested = false;
             this.anchorSettleTicks = 0;
             this.timelineObservation = null;
@@ -259,6 +258,10 @@ public final class McRecorderRenderer implements ClientModInitializer {
             return;
         }
 
+        if (!this.seekAndSettleAtReplayTick(replayServer, replayServer.getTotalReplayTicks())) {
+            return;
+        }
+
         TimelineObservation observation = this.timelineObservation;
         if (observation != null && this.matchesJob(observation.payload())) {
             TimelineRangeResolver.Marker previous = marker(this.lastTimelineObservation);
@@ -268,31 +271,33 @@ public final class McRecorderRenderer implements ClientModInitializer {
             if (!accepted.equals(previous)) {
                 this.lastTimelineObservation = observation;
             }
-            if (this.lastTimelineObservation.payload().serverTick() >= this.job.effectiveGlobalEndTick()) {
-                this.resolveTimelineRange(
-                    replayServer, this.firstTimelineObservation, this.lastTimelineObservation
-                );
-                if (this.phase == Phase.NO_COVERAGE) {
-                    this.completeNoCoverage(minecraft);
-                }
-                return;
+            this.resolveTimelineRange(
+                replayServer, this.firstTimelineObservation, this.lastTimelineObservation
+            );
+            if (this.phase == Phase.NO_COVERAGE) {
+                this.completeNoCoverage(minecraft);
             }
+            return;
         }
 
-        if (!this.advanceAnchorScan(replayServer, 1, replayServer.getTotalReplayTicks())) {
-            if (this.lastTimelineObservation != null) {
-                this.resolveTimelineRange(
-                    replayServer, this.firstTimelineObservation, this.lastTimelineObservation
-                );
-                if (this.phase == Phase.NO_COVERAGE) {
-                    this.completeNoCoverage(minecraft);
-                }
-                return;
-            }
-            throw new IllegalStateException(
-                "No final matching mc_recorder:timeline marker found while scanning the replay"
-            );
+        throw new IllegalStateException(
+            "No matching mc_recorder:timeline marker was applied at the replay tail"
+        );
+    }
+
+    private boolean seekAndSettleAtReplayTick(ReplayServer replayServer, int replayTick) {
+        if (!this.anchorScanRequested) {
+            this.timelineObservation = null;
+            replayServer.goToReplayTick(replayTick);
+            replayServer.replayPaused = true;
+            this.anchorScanRequested = true;
+            this.anchorSettleTicks = 0;
+            LOGGER.info("Seeking directly to replay tail tick {} to establish timeline coverage", replayTick);
+            return false;
         }
+
+        replayServer.replayPaused = true;
+        return ++this.anchorSettleTicks >= ANCHOR_SETTLE_CLIENT_TICKS;
     }
 
     private boolean advanceAnchorScan(ReplayServer replayServer, int step, int inclusiveLimit) {
