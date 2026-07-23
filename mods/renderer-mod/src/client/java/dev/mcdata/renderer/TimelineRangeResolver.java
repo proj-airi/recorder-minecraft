@@ -88,6 +88,14 @@ final class TimelineRangeResolver {
         return candidate;
     }
 
+    static boolean hasSameOffset(Marker first, Marker candidate) {
+        if (first == null || candidate == null) {
+            return false;
+        }
+        return first.serverTick() - first.replayTick()
+            == candidate.serverTick() - candidate.replayTick();
+    }
+
     static boolean matchesResolvedStart(
         Marker observation, int expectedReplayTick, long expectedServerTick
     ) {

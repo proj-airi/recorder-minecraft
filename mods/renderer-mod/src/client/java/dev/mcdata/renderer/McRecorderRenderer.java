@@ -264,9 +264,15 @@ public final class McRecorderRenderer implements ClientModInitializer {
 
         TimelineObservation observation = this.timelineObservation;
         if (observation != null && this.matchesJob(observation.payload())) {
+            TimelineRangeResolver.Marker first = marker(this.firstTimelineObservation);
+            TimelineRangeResolver.Marker candidate = marker(observation);
+            if (!TimelineRangeResolver.hasSameOffset(first, candidate)) {
+                this.checkTimeout("aligned final timeline marker after replay tail seek");
+                return;
+            }
             TimelineRangeResolver.Marker previous = marker(this.lastTimelineObservation);
             TimelineRangeResolver.Marker accepted = TimelineRangeResolver.extendForwardCoverage(
-                marker(this.firstTimelineObservation), previous, marker(observation)
+                first, previous, candidate
             );
             if (!accepted.equals(previous)) {
                 this.lastTimelineObservation = observation;

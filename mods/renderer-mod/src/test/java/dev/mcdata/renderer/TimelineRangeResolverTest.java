@@ -110,6 +110,18 @@ final class TimelineRangeResolverTest {
     }
 
     @Test
+    void distinguishesAnIntermediateTailSeekMarkerFromAnAlignedMarker() {
+        TimelineRangeResolver.Marker first = new TimelineRangeResolver.Marker(6898, 3, 2419);
+
+        assertFalse(TimelineRangeResolver.hasSameOffset(
+            first, new TimelineRangeResolver.Marker(6924, 682, 2600)
+        ));
+        assertTrue(TimelineRangeResolver.hasSameOffset(
+            first, new TimelineRangeResolver.Marker(7577, 682, 9002)
+        ));
+    }
+
+    @Test
     void rejectsAnAdvancingMarkerWithOffsetDriftDuringForwardScan() {
         assertThrows(IllegalArgumentException.class, () -> TimelineRangeResolver.extendForwardCoverage(
             new TimelineRangeResolver.Marker(1200, 3, 2419),
