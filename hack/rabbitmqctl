@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ENV_FILE="${ROOT}/deploy/.env"
+COMPOSE=(docker compose --env-file deploy/.env --file deploy/docker-compose.yml)
+
+usage() {
+  cat <<'EOF'
+Usage:
+  hack/rabbitmqctl [rabbitmqctl args...]
+
+Examples:
+  hack/rabbitmqctl list_queues name messages_ready messages_unacknowledged consumers
+  hack/rabbitmqctl status
+
+Runs rabbitmqctl inside the Compose RabbitMQ service declared by deploy/.env.
+EOF
+}
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  usage
+  exit 0
+fi
+
+if [[ ! -f "${ENV_FILE}" ]]; then
+  echo "missing deploy/.env; copy deploy/.env.example to deploy/.env and edit it" >&2
+  exit 2
+fi
+
+if ! command -v docker >/dev/null 2>&1; then
+  echo "missing required command: docker" >&2
+  exit 127
+fi
+
+cd "${ROOT}"
+exec "${COMPOSE[@]}" exec rabbitmq rabbitmqctl "$@"

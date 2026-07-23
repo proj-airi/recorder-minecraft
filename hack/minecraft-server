@@ -74,6 +74,7 @@ prepare() {
   require_command pixi
 
   cd "${ROOT}"
+  pixi run build-minerec-image
   pixi run build-recorder-mod
 
   local mods_dir config_dir control_dir jar level_name epoch_ticks eula
