@@ -121,3 +121,21 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
+
+  render-preparer:
+    image: minerec:local
+    platform: linux/amd64
+    build:
+      context: ..
+      dockerfile: apps/minerec/Dockerfile
+    restart: unless-stopped
+    init: true
+    command: ['minerec', '--config', '/recorder.toml', 'render-preparer']
+    environment:
+      PYTHONUNBUFFERED: '1'
+    volumes:
+      - '${MC_CONFIG_FILE}:/recorder.toml:ro'
+      - '${MC_CAPTURE_DIR}:/artifacts/captures:ro'
+      - '${MC_REPLAY_DIR}:/artifacts/replays:ro'
+      - '${MC_EXPORT_DIR}:/artifacts/exports'
+      - '${MC_RUNTIME_DIR}:/.mc-recorder'

@@ -237,6 +237,27 @@ class RenderCliTest(unittest.TestCase):
             )
             self.assertIn("Published 2 render task", output.getvalue())
 
+    def test_render_preparer_runs_one_scan_and_exits(self) -> None:
+        config = mock.Mock()
+        preparer = mock.Mock()
+        preparer.run_once.return_value = {"id": "job", "state": "queued"}
+        output = io.StringIO()
+        with (
+            mock.patch.object(cli, "load_config", return_value=config),
+            mock.patch.object(
+                cli,
+                "RenderPreparer",
+                return_value=preparer,
+            ) as constructor,
+            mock.patch("sys.stdout", output),
+        ):
+            code = cli.run(["render-preparer", "--once"])
+
+        self.assertEqual(0, code)
+        constructor.assert_called_once_with(config)
+        preparer.run_once.assert_called_once_with()
+        self.assertIn("Prepared 1 render dataset", output.getvalue())
+
     def test_render_worker_requires_rabbitmq_url(self) -> None:
         error = io.StringIO()
         with (

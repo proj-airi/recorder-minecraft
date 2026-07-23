@@ -95,9 +95,7 @@ def _stable_source_bytes(path: Path, *, active: bool) -> _SourceBytes:
         raise RecorderError(f"capture events were replaced while reading: {path}")
     if after.st_size < before.st_size:
         raise RecorderError(f"capture events were truncated while reading: {path}")
-    if not active and (
-        after.st_size != before.st_size or after.st_mtime_ns != before.st_mtime_ns
-    ):
+    if not active and (after.st_size != before.st_size or after.st_mtime_ns != before.st_mtime_ns):
         raise RecorderError(f"finalized capture events changed while reading: {path}")
 
     try:
@@ -109,11 +107,7 @@ def _stable_source_bytes(path: Path, *, active: bool) -> _SourceBytes:
         verified = _read_exact(verify_descriptor, len(retained))
     finally:
         os.close(verify_descriptor)
-    if (
-        verify_stat.st_dev != before.st_dev
-        or verify_stat.st_ino != before.st_ino
-        or verified != retained
-    ):
+    if verify_stat.st_dev != before.st_dev or verify_stat.st_ino != before.st_ino or verified != retained:
         raise RecorderError(f"capture event prefix changed while reading: {path}")
     return _SourceBytes(
         data=retained,
@@ -143,19 +137,13 @@ def _parse_records(
         try:
             record = json.loads(line)
         except json.JSONDecodeError as exc:
-            raise RecorderError(
-                f"{source}:{line_number}: invalid JSON: {exc.msg}"
-            ) from exc
+            raise RecorderError(f"{source}:{line_number}: invalid JSON: {exc.msg}") from exc
         if not isinstance(record, dict):
             raise RecorderError(f"{source}:{line_number}: event must be an object")
         if record.get("session_id") != session_id:
-            raise RecorderError(
-                f"{source}:{line_number}: event session does not match snapshot"
-            )
+            raise RecorderError(f"{source}:{line_number}: event session does not match snapshot")
         if record.get("epoch_index") != epoch_index:
-            raise RecorderError(
-                f"{source}:{line_number}: event epoch does not match directory"
-            )
+            raise RecorderError(f"{source}:{line_number}: event epoch does not match directory")
         sequence = record.get("sequence")
         tick = record.get("server_tick")
         if not isinstance(sequence, int) or isinstance(sequence, bool):
@@ -163,9 +151,7 @@ def _parse_records(
         if not isinstance(tick, int) or isinstance(tick, bool):
             raise RecorderError(f"{source}:{line_number}: event server tick is invalid")
         if previous_sequence is not None and sequence <= previous_sequence:
-            raise RecorderError(
-                f"{source}:{line_number}: event sequence is not strictly increasing"
-            )
+            raise RecorderError(f"{source}:{line_number}: event sequence is not strictly increasing")
         if previous_tick is not None and tick < previous_tick:
             raise RecorderError(f"{source}:{line_number}: server tick moved backwards")
         previous_sequence = sequence
@@ -209,11 +195,7 @@ def _matches_connection(
     player_uuid: str,
     connection_id: str,
 ) -> bool:
-    return (
-        record.get("record_type") == record_type
-        and record.get("player_uuid") == player_uuid
-        and record.get("connection_id") == connection_id
-    )
+    return record.get("record_type") == record_type and record.get("player_uuid") == player_uuid and record.get("connection_id") == connection_id
 
 
 @contextmanager
@@ -265,11 +247,7 @@ def snapshot_connection(
         (staging / "epochs").mkdir(parents=True)
         (staging / "manifest.json").write_bytes(session_manifest_bytes)
         candidates = sorted(
-            (
-                path
-                for path in epochs_root.iterdir()
-                if path.name.startswith("epoch-") and path.is_dir() and not path.is_symlink()
-            ),
+            (path for path in epochs_root.iterdir() if path.name.startswith("epoch-") and path.is_dir() and not path.is_symlink()),
             key=lambda path: path.name,
         )
         if not candidates:

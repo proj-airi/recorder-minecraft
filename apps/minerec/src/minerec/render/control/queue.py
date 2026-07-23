@@ -283,11 +283,7 @@ class RenderQueueStore:
     ) -> dict[str, Any]:
         encoded, value = _json_object(payload, "artifact render request payload")
         artifact_id = value.get("source_artifact_id")
-        if (
-            not isinstance(artifact_id, str)
-            or len(artifact_id) != 32
-            or any(character not in "0123456789abcdef" for character in artifact_id)
-        ):
+        if not isinstance(artifact_id, str) or len(artifact_id) != 32 or any(character not in "0123456789abcdef" for character in artifact_id):
             raise RecorderError("artifact render request has an invalid artifact ID")
         if value.get("dataset_id") is not None:
             raise RecorderError("artifact render request may not supply a dataset ID")
@@ -412,12 +408,7 @@ class RenderQueueStore:
         *,
         lease_seconds: int = DEFAULT_LEASE_SECONDS,
     ) -> dict[str, Any] | None:
-        if (
-            not isinstance(preparer_id, str)
-            or not preparer_id.strip()
-            or len(preparer_id) > 80
-            or any(ord(character) < 32 for character in preparer_id)
-        ):
+        if not isinstance(preparer_id, str) or not preparer_id.strip() or len(preparer_id) > 80 or any(ord(character) < 32 for character in preparer_id):
             raise RecorderError("render preparer ID must be between 1 and 80 characters")
         duration = _lease_seconds(lease_seconds)
         now = time.time()
@@ -507,20 +498,9 @@ class RenderQueueStore:
         end_tick: int,
     ) -> dict[str, Any]:
         canonical = _uuid(job_id, "render job ID")
-        if (
-            not isinstance(dataset_id, str)
-            or len(dataset_id) != 32
-            or any(character not in "0123456789abcdef" for character in dataset_id)
-        ):
+        if not isinstance(dataset_id, str) or len(dataset_id) != 32 or any(character not in "0123456789abcdef" for character in dataset_id):
             raise RecorderError("prepared dataset ID is invalid")
-        if (
-            not isinstance(start_tick, int)
-            or isinstance(start_tick, bool)
-            or not isinstance(end_tick, int)
-            or isinstance(end_tick, bool)
-            or start_tick < 0
-            or end_tick < start_tick
-        ):
+        if not isinstance(start_tick, int) or isinstance(start_tick, bool) or not isinstance(end_tick, int) or isinstance(end_tick, bool) or start_tick < 0 or end_tick < start_tick:
             raise RecorderError("prepared dataset tick bounds are invalid")
         now = time.time()
         with self._lock, self._session(immediate=True) as connection:
@@ -1057,13 +1037,7 @@ class RenderQueueStore:
         stored = str(row["preparation_lease_token"] or "")
         expires = row["preparation_lease_expires_at"]
         owned = hmac.compare_digest(stored, lease_token)
-        if (
-            row["state"] != "preparing_dataset"
-            or not owned
-            or not isinstance(expires, (int, float))
-            or not math.isfinite(expires)
-            or expires <= now
-        ):
+        if row["state"] != "preparing_dataset" or not owned or not isinstance(expires, (int, float)) or not math.isfinite(expires) or expires <= now:
             raise RecorderError("preparation lease is not owned by this preparer")
         return row
 
@@ -1217,9 +1191,7 @@ class RenderQueueStore:
             "active_attempt": active_attempt,
             "retry_of": row["retry_of"],
             "preparer_id": row["preparer_id"],
-            "preparation_lease_expires_at": _now_iso(
-                row["preparation_lease_expires_at"]
-            ),
+            "preparation_lease_expires_at": _now_iso(row["preparation_lease_expires_at"]),
         }
 
     @staticmethod

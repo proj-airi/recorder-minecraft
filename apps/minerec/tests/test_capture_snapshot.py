@@ -101,10 +101,7 @@ def _write_episode(root: Path, records: list[dict[str, object]], *, tail: bytes 
         json.dumps({"schema_version": 1, "session_id": SESSION}),
         encoding="utf-8",
     )
-    complete = b"".join(
-        json.dumps(record, sort_keys=True, separators=(",", ":")).encode() + b"\n"
-        for record in records
-    )
+    complete = b"".join(json.dumps(record, sort_keys=True, separators=(",", ":")).encode() + b"\n" for record in records)
     (epoch / "events.jsonl.inprogress").write_bytes(complete + tail)
     return episode, complete
 
@@ -161,16 +158,8 @@ class CaptureSnapshotTest(unittest.TestCase):
 
     def test_requires_join_and_leave_for_selected_connection(self) -> None:
         cases = {
-            "join": [
-                record
-                for record in _connection_records()
-                if record["record_type"] != "player_join"
-            ],
-            "leave": [
-                record
-                for record in _connection_records()
-                if record["record_type"] != "player_leave"
-            ],
+            "join": [record for record in _connection_records() if record["record_type"] != "player_join"],
+            "leave": [record for record in _connection_records() if record["record_type"] != "player_leave"],
         }
         for missing, records in cases.items():
             with self.subTest(missing=missing), tempfile.TemporaryDirectory() as temporary:
@@ -259,19 +248,12 @@ class CaptureSnapshotTest(unittest.TestCase):
                     player_uuid=PLAYER,
                     connection_id=CONNECTION,
                 ) as snapshot:
-                    copied = (
-                        snapshot.episode
-                        / "epochs"
-                        / "epoch-000001"
-                        / "events.jsonl"
-                    )
+                    copied = snapshot.episode / "epochs" / "epoch-000001" / "events.jsonl"
                     self.assertEqual(complete, copied.read_bytes())
 
     def test_rejects_prefix_rewrite_replacement_and_truncation(self) -> None:
         mutations = {
-            "prefix changed": lambda active: active.write_bytes(
-                b" " + active.read_bytes()[1:]
-            ),
+            "prefix changed": lambda active: active.write_bytes(b" " + active.read_bytes()[1:]),
             "replaced": lambda active: (
                 active.rename(active.with_suffix(".old")),
                 active.write_bytes(active.with_suffix(".old").read_bytes()),
@@ -282,12 +264,7 @@ class CaptureSnapshotTest(unittest.TestCase):
             with self.subTest(expected=expected), tempfile.TemporaryDirectory() as temporary:
                 root = Path(temporary)
                 episode, _ = _write_episode(root / "captures", _connection_records())
-                active = (
-                    episode
-                    / "epochs"
-                    / "epoch-000001"
-                    / "events.jsonl.inprogress"
-                )
+                active = episode / "epochs" / "epoch-000001" / "events.jsonl.inprogress"
                 original_read = snapshot_module._read_exact
                 active_size = active.stat().st_size
                 mutated = False

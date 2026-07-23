@@ -43,6 +43,7 @@ from .render.control.broker import (
     dispatch_pending_render_jobs,
     publish_render_task_message,
 )
+from .render.control.preparer import RenderPreparer
 from .render.control.queue import RenderQueueStore
 from .render.control.rpc import dispatch_render_rpc
 from .serve.dashboard.server import serve_dashboard
@@ -200,6 +201,21 @@ def _parser() -> argparse.ArgumentParser:
         type=int,
         default=50,
         help="maximum queued jobs to publish per scan (1-100; default: 50)",
+    )
+    preparer = commands.add_parser(
+        "render-preparer",
+        help="build verified datasets for artifact render requests",
+    )
+    preparer.add_argument(
+        "--once",
+        action="store_true",
+        help="process at most one request and exit",
+    )
+    preparer.add_argument(
+        "--interval",
+        type=float,
+        default=5.0,
+        help="seconds between preparation scans (1-300; default: 5)",
     )
     return parser
 
@@ -491,6 +507,19 @@ def run(argv: Sequence[str] | None = None) -> int:
                 limit=args.limit,
             )
             print(f"Published {count} render task(s).", flush=True)
+            if args.once:
+                return 0
+            time.sleep(args.interval)
+
+    if args.command == "render-preparer":
+        config = load_config(args.config)
+        if not 1.0 <= args.interval <= 300.0:
+            raise RecorderError("--interval must be between 1 and 300 seconds")
+        preparer = RenderPreparer(config)
+        while True:
+            result = preparer.run_once()
+            prepared = int(result is not None and result.get("state") == "queued")
+            print(f"Prepared {prepared} render dataset(s).", flush=True)
             if args.once:
                 return 0
             time.sleep(args.interval)

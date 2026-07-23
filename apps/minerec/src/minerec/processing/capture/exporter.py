@@ -858,11 +858,7 @@ def _validated_source_snapshot(
             raise RecorderError(f"capture snapshot segment {ordinal} record count is invalid")
         if not isinstance(expected_sha, str) or re.fullmatch(r"[0-9a-f]{64}", expected_sha) is None:
             raise RecorderError(f"capture snapshot segment {ordinal} SHA-256 is invalid")
-        if (
-            epoch.events_bytes != size_bytes
-            or epoch.record_count != record_count
-            or epoch.events_sha256 != expected_sha
-        ):
+        if epoch.events_bytes != size_bytes or epoch.record_count != record_count or epoch.events_sha256 != expected_sha:
             raise RecorderError(f"capture snapshot segment {ordinal} does not match its private envelope")
         try:
             before = source.stat()
@@ -871,14 +867,7 @@ def _validated_source_snapshot(
             after = source.stat()
         except OSError as exc:
             raise RecorderError(f"cannot verify capture snapshot segment {ordinal}") from exc
-        if (
-            before.st_dev != after.st_dev
-            or before.st_ino != after.st_ino
-            or before.st_size < size_bytes
-            or after.st_size < size_bytes
-            or len(prefix) != size_bytes
-            or hashlib.sha256(prefix).hexdigest() != expected_sha
-        ):
+        if before.st_dev != after.st_dev or before.st_ino != after.st_ino or before.st_size < size_bytes or after.st_size < size_bytes or len(prefix) != size_bytes or hashlib.sha256(prefix).hexdigest() != expected_sha:
             raise RecorderError(f"capture snapshot segment {ordinal} source prefix changed")
         validated_segments.append(_plain_json(raw_segment))
 
@@ -1618,16 +1607,10 @@ def _export_episode_pinned(
                 "size_bytes": scene_path.stat().st_size,
             }
         source_manifest = {
-            "episode": (
-                validated_snapshot["source_episode"]
-                if validated_snapshot is not None
-                else str(episode.resolve())
-            ),
+            "episode": (validated_snapshot["source_episode"] if validated_snapshot is not None else str(episode.resolve())),
             "manifest_sha256": session_manifest_sha,
             "sealed_epochs": len(verified_epochs),
-            "active_epochs_skipped": (
-                0 if validated_snapshot is not None else validation.active_epochs
-            ),
+            "active_epochs_skipped": (0 if validated_snapshot is not None else validation.active_epochs),
             "epochs": [epoch.manifest_entry() for epoch in verified_epochs],
         }
         if validated_snapshot is not None:

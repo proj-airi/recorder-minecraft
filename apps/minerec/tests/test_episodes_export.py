@@ -508,10 +508,7 @@ class EpisodeExportTest(unittest.TestCase):
             )
             self.assertEqual([CONNECTION], manifest["selection"]["connections"])
             self.assertEqual(2, result.state_count)
-            states = [
-                json.loads(line)
-                for line in (result.output / "states.jsonl").read_text().splitlines()
-            ]
+            states = [json.loads(line) for line in (result.output / "states.jsonl").read_text().splitlines()]
             self.assertEqual({CONNECTION}, {row["connection_id"] for row in states})
 
     def test_epoch_pin_covers_validation_reads_and_atomic_publication(self) -> None:
