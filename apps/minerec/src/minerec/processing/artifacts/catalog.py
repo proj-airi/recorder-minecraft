@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import stat
+import struct
 import uuid
 import zipfile
 import zlib
@@ -17,11 +18,16 @@ from minerec.processing.capture.episodes import EpisodeInfo, list_episodes
 MAX_ARCHIVE_METADATA_BYTES = 1024 * 1024
 MAX_ARTIFACT_ISSUES = 100
 MAX_REPLAY_CANDIDATES = 512
+MAX_REPLAY_TRAVERSAL_ENTRIES = 4096
 MAX_ZIP_ENTRIES = 4096
 HOTBAR_SNAPSHOT_CONTRACT = "item_stack_copy_v1"
 FLASHBACK_CAPTURE_CONTRACT = "client_visible_scene_v1"
 
 CaptureState = Literal["open", "complete", "incomplete", "empty"]
+
+_ZIP_EOCD = struct.Struct("<4s4H2LH")
+_ZIP_EOCD_SIGNATURE = b"PK\x05\x06"
+_MAX_ZIP_TAIL_BYTES = _ZIP_EOCD.size + 0xFFFF
 
 
 @dataclass(frozen=True)
@@ -200,9 +206,44 @@ def _validated_identity(raw: object) -> _ReplayIdentity:
     )
 
 
+def _preflight_zip_entry_count(source: BinaryIO) -> None:
+    original_offset = source.tell()
+    try:
+        source.seek(0, os.SEEK_END)
+        archive_size = source.tell()
+        tail_size = min(archive_size, _MAX_ZIP_TAIL_BYTES)
+        source.seek(archive_size - tail_size)
+        tail = source.read(tail_size)
+    except OSError as exc:
+        raise RecorderError("replay ZIP directory cannot be inspected") from exc
+    finally:
+        source.seek(original_offset)
+    if len(tail) != tail_size:
+        raise RecorderError("replay ZIP directory cannot be inspected")
+
+    offset = tail.rfind(_ZIP_EOCD_SIGNATURE)
+    end_record: tuple[bytes, int, int, int, int, int, int, int] | None = None
+    while offset >= 0:
+        if offset + _ZIP_EOCD.size <= len(tail):
+            candidate = _ZIP_EOCD.unpack_from(tail, offset)
+            if offset + _ZIP_EOCD.size + candidate[-1] == len(tail):
+                end_record = candidate
+                break
+        offset = tail.rfind(_ZIP_EOCD_SIGNATURE, 0, offset)
+    if end_record is None:
+        raise RecorderError("replay ZIP end record is missing")
+
+    _, _, _, entries_on_disk, total_entries, central_size, central_offset, _ = end_record
+    if entries_on_disk == 0xFFFF or total_entries == 0xFFFF or central_size == 0xFFFFFFFF or central_offset == 0xFFFFFFFF:
+        raise RecorderError("replay ZIP64 archives are not supported")
+    if total_entries > MAX_ZIP_ENTRIES:
+        raise RecorderError("replay ZIP entry limit exceeded")
+
+
 def _archive_identity(source: BinaryIO) -> _ReplayIdentity:
     try:
         source.seek(0)
+        _preflight_zip_entry_count(source)
         with zipfile.ZipFile(source) as archive:
             entries = archive.infolist()
             if len(entries) > MAX_ZIP_ENTRIES:
@@ -295,10 +336,15 @@ def _open_replay_candidate(root_descriptor: int, relative_path: str) -> int:
 def _iter_replay_candidates(
     root_descriptor: int,
     issue_limit: int,
-) -> tuple[tuple[str, ...], tuple[ArtifactIssue, ...], Literal["candidate_limit", "issue_limit"] | None]:
+) -> tuple[
+    tuple[str, ...],
+    tuple[ArtifactIssue, ...],
+    Literal["candidate_limit", "issue_limit", "traversal_limit"] | None,
+]:
     candidates: list[str] = []
     issues: list[ArtifactIssue] = []
-    truncation_reason: Literal["candidate_limit", "issue_limit"] | None = None
+    truncation_reason: Literal["candidate_limit", "issue_limit", "traversal_limit"] | None = None
+    visited_entries = 0
     directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
 
     def add_issue(relative_path: str, message: str) -> bool:
@@ -316,13 +362,24 @@ def _iter_replay_candidates(
         return True
 
     def walk(directory_descriptor: int, prefix: tuple[str, ...]) -> bool:
-        nonlocal truncation_reason
+        nonlocal truncation_reason, visited_entries
+        remaining_budget = MAX_REPLAY_TRAVERSAL_ENTRIES - visited_entries
+        if remaining_budget <= 0:
+            truncation_reason = "traversal_limit"
+            return False
+        names: list[str] = []
         try:
-            names = sorted(os.listdir(directory_descriptor))
+            with os.scandir(directory_descriptor) as entries:
+                for entry in entries:
+                    names.append(entry.name)
+                    visited_entries += 1
+                    if visited_entries >= MAX_REPLAY_TRAVERSAL_ENTRIES:
+                        truncation_reason = "traversal_limit"
+                        break
         except OSError:
             relative_path = "/".join(prefix) or "."
             return add_issue(relative_path, "cannot scan replay directory")
-        for name in names:
+        for name in sorted(names):
             relative_parts = (*prefix, name)
             relative_path = "/".join(relative_parts)
             try:
@@ -369,7 +426,7 @@ def _iter_replay_candidates(
                 truncation_reason = "candidate_limit"
                 return False
             candidates.append(relative_path)
-        return True
+        return truncation_reason is None
 
     walk(root_descriptor, ())
     return tuple(candidates), tuple(issues), truncation_reason
@@ -493,7 +550,7 @@ class ArtifactCatalog:
             )
 
         try:
-            candidates, traversal_issues, candidate_truncated = _iter_replay_candidates(
+            candidates, traversal_issues, traversal_truncation = _iter_replay_candidates(
                 root_descriptor,
                 max(issue_limit - 1, 0),
             )
@@ -518,7 +575,7 @@ class ArtifactCatalog:
                 try:
                     artifacts.append(_replay_artifact(candidate, root_descriptor))
                 except RecorderError as exc:
-                    has_more = index + 1 < len(candidates) or candidate_truncated
+                    has_more = index + 1 < len(candidates) or traversal_truncation is not None
                     if has_more and len(issues) >= max(issue_limit - 1, 0):
                         inspection_truncated = True
                         break
@@ -536,8 +593,13 @@ class ArtifactCatalog:
         finally:
             os.close(root_descriptor)
 
-        if candidate_truncated or inspection_truncated:
-            message = "replay scan truncated at candidate limit" if candidate_truncated and not inspection_truncated else "replay scan truncated at catalog issue limit"
+        if traversal_truncation is not None or inspection_truncated:
+            if inspection_truncated or traversal_truncation == "issue_limit":
+                message = "replay scan truncated at catalog issue limit"
+            elif traversal_truncation == "candidate_limit":
+                message = "replay scan truncated at candidate limit"
+            else:
+                message = "replay scan truncated at traversal entry limit"
             truncation_issue = ArtifactIssue(
                 artifact_type="replay",
                 relative_path=".",

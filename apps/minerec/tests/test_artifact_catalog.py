@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import struct
 import sys
 import tempfile
 import unittest
@@ -500,6 +501,76 @@ class ArtifactCatalogReplayTest(unittest.TestCase):
             self.assertEqual((), result.replay_archives)
             self.assertEqual(1, len(result.issues))
             self.assertIn("entry limit", result.issues[0].message)
+
+    def test_rejects_excessive_eocd_before_constructing_zipfile(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            replays = root / "replays"
+            replays.mkdir()
+            eocd = struct.Struct("<4s4H2LH")
+            (replays / "excessive.zip").write_bytes(
+                eocd.pack(
+                    b"PK\x05\x06",
+                    0,
+                    0,
+                    artifact_catalog.MAX_ZIP_ENTRIES + 1,
+                    artifact_catalog.MAX_ZIP_ENTRIES + 1,
+                    0,
+                    0,
+                    0,
+                )
+            )
+            (replays / "zip64.zip").write_bytes(
+                eocd.pack(
+                    b"PK\x05\x06",
+                    0,
+                    0,
+                    0xFFFF,
+                    0xFFFF,
+                    0xFFFFFFFF,
+                    0xFFFFFFFF,
+                    0,
+                )
+            )
+
+            with mock.patch.object(
+                zipfile,
+                "ZipFile",
+                side_effect=AssertionError("ZipFile construction must be bounded"),
+            ) as zip_constructor:
+                result = ArtifactCatalog(root / "captures", replays).scan()
+
+            self.assertEqual((), result.replay_archives)
+            self.assertEqual(2, len(result.issues))
+            self.assertTrue(any("entry limit" in issue.message for issue in result.issues))
+            self.assertTrue(any("ZIP64" in issue.message for issue in result.issues))
+            zip_constructor.assert_not_called()
+
+    def test_bounds_traversal_across_non_candidate_entries(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            replays = root / "replays"
+            replays.mkdir()
+            for index in range(5):
+                (replays / f"ordinary-{index}.txt").write_text("ignored", encoding="utf-8")
+            real_stat = os.stat
+
+            with (
+                mock.patch.object(
+                    artifact_catalog,
+                    "MAX_REPLAY_TRAVERSAL_ENTRIES",
+                    3,
+                    create=True,
+                ),
+                mock.patch.object(os, "stat", wraps=real_stat) as stat_call,
+            ):
+                result = ArtifactCatalog(root / "captures", replays).scan()
+
+            self.assertEqual((), result.replay_archives)
+            self.assertEqual(1, len(result.issues))
+            self.assertIn("traversal entry limit", result.issues[0].message)
+            traversal_stats = [call for call in stat_call.call_args_list if call.kwargs.get("dir_fd") is not None]
+            self.assertEqual(3, len(traversal_stats))
 
     def test_stops_archive_inspection_when_issue_budget_is_full(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
