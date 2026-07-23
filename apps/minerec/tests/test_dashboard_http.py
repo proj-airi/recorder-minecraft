@@ -363,10 +363,12 @@ class DashboardHTTPTest(unittest.TestCase):
     def test_status_returns_csrf_and_mutations_enforce_it(self) -> None:
         status = json.load(self._request("/api/v1/status"))
         self.assertTrue(status["csrf_token"])
-        self.assertEqual("external", status["server"]["state"])
+        self.assertEqual("ready", status["dashboard"]["state"])
+        dataset_id = "c" * 32
+        path = f"/api/v1/datasets/{dataset_id}/render"
 
         with self.assertRaises(urllib.error.HTTPError) as raised:
-            self._request("/api/v1/server/start", method="POST", body=b"{}")
+            self._request(path, method="POST", body=b"{}")
         self.assertEqual(403, raised.exception.code)
         raised.exception.close()
 
@@ -376,23 +378,23 @@ class DashboardHTTPTest(unittest.TestCase):
             "Origin": "http://attacker.invalid",
         }
         with self.assertRaises(urllib.error.HTTPError) as raised:
-            self._request("/api/v1/server/start", method="POST", body=b"{}", headers=headers)
+            self._request(path, method="POST", body=b"{}", headers=headers)
         self.assertEqual(403, raised.exception.code)
         raised.exception.close()
 
         headers.pop("Origin")
         with self.assertRaises(urllib.error.HTTPError) as raised:
-            self._request("/api/v1/server/start", method="POST", body=b"{}", headers=headers)
+            self._request(path, method="POST", body=b"{}", headers=headers)
         self.assertEqual(403, raised.exception.code)
         raised.exception.close()
 
-        self.application.service.start_server_job = lambda: {  # ty:ignore[invalid-assignment]
+        self.application.service.create_render_job = lambda *_args, **_kwargs: {  # ty:ignore[invalid-assignment]
             "id": "00000000-0000-4000-8000-000000000001",
-            "kind": "server_start",
+            "dataset_id": dataset_id,
             "state": "queued",
         }
         headers["Origin"] = self.base
-        response = self._request("/api/v1/server/start", method="POST", body=b"{}", headers=headers)
+        response = self._request(path, method="POST", body=b"{}", headers=headers)
         self.assertEqual(202, response.status)
 
     def test_rejects_unknown_and_traversal_routes(self) -> None:
@@ -535,11 +537,10 @@ class DashboardHTTPTest(unittest.TestCase):
             "Content-Type": "application/json",
             "Origin": self.base,
         }
-        recording_id = "a" * 24
+        dataset_id = "c" * 32
         queued = {
             "id": "11111111-1111-4111-8111-111111111111",
-            "recording_id": recording_id,
-            "kind": "render_rgb",
+            "dataset_id": dataset_id,
             "state": "queued",
         }
         with mock.patch.object(
@@ -548,67 +549,34 @@ class DashboardHTTPTest(unittest.TestCase):
             return_value=queued,
         ) as create:
             response = self._request(
-                f"/api/v1/recordings/{recording_id}/render",
+                f"/api/v1/datasets/{dataset_id}/render",
                 method="POST",
-                body=json.dumps({"width": 1280, "height": 720, "fps": 20}).encode(),
+                body=json.dumps(
+                    {
+                        "player_uuid": "00000000-0000-4000-8000-000000000001",
+                        "connection_id": "00000000-0000-4000-8000-000000000002",
+                        "width": 1280,
+                        "height": 720,
+                        "fps": 20,
+                    }
+                ).encode(),
                 headers=headers,
             )
             self.assertEqual(202, response.status)
             self.assertEqual("queued", json.load(response)["state"])
             create.assert_called_once_with(
-                recording_id,
+                dataset_id,
+                player_uuid="00000000-0000-4000-8000-000000000001",
+                connection_id="00000000-0000-4000-8000-000000000002",
                 width=1280,
                 height=720,
                 fps=20,
                 no_gui=False,
-                replace_legacy_rgb=False,
-            )
-
-        with mock.patch.object(
-            self.application.service,
-            "create_render_job",
-            return_value=queued,
-        ) as create_no_gui:
-            response = self._request(
-                f"/api/v1/recordings/{recording_id}/render",
-                method="POST",
-                body=json.dumps({"no_gui": True}).encode(),
-                headers=headers,
-            )
-            self.assertEqual(202, response.status)
-            create_no_gui.assert_called_once_with(
-                recording_id,
-                width=640,
-                height=360,
-                fps=20,
-                no_gui=True,
-                replace_legacy_rgb=False,
-            )
-
-        with mock.patch.object(
-            self.application.service,
-            "create_render_job",
-            return_value=queued,
-        ) as replace_legacy:
-            response = self._request(
-                f"/api/v1/recordings/{recording_id}/render",
-                method="POST",
-                body=json.dumps({"replace_legacy_rgb": True}).encode(),
-                headers=headers,
-            )
-            self.assertEqual(202, response.status)
-            replace_legacy.assert_called_once_with(
-                recording_id,
-                width=640,
-                height=360,
-                fps=20,
-                no_gui=False,
-                replace_legacy_rgb=True,
             )
 
         with self.assertRaises(urllib.error.HTTPError) as raised:
             self._request(
-                f"/api/v1/recordings/{recording_id}/render",
+                f"/api/v1/datasets/{dataset_id}/render",
                 method="POST",
                 body=json.dumps({"no_gui": 0}).encode(),
                 headers=headers,
@@ -619,18 +587,7 @@ class DashboardHTTPTest(unittest.TestCase):
 
         with self.assertRaises(urllib.error.HTTPError) as raised:
             self._request(
-                f"/api/v1/recordings/{recording_id}/render",
-                method="POST",
-                body=json.dumps({"replace_legacy_rgb": 1}).encode(),
-                headers=headers,
-            )
-        self.assertEqual(400, raised.exception.code)
-        self.assertIn("replace_legacy_rgb must be a boolean", raised.exception.read().decode())
-        raised.exception.close()
-
-        with self.assertRaises(urllib.error.HTTPError) as raised:
-            self._request(
-                f"/api/v1/recordings/{recording_id}/render",
+                f"/api/v1/datasets/{dataset_id}/render",
                 method="POST",
                 body=json.dumps({"width": 640, "replay_path": "/etc/passwd"}).encode(),
                 headers=headers,
@@ -642,7 +599,7 @@ class DashboardHTTPTest(unittest.TestCase):
         deeply_nested = b'{"width":' + b"[" * 2000 + b"0" + b"]" * 2000 + b"}"
         with self.assertRaises(urllib.error.HTTPError) as raised:
             self._request(
-                f"/api/v1/recordings/{recording_id}/render",
+                f"/api/v1/datasets/{dataset_id}/render",
                 method="POST",
                 body=deeply_nested,
                 headers=headers,
@@ -650,7 +607,15 @@ class DashboardHTTPTest(unittest.TestCase):
         self.assertEqual(400, raised.exception.code)
         raised.exception.close()
 
-        payload = {"recording_id": recording_id, "render": {"width": 640, "height": 360, "fps": 20}}
+        payload = {
+            "dataset_id": dataset_id,
+            "session_id": "session-http",
+            "player_uuid": "00000000-0000-4000-8000-000000000001",
+            "connection_id": "00000000-0000-4000-8000-000000000002",
+            "start_tick": 20,
+            "end_tick": 20,
+            "render": {"width": 640, "height": 360, "fps": 20},
+        }
         job = self.application.service.render_queue.create(payload)
         worker = self.application.service.render_queue.register_worker("Ephemeral Mac")
         jobs = json.load(self._request("/api/v1/render-jobs"))

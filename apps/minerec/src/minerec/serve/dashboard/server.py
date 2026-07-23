@@ -32,9 +32,7 @@ from minerec.serve.dashboard.service import DashboardService
 
 MAX_REQUEST_BYTES = 64 * 1024
 MAX_JSON_RESPONSE_BYTES = 64 * 1024 * 1024
-JOB_PATH = re.compile(r"^/api/v1/jobs/([0-9a-f-]{36})$")
-GENERATE_PATH = re.compile(r"^/api/v1/recordings/([0-9a-f]{24})/generate$")
-RENDER_PATH = re.compile(r"^/api/v1/recordings/([0-9a-f]{24})/render$")
+DATASET_RENDER_PATH = re.compile(r"^/api/v1/datasets/([0-9a-f]{32})/render$")
 ROUTE_UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 RENDER_JOB_PATH = re.compile(rf"^/api/v1/render-jobs/({ROUTE_UUID})$")
 RENDER_JOB_ACTION_PATH = re.compile(rf"^/api/v1/render-jobs/({ROUTE_UUID})/(cancel|retry)$")
@@ -121,8 +119,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
             if path == "/api/v1/status":
                 self._json(HTTPStatus.OK, self.application.service.status())
                 return
-            if path == "/api/v1/recordings":
-                self._json(HTTPStatus.OK, {"recordings": self.application.service.recordings()})
+            if path == "/api/v1/artifacts":
+                self._json(HTTPStatus.OK, self.application.service.artifacts())
                 return
             if path == "/api/v1/render-jobs":
                 self._json(
@@ -143,14 +141,6 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     HTTPStatus.OK,
                     {"workers": self.application.service.render_workers()},
                 )
-                return
-            if match := JOB_PATH.fullmatch(path):
-                try:
-                    job = self.application.service.jobs.store.get(match.group(1))
-                except KeyError:
-                    self._error(HTTPStatus.NOT_FOUND, "job not found")
-                else:
-                    self._json(HTTPStatus.OK, job)
                 return
             if path == "/api/v1/datasets":
                 self._datasets()
@@ -184,19 +174,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
         path = urlsplit(self.path).path
         try:
             body = self._read_json_body()
-            if path == "/api/v1/server/start":
-                job = self.application.service.start_server_job()
-            elif path == "/api/v1/server/stop":
-                job = self.application.service.stop_server_job()
-            elif match := GENERATE_PATH.fullmatch(path):
-                job = self.application.service.generate_job(match.group(1))
-            elif match := RENDER_PATH.fullmatch(path):
+            if match := DATASET_RENDER_PATH.fullmatch(path):
                 unexpected = set(body) - {
+                    "player_uuid",
+                    "connection_id",
                     "width",
                     "height",
                     "fps",
                     "no_gui",
-                    "replace_legacy_rgb",
                 }
                 if unexpected:
                     raise ValueError(f"unsupported render setting: {sorted(unexpected)[0]}")
@@ -205,15 +190,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
                         raise ValueError(f"render {setting} must be an integer")
                 if "no_gui" in body and not isinstance(body["no_gui"], bool):
                     raise ValueError("render no_gui must be a boolean")
-                if "replace_legacy_rgb" in body and not isinstance(body["replace_legacy_rgb"], bool):
-                    raise ValueError("replace_legacy_rgb must be a boolean")
                 job = self.application.service.create_render_job(
                     match.group(1),
+                    player_uuid=body.get("player_uuid"),
+                    connection_id=body.get("connection_id"),
                     width=body.get("width", 640),
                     height=body.get("height", 360),
                     fps=body.get("fps", 20),
                     no_gui=body.get("no_gui", False),
-                    replace_legacy_rgb=body.get("replace_legacy_rgb", False),
                 )
             elif match := RENDER_JOB_ACTION_PATH.fullmatch(path):
                 if body:

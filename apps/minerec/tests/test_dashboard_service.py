@@ -1,852 +1,150 @@
 from __future__ import annotations
 
-import hashlib
-import json
 import sys
 import tempfile
-import threading
-import time
 import unittest
-from contextlib import nullcontext
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
 from minerec.config import initialize, load_config
 from minerec.errors import RecorderError
-from minerec.processing.dataset.viewer import DatasetCatalogResult
+from minerec.processing.artifacts.catalog import (
+    ArtifactCatalogResult,
+    ReplayArchiveArtifact,
+)
+from minerec.processing.dataset.viewer import PlayerConnectionSummary
 from minerec.render.control.contract import FULL_CLIENT_PRESENTATION_CONTRACT
 from minerec.serve.dashboard.service import DashboardService
 
+DATASET = "c" * 32
+SESSION = "20260721T000000.000Z-deadbeef"
 PLAYER = "00000000-0000-4000-8000-000000000001"
-ACTIVE = "00000000-0000-4000-8000-000000000002"
-ENDED = "00000000-0000-4000-8000-000000000003"
+CONNECTION = "00000000-0000-4000-8000-000000000002"
+SEGMENT = "00000000-0000-4000-8000-000000000003"
+
+
+def _connection() -> PlayerConnectionSummary:
+    return PlayerConnectionSummary(
+        player_uuid=PLAYER,
+        player_name="Player",
+        connection_id=CONNECTION,
+        state_count=11,
+        first_tick=10,
+        last_tick=20,
+        valid_transitions=10,
+        rgb_states=0,
+        scene_states=11,
+    )
+
+
+def _replay() -> ReplayArchiveArtifact:
+    return ReplayArchiveArtifact(
+        artifact_id="d" * 32,
+        relative_path="segment.zip",
+        size_bytes=100,
+        sha256="e" * 64,
+        session_id=SESSION,
+        segment_id=SEGMENT,
+        segment_ordinal=0,
+        player_uuid=PLAYER,
+        connection_id=CONNECTION,
+        flashback_capture_contract="client_visible_scene_v1",
+    )
 
 
 class DashboardServiceTest(unittest.TestCase):
-    def test_connection_rows_are_groupable_and_only_terminal_rows_generate(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            config = load_config(initialize(root / "recorder.toml", accept_eula=True))
-            session = "20260721T000000.000Z-deadbeef"
-            episode = config.paths.captures / session
-            (episode / "epochs" / "epoch-000000").mkdir(parents=True)
-            (episode / "manifest.json").write_text(json.dumps({"session_id": session}), encoding="utf-8")
-            control = config.paths.runtime / "control"
-            control.mkdir(parents=True)
-            (control / "connections.json").write_text(
-                json.dumps(
-                    {
-                        "session_id": session,
-                        "connections": [
-                            {
-                                "player_uuid": PLAYER,
-                                "player_name": "Player",
-                                "connection_id": ACTIVE,
-                                "start_server_tick": 1,
-                                "start_sequence": 2,
-                            },
-                            {
-                                "player_uuid": PLAYER,
-                                "player_name": "Player",
-                                "connection_id": ENDED,
-                                "start_server_tick": 5,
-                                "end_server_tick": 10,
-                                "end_sequence": 99,
-                            },
-                        ],
-                    }
-                ),
-                encoding="utf-8",
-            )
-            service = DashboardService(config)
-            try:
-                (control / "status.json").write_text(
-                    json.dumps(
-                        {
-                            "session_id": session,
-                            "state": "recording",
-                            "heartbeat_unix_ms": int(time.time() * 1000),
-                        }
-                    ),
-                    encoding="utf-8",
-                )
-                rows = service.recordings()
-                self.assertEqual(["recording", "waiting_for_slice"], [row["state"] for row in rows])
-                active = next(row for row in rows if row["connection_id"] == ACTIVE)
-                ended = next(row for row in rows if row["connection_id"] == ENDED)
-                self.assertFalse(active["can_generate"])
-                self.assertTrue(ended["can_generate"])
-                with self.assertRaisesRegex(RecorderError, "active connections"):
-                    service.generate_job(active["id"])
-            finally:
-                service.close()
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        root = Path(self.temporary.name)
+        self.config = load_config(
+            initialize(root / "recorder.toml", accept_eula=True)
+        )
+        self.service = DashboardService(self.config)
 
-    def test_recording_row_exposes_rgb_presentation(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            config = load_config(initialize(root / "recorder.toml", accept_eula=True))
-            session = "20260721T000000.000Z-deadbeef"
-            control = config.paths.runtime / "control"
-            control.mkdir(parents=True)
-            (control / "connections.json").write_text(
-                json.dumps(
-                    {
-                        "session_id": session,
-                        "connections": [
-                            {
-                                "player_uuid": PLAYER,
-                                "player_name": "Player",
-                                "connection_id": ENDED,
-                                "join_server_tick": 5,
-                                "end_server_tick": 10,
-                                "end_sequence": 99,
-                            }
-                        ],
-                    }
-                ),
-                encoding="utf-8",
-            )
-            service = DashboardService(config)
-            metadata = mock.Mock(
-                sample_count=6,
-                rgb_samples=6,
-                rgb_presentation="full_client",
-                first_tick=5,
-                last_tick=10,
-            )
-            try:
-                with (
-                    mock.patch.object(service, "_dataset_match", return_value=("matching", None)),
-                    mock.patch.object(
-                        service.dataset_viewer,
-                        "get_dataset_metadata",
-                        return_value=metadata,
-                    ),
-                ):
-                    row = service.recordings()[0]
-                self.assertTrue(row["rgb_complete"])
-                self.assertTrue(row["rgb_coverage_complete"])
-                self.assertEqual("full_client", row["rgb_presentation"])
-                self.assertFalse(row["can_replace_legacy_rgb"])
-                with mock.patch.object(service, "recordings", return_value=[row]):
-                    with self.assertRaisesRegex(RecorderError, "complete RGB coverage"):
-                        service.create_render_job(row["id"])
-                    with self.assertRaisesRegex(RecorderError, "only allowed for fully covered legacy GUI RGB"):
-                        service.create_render_job(row["id"], replace_legacy_rgb=True)
-            finally:
-                service.close()
+    def tearDown(self) -> None:
+        self.service.close()
+        self.temporary.cleanup()
 
-    def test_fully_covered_legacy_gui_rgb_is_explicitly_replaceable(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            config = load_config(initialize(root / "recorder.toml", accept_eula=True))
-            session = "20260721T000000.000Z-deadbeef"
-            control = config.paths.runtime / "control"
-            control.mkdir(parents=True)
-            (control / "connections.json").write_text(
-                json.dumps(
-                    {
-                        "session_id": session,
-                        "connections": [
-                            {
-                                "player_uuid": PLAYER,
-                                "player_name": "Player",
-                                "connection_id": ENDED,
-                                "join_server_tick": 5,
-                                "end_server_tick": 10,
-                                "end_sequence": 99,
-                            }
-                        ],
-                    }
-                ),
-                encoding="utf-8",
-            )
-            service = DashboardService(config)
-            metadata = mock.Mock(
-                sample_count=6,
-                rgb_samples=6,
-                rgb_presentation="legacy_gui_unsynchronized",
-                first_tick=5,
-                last_tick=10,
-            )
-            completed = {"state": "complete"}
-            try:
-                with (
-                    mock.patch.object(service, "_dataset_match", return_value=("matching", None)),
-                    mock.patch.object(
-                        service.dataset_viewer,
-                        "get_dataset_metadata",
-                        return_value=metadata,
-                    ),
-                    mock.patch.object(
-                        service.render_queue,
-                        "latest_for_recording",
-                        return_value=completed,
-                    ),
-                ):
-                    row = service.recordings()[0]
-                self.assertTrue(row["rgb_coverage_complete"])
-                self.assertFalse(row["rgb_complete"])
-                self.assertTrue(row["can_replace_legacy_rgb"])
-                self.assertTrue(row["can_render"])
+    def test_status_only_reports_dashboard_and_render_pipeline(self) -> None:
+        status = self.service.status()
+        self.assertEqual("ready", status["dashboard"]["state"])
+        self.assertEqual(0, status["render"]["active_jobs"])
+        self.assertNotIn("server", status)
+        self.assertNotIn("capture", status)
 
-                with mock.patch.object(service, "recordings", return_value=[row]):
-                    with self.assertRaisesRegex(RecorderError, "replace_legacy_rgb=true"):
-                        service.create_render_job(row["id"])
-                    with self.assertRaisesRegex(RecorderError, "full-client"):
-                        service.create_render_job(row["id"], no_gui=True, replace_legacy_rgb=True)
-                    job = service.create_render_job(row["id"], replace_legacy_rgb=True)
-                self.assertEqual("queued", job["state"])
-                self.assertEqual(
-                    FULL_CLIENT_PRESENTATION_CONTRACT,
-                    job["payload"]["render"]["presentation_contract"],
-                )
-            finally:
-                service.close()
+    def test_artifacts_combines_filesystem_and_dataset_catalogs(self) -> None:
+        with mock.patch.object(
+            self.service.artifact_catalog,
+            "scan",
+            return_value=ArtifactCatalogResult((), (_replay(),), ()),
+        ):
+            value = self.service.artifacts()
+        self.assertEqual(SEGMENT, value["replay_archives"][0]["segment_id"])
+        self.assertIn("datasets", value)
+        self.assertNotIn("recordings", value)
 
-    def test_preserves_terminal_heartbeat_state_after_it_becomes_stale(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            config = load_config(initialize(root / "recorder.toml", accept_eula=True))
-            control = config.paths.runtime / "control"
-            control.mkdir(parents=True)
-            (control / "status.json").write_text(
-                json.dumps(
-                    {
-                        "session_id": "20260721T000000.000Z-deadbeef",
-                        "state": "stopped",
-                        "updated_at_unix_ms": 1,
-                    }
-                ),
-                encoding="utf-8",
-            )
-            service = DashboardService(config)
-            try:
-                status = service.capture_status()
-                self.assertEqual("stopped", status["state"])
-                self.assertFalse(status["fresh"])
-            finally:
-                service.close()
+    def test_render_job_is_derived_from_dataset_connection_and_replay(self) -> None:
+        metadata = SimpleNamespace(
+            session_id=SESSION,
+            sample_count=11,
+            rgb_samples=0,
+        )
+        with (
+            mock.patch.object(
+                self.service.dataset_viewer,
+                "get_dataset_metadata",
+                return_value=metadata,
+            ),
+            mock.patch.object(
+                self.service.dataset_viewer,
+                "list_player_connections",
+                return_value=(_connection(),),
+            ),
+            mock.patch.object(
+                self.service.artifact_catalog,
+                "scan",
+                return_value=ArtifactCatalogResult((), (_replay(),), ()),
+            ),
+        ):
+            job = self.service.create_render_job(DATASET)
 
-    def test_only_one_dashboard_process_can_recover_and_run_jobs(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            config = load_config(initialize(root / "recorder.toml", accept_eula=True))
-            first = DashboardService(config)
-            try:
-                with self.assertRaisesRegex(RecorderError, "another dashboard process"):
-                    DashboardService(config)
-            finally:
-                first.close()
-            replacement = DashboardService(config)
-            replacement.close()
+        self.assertEqual(DATASET, job["dataset_id"])
+        self.assertNotIn("recording_id", job)
+        self.assertEqual(10, job["payload"]["start_tick"])
+        self.assertEqual(20, job["payload"]["end_tick"])
+        self.assertEqual(
+            FULL_CLIENT_PRESENTATION_CONTRACT,
+            job["payload"]["render"]["presentation_contract"],
+        )
 
-    def test_conflicting_output_is_failed_but_matching_verified_output_is_reused(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            config = load_config(initialize(root / "recorder.toml", accept_eula=True))
-            session = "20260721T000000.000Z-deadbeef"
-            control = config.paths.runtime / "control"
-            control.mkdir(parents=True)
-            (control / "connections.json").write_text(
-                json.dumps(
-                    {
-                        "session_id": session,
-                        "connections": [
-                            {
-                                "player_uuid": PLAYER,
-                                "player_name": "Player",
-                                "connection_id": ENDED,
-                                "join_server_tick": 5,
-                                "join_sequence": 2,
-                                "end_server_tick": 10,
-                                "end_sequence": 99,
-                                "terminal_reason": "disconnect",
-                            }
-                        ],
-                    }
-                ),
-                encoding="utf-8",
-            )
-            output = config.paths.exports / f"{session}-{PLAYER}-{ENDED}.dataset"
-            output.mkdir(parents=True)
-            (output / "manifest.json").write_text(
-                json.dumps(
-                    {
-                        "owner": "mc-recorder",
-                        "selection": {"connections": [ENDED]},
-                    }
-                ),
-                encoding="utf-8",
-            )
-
-            service = DashboardService(config)
-            try:
-                row = self._wait_for_recording_state(service, "failed")
-                self.assertEqual("failed", row["state"])
-                self.assertFalse(row["can_generate"])
-                self.assertIn("viewer-valid", row["error"])  # ty:ignore[invalid-argument-type]
-            finally:
-                service.close()
-
-    def test_hash_enveloped_malformed_dataset_is_not_complete_or_reused(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            config = load_config(initialize(root / "recorder.toml", accept_eula=True))
-            session = "20260721T000000.000Z-deadbeef"
-            control = config.paths.runtime / "control"
-            control.mkdir(parents=True)
-            (control / "connections.json").write_text(
-                json.dumps(
-                    {
-                        "session_id": session,
-                        "connections": [
-                            {
-                                "player_uuid": PLAYER,
-                                "player_name": "Player",
-                                "connection_id": ENDED,
-                                "join_server_tick": 5,
-                                "join_sequence": 2,
-                                "end_server_tick": 10,
-                                "end_sequence": 99,
-                                "terminal_reason": "disconnect",
-                            }
-                        ],
-                    }
-                ),
-                encoding="utf-8",
-            )
-            output = config.paths.exports / f"{session}-{PLAYER}-{ENDED}.dataset"
-            output.mkdir(parents=True)
-            streams = {
-                "samples.jsonl": b"not-json\n",
-                "states.jsonl": b"",
-                "actions.jsonl": b"",
-                "modalities.jsonl": b"",
-            }
-            for name, data in streams.items():
-                (output / name).write_bytes(data)
-            (output / "manifest.json").write_text(
-                json.dumps(
-                    {
-                        "schema_version": 2,
-                        "owner": "mc-recorder",
-                        "format": "mc-recorder-jsonl-v2",
-                        "session_id": session,
-                        "selection": {
-                            "players": [PLAYER],
-                            "connections": [ENDED],
-                            "from_tick": 5,
-                            "to_tick": 10,
-                            "scene_attachment": None,
-                        },
-                        "files": {
-                            name: {
-                                "size_bytes": len(data),
-                                "sha256": hashlib.sha256(data).hexdigest(),
-                            }
-                            for name, data in streams.items()
-                        },
-                    }
-                ),
-                encoding="utf-8",
-            )
-
-            service = DashboardService(config)
-            try:
-                row = self._wait_for_recording_state(service, "failed")
-                self.assertEqual("failed", row["state"])
-                self.assertFalse(row["can_generate"])
-                self.assertIn("viewer-valid", row["error"])  # ty:ignore[invalid-argument-type]
-                with self.assertRaisesRegex(RecorderError, "not ready"):
-                    service.generate_job(row["id"])  # ty:ignore[invalid-argument-type]
-            finally:
-                service.close()
-
-            for child in output.iterdir():
-                child.unlink()
-            streams = {
-                name: b""
-                for name in (
-                    "samples.jsonl",
-                    "states.jsonl",
-                    "actions.jsonl",
-                    "modalities.jsonl",
-                )
-            }
-            for name, data in streams.items():
-                (output / name).write_bytes(data)
-            (output / "manifest.json").write_text(
-                json.dumps(
-                    {
-                        "schema_version": 2,
-                        "owner": "mc-recorder",
-                        "format": "mc-recorder-jsonl-v2",
-                        "session_id": session,
-                        "selection": {
-                            "players": [PLAYER],
-                            "connections": [ENDED],
-                            "from_tick": 5,
-                            "to_tick": 10,
-                            "scene_attachment": None,
-                        },
-                        "files": {
-                            name: {
-                                "size_bytes": len(data),
-                                "sha256": hashlib.sha256(data).hexdigest(),
-                            }
-                            for name, data in streams.items()
-                        },
-                    }
-                ),
-                encoding="utf-8",
-            )
-            service = DashboardService(config)
-            try:
-                row = self._wait_for_recording_state(service, "complete")
-                self.assertEqual("complete", row["state"])
-                self.assertRegex(row["dataset_id"], r"^[0-9a-f]{32}$")  # ty:ignore[invalid-argument-type]
-                job = service.generate_job(row["id"])  # ty:ignore[invalid-argument-type]
-                deadline = time.monotonic() + 2
-                while time.monotonic() < deadline:
-                    completed = service.jobs.store.get(job["id"])
-                    if completed["state"] not in {"queued", "running"}:
-                        break
-                    time.sleep(0.01)
-                self.assertEqual("complete", completed["state"])
-                self.assertTrue(completed["result"]["reused"])
-            finally:
-                service.close()
-
-    def test_explicit_capture_failure_gates_rows_and_generation(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            config = load_config(initialize(root / "recorder.toml", accept_eula=True))
-            session = "20260721T000000.000Z-deadbeef"
-            control = config.paths.runtime / "control"
-            control.mkdir(parents=True)
-            (control / "status.json").write_text(
-                json.dumps(
-                    {
-                        "session_id": session,
-                        "state": "failed",
-                        "updated_at_unix_ms": int(time.time() * 1000),
-                        "failure_reason": "writer disk failure",
-                    }
-                ),
-                encoding="utf-8",
-            )
-            (control / "connections.json").write_text(
-                json.dumps(
-                    {
-                        "session_id": session,
-                        "connections": [
-                            {
-                                "player_uuid": PLAYER,
-                                "player_name": "Player",
-                                "connection_id": ACTIVE,
-                                "join_server_tick": 1,
-                                "join_sequence": 2,
-                            },
-                            {
-                                "player_uuid": PLAYER,
-                                "player_name": "Player",
-                                "connection_id": ENDED,
-                                "join_server_tick": 5,
-                                "join_sequence": 10,
-                                "end_server_tick": 10,
-                                "end_sequence": 99,
-                                "terminal_reason": "disconnect",
-                            },
-                        ],
-                    }
-                ),
-                encoding="utf-8",
-            )
-
-            service = DashboardService(config)
-            try:
-                rows = service.recordings()
-                self.assertEqual({"failed"}, {row["state"] for row in rows})
-                self.assertTrue(all(not row["can_generate"] for row in rows))
-                self.assertTrue(all("disk failure" in row["error"] for row in rows))
-                ended = next(row for row in rows if row["connection_id"] == ENDED)
-                with self.assertRaisesRegex(RecorderError, "not ready"):
-                    service.generate_job(ended["id"])
-            finally:
-                service.close()
-
-    def test_first_dataset_discovery_does_not_block_recording_status(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            config = load_config(initialize(root / "recorder.toml", accept_eula=True))
-            session = "20260721T000000.000Z-deadbeef"
-            control = config.paths.runtime / "control"
-            control.mkdir(parents=True)
-            (control / "connections.json").write_text(
-                json.dumps(
-                    {
-                        "session_id": session,
-                        "connections": [
-                            {
-                                "player_uuid": PLAYER,
-                                "player_name": "Player",
-                                "connection_id": ENDED,
-                                "join_server_tick": 5,
-                                "join_sequence": 2,
-                                "end_server_tick": 10,
-                                "end_sequence": 99,
-                                "terminal_reason": "disconnect",
-                            }
-                        ],
-                    }
-                ),
-                encoding="utf-8",
-            )
-            output = config.paths.exports / f"{session}-{PLAYER}-{ENDED}.dataset"
-            output.mkdir(parents=True)
-            catalog_started = threading.Event()
-            release_catalog = threading.Event()
-
-            def blocked_catalog(_viewer: object) -> DatasetCatalogResult:
-                catalog_started.set()
-                release_catalog.wait(2)
-                return DatasetCatalogResult((), ())
-
-            with mock.patch(
-                "minerec.processing.dataset.viewer.DatasetViewer.catalog",
-                autospec=True,
-                side_effect=blocked_catalog,
-            ):
-                service = DashboardService(config)
-                try:
-                    self.assertTrue(catalog_started.wait(1))
-                    started = time.monotonic()
-                    row = service.recordings()[0]
-                    elapsed = time.monotonic() - started
-                    self.assertLess(elapsed, 0.5)
-                    self.assertEqual("generating", row["state"])
-                    self.assertFalse(row["can_generate"])
-                finally:
-                    release_catalog.set()
-                    service.close()
-
-    def test_failed_slice_job_does_not_make_an_interrupted_recording_retriable(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            config = load_config(initialize(root / "recorder.toml", accept_eula=True))
-            session = "20260721T000000.000Z-deadbeef"
-            control = config.paths.runtime / "control"
-            control.mkdir(parents=True)
-            (control / "connections.json").write_text(
-                json.dumps(
-                    {
-                        "session_id": session,
-                        "connections": [
-                            {
-                                "player_uuid": PLAYER,
-                                "player_name": "Player",
-                                "connection_id": ENDED,
-                                "join_server_tick": 5,
-                                "join_sequence": 2,
-                                "end_server_tick": 10,
-                                "end_sequence": 99,
-                                "terminal_reason": "disconnect",
-                            }
-                        ],
-                    }
-                ),
-                encoding="utf-8",
-            )
-
-            service = DashboardService(config)
-            try:
-                initial = service.recordings()[0]
-                self.assertEqual("interrupted", initial["state"])
-                job = service.jobs.store.create(
-                    "generate_dataset",
-                    {"recording_id": initial["id"]},
-                )
-                service.jobs.store.fail(job["id"], "slice timed out")
-
-                row = service.recordings()[0]
-                self.assertEqual("interrupted", row["state"])
-                self.assertFalse(row["can_generate"])
-                with self.assertRaisesRegex(RecorderError, "not ready"):
-                    service.generate_job(row["id"])
-            finally:
-                service.close()
-
-    def test_scene_jobs_are_cleaned_after_success_and_bounded_after_failure(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            config = load_config(initialize(root / "recorder.toml", accept_eula=True))
-            service = DashboardService(config)
-            row = {"id": "a" * 24, "start_tick": 1, "end_tick": 2}
-            scene_job = mock.sentinel.scene_job
-            pinned_epochs = (root / "episode" / "epochs" / "epoch-000000",)
-            try:
-                for outcome in ({"output": "dataset"}, RecorderError("compaction failed")):
-                    with (
-                        self.subTest(outcome=type(outcome).__name__),
-                        mock.patch(
-                            "minerec.serve.dashboard.service.prepare_scene_job",
-                            return_value=scene_job,
-                        ) as prepare,
-                        mock.patch("minerec.serve.dashboard.service.cleanup_scene_job") as cleanup,
-                        mock.patch("minerec.serve.dashboard.service.cleanup_stale_scene_jobs") as cleanup_stale,
-                        mock.patch.object(
-                            service,
-                            "_publish_prepared_scene_job",
-                            side_effect=outcome if isinstance(outcome, Exception) else None,
-                            return_value=outcome if isinstance(outcome, dict) else None,
-                        ),
-                    ):
-                        if isinstance(outcome, Exception):
-                            with self.assertRaisesRegex(RecorderError, "compaction failed"):
-                                service._extract_and_publish_dataset(
-                                    row,
-                                    episode=root / "episode",
-                                    output=root / "dataset",
-                                    player_uuid=PLAYER,
-                                    connection_id=ENDED,
-                                    pinned_epoch_paths=pinned_epochs,
-                                )
-                        else:
-                            self.assertEqual(
-                                outcome,
-                                service._extract_and_publish_dataset(
-                                    row,
-                                    episode=root / "episode",
-                                    output=root / "dataset",
-                                    player_uuid=PLAYER,
-                                    connection_id=ENDED,
-                                    pinned_epoch_paths=pinned_epochs,
-                                ),
-                            )
-                        prepare.assert_called_once_with(
-                            config,
-                            root / "episode",
-                            player_uuid=PLAYER,
-                            connection_id=ENDED,
-                            first_tick=1,
-                            last_tick=2,
-                            pinned_epoch_paths=pinned_epochs,
-                        )
-                        if isinstance(outcome, Exception):
-                            cleanup.assert_not_called()
-                            self.assertEqual(2, cleanup_stale.call_count)
-                        else:
-                            cleanup.assert_called_once_with(scene_job)
-                            cleanup_stale.assert_called_once_with(config.paths.runtime, keep=1)
-            finally:
-                service.close()
-
-    def test_generation_threads_the_pinned_epoch_snapshot_to_scene_preparation(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            config = load_config(initialize(root / "recorder.toml", accept_eula=True))
-            service = DashboardService(config)
-            session = "20260721T000000.000Z-deadbeef"
-            episode = config.paths.captures / session
-            pinned_epochs = (episode / "epochs" / "epoch-000000",)
-            output = config.paths.exports / "dataset"
-            row = {
-                "id": "a" * 24,
-                "session_id": session,
-                "player_uuid": PLAYER,
-                "connection_id": ENDED,
-                "end_sequence": 99,
-            }
-            expected = {"output": str(output)}
-            try:
-                with (
-                    mock.patch(
-                        "minerec.serve.dashboard.service.operation_lock",
-                        return_value=nullcontext(),
-                    ),
-                    mock.patch.object(service, "_sliced_through_sequence", return_value=99),
-                    mock.patch(
-                        "minerec.serve.dashboard.service.resolve_episode",
-                        return_value=episode,
-                    ),
-                    mock.patch(
-                        "minerec.serve.dashboard.service.pin_sealed_epochs",
-                        return_value=nullcontext(pinned_epochs),
-                    ),
-                    mock.patch.object(
-                        service,
-                        "_extract_and_publish_dataset",
-                        return_value=expected,
-                    ) as extract,
-                ):
-                    self.assertEqual(expected, service._generate_dataset(row))
-
-                extract.assert_called_once_with(
-                    row,
-                    episode=episode,
-                    output=service._dataset_output(session, PLAYER, ENDED),
-                    player_uuid=PLAYER,
-                    connection_id=ENDED,
-                    pinned_epoch_paths=pinned_epochs,
-                )
-            finally:
-                service.close()
-
-    def test_generation_never_writes_recorder_command_spool_when_slice_is_missing(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            config = load_config(initialize(root / "recorder.toml", accept_eula=True))
-            session = "20260721T000000.000Z-deadbeef"
-            control = config.paths.runtime / "control"
-            control.mkdir(parents=True)
-            (control / "connections.json").write_text(
-                json.dumps(
-                    {
-                        "session_id": session,
-                        "connections": [
-                            {
-                                "player_uuid": PLAYER,
-                                "player_name": "Player",
-                                "connection_id": ENDED,
-                                "join_server_tick": 5,
-                                "join_sequence": 2,
-                                "end_server_tick": 10,
-                                "end_sequence": 99,
-                                "terminal_reason": "disconnect",
-                            }
-                        ],
-                    }
-                ),
-                encoding="utf-8",
-            )
-            (control / "status.json").write_text(
-                json.dumps(
-                    {
-                        "session_id": session,
-                        "state": "recording",
-                        "updated_at_unix_ms": int(time.time() * 1000),
-                    }
-                ),
-                encoding="utf-8",
-            )
-            service = DashboardService(config)
-            try:
-                row = service.recordings()[0]
-                self.assertEqual("waiting_for_slice", row["state"])
-                self.assertTrue(row["can_generate"])
-                with self.assertRaisesRegex(RecorderError, "slice is not ready"):
-                    service._generate_dataset(row)
-                self.assertFalse((control / "requests").exists())
-                self.assertFalse((control / "responses").exists())
-            finally:
-                service.close()
-
-    def test_render_jobs_are_connection_scoped_bounded_and_lifecycle_independent(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            config = load_config(initialize(root / "recorder.toml", accept_eula=True))
-            service = DashboardService(config)
-            recording_id = "a" * 24
-            row = {
-                "id": recording_id,
-                "state": "complete",
-                "session_id": "20260721T000000.000Z-deadbeef",
-                "player_uuid": PLAYER,
-                "connection_id": ENDED,
-                "dataset_id": "b" * 32,
-                "start_tick": 5,
-                "end_tick": 10,
-                "sample_start_tick": 6,
-                "sample_end_tick": 9,
-                "rgb_complete": False,
-            }
-            try:
-                # A render can wait offline without consuming the serialized
-                # host lifecycle/generation operation slot.
-                service.jobs.store.create("server_start", {})
-                with mock.patch.object(service, "recordings", return_value=[row]):
-                    job = service.create_render_job(recording_id, width=1280, height=720, fps=20)
-                    self.assertEqual("queued", job["state"])
-                    self.assertEqual(ENDED, job["payload"]["connection_id"])
-                    self.assertEqual((6, 9), (job["payload"]["start_tick"], job["payload"]["end_tick"]))
-                    self.assertEqual(
-                        (5, 10),
-                        (
-                            job["payload"]["selection_start_tick"],
-                            job["payload"]["selection_end_tick"],
-                        ),
-                    )
-                    self.assertEqual(
-                        {
-                            "width": 1280,
-                            "height": 720,
-                            "fps": 20,
-                            "no_gui": False,
-                            "presentation_contract": FULL_CLIENT_PRESENTATION_CONTRACT,
-                        },
-                        job["payload"]["render"],
-                    )
-                    with self.assertRaisesRegex(RecorderError, "width"):
-                        service.create_render_job(recording_id, width=100)
-                    with self.assertRaisesRegex(RecorderError, "fps must be 20"):
-                        service.create_render_job(recording_id, fps=30)
-                    with self.assertRaisesRegex(RecorderError, "width"):
-                        service.create_render_job(recording_id, width=True)
-                    with self.assertRaisesRegex(RecorderError, "no_gui must be a boolean"):
-                        service.create_render_job(recording_id, no_gui=0)  # type: ignore[arg-type]  # ty:ignore[invalid-argument-type]
-                    with self.assertRaisesRegex(RecorderError, "replace_legacy_rgb"):
-                        service.create_render_job(
-                            recording_id,
-                            replace_legacy_rgb=True,
-                        )
-                    with self.assertRaisesRegex(RecorderError, "replace_legacy_rgb"):
-                        service.create_render_job(
-                            recording_id,
-                            replace_legacy_rgb=1,  # type: ignore[arg-type]  # ty:ignore[invalid-argument-type]
-                        )
-                    with self.assertRaisesRegex(RecorderError, "retried while queued"):
-                        service.retry_render_job(job["id"])
-                    service.cancel_render_job(job["id"])
-                    retry = service.retry_render_job(job["id"])
-                    self.assertEqual(job["id"], retry["retry_of"])
-                    self.assertNotEqual(job["id"], retry["id"])
-                    self.assertEqual((6, 9), (retry["payload"]["start_tick"], retry["payload"]["end_tick"]))
-                    self.assertFalse(retry["payload"]["render"]["no_gui"])
-                    self.assertEqual(
-                        FULL_CLIENT_PRESENTATION_CONTRACT,
-                        retry["payload"]["render"]["presentation_contract"],
-                    )
-
-                    legacy_payload = json.loads(json.dumps(job["payload"]))
-                    legacy_payload["render"].pop("no_gui")
-                    legacy = service.render_queue.create(legacy_payload)
-                    service.cancel_render_job(legacy["id"])
-                    legacy_retry = service.retry_render_job(legacy["id"])
-                    self.assertTrue(legacy_retry["payload"]["render"]["no_gui"])
-                    service.cancel_render_job(legacy_retry["id"])
-                missing_row = {**row, "dataset_id": "c" * 32}
-                service.cancel_render_job(retry["id"])
-                with mock.patch.object(service, "recordings", return_value=[missing_row]):
-                    with self.assertRaisesRegex(RecorderError, "no longer available"):
-                        service.retry_render_job(retry["id"])
-            finally:
-                service.close()
-
-    def _wait_for_recording_state(
-        self,
-        service: DashboardService,
-        expected: str,
-    ) -> dict[str, object]:
-        deadline = time.monotonic() + 3
-        while time.monotonic() < deadline:
-            row = service.recordings()[0]
-            if row["state"] == expected:
-                return row
-            time.sleep(0.01)
-        self.fail(f"recording did not reach {expected}: {service.recordings()[0]}")
+    def test_render_requires_an_exact_saved_replay(self) -> None:
+        metadata = SimpleNamespace(
+            session_id=SESSION,
+            sample_count=11,
+            rgb_samples=0,
+        )
+        with (
+            mock.patch.object(
+                self.service.dataset_viewer,
+                "get_dataset_metadata",
+                return_value=metadata,
+            ),
+            mock.patch.object(
+                self.service.dataset_viewer,
+                "list_player_connections",
+                return_value=(_connection(),),
+            ),
+            mock.patch.object(
+                self.service.artifact_catalog,
+                "scan",
+                return_value=ArtifactCatalogResult((), (), ()),
+            ),
+            self.assertRaisesRegex(RecorderError, "no matching saved Flashback"),
+        ):
+            self.service.create_render_job(DATASET)
 
 
 if __name__ == "__main__":
