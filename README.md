@@ -108,10 +108,7 @@ The dashboard can run either as a host process or as the Compose-managed
 package with `hack/minecraft-server start`, `hack/minecraft-server stop`, or
 direct Docker Compose commands using `deploy/.env`. Run the dashboard as a user
 that can read the configured capture/export paths, and use launchd, systemd, or
-another host service manager when it should survive logouts or reboots. Dataset
-generation also needs the proto-managed Gradle executable; if the service does
-not inherit proto's shim path, set `MC_RECORDER_GRADLE` to its absolute
-executable path.
+another host service manager when it should survive logouts or reboots.
 
 Set both required HTTP Basic credentials, then start the service:
 
@@ -139,21 +136,30 @@ capture directories, completed Flashback replay ZIPs, and verified dataset
 exports directly from their configured filesystem roots. It does not start,
 stop, inspect, or command the Minecraft server.
 
-Select a dataset connection and click **Render RGB** to queue a leased GUI job.
-The headless Dashboard never starts a graphics client. The host streams the
-verified dataset into a hash-bound structured-HUD sidecar, and the worker
-applies its exact inventory, selected slot, health, food, air, and experience
-state before each frame.
+Click **Render RGB** on a completed Flashback replay ZIP to create an artifact
+render request. The Compose `render-preparer` revalidates the ZIP, takes a
+read-only prefix snapshot of the disconnected connection's append-only capture,
+publishes and verifies its connection-scoped dataset, then advances the request
+from `preparing_dataset` to `queued`. This works when the connection records are
+still in `events.jsonl.inprogress`; Minecraft does not need to stop or rotate
+the active recorder epoch.
+
+The headless Dashboard and preparer never start a graphics client. The host
+worker streams the verified dataset into a hash-bound structured-HUD sidecar
+and applies its exact inventory, selected slot, health, food, air, and
+experience state before each frame. Existing dataset connections retain their
+own **Render RGB** action.
 
 Successful scene jobs are removed after the contained store is published. The
 newest failed or intentional `--prepare-only` job is retained for diagnostics;
 older marker-owned crash jobs are pruned under the global operation lock.
 Non-owned or symlinked directories are never removed.
 
-The Compose `render-dispatcher` publishes queued dataset jobs from the durable
-SQLite outbox to RabbitMQ. The renderer itself is per task: start one or more worker processes
-from a logged-in graphical desktop session on a machine with the same workspace,
-RabbitMQ access, OpenJDK 21, and Gradle:
+The Compose `render-preparer` builds artifact-request datasets, and
+`render-dispatcher` publishes queued jobs from the durable SQLite outbox to
+RabbitMQ. The renderer itself is per task: start one or more worker processes
+from a logged-in graphical desktop session on a machine with the same
+workspace, RabbitMQ access, OpenJDK 21, and Gradle:
 
 ```sh
 MC_RECORDER_RABBITMQ_URL=amqp://guest:guest@localhost:5672/%2F \

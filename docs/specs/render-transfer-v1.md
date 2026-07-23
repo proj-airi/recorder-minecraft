@@ -7,13 +7,19 @@ are provenance only and are never authoritative after import.
 
 ## Dashboard queue and RabbitMQ one-shot worker
 
-The dashboard creates one durable RGB queue job only after the deterministic
-structured dataset for a disconnected connection is verified. The job fixes the
-session, player, connection, dataset selection, renderable sample
-tick range, dataset identity, resolution, and 20 Hz output rate. The renderable
-range is the dataset connection's first through last sample tick. A worker
-receives none of those values from
-browser-controlled paths or command strings.
+The dashboard may create a durable RGB request from either a verified dataset
+connection or a completed Flashback replay artifact. An artifact request starts
+in `preparing_dataset` with the replay artifact ID and its catalog-authenticated
+session, player, and connection identity. It is not publishable to RabbitMQ
+until `minerec render-preparer` authenticates a stable append-only capture
+prefix, publishes and verifies a connection-scoped dataset, binds the opaque
+dataset ID and sample tick range, and changes the request to `queued`.
+
+The queued job fixes the session, player, connection, dataset selection,
+renderable sample tick range, dataset identity, resolution, and 20 Hz output
+rate. The renderable range is the dataset connection's first through last
+sample tick. A worker receives none of those values from browser-controlled
+paths or command strings.
 
 `minerec render-dispatcher` publishes pending dataset jobs from the render
 queue's durable SQLite outbox to RabbitMQ. By default,
