@@ -546,31 +546,81 @@ class ArtifactCatalogReplayTest(unittest.TestCase):
             self.assertTrue(any("ZIP64" in issue.message for issue in result.issues))
             zip_constructor.assert_not_called()
 
-    def test_bounds_traversal_across_non_candidate_entries(self) -> None:
+    def test_rejects_central_directory_bounds_before_constructing_zipfile(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             replays = root / "replays"
             replays.mkdir()
-            for index in range(5):
-                (replays / f"ordinary-{index}.txt").write_text("ignored", encoding="utf-8")
-            real_stat = os.stat
+            eocd = struct.Struct("<4s4H2LH")
+            central_directory_limit = 16 * 1024 * 1024
+            (replays / "oversized-directory.zip").write_bytes(
+                eocd.pack(
+                    b"PK\x05\x06",
+                    0,
+                    0,
+                    1,
+                    1,
+                    central_directory_limit + 1,
+                    0,
+                    0,
+                )
+            )
+            (replays / "invalid-range.zip").write_bytes(
+                eocd.pack(
+                    b"PK\x05\x06",
+                    0,
+                    0,
+                    1,
+                    1,
+                    1,
+                    1,
+                    0,
+                )
+            )
 
             with (
                 mock.patch.object(
                     artifact_catalog,
-                    "MAX_REPLAY_TRAVERSAL_ENTRIES",
-                    3,
+                    "MAX_ZIP_CENTRAL_DIRECTORY_BYTES",
+                    central_directory_limit,
                     create=True,
                 ),
-                mock.patch.object(os, "stat", wraps=real_stat) as stat_call,
+                mock.patch.object(
+                    zipfile,
+                    "ZipFile",
+                    side_effect=AssertionError("ZipFile construction must be bounded"),
+                ) as zip_constructor,
             ):
                 result = ArtifactCatalog(root / "captures", replays).scan()
 
             self.assertEqual((), result.replay_archives)
-            self.assertEqual(1, len(result.issues))
-            self.assertIn("traversal entry limit", result.issues[0].message)
-            traversal_stats = [call for call in stat_call.call_args_list if call.kwargs.get("dir_fd") is not None]
-            self.assertEqual(3, len(traversal_stats))
+            self.assertEqual(2, len(result.issues))
+            self.assertTrue(any("central directory byte limit" in issue.message for issue in result.issues))
+            self.assertTrue(any("central directory range" in issue.message for issue in result.issues))
+            zip_constructor.assert_not_called()
+
+    def test_traversal_budget_boundary_for_non_candidate_entries(self) -> None:
+        for entry_count, expect_truncation in ((3, False), (4, True)):
+            with self.subTest(entry_count=entry_count), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                replays = root / "replays"
+                replays.mkdir()
+                for index in range(entry_count):
+                    (replays / f"ordinary-{index}.txt").write_text("ignored", encoding="utf-8")
+
+                with mock.patch.object(
+                    artifact_catalog,
+                    "MAX_REPLAY_TRAVERSAL_ENTRIES",
+                    3,
+                ):
+                    result = ArtifactCatalog(root / "captures", replays).scan()
+
+                self.assertEqual((), result.replay_archives)
+                if expect_truncation:
+                    self.assertEqual(1, len(result.issues))
+                    self.assertIn("traversal entry limit", result.issues[0].message)
+                else:
+                    self.assertEqual((), result.issues)
 
     def test_stops_archive_inspection_when_issue_budget_is_full(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

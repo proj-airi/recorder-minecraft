@@ -19,6 +19,7 @@ MAX_ARCHIVE_METADATA_BYTES = 1024 * 1024
 MAX_ARTIFACT_ISSUES = 100
 MAX_REPLAY_CANDIDATES = 512
 MAX_REPLAY_TRAVERSAL_ENTRIES = 4096
+MAX_ZIP_CENTRAL_DIRECTORY_BYTES = 16 * 1024 * 1024
 MAX_ZIP_ENTRIES = 4096
 HOTBAR_SNAPSHOT_CONTRACT = "item_stack_copy_v1"
 FLASHBACK_CAPTURE_CONTRACT = "client_visible_scene_v1"
@@ -238,6 +239,11 @@ def _preflight_zip_entry_count(source: BinaryIO) -> None:
         raise RecorderError("replay ZIP64 archives are not supported")
     if total_entries > MAX_ZIP_ENTRIES:
         raise RecorderError("replay ZIP entry limit exceeded")
+    if central_size > MAX_ZIP_CENTRAL_DIRECTORY_BYTES:
+        raise RecorderError("replay ZIP central directory byte limit exceeded")
+    end_record_offset = archive_size - tail_size + offset
+    if central_offset > end_record_offset or central_size > end_record_offset - central_offset:
+        raise RecorderError("replay ZIP central directory range is invalid")
 
 
 def _archive_identity(source: BinaryIO) -> _ReplayIdentity:
@@ -364,18 +370,19 @@ def _iter_replay_candidates(
     def walk(directory_descriptor: int, prefix: tuple[str, ...]) -> bool:
         nonlocal truncation_reason, visited_entries
         remaining_budget = MAX_REPLAY_TRAVERSAL_ENTRIES - visited_entries
-        if remaining_budget <= 0:
-            truncation_reason = "traversal_limit"
-            return False
         names: list[str] = []
+        has_unvisited_entry = False
         try:
             with os.scandir(directory_descriptor) as entries:
-                for entry in entries:
+                for _ in range(max(remaining_budget, 0)):
+                    try:
+                        entry = next(entries)
+                    except StopIteration:
+                        break
                     names.append(entry.name)
                     visited_entries += 1
-                    if visited_entries >= MAX_REPLAY_TRAVERSAL_ENTRIES:
-                        truncation_reason = "traversal_limit"
-                        break
+                else:
+                    has_unvisited_entry = next(entries, None) is not None
         except OSError:
             relative_path = "/".join(prefix) or "."
             return add_issue(relative_path, "cannot scan replay directory")
@@ -426,6 +433,9 @@ def _iter_replay_candidates(
                 truncation_reason = "candidate_limit"
                 return False
             candidates.append(relative_path)
+        if has_unvisited_entry:
+            truncation_reason = "traversal_limit"
+            return False
         return truncation_reason is None
 
     walk(root_descriptor, ())
