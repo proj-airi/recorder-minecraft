@@ -59,9 +59,7 @@ class DashboardServiceTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         root = Path(self.temporary.name)
-        self.config = load_config(
-            initialize(root / "recorder.toml", accept_eula=True)
-        )
+        self.config = load_config(initialize(root / "recorder.toml", accept_eula=True))
         self.service = DashboardService(self.config)
 
     def tearDown(self) -> None:
