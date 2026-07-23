@@ -6,8 +6,6 @@ import io.netty.buffer.Unpooled;
 import dev.mcdata.scene.core.SceneEvent;
 import dev.mcdata.scene.core.SceneReducer;
 import dev.mcdata.scene.core.TimelineMarker;
-import dev.mcdata.scene.mixin.MoveEntityPacketAccessor;
-import dev.mcdata.scene.mixin.RotateHeadPacketAccessor;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
 import net.minecraft.core.Registry;
@@ -70,6 +68,7 @@ import net.minecraft.world.phys.Vec3;
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashMap;
@@ -141,7 +140,7 @@ public final class PacketTranslator {
             )));
         }
         if (packet instanceof ClientboundMoveEntityPacket move) {
-            int id = ((MoveEntityPacketAccessor) move).mcRecorderSceneEntityId();
+            int id = requiredIntField(move, "entityId");
             return Translation.events(List.of(new SceneEvent.EntityMoved(
                 id,
                 new SceneEvent.Vec3(move.getXa() / 4096.0, move.getYa() / 4096.0, move.getZa() / 4096.0),
@@ -195,7 +194,7 @@ public final class PacketTranslator {
         }
         if (packet instanceof ClientboundRotateHeadPacket rotate) {
             return Translation.events(List.of(new SceneEvent.EntityHeadRotated(
-                ((RotateHeadPacketAccessor) rotate).mcRecorderSceneEntityId(), rotate.getYHeadRot()
+                requiredIntField(rotate, "entityId"), rotate.getYHeadRot()
             )));
         }
         if (packet instanceof ClientboundSetEntityDataPacket metadata) {
@@ -257,6 +256,16 @@ public final class PacketTranslator {
             return Translation.events(List.of(new SceneEvent.PlayerInfoRemoved(playerInfo.profileIds())));
         }
         return Translation.unhandled(packet.type().id().toString());
+    }
+
+    private static int requiredIntField(Object target, String name) throws IOException {
+        try {
+            Field field = target.getClass().getDeclaredField(name);
+            field.setAccessible(true);
+            return field.getInt(target);
+        } catch (ReflectiveOperationException | RuntimeException exception) {
+            throw new IOException("cannot read packet field " + target.getClass().getName() + "." + name, exception);
+        }
     }
 
     public SceneEvent.EntitySpawned createLocalPlayer(

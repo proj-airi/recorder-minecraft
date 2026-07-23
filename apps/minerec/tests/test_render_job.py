@@ -7,10 +7,12 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from typing import cast
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
+from minerec.config import RecorderConfig
 from minerec.errors import RecorderError
 from minerec.processing.render.job import (
     OWNER,
@@ -44,7 +46,7 @@ class ReplayResolutionTest(unittest.TestCase):
                 "minerec.processing.render.job.current_process_environment",
                 return_value={"GRADLE_USER_HOME": "/operator/gradle-cache"},
             ):
-                prepare_renderer_runtime(config, runner=runner)
+                prepare_renderer_runtime(cast(RecorderConfig, config), runner=runner)
 
             self.assertEqual(
                 [
@@ -62,6 +64,25 @@ class ReplayResolutionTest(unittest.TestCase):
                 runner.call_args.kwargs["env"]["GRADLE_USER_HOME"],
             )
 
+    def test_runtime_preflight_respects_configured_gradle_executable(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            project = root / "renderer-mod"
+            project.mkdir()
+            config = SimpleNamespace(
+                mods=SimpleNamespace(renderer_project=project),
+                paths=SimpleNamespace(base=root),
+            )
+            runner = mock.Mock(return_value=SimpleNamespace(returncode=0))
+
+            with mock.patch(
+                "minerec.processing.render.job.current_process_environment",
+                return_value={"MC_RECORDER_GRADLE": "/opt/proto/shims/gradle"},
+            ):
+                prepare_renderer_runtime(cast(RecorderConfig, config), runner=runner)
+
+            self.assertEqual("/opt/proto/shims/gradle", runner.call_args.args[0][0])
+
     def test_runtime_preflight_reports_gradle_failure(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -73,10 +94,8 @@ class ReplayResolutionTest(unittest.TestCase):
             )
             runner = mock.Mock(return_value=SimpleNamespace(returncode=1))
 
-            with self.assertRaisesRegex(
-                RecorderError, "runtime preparation failed with exit code 1"
-            ):
-                prepare_renderer_runtime(config, runner=runner)
+            with self.assertRaisesRegex(RecorderError, "runtime preparation failed with exit code 1"):
+                prepare_renderer_runtime(cast(RecorderConfig, config), runner=runner)
 
     def test_direct_prepared_gui_job_does_not_claim_dataset_bound_contract(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -214,16 +233,20 @@ class ReplayResolutionTest(unittest.TestCase):
                 paths=SimpleNamespace(base=root, runtime=root / "runtime"),
             )
 
-            result = launch_render_job(
-                config,  # ty:ignore[invalid-argument-type]
-                RenderJobResult(directory, manifest, replay, "connection"),
-                offline=True,
-            )
+            with mock.patch(
+                "minerec.processing.render.job.current_process_environment",
+                return_value={"MC_RECORDER_GRADLE": "/opt/proto/shims/gradle"},
+            ):
+                result = launch_render_job(
+                    config,  # ty:ignore[invalid-argument-type]
+                    RenderJobResult(directory, manifest, replay, "connection"),
+                    offline=True,
+                )
 
             self.assertEqual("no_coverage", result["status"])
             self.assertEqual(
                 [
-                    "gradle",
+                    "/opt/proto/shims/gradle",
                     "--project-dir",
                     str(project),
                     "runClient",

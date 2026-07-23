@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import sys
 import tempfile
 import unittest
@@ -22,7 +21,7 @@ from minerec.processing.capture.episodes import EpochInfo, inspect_epoch
 from minerec.processing.scene.job import (
     SceneJob,
     SubjectPoseSourceEpoch,
-    _resolve_gradle_executable,
+    _resolve_scene_extractor_executable,
     _select_subject_poses,
     _validate_result,
     cleanup_scene_job,
@@ -39,14 +38,6 @@ SEGMENT = "00000000-0000-4000-8000-000000000003"
 
 
 class SceneJobTest(unittest.TestCase):
-    def setUp(self) -> None:
-        self.gradle_lookup = mock.patch(
-            "minerec.processing.scene.job.shutil.which",
-            return_value="/opt/proto/bin/gradle",
-        )
-        self.gradle_lookup.start()
-        self.addCleanup(self.gradle_lookup.stop)
-
     @staticmethod
     def _pose_selection(*ticks: int) -> SimpleNamespace:
         records = [
@@ -83,6 +74,7 @@ class SceneJobTest(unittest.TestCase):
     def _fixture(self, root: Path) -> tuple[RecorderConfig, Path, ReplaySegmentSource]:
         config = load_config(initialize(root / "recorder.toml", accept_eula=True))
         config.mods.scene_extractor_project.mkdir(parents=True)
+        self._write_extractor_executable(config)
         episode = config.paths.captures / "session-a"
         episode.mkdir(parents=True)
         replay = config.paths.replays / "segment.zip"
@@ -100,6 +92,12 @@ class SceneJobTest(unittest.TestCase):
             flashback_capture_contract=FLASHBACK_CAPTURE_CONTRACT,
         )
         return config, episode, source
+
+    @staticmethod
+    def _write_extractor_executable(config: RecorderConfig) -> None:
+        config.mods.scene_extractor_executable.parent.mkdir(parents=True, exist_ok=True)
+        config.mods.scene_extractor_executable.write_text("#!/bin/sh\n", encoding="utf-8")
+        config.mods.scene_extractor_executable.chmod(0o755)
 
     @staticmethod
     def _player_state(tick: int) -> dict[str, object]:
@@ -515,48 +513,60 @@ class SceneJobTest(unittest.TestCase):
 
             self.assertEqual("complete", result.result["status"])
             environment = run.call_args.kwargs["env"]
-            self.assertEqual(str(job.manifest), environment["MC_RECORDER_SCENE_JOB"])
+            self.assertNotIn("MC_RECORDER_SCENE_JOB", environment)
             command = run.call_args.args[0]
-            self.assertEqual("/opt/proto/bin/gradle", command[0])
-            self.assertNotIn("gradlew", command)
-            self.assertIn(
-                "-PmcRecorderSceneRunDir=" + os.path.relpath(job.run_directory, config.mods.scene_extractor_project),
+            self.assertEqual(
+                [str(config.mods.scene_extractor_executable), "--job", str(job.manifest)],
                 command,
             )
-            self.assertEqual(
-                "eula=true\n",
-                (job.run_directory / "eula.txt").read_text(),
-            )
-            self.assertIn("server-port=0\n", (job.run_directory / "server.properties").read_text())
-            self.assertFalse((config.mods.scene_extractor_project / "run").exists())
+            self.assertEqual(job.directory, run.call_args.kwargs["cwd"])
 
-    def test_gradle_resolution_accepts_only_an_absolute_executable_override(self) -> None:
+    @mock.patch("minerec.processing.scene.job.subprocess.run")
+    def test_launch_ignores_gradle_cache_layout(self, run: mock.Mock) -> None:
+        run.return_value = SimpleNamespace(returncode=0, stderr="")
         with tempfile.TemporaryDirectory() as temporary:
-            executable = Path(temporary) / "gradle"
+            config, job = self._prepare(Path(temporary))
+            self._write_success(job)
+            gradle_cache = config.paths.runtime / "gradle-cache"
+            gradle_cache.mkdir(parents=True)
+            (gradle_cache / "caches").symlink_to(Path("/host-only/gradle/caches"))
+
+            launch_scene_job(config, job, capture_output=True)
+
+            environment = run.call_args.kwargs["env"]
+            self.assertNotIn("GRADLE_USER_HOME", environment)
+
+    def test_scene_extractor_resolution_accepts_only_an_absolute_executable_override(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            config = load_config(initialize(Path(temporary) / "recorder.toml", accept_eula=True))
+            executable = Path(temporary) / "scene-extractor"
             executable.write_text("#!/bin/sh\n", encoding="utf-8")
             executable.chmod(0o755)
 
             self.assertEqual(
                 str(executable),
-                _resolve_gradle_executable(
+                _resolve_scene_extractor_executable(
+                    config,
                     {
-                        "MC_RECORDER_GRADLE": str(executable),
+                        "MC_RECORDER_SCENE_EXTRACTOR": str(executable),
                         "PATH": "",
-                    }
+                    },
                 ),
             )
             with self.assertRaisesRegex(RecorderError, "absolute executable path"):
-                _resolve_gradle_executable(
+                _resolve_scene_extractor_executable(
+                    config,
                     {
-                        "MC_RECORDER_GRADLE": "relative/gradle",
+                        "MC_RECORDER_SCENE_EXTRACTOR": "relative/scene-extractor",
                         "PATH": "",
-                    }
+                    },
                 )
 
-    def test_gradle_resolution_reports_service_setup_when_gradle_is_absent(self) -> None:
-        with mock.patch("minerec.processing.scene.job.shutil.which", return_value=None):
-            with self.assertRaisesRegex(RecorderError, "MC_RECORDER_GRADLE"):
-                _resolve_gradle_executable({"PATH": "/usr/bin"})
+    def test_scene_extractor_resolution_reports_missing_build(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            config = load_config(initialize(Path(temporary) / "recorder.toml", accept_eula=True))
+            with self.assertRaisesRegex(RecorderError, "build-scene-extractor-mod"):
+                _resolve_scene_extractor_executable(config, {"PATH": "/usr/bin"})
 
     @mock.patch("minerec.processing.scene.job.subprocess.run")
     def test_launch_rejects_spool_bytes_that_do_not_match_terminal_result(self, run: mock.Mock) -> None:

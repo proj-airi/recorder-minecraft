@@ -24,6 +24,7 @@ ENV_RENDER_TASK_QUEUE = "MC_RECORDER_RENDER_TASK_QUEUE"
 ENV_REPLAY_ROOT = "MC_RECORDER_REPLAY_ROOT"
 ENV_RABBITMQ_URL = "MC_RECORDER_RABBITMQ_URL"
 ENV_SCENE_JOB = "MC_RECORDER_SCENE_JOB"
+ENV_SCENE_EXTRACTOR_EXECUTABLE = "MC_RECORDER_SCENE_EXTRACTOR"
 ENV_STORAGE_CAPTURE_ROOT = "MC_RECORDER_CAPTURE_ROOT"
 ENV_STORAGE_CHECK_INTERVAL = "MC_RECORDER_CHECK_INTERVAL"
 ENV_STORAGE_EVICT_OLDEST = "MC_RECORDER_EVICT_OLDEST"
@@ -73,6 +74,7 @@ class ModConfig:
     recorder_project: Path
     renderer_project: Path
     scene_extractor_project: Path
+    scene_extractor_executable: Path
 
 
 @dataclass(frozen=True)
@@ -242,6 +244,15 @@ def load_config(path: str | Path = DEFAULT_CONFIG_NAME) -> RecorderConfig:
             base,
             _value(mods_raw, "scene_extractor_project", "mods/scene-extractor-mod", str),
         ),
+        scene_extractor_executable=_resolve(
+            base,
+            _value(
+                mods_raw,
+                "scene_extractor_executable",
+                "mods/scene-extractor-mod/build/install/mc-recorder-scene-extractor/bin/mc-recorder-scene-extractor",
+                str,
+            ),
+        ),
     )
 
     storage = StorageConfig(
@@ -304,8 +315,7 @@ def default_config_text(*, accept_eula: bool = False) -> str:
     return f"""version = 1
 
 [server]
-# Scene extraction launches a local dedicated server; set true only after
-# accepting https://aka.ms/MinecraftEULA.
+# Accept https://aka.ms/MinecraftEULA before provisioning a recorder server.
 eula = {eula}
 
 [paths]
@@ -319,6 +329,7 @@ runtime = ".mc-recorder"
 recorder_project = "mods/recorder-mod"
 renderer_project = "mods/renderer-mod"
 scene_extractor_project = "mods/scene-extractor-mod"
+scene_extractor_executable = "mods/scene-extractor-mod/build/install/mc-recorder-scene-extractor/bin/mc-recorder-scene-extractor"
 
 [storage]
 # Applies to capture epochs plus completed replay archives; world data is never evicted.

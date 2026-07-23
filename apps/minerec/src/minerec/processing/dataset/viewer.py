@@ -105,8 +105,7 @@ def opaque_dataset_id(exports_root: Path, directory_name: str) -> str:
 
     if not directory_name.endswith(DATASET_SUFFIX) or directory_name == DATASET_SUFFIX or Path(directory_name).name != directory_name:
         raise DatasetViewerError("dataset directory name is invalid")
-    root = Path(exports_root).expanduser().resolve()
-    value = f"mc-recorder-dataset-v2\0{root}\0{directory_name}".encode()
+    value = f"mc-recorder-dataset-v2\0{directory_name}".encode()
     return hashlib.blake2b(value, digest_size=16).hexdigest()
 
 

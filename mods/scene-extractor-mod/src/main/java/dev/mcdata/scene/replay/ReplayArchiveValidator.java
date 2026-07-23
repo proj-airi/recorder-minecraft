@@ -5,8 +5,6 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import dev.mcdata.scene.io.Hashing;
 import dev.mcdata.scene.job.SceneJob;
-import net.fabricmc.loader.api.FabricLoader;
-import net.fabricmc.loader.api.ModContainer;
 
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -32,6 +30,26 @@ public final class ReplayArchiveValidator {
         "minecraft", "java", "fabricloader", "fabric-api", "fabric-language-kotlin",
         "mc-recorder", "server-replay", "mc-recorder-scene-extractor", "mixinextras", "inject"
     );
+    private final Map<String, String> loadedMods;
+
+    public ReplayArchiveValidator(Map<String, String> loadedMods) {
+        this.loadedMods = Map.copyOf(loadedMods);
+    }
+
+    public static Map<String, String> runtimeMods() {
+        Map<String, String> mods = new HashMap<>();
+        putProperty(mods, "minecraft", "mcRecorder.minecraftVersion");
+        putProperty(mods, "fabricloader", "mcRecorder.fabricLoaderVersion");
+        putProperty(mods, "fabric-api", "mcRecorder.fabricVersion");
+        putProperty(mods, "fabric-language-kotlin", "mcRecorder.fabricKotlinVersion");
+        putProperty(mods, "arcade-replay", "mcRecorder.arcadeVersion");
+        putProperty(mods, "mc-recorder-scene-extractor", "mcRecorder.extractorVersion");
+        String javaVersion = System.getProperty("java.version");
+        if (javaVersion != null && !javaVersion.isBlank()) {
+            mods.put("java", javaVersion);
+        }
+        return Map.copyOf(mods);
+    }
 
     public VerifiedSource verify(SceneJob job, SceneJob.SourceReplay source) throws IOException {
         BasicFileAttributes before = attributes(source.path());
@@ -135,7 +153,7 @@ public final class ReplayArchiveValidator {
         }
     }
 
-    private static void verifyMods(JsonObject sourceMods) throws IOException {
+    private void verifyMods(JsonObject sourceMods) throws IOException {
         Map<String, String> expected = new HashMap<>();
         for (Map.Entry<String, JsonElement> entry : sourceMods.entrySet()) {
             if (!entry.getValue().isJsonPrimitive() || !entry.getValue().getAsJsonPrimitive().isString()) {
@@ -143,15 +161,7 @@ public final class ReplayArchiveValidator {
             }
             expected.put(entry.getKey(), entry.getValue().getAsString());
         }
-
-        Map<String, String> loaded = new HashMap<>();
-        for (ModContainer container : FabricLoader.getInstance().getAllMods()) {
-            loaded.put(
-                container.getMetadata().getId(),
-                container.getMetadata().getVersion().getFriendlyString()
-            );
-        }
-        verifyModCompatibility(expected, loaded);
+        verifyModCompatibility(expected, loadedMods);
     }
 
     static void verifyModCompatibility(Map<String, String> expected, Map<String, String> loaded)
@@ -186,6 +196,13 @@ public final class ReplayArchiveValidator {
             || id.startsWith("fabric-")
             || id.startsWith("arcade-")
             || id.startsWith("kotlin-");
+    }
+
+    private static void putProperty(Map<String, String> values, String modId, String property) {
+        String value = System.getProperty(property);
+        if (value != null && !value.isBlank()) {
+            values.put(modId, value);
+        }
     }
 
     private static JsonObject requiredObject(JsonObject object, String name) throws IOException {

@@ -20,10 +20,13 @@ ServerReplay is pinned to the immutable Modrinth project/version selector
 `server-replay:TbWIikrT`. Python services share the local `minerec:local` image
 built from `apps/minerec/Dockerfile`; that image installs the locked Pixi
 environment from `pixi.toml` and `pixi.lock`, including the editable
-`apps/minerec` package. The local capture mod is bind-mounted through the
-Minecraft image's documented `/mods` synchronization point. Compose uses the
-image's `mc-health` probe, so `hack/minecraft-server start` waits for a playable
-server rather than only a running container.
+`apps/minerec` package, OpenJDK 21, and the headless scene extractor
+distribution produced by `pixi run build-scene-extractor-mod`. Use
+`pixi run build-minerec-image` after extractor changes so the Docker build
+context contains the installed CLI. The local capture mod is bind-mounted
+through the Minecraft image's documented `/mods` synchronization point. Compose
+uses the image's `mc-health` probe, so `hack/minecraft-server start` waits for a
+playable server rather than only a running container.
 
 The storage monitor sees `/captures` and `/replays`, but cannot access the world
 or server data. After the configured quota is reached it may remove oldest

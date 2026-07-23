@@ -40,6 +40,10 @@ class ConfigTest(unittest.TestCase):
                 (workspace / "mods" / "scene-extractor-mod").resolve(),
                 config.mods.scene_extractor_project,
             )
+            self.assertEqual(
+                (workspace / "mods" / "scene-extractor-mod" / "build" / "install" / "mc-recorder-scene-extractor" / "bin" / "mc-recorder-scene-extractor").resolve(),
+                config.mods.scene_extractor_executable,
+            )
             self.assertEqual("0.0.0.0", config.dashboard.bind)
             self.assertEqual(8765, config.dashboard.port)
 

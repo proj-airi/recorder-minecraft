@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
-from minerec.config import ENV_GRADLE_EXECUTABLE, ENV_SCENE_JOB, RecorderConfig, current_process_environment
+from minerec.config import ENV_SCENE_EXTRACTOR_EXECUTABLE, RecorderConfig, current_process_environment
 from minerec.errors import RecorderError
 from minerec.processing.capture.episodes import (
     EpochInfo,
@@ -112,10 +112,6 @@ class SceneJob:
     state_ticks: tuple[int, ...]
     sources: tuple[ReplaySegmentSource, ...]
     subject_poses: SubjectPoseEnvelope
-
-    @property
-    def run_directory(self) -> Path:
-        return self.directory / "server-run"
 
 
 @dataclass(frozen=True)
@@ -771,22 +767,14 @@ def _assert_subject_poses_unchanged(job: SceneJob) -> None:
         raise RecorderError("subject pose stream changed during extraction")
 
 
-def _resolve_gradle_executable(environment: dict[str, str]) -> str:
-    override = environment.get(ENV_GRADLE_EXECUTABLE)
-    if override is not None:
-        candidate = Path(override)
-        if not candidate.is_absolute():
-            raise RecorderError(f"{ENV_GRADLE_EXECUTABLE} must be an absolute executable path")
-        if not candidate.is_file() or not os.access(candidate, os.X_OK):
-            raise RecorderError(f"{ENV_GRADLE_EXECUTABLE} is not an executable file: {candidate}")
-        # Keep the configured path instead of resolving symlinks: proto shims
-        # may dispatch based on the executable name used to invoke them.
-        return str(candidate)
-
-    discovered = shutil.which("gradle", path=environment.get("PATH"))
-    if discovered is None:
-        raise RecorderError(f"Gradle executable not found; run `proto install --config-mode local` and expose its shim on PATH, or set {ENV_GRADLE_EXECUTABLE} to an absolute executable path")
-    return os.path.abspath(discovered)
+def _resolve_scene_extractor_executable(config: RecorderConfig, environment: dict[str, str]) -> str:
+    override = environment.get(ENV_SCENE_EXTRACTOR_EXECUTABLE)
+    candidate = Path(override).expanduser() if override else config.mods.scene_extractor_executable
+    if not candidate.is_absolute():
+        raise RecorderError(f"{ENV_SCENE_EXTRACTOR_EXECUTABLE} must be an absolute executable path")
+    if not candidate.is_file() or not os.access(candidate, os.X_OK):
+        raise RecorderError(f"scene extractor executable not found or not executable: {candidate}; run `pixi run build-scene-extractor-mod`")
+    return str(candidate)
 
 
 @contextmanager
@@ -818,51 +806,19 @@ def launch_scene_job(
     *,
     capture_output: bool = False,
 ) -> VerifiedSceneStream:
-    project = config.mods.scene_extractor_project
-    if not project.is_dir():
-        raise RecorderError(f"scene extractor mod project not found: {project}")
     environment = current_process_environment()
-    gradle_executable = _resolve_gradle_executable(environment)
-    if not config.server.eula:
-        raise RecorderError("scene extraction requires the configured Minecraft EULA acceptance")
-    run_directory = job.run_directory
-    if run_directory.is_symlink():
-        raise RecorderError(f"scene extractor run directory may not be a symlink: {run_directory}")
-    run_directory.mkdir(parents=True, exist_ok=True)
-    eula = run_directory / "eula.txt"
-    if eula.is_symlink():
-        raise RecorderError(f"scene extractor EULA file may not be a symlink: {eula}")
-    eula.write_text("eula=true\n", encoding="utf-8")
-    properties = run_directory / "server.properties"
-    if properties.is_symlink():
-        raise RecorderError(f"scene extractor server properties may not be a symlink: {properties}")
-    properties.write_text(
-        "server-port=0\nquery.port=0\nrcon.port=0\nlevel-name=world\nenable-query=false\nenable-rcon=false\n",
-        encoding="utf-8",
-    )
-
-    environment[ENV_SCENE_JOB] = str(job.manifest)
-    gradle_cache = config.paths.runtime / "gradle-cache"
-    gradle_cache.mkdir(parents=True, exist_ok=True)
-    environment["GRADLE_USER_HOME"] = str(gradle_cache)
-    # Loom resolves `runDir` as a project-relative path even when Gradle is
-    # given an absolute string (it would otherwise create `project/private/...`).
-    loom_run_directory = os.path.relpath(run_directory, project)
+    extractor_executable = _resolve_scene_extractor_executable(config, environment)
     with _locked_sources(job.sources):
         _assert_sources_unchanged(job.sources)
         _assert_subject_poses_unchanged(job)
         try:
             process = subprocess.run(
                 [
-                    gradle_executable,
-                    "--project-dir",
-                    str(project),
-                    f"-PmcRecorderSceneRunDir={loom_run_directory}",
-                    "runServer",
-                    "--no-daemon",
-                    "--console=plain",
+                    extractor_executable,
+                    "--job",
+                    str(job.manifest),
                 ],
-                cwd=config.paths.base,
+                cwd=job.directory,
                 env=environment,
                 check=False,
                 text=True,
@@ -870,7 +826,7 @@ def launch_scene_job(
                 stderr=subprocess.PIPE if capture_output else None,
             )
         except OSError as exc:
-            raise RecorderError(f"cannot launch scene extractor with Gradle executable {gradle_executable}: {exc}") from exc
+            raise RecorderError(f"cannot launch scene extractor executable {extractor_executable}: {exc}") from exc
 
         terminal = _read_terminal_result(job.result)
         value = terminal.value

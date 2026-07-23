@@ -474,6 +474,7 @@ class DatasetCatalogTest(unittest.TestCase):
             self.assertEqual("session-test", summary.session_id)
             self.assertRegex(summary.dataset_id, r"^[0-9a-f]{32}$")
             self.assertNotIn("session-test.dataset", summary.dataset_id)
+            self.assertEqual(summary.dataset_id, opaque_dataset_id(root / "other-exports", "session-test.dataset"))
             rejected = {issue.name: issue.message for issue in catalog.rejected}
             self.assertIn("bad-owner.dataset", rejected)
             self.assertIn("bad-format.dataset", rejected)

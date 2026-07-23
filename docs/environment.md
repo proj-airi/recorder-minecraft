@@ -72,11 +72,12 @@ with Gradle offline. The preparation uses Gradle's normal user cache, or the
 operator-provided `GRADLE_USER_HOME`, so direct builds and workers share verified
 downloads instead of maintaining a second recorder-private cache.
 
-Scene extraction launches the proto-managed Gradle executable directly. An
-interactive shell normally exposes it through proto's shims. A service manager
-often has a narrower `PATH`; in that case set `MC_RECORDER_GRADLE` to an
-absolute executable Gradle path in the service environment. The launcher does
-not invoke a shell and rejects relative overrides.
+Scene extraction launches the `mc-recorder-scene-extractor` CLI produced by
+`pixi run build-scene-extractor-mod`. By default the Python launcher uses
+`mods/scene-extractor-mod/build/install/mc-recorder-scene-extractor/bin/mc-recorder-scene-extractor`.
+Set `MC_RECORDER_SCENE_EXTRACTOR` to an absolute executable path when a service
+manager needs a different installed extractor. The launcher does not invoke a
+shell and rejects relative overrides.
 
 ## macOS Notes
 

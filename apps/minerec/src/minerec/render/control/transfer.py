@@ -684,9 +684,7 @@ def _raw_result_range(result: Mapping[str, Any], request: PortableRenderRequest)
         raise RecorderError("worker result structured_hud was not requested")
     unsupported_packets = result.get("unsupported_packets")
     if unsupported_packets is not None:
-        validate_unsupported_packet_summary(
-            unsupported_packets, "worker result unsupported_packets"
-        )
+        validate_unsupported_packet_summary(unsupported_packets, "worker result unsupported_packets")
     if status_text == "no_coverage":
         if timeline["range_policy"] != "intersection":
             raise RecorderError("no_coverage is valid only for an intersection request")
@@ -1112,9 +1110,7 @@ def _canonical_result(
     if "structured_hud" in raw:
         result["structured_hud"] = raw["structured_hud"]
     if "unsupported_packets" in raw:
-        result["unsupported_packets"] = validate_unsupported_packet_summary(
-            raw["unsupported_packets"], "worker result unsupported_packets"
-        )
+        result["unsupported_packets"] = validate_unsupported_packet_summary(raw["unsupported_packets"], "worker result unsupported_packets")
     if status_value == "no_coverage":
         reason = raw.get("reason")
         result["reason"] = reason if isinstance(reason, str) and reason else "segment_has_no_coverage"
@@ -1219,7 +1215,7 @@ def _validate_imported(
         payload.append(_PayloadFile(relative, int(metadata["size_bytes"]), str(metadata["sha256"])))
     _assert_payload_inventory(root, payload, request, status_value)
     if status_value == "complete":
-        _load_frame_attachments([root], request.data["episode"]["session_id"])
+        _load_frame_attachments([root], request.data["episode"]["session_id"], exports_root=root, dataset_directory=root)
     return ImportedRenderResult(
         directory=root,
         result=result_path,
@@ -1280,7 +1276,7 @@ def import_render_bundle(
         result_path = staging / "result.json"
         result_path.write_bytes(_json_bytes(canonical))
         if status_value == "complete":
-            _load_frame_attachments([staging], portable.data["episode"]["session_id"])
+            _load_frame_attachments([staging], portable.data["episode"]["session_id"], exports_root=staging, dataset_directory=staging)
         if _stable_file_digest(replay, "authoritative replay") != (
             portable.data["source_replay"]["sha256"],
             portable.data["source_replay"]["size_bytes"],

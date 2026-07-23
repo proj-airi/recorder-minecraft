@@ -1,24 +1,19 @@
 package dev.mcdata.scene;
 
-import dev.mcdata.scene.io.ResultPublisher;
-import dev.mcdata.scene.io.SceneSpoolWriter;
 import dev.mcdata.scene.job.SceneJob;
-import dev.mcdata.scene.job.SceneJobLoader;
-import dev.mcdata.scene.replay.FlashbackSceneExtractor;
-import dev.mcdata.scene.replay.ReplayArchiveValidator;
 import dev.mcdata.scene.replay.ReplayTimelinePayload;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.fabricmc.loader.api.FabricLoader;
+import net.fabricmc.loader.api.ModContainer;
 import net.minecraft.server.MinecraftServer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.IOException;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.HashMap;
+import java.util.Map;
 
 /** One-shot server entrypoint. Minecraft supplies registries; extraction never starts a client. */
 public final class SceneExtractorMod implements ModInitializer {
@@ -26,19 +21,14 @@ public final class SceneExtractorMod implements ModInitializer {
     private static final String ENVIRONMENT_JOB = "MC_RECORDER_SCENE_JOB";
     private static final String PROPERTY_JOB = "mc.recorder.sceneJob";
 
-    private SceneJob job;
+    private Path request;
 
     @Override
     public void onInitialize() {
         if (!FabricLoader.getInstance().isModLoaded("mc-recorder")) {
             PayloadTypeRegistry.playS2C().register(ReplayTimelinePayload.TYPE, ReplayTimelinePayload.STREAM_CODEC);
         }
-        Path request = resolveRequestPath();
-        try {
-            job = SceneJobLoader.load(request);
-        } catch (IOException exception) {
-            throw new IllegalStateException("refusing invalid scene extraction job " + request, exception);
-        }
+        this.request = resolveRequestPath();
         ServerLifecycleEvents.SERVER_STARTED.register(this::startExtraction);
     }
 
@@ -49,40 +39,27 @@ public final class SceneExtractorMod implements ModInitializer {
     }
 
     private void runExtraction(MinecraftServer server) {
+        SceneJob job = null;
         try {
-            SceneJobLoader.verifySubjectPosesUnchanged(job);
-            ReplayArchiveValidator validator = new ReplayArchiveValidator();
-            List<ReplayArchiveValidator.VerifiedSource> verified = new ArrayList<>();
-            for (SceneJob.SourceReplay source : job.sourceReplays()) {
-                verified.add(validator.verify(job, source));
-            }
-
-            FlashbackSceneExtractor.ExtractionStats extraction;
-            SceneSpoolWriter.OutputStats output;
-            try (SceneSpoolWriter spool = new SceneSpoolWriter(job.output())) {
-                FlashbackSceneExtractor extractor = new FlashbackSceneExtractor(job, server.registryAccess(), spool);
-                extraction = extractor.extract(verified);
-                for (ReplayArchiveValidator.VerifiedSource source : verified) {
-                    validator.verifyUnchanged(source);
-                }
-                SceneJobLoader.verifySubjectPosesUnchanged(job);
-                output = spool.commit();
-            }
-            ResultPublisher.complete(job, output, extraction);
-            LOGGER.info("Scene extraction {} completed with {} frames", job.jobId(), output.frameCount());
+            job = new SceneExtractionRunner(server.registryAccess(), fabricRuntimeMods()).run(request);
         } catch (Throwable failure) {
-            LOGGER.error("Scene extraction {} failed", job.jobId(), failure);
-            try {
-                ResultPublisher.failed(job, failure);
-            } catch (IOException resultFailure) {
-                failure.addSuppressed(resultFailure);
-                LOGGER.error("Could not publish failed scene extraction result", resultFailure);
-            }
+            LOGGER.error("Scene extraction failed", failure);
         } finally {
-            if (job.stopWhenDone()) {
+            if (job == null || job.stopWhenDone()) {
                 server.execute(() -> server.halt(false));
             }
         }
+    }
+
+    private static Map<String, String> fabricRuntimeMods() {
+        Map<String, String> loaded = new HashMap<>();
+        for (ModContainer container : FabricLoader.getInstance().getAllMods()) {
+            loaded.put(
+                container.getMetadata().getId(),
+                container.getMetadata().getVersion().getFriendlyString()
+            );
+        }
+        return Map.copyOf(loaded);
     }
 
     private static Path resolveRequestPath() {

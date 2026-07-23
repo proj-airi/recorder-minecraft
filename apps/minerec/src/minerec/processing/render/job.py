@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
-from minerec.config import ENV_RENDER_JOB, current_process_environment
+from minerec.config import ENV_GRADLE_EXECUTABLE, ENV_RENDER_JOB, current_process_environment
 from minerec.errors import RecorderError
 from minerec.processing.capture.episodes import iter_epochs, iter_events, sha256_file, validate_episode
 from minerec.processing.render.hud import (
@@ -38,6 +38,11 @@ class RenderJobResult:
     manifest: Path
     replay: Path
     connection_id: str
+
+
+def _gradle_executable(environment: dict[str, str]) -> str:
+    executable = environment.get(ENV_GRADLE_EXECUTABLE, "").strip()
+    return executable or "gradle"
 
 
 def _detect_replay_format(path: Path) -> str:
@@ -337,7 +342,7 @@ def prepare_renderer_runtime(
     # verified dependencies instead of downloading a second private copy.
     environment = current_process_environment()
     command = [
-        "gradle",
+        _gradle_executable(environment),
         "--project-dir",
         str(project),
         "prepareRendererRuntime",
@@ -354,9 +359,7 @@ def prepare_renderer_runtime(
     except OSError as exc:
         raise RecorderError(f"cannot prepare renderer runtime with Gradle: {exc}") from exc
     if process.returncode != 0:
-        raise RecorderError(
-            f"renderer runtime preparation failed with exit code {process.returncode}"
-        )
+        raise RecorderError(f"renderer runtime preparation failed with exit code {process.returncode}")
 
 
 def launch_render_job(
@@ -378,7 +381,7 @@ def launch_render_job(
     environment = current_process_environment()
     environment[ENV_RENDER_JOB] = str(job.manifest)
     command = [
-        "gradle",
+        _gradle_executable(environment),
         "--project-dir",
         str(project),
         "runClient",

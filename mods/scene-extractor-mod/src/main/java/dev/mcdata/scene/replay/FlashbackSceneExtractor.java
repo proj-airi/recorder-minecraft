@@ -9,7 +9,6 @@ import dev.mcdata.scene.core.SceneReducer;
 import dev.mcdata.scene.io.SceneSpoolWriter;
 import dev.mcdata.scene.job.SceneJob;
 import net.casual.arcade.replay.io.FlashbackIO;
-import net.casual.arcade.replay.io.reader.flashback.FlashbackChunkedReader;
 import net.casual.arcade.replay.io.writer.flashback.EntityMovement;
 import net.casual.arcade.replay.util.flashback.FlashbackAction;
 import net.minecraft.core.RegistryAccess;
@@ -26,7 +25,10 @@ import net.minecraft.network.protocol.game.ClientboundBundlePacket;
 import net.minecraft.network.protocol.game.ClientboundLevelChunkWithLightPacket;
 import net.minecraft.network.protocol.game.ClientboundLoginPacket;
 import net.minecraft.network.protocol.game.GameProtocols;
+import net.minecraft.network.protocol.common.ClientboundCustomPayloadPacket;
+import net.minecraft.network.protocol.common.custom.DiscardedPayload;
 import net.minecraft.resources.ResourceKey;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.phys.Vec2;
 import net.minecraft.world.phys.Vec3;
@@ -86,7 +88,7 @@ public final class FlashbackSceneExtractor {
         SegmentContext context = new SegmentContext(source);
         try (FileSystem system = FileSystems.newFileSystem(source.path())) {
             context.system = system;
-            FlashbackChunkedReader reader = new FlashbackChunkedReader(system, registries);
+            PlainFlashbackChunkedReader reader = new PlainFlashbackChunkedReader(system, registries);
             try {
                 boolean initial = true;
                 do {
@@ -108,14 +110,14 @@ public final class FlashbackSceneExtractor {
         }
     }
 
-    private void consumeSnapshot(FlashbackChunkedReader reader, SegmentContext context) {
+    private void consumeSnapshot(PlainFlashbackChunkedReader reader, SegmentContext context) {
         reader.consumeSnapshot((action, buffer) -> {
             processAction(action, buffer, context);
             return Unit.INSTANCE;
         });
     }
 
-    private boolean consumeNext(FlashbackChunkedReader reader, SegmentContext context) {
+    private boolean consumeNext(PlainFlashbackChunkedReader reader, SegmentContext context) {
         return reader.consumeNextAction((action, buffer) -> {
             processAction(action, buffer, context);
             return Unit.INSTANCE;
@@ -131,7 +133,7 @@ public final class FlashbackSceneExtractor {
             switch (action) {
                 case NextTick -> context.replayTick++;
                 case ConfigurationPacket -> processConfiguration(buffer);
-                case GamePacket -> processPacket(gameProtocol.codec().decode(buffer), context);
+                case GamePacket -> processPacket(decodeGamePacket(buffer), context);
                 case CacheChunk -> processPacket(readCachedChunk(buffer.readVarInt(), context), context);
                 case CreatePlayer -> processCreatePlayer(buffer, context);
                 case MoveEntities -> processMoveEntities(buffer, context);
@@ -153,6 +155,28 @@ public final class FlashbackSceneExtractor {
     private void processConfiguration(RegistryFriendlyByteBuf buffer) {
         Packet<?> packet = ConfigurationProtocols.CLIENTBOUND.codec().decode(buffer);
         ignoredPackets.merge("configuration:" + packet.type().id(), 1L, Long::sum);
+    }
+
+    private Packet<?> decodeGamePacket(RegistryFriendlyByteBuf buffer) {
+        int start = buffer.readerIndex();
+        Packet<?> packet = gameProtocol.codec().decode(buffer);
+        int end = buffer.readerIndex();
+        if (packet instanceof ClientboundCustomPayloadPacket custom
+            && custom.payload() instanceof DiscardedPayload discarded
+            && discarded.id().equals(ReplayTimelinePayload.TYPE.id())) {
+            buffer.readerIndex(start);
+            buffer.readVarInt();
+            ResourceLocation id = buffer.readResourceLocation();
+            if (!id.equals(ReplayTimelinePayload.TYPE.id())) {
+                throw new IllegalStateException("custom payload id changed while decoding: " + id);
+            }
+            ReplayTimelinePayload payload = ReplayTimelinePayload.STREAM_CODEC.decode(buffer);
+            if (buffer.readerIndex() != end) {
+                throw new IllegalStateException("timeline payload left unread bytes");
+            }
+            return new ClientboundCustomPayloadPacket(payload);
+        }
+        return packet;
     }
 
     private void processPacket(Packet<?> packet, SegmentContext context) throws IOException {

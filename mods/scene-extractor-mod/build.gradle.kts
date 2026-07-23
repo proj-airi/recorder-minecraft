@@ -1,5 +1,6 @@
 plugins {
     id("fabric-loom") version "1.17.16"
+    application
 }
 
 group = "dev.mcdata"
@@ -7,6 +8,19 @@ version = property("mod_version") as String
 
 base {
     archivesName.set("mc-recorder-scene-extractor")
+}
+
+application {
+    mainClass.set("dev.mcdata.scene.SceneExtractorCli")
+    applicationName = "mc-recorder-scene-extractor"
+    applicationDefaultJvmArgs = listOf(
+        "-DmcRecorder.minecraftVersion=${project.property("minecraft_version")}",
+        "-DmcRecorder.fabricLoaderVersion=${project.property("loader_version")}",
+        "-DmcRecorder.fabricVersion=${project.property("fabric_version")}",
+        "-DmcRecorder.fabricKotlinVersion=${project.property("fabric_kotlin_version")}",
+        "-DmcRecorder.arcadeVersion=${project.property("arcade_version")}",
+        "-DmcRecorder.extractorVersion=${project.version}",
+    )
 }
 
 repositories {
@@ -54,7 +68,10 @@ tasks.processResources {
 
 tasks.test {
     useJUnitPlatform()
+    systemProperty("mcRecorder.minecraftVersion", project.property("minecraft_version"))
+    systemProperty("mcRecorder.fabricLoaderVersion", project.property("loader_version"))
     systemProperty("mcRecorder.fabricVersion", project.property("fabric_version"))
     systemProperty("mcRecorder.fabricKotlinVersion", project.property("fabric_kotlin_version"))
     systemProperty("mcRecorder.arcadeVersion", project.property("arcade_version"))
+    systemProperty("mcRecorder.extractorVersion", project.version)
 }

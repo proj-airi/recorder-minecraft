@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 import struct
 import sys
 import tempfile
@@ -16,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 from minerec.config import RecorderConfig, initialize, load_config
 from minerec.errors import RecorderError
 from minerec.processing.capture.exporter import export_episode
-from minerec.processing.dataset.viewer import opaque_dataset_id
+from minerec.processing.dataset.viewer import DatasetViewer, opaque_dataset_id
 from minerec.processing.render.attach import attach_imported_renders
 from minerec.processing.render.hud import hud_result_envelope
 from minerec.render.control.contract import FULL_CLIENT_PRESENTATION_CONTRACT
@@ -301,6 +302,13 @@ class RenderAttachmentTest(unittest.TestCase):
             self.assertEqual((10, 12), (result.coverage_start_tick, result.coverage_end_tick))
             self.assertEqual(output, result.output)
             self.assertEqual(result.dataset_id, result.as_json()["dataset_id"])
+            mirror_exports = Path(temporary) / "mirror" / "exports"
+            shutil.copytree(config.paths.exports, mirror_exports)
+            mirror_viewer = DatasetViewer(mirror_exports, Path(temporary) / "mirror" / "runtime")
+            first_sample = mirror_viewer.list_sample_summaries(result.dataset_id).items[0]
+            artifact = mirror_viewer.resolve_rgb_artifact(result.dataset_id, first_sample.sample_id)
+            self.assertTrue(artifact.path.is_relative_to(mirror_exports.resolve()))
+            self.assertEqual(b"\x89PNG\r\n\x1a\n", artifact.path.read_bytes()[:8])
 
     def test_no_coverage_is_partial_and_preserves_the_verified_dataset(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

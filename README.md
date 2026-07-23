@@ -54,9 +54,9 @@ packet codecs, materializes the logical client-visible scene, and structurally
 shares unchanged values in `scene-v1.sqlite3`. Unloaded cells remain unknown
 rather than becoming valid air. The default `client_visible` scope includes
 entities and block entities and is marked sensitive when full captured metadata
-is retained. Each job uses its own `runtime/scene-jobs/<job-id>/server-run`
-bootstrap world and an ephemeral server port; it never mounts a captured world,
-shares `mods/scene-extractor-mod/run`, or binds the capture server's port.
+is retained. Each job uses its own `runtime/scene-jobs/<job-id>` work directory
+and launches the headless `mc-recorder-scene-extractor` CLI; it never starts a
+Minecraft server, mounts a captured world, or binds the capture server's port.
 
 ## Requirements
 
@@ -380,7 +380,7 @@ Language Kotlin in `.mc-recorder/mods/`, then set `MC_MODRINTH_PROJECTS=` in
 ```text
 deploy/         Docker Compose deployment
 mods/recorder-mod/   server-side Fabric capture sidecar
-mods/scene-extractor-mod/ headless replay-to-scene Fabric server
+mods/scene-extractor-mod/ headless replay-to-scene extractor CLI
 mods/renderer-mod/   local Flashback first-person RGB renderer
 docs/specs/     source and Dataset V2 contracts
 apps/minerec/   Python provisioning/export CLI

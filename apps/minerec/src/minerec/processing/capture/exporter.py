@@ -18,8 +18,8 @@ from minerec.errors import RecorderError
 from minerec.processing.capture.episodes import EpochInfo, iter_epochs, iter_events, sha256_file, validate_episode
 from minerec.processing.capture.storage import pin_sealed_epochs
 from minerec.processing.render.hud import validate_hud_result_envelope
-from minerec.render_compat import validate_unsupported_packet_summary
 from minerec.render.control.contract import FULL_CLIENT_PRESENTATION_CONTRACT
+from minerec.render_compat import validate_unsupported_packet_summary
 
 EXPORT_SCHEMA_VERSION = 2
 EXPORT_FORMAT = "mc-recorder-jsonl-v2"
@@ -90,6 +90,7 @@ class VerifiedEpoch:
 @dataclass(frozen=True)
 class AttachedFrame:
     reference: str
+    path: Path
     row: dict[str, Any]
     index_sha256: str
     artifact_sha256: str
@@ -815,6 +816,15 @@ def _artifact_inside(root: Path, relative: str, context: str, description: str) 
     return resolved
 
 
+def _artifact_reference(exports_root: Path, dataset_directory: Path, image: Path, context: str) -> str:
+    resolved = image.resolve()
+    try:
+        resolved.relative_to(exports_root.resolve())
+    except ValueError as exc:
+        raise RecorderError(f"{context}: frame artifact is outside the export root") from exc
+    return os.path.relpath(resolved, dataset_directory.resolve()).replace(os.sep, "/")
+
+
 def _validate_png(path: Path, expected_width: int, expected_height: int, context: str) -> None:
     try:
         size = path.stat().st_size
@@ -938,7 +948,13 @@ def _resolve_frame_artifacts(path: Path) -> tuple[Path, Path]:
     raise RecorderError(f"--frames expects a render job directory, result.json, or frames.jsonl: {source}")
 
 
-def _load_frame_attachments(paths: Iterable[Path], expected_session: str) -> tuple[dict[FrameKey, AttachedFrame], list[dict[str, Any]]]:
+def _load_frame_attachments(
+    paths: Iterable[Path],
+    expected_session: str,
+    *,
+    exports_root: Path,
+    dataset_directory: Path,
+) -> tuple[dict[FrameKey, AttachedFrame], list[dict[str, Any]]]:
     attachments: dict[FrameKey, AttachedFrame] = {}
     sources: list[dict[str, Any]] = []
     seen_indexes: set[Path] = set()
@@ -970,9 +986,7 @@ def _load_frame_attachments(paths: Iterable[Path], expected_session: str) -> tup
             raise RecorderError(f"renderer result structured_hud requires a presentation_contract: {result_path}")
         unsupported_packets = None
         if result.get("unsupported_packets") is not None:
-            unsupported_packets = validate_unsupported_packet_summary(
-                result["unsupported_packets"], "renderer result unsupported_packets"
-            )
+            unsupported_packets = validate_unsupported_packet_summary(result["unsupported_packets"], "renderer result unsupported_packets")
         replay_sha, replay_bytes, replay_path = _renderer_replay_integrity(result, result_path)
         session = result.get("session_id")
         player = result.get("player_uuid")
@@ -1079,7 +1093,8 @@ def _load_frame_attachments(paths: Iterable[Path], expected_session: str) -> tup
                     raise RecorderError(f"{context}: frame artifact changed during validation")
                 key = (session, player, connection, tick)
                 attached = AttachedFrame(
-                    reference=str(image),
+                    reference=_artifact_reference(exports_root, dataset_directory, image, context),
+                    path=image,
                     row=row,
                     index_sha256=index_sha,
                     artifact_sha256=artifact_sha,
@@ -1117,11 +1132,7 @@ def _load_frame_attachments(paths: Iterable[Path], expected_session: str) -> tup
                 "no_gui": no_gui,
                 **({"presentation_contract": presentation_contract} if presentation_contract is not None else {}),
                 **({"structured_hud": structured_hud} if structured_hud is not None else {}),
-                **(
-                    {"unsupported_packets": unsupported_packets}
-                    if unsupported_packets is not None
-                    else {}
-                ),
+                **({"unsupported_packets": unsupported_packets} if unsupported_packets is not None else {}),
                 "frame_count": row_count,
                 "replay": replay_path,
                 "replay_sha256": replay_sha,
@@ -1213,7 +1224,7 @@ def _load_scene_attachment(supplied_paths: Iterable[Path], expected_session: str
 def _assert_attachments_unchanged(frames: dict[FrameKey, AttachedFrame]) -> None:
     expected: dict[Path, tuple[int, str, str]] = {}
     for attached in frames.values():
-        expected[Path(attached.reference)] = (
+        expected[attached.path] = (
             attached.artifact_bytes,
             attached.artifact_sha256,
             "frame",
@@ -1285,7 +1296,17 @@ def _export_episode_pinned(
     if {epoch.info.path.resolve() for epoch in verified_epochs} != set(pinned_epochs):
         raise RecorderError("sealed epoch set changed while it was being pinned; retry the export")
     epoch_hashes = {epoch.info.index: epoch for epoch in verified_epochs}
-    frame_attachments, frame_sources = _load_frame_attachments(frames, validation.session_id)
+    requested_output = output.expanduser()
+    if requested_output.is_symlink():
+        raise RecorderError(f"refusing symlinked export output: {requested_output}")
+    output = requested_output.resolve()
+    exports_root = output.parent.resolve()
+    frame_attachments, frame_sources = _load_frame_attachments(
+        frames,
+        validation.session_id,
+        exports_root=exports_root,
+        dataset_directory=output,
+    )
     selected_players = _normalize_players(players)
     selected_connections = _normalize_connections(connections)
     scene_attachment = _load_scene_attachment(scenes, validation.session_id)
@@ -1296,10 +1317,6 @@ def _export_episode_pinned(
             raise RecorderError("scene attachment player is outside the export selection")
         if selected_connections and scene_connection not in selected_connections:
             raise RecorderError("scene attachment connection is outside the export selection")
-    requested_output = output.expanduser()
-    if requested_output.is_symlink():
-        raise RecorderError(f"refusing symlinked export output: {requested_output}")
-    output = requested_output.resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(prefix=f".{output.name}.tmp-", dir=output.parent))
     sample_count = state_count = action_count = modality_count = rgb_count = scene_count = 0
@@ -1513,7 +1530,7 @@ def _export_episode_pinned(
                     "availability": "per-sample",
                     "records_attached": rgb_count,
                     "index": "modalities.jsonl",
-                    "note": ("absolute frame references are joined only by exact session/player/connection/global-server-tick identity"),
+                    "note": ("relative frame references are joined only by exact session/player/connection/global-server-tick identity"),
                 },
             },
             "files": files,

@@ -5,6 +5,10 @@
 artifacts
 runtime
 **/build
+!mods/scene-extractor-mod/build/
+!mods/scene-extractor-mod/build/install/
+!mods/scene-extractor-mod/build/install/mc-recorder-scene-extractor/
+!mods/scene-extractor-mod/build/install/mc-recorder-scene-extractor/**
 **/run
 **/__pycache__
 **/*.pyc
