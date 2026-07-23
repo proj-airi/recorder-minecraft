@@ -6,7 +6,6 @@ import dev.mcdata.recorder.network.ReplayTimelinePayload
 import net.casual.arcade.events.GlobalEventHandler
 import net.casual.arcade.events.ListenerRegistry.Companion.register
 import net.casual.arcade.events.server.player.PlayerServerboundPacketEvent
-import net.casual.arcade.replay.events.ReplayRecorderSaveEvent
 import net.casual.arcade.replay.events.ReplayRecorderStartEvent
 import net.fabricmc.api.ModInitializer
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents
@@ -36,11 +35,6 @@ object DatasetRecorderMod : ModInitializer {
         }
         GlobalEventHandler.Server.register<ReplayRecorderStartEvent> { event ->
             CaptureRuntime.replayRecorderStarted(event.recorder)
-        }
-        GlobalEventHandler.Server.register<ReplayRecorderSaveEvent>(
-            phase = ReplayRecorderSaveEvent.PHASE_POST
-        ) { event ->
-            CaptureRuntime.replayRecorderSaved(event.recorder, event.output)
         }
         logger.info("Minecraft Dataset Recorder initialized for automatic all-player capture")
     }

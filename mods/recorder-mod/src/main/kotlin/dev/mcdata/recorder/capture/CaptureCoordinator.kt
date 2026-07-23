@@ -2,7 +2,6 @@ package dev.mcdata.recorder.capture
 
 import com.google.gson.JsonObject
 import dev.mcdata.recorder.config.RecorderConfig
-import dev.mcdata.recorder.control.RecorderControlPlane
 import dev.mcdata.recorder.io.AsyncEpochWriter
 import dev.mcdata.recorder.io.SessionFiles
 import dev.mcdata.recorder.model.ControlStateTracker
@@ -20,7 +19,6 @@ class CaptureCoordinator(
     private val config: RecorderConfig,
     private val session: SessionFiles,
     private val writer: AsyncEpochWriter,
-    private val controlPlane: RecorderControlPlane?,
     private val logger: Logger,
     private val replaySegments: ReplaySegmentTracker? = null
 ) : AutoCloseable {
@@ -28,7 +26,6 @@ class CaptureCoordinator(
     private var sequence = 0L
     private var applySequence = 0L
     private var active = true
-    private var lastHeartbeatAtUnixMs = 0L
     private var tickPhase = TickPhase.BEFORE_FIRST_TICK
     private val epochRotation = EpochRotationPolicy(config.epochTicks)
     private val arrivals = IdentityHashMap<Packet<*>, ArrivalStamp>()
@@ -45,7 +42,6 @@ class CaptureCoordinator(
                     ReplayScenePacketContract.FLASHBACK_CAPTURE_CONTRACT
                 )
             }
-            publishStatus(force = true)
         }
     }
 
@@ -123,20 +119,9 @@ class CaptureCoordinator(
             addPlayer(player)
             addProperty("replay_timeline_protocol", "mc_recorder:timeline/v1")
         }
-        controlSafely("publish player join") {
-            it.connectionStarted(
-                playerUuid = connection.playerUuid.toString(),
-                playerName = connection.playerName,
-                connectionId = connection.id,
-                joinServerTick = connection.startServerTick,
-                joinSequence = connection.startSequence
-            )
-        }
         replaySegments?.connectionStarted(
             playerUuid = connection.playerUuid,
-            connectionId = connection.id,
-            joinServerTick = connection.startServerTick,
-            joinSequence = connection.startSequence
+            connectionId = connection.id
         )
     }
 
@@ -149,10 +134,7 @@ class CaptureCoordinator(
             addPlayer(player)
             addProperty("terminal_reason", "disconnect")
         }
-        controlSafely("publish player disconnect") {
-            it.connectionEnded(connection.id, leaveTick, sequence, "disconnect")
-        }
-        replaySegments?.connectionEnded(connection.id, leaveTick, sequence, "disconnect")
+        replaySegments?.connectionEnded(connection.id)
         controls.remove(player.uuid)
         connections.remove(player.uuid)
     }
@@ -213,11 +195,10 @@ class CaptureCoordinator(
         }
         tickPhase = TickPhase.BETWEEN_TICKS
         processEndOfTickControl()
-        publishStatus()
     }
 
     override fun close() {
-        var shutdownConnections = emptyList<ShutdownConnection>()
+        var shutdownConnections = emptyList<String>()
         try {
             synchronized(this) {
                 if (!active) return
@@ -227,7 +208,7 @@ class CaptureCoordinator(
                         addConnection(connection)
                         addProperty("terminal_reason", "server_shutdown")
                     }
-                    ShutdownConnection(connection.id, terminalTick, sequence)
+                    connection.id
                 }
                 connections.clear()
                 controls.clear()
@@ -236,26 +217,11 @@ class CaptureCoordinator(
                     addProperty("apply_sequence_at_end", applySequence)
                 }
                 active = false
-                publishStatus(force = true, state = "stopping")
             }
             writer.close()
-            shutdownConnections.forEach { connection ->
-                controlSafely("publish shutdown disconnect") {
-                    it.connectionEnded(
-                        connection.connectionId,
-                        connection.endServerTick,
-                        connection.endSequence,
-                        "server_shutdown"
-                    )
-                }
-                replaySegments?.connectionEnded(
-                    connection.connectionId,
-                    connection.endServerTick,
-                    connection.endSequence,
-                    "server_shutdown"
-                )
+            shutdownConnections.forEach { connectionId ->
+                replaySegments?.connectionEnded(connectionId)
             }
-            publishStatus(force = true, state = "stopped")
             logger.info("Completed dataset recording session {} at tick {}", session.sessionId, serverTick)
         } catch (throwable: Throwable) {
             // If publishing the final record failed before the coordinator became inactive,
@@ -273,7 +239,6 @@ class CaptureCoordinator(
         }
         val reason = "${failure::class.java.simpleName}: ${failure.message ?: "capture failure"}"
         writer.abort(reason)
-        publishStatus(force = true, state = "failed", failureReason = reason)
         if (wasActive) {
             logger.error("Marked dataset recording session {} incomplete at tick {}", session.sessionId, serverTick)
         }
@@ -328,49 +293,6 @@ class CaptureCoordinator(
         epochRotation.advanceAfter(rotation, serverTick)
     }
 
-    private fun publishStatus(
-        force: Boolean = false,
-        state: String = "recording",
-        failureReason: String? = null
-    ) {
-        val now = System.currentTimeMillis()
-        if (!force && now - lastHeartbeatAtUnixMs < HEARTBEAT_INTERVAL_MILLIS) return
-        controlSafely("publish recorder status") {
-            it.publishStatus(
-                RecorderControlPlane.StatusSnapshot(
-                    state = state,
-                    serverTick = serverTick,
-                    sequence = sequence,
-                    applySequence = applySequence,
-                    epochIndex = epochRotation.currentEpochIndex,
-                    epochStartServerTick = epochRotation.currentEpochStartTick,
-                    writer = writer.metrics(),
-                    failureReason = failureReason
-                )
-            )
-            lastHeartbeatAtUnixMs = now
-        }
-    }
-
-    private inline fun controlSafely(description: String, block: (RecorderControlPlane) -> Unit) {
-        val control = controlPlane ?: return
-        runCatching { block(control) }.onFailure {
-            logger.error("Could not {} in recorder control plane; source capture remains active", description, it)
-        }
-    }
-
-    private inline fun <T> controlSafely(
-        description: String,
-        fallback: T,
-        block: (RecorderControlPlane) -> T
-    ): T {
-        val control = controlPlane ?: return fallback
-        return runCatching { block(control) }.getOrElse {
-            logger.error("Could not {} in recorder control plane; source capture remains active", description, it)
-            fallback
-        }
-    }
-
     private fun JsonObject.merge(other: JsonObject) {
         other.entrySet().forEach { (key, value) -> add(key, value) }
     }
@@ -390,12 +312,6 @@ class CaptureCoordinator(
         val startSequence: Long
     )
 
-    private data class ShutdownConnection(
-        val connectionId: String,
-        val endServerTick: Long,
-        val endSequence: Long
-    )
-
     private enum class TickPhase(val serialized: String) {
         BEFORE_FIRST_TICK("before_first_tick"),
         IN_TICK("in_tick"),
@@ -404,6 +320,5 @@ class CaptureCoordinator(
 
     companion object {
         private const val ARRIVAL_RETENTION_TICKS = 200L
-        private const val HEARTBEAT_INTERVAL_MILLIS = 1_000L
     }
 }

@@ -22,13 +22,12 @@ class CaptureMetadataTest {
         val session = SessionFiles(SESSION, sessionDirectory)
         val config = RecorderConfig(
             captureRoot = temporary.resolve("captures").toString(),
-            controlRoot = temporary.resolve("control").toString(),
             epochTicks = 20,
             writerQueueCapacity = 1_024
         )
         val logger = LoggerFactory.getLogger(CaptureMetadataTest::class.java)
         val writer = AsyncEpochWriter(SESSION, sessionDirectory, 1_024, logger)
-        val coordinator = CaptureCoordinator(config, session, writer, null, logger)
+        val coordinator = CaptureCoordinator(config, session, writer, logger)
 
         coordinator.close()
 

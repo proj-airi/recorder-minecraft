@@ -1,13 +1,7 @@
 package dev.mcdata.recorder.capture
 
 import com.google.gson.JsonObject
-import com.google.gson.JsonParser
-import dev.mcdata.recorder.control.RecorderControlPlane
 import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.io.TempDir
-import org.slf4j.LoggerFactory
-import java.nio.file.Files
-import java.nio.file.Path
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -15,29 +9,13 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class ReplaySegmentTrackerTest {
-    @TempDir
-    lateinit var temporary: Path
-
-    private val logger = LoggerFactory.getLogger(ReplaySegmentTrackerTest::class.java)
-
     @Test
     fun `recorder created before join receives exact connection metadata`() {
-        val publications = mutableListOf<List<RecorderControlPlane.ReplaySegmentSnapshot>>()
-        var now = 1_000L
-        val tracker = ReplaySegmentTracker(SESSION, { publications += it }, logger) { now++ }
+        val tracker = ReplaySegmentTracker(SESSION)
         val player = UUID.fromString(PLAYER)
-        val recorder = Any()
+        val metadataProvider = tracker.segmentStarted(Any(), player, "flashback")
 
-        val metadataProvider = tracker.segmentStarted(
-            recorder,
-            player,
-            "alex",
-            temporary.resolve("active"),
-            "flashback"
-        )
-        assertNull(tracker.snapshots().single().connectionId)
-
-        tracker.connectionStarted(player, CONNECTION_ONE, 41, 102)
+        tracker.connectionStarted(player, CONNECTION_ONE)
         val metadata = JsonObject()
         metadataProvider(metadata)
 
@@ -53,96 +31,35 @@ class ReplaySegmentTrackerTest {
             embedded.get("flashback_capture_contract").asString
         )
         assertTrue(UUID.fromString(embedded.get("segment_id").asString).toString().isNotBlank())
-        assertEquals(CONNECTION_ONE, publications.last().single().connectionId)
     }
 
     @Test
-    fun `late save stays attached to old connection across reconnect`() {
-        val tracker = ReplaySegmentTracker(SESSION, {}, logger)
+    fun `reconnect assigns new segments without rewriting old metadata`() {
+        val tracker = ReplaySegmentTracker(SESSION)
         val player = UUID.fromString(PLAYER)
-        val oldRecorder = Any()
-        val newRecorder = Any()
+        val oldMetadata = tracker.segmentStarted(Any(), player, "flashback")
+        tracker.connectionStarted(player, CONNECTION_ONE)
+        tracker.connectionEnded(CONNECTION_ONE)
+        val newMetadata = tracker.segmentStarted(Any(), player, "flashback")
+        tracker.connectionStarted(player, CONNECTION_TWO)
 
-        tracker.segmentStarted(oldRecorder, player, "alex", temporary.resolve("old-active"), "flashback")
-        tracker.connectionStarted(player, CONNECTION_ONE, 1, 2)
-        tracker.connectionEnded(CONNECTION_ONE, 50, 500, "disconnect")
-
-        tracker.segmentStarted(newRecorder, player, "alex", temporary.resolve("new-active"), "flashback")
-        tracker.connectionStarted(player, CONNECTION_TWO, 60, 600)
-
-        val oldOutput = temporary.resolve("old.zip")
-        val newOutput = temporary.resolve("new.zip")
-        Files.writeString(oldOutput, "old")
-        Files.writeString(newOutput, "newer")
-        assertTrue(tracker.segmentSaved(oldRecorder, oldOutput))
-        assertTrue(tracker.segmentSaved(newRecorder, newOutput))
-
-        val snapshots = tracker.snapshots()
-        assertEquals(listOf(0L, 1L), snapshots.map { it.segmentOrdinal })
-        assertEquals(CONNECTION_ONE, snapshots[0].connectionId)
-        assertEquals(50, snapshots[0].connectionEndServerTick)
-        assertEquals("disconnect", snapshots[0].terminalReason)
-        assertEquals(CONNECTION_TWO, snapshots[1].connectionId)
-        assertEquals("saved", snapshots[0].state)
-        assertEquals(3, snapshots[0].outputSizeBytes)
-        assertEquals(5, snapshots[1].outputSizeBytes)
-        assertFalse(tracker.segmentSaved(Any(), temporary.resolve("unknown.zip")))
+        val old = JsonObject().also(oldMetadata)
+        val newer = JsonObject().also(newMetadata)
+        assertEquals(CONNECTION_ONE, old.getAsJsonObject("mc_recorder").get("connection_id").asString)
+        assertEquals(CONNECTION_TWO, newer.getAsJsonObject("mc_recorder").get("connection_id").asString)
+        assertEquals(1, newer.getAsJsonObject("mc_recorder").get("segment_ordinal").asLong)
     }
 
     @Test
-    fun `non flashback segments do not claim the flashback capture contract`() {
-        val tracker = ReplaySegmentTracker(SESSION, {}, logger)
-        val metadataProvider = tracker.segmentStarted(
-            Any(),
-            UUID.fromString(PLAYER),
-            "alex",
-            temporary.resolve("other-replay"),
-            "other"
-        )
+    fun `non flashback and unbound segments only publish known identity`() {
+        val tracker = ReplaySegmentTracker(SESSION)
         val metadata = JsonObject()
+        tracker.segmentStarted(Any(), UUID.fromString(PLAYER), "other")(metadata)
 
-        metadataProvider(metadata)
-
-        assertFalse(
-            metadata.getAsJsonObject("mc_recorder").has("flashback_capture_contract")
-        )
-        assertNull(tracker.snapshots().single().flashbackCaptureContract)
-    }
-
-    @Test
-    fun `control plane publishes current and durable replay ledgers`() {
-        val sessionDirectory = temporary.resolve("captures").resolve(SESSION)
-        Files.createDirectories(sessionDirectory)
-        val controlRoot = temporary.resolve("control")
-        val control = RecorderControlPlane(SESSION, sessionDirectory, controlRoot, logger) { 9_000L }
-        val tracker = ReplaySegmentTracker(SESSION, control, logger)
-        val player = UUID.fromString(PLAYER)
-        val recorder = Any()
-
-        tracker.segmentStarted(recorder, player, "alex", temporary.resolve("active"), "flashback")
-        tracker.connectionStarted(player, CONNECTION_ONE, 10, 11)
-        val output = temporary.resolve("segment.zip")
-        Files.writeString(output, "archive")
-        tracker.segmentSaved(recorder, output)
-
-        val current = JsonParser.parseString(
-            Files.readString(controlRoot.resolve("replay-segments.json"))
-        ).asJsonObject
-        val historical = JsonParser.parseString(
-            Files.readString(controlRoot.resolve("sessions/$SESSION.replay-segments.json"))
-        ).asJsonObject
-        assertEquals(current, historical)
-        assertEquals(1, current.get("schema_version").asInt)
-        assertEquals(SESSION, current.get("session_id").asString)
-        val segment = current.getAsJsonArray("segments").single().asJsonObject
-        assertEquals(CONNECTION_ONE, segment.get("connection_id").asString)
-        assertEquals("saved", segment.get("state").asString)
-        assertEquals("item_stack_copy_v1", segment.get("hotbar_snapshot_contract").asString)
-        assertEquals(
-            "client_visible_scene_v1",
-            segment.get("flashback_capture_contract").asString
-        )
-        assertEquals(7, segment.get("output_size_bytes").asLong)
+        val embedded = metadata.getAsJsonObject("mc_recorder")
+        assertFalse(embedded.has("connection_id"))
+        assertFalse(embedded.has("flashback_capture_contract"))
+        assertNull(embedded.get("connection_id"))
     }
 
     companion object {
