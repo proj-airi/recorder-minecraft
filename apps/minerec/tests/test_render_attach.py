@@ -11,6 +11,7 @@ import uuid
 import zipfile
 import zlib
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
@@ -290,7 +291,11 @@ class RenderAttachmentTest(unittest.TestCase):
             config, episode, replay, output, job = self._fixture(Path(temporary))
             imported = _import(config, episode, replay)
 
-            result = attach_imported_renders(config, job, [imported])
+            with mock.patch(
+                "minerec.processing.render.attach.DatasetViewer",
+                wraps=DatasetViewer,
+            ) as viewer_type:
+                result = attach_imported_renders(config, job, [imported])
 
             self.assertFalse(result.partial)
             self.assertEqual(2, result.sample_count)
@@ -300,6 +305,8 @@ class RenderAttachmentTest(unittest.TestCase):
             self.assertEqual((10, 12), (result.coverage_start_tick, result.coverage_end_tick))
             self.assertEqual(output, result.output)
             self.assertEqual(result.dataset_id, result.as_json()["dataset_id"])
+            self.assertTrue(viewer_type.call_args_list)
+            self.assertTrue(all(Path(call.args[1]).resolve() != config.paths.runtime for call in viewer_type.call_args_list))
             mirror_exports = Path(temporary) / "mirror" / "exports"
             shutil.copytree(config.paths.exports, mirror_exports)
             mirror_viewer = DatasetViewer(mirror_exports, Path(temporary) / "mirror" / "runtime")

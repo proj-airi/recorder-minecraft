@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import tempfile
 import uuid
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
@@ -180,12 +181,16 @@ def _job_identity(config: RecorderConfig, job: Mapping[str, Any]) -> _JobIdentit
     )
 
 
-def _verify_dataset(config: RecorderConfig, identity: _JobIdentity) -> _VerifiedDataset:
+def _verify_dataset(
+    config: RecorderConfig,
+    identity: _JobIdentity,
+    index_runtime: Path,
+) -> _VerifiedDataset:
     output = identity.output
     if output.is_symlink() or not output.is_dir():
         raise RecorderError(f"refusing to attach RGB: deterministic dataset is missing: {output}")
     try:
-        metadata = DatasetViewer(config.paths.exports, config.paths.runtime).get_dataset_metadata(identity.dataset_id)
+        metadata = DatasetViewer(config.paths.exports, index_runtime).get_dataset_metadata(identity.dataset_id)
     except DatasetViewerError as exc:
         raise RecorderError(f"refusing to overwrite missing or tampered dataset {output}: {exc}") from exc
     manifest, encoded = _read_json(output / "manifest.json", "dataset manifest")
@@ -428,43 +433,48 @@ def attach_imported_renders(
     identity = _job_identity(config, job)
     imported_values = list(imports)
     with operation_lock(config.paths.runtime, f"attach_render:{identity.job_id}"):
-        existing = _verify_dataset(config, identity)
-        complete: list[_CompleteImport] = []
-        no_coverage_count = 0
-        seen_segments: set[str] = set()
-        seen_requests: set[str] = set()
-        for value in imported_values:
-            item = _validate_import(config, identity, existing, value)
-            if item is None:
-                no_coverage_count += 1
-                continue
-            if item.segment_id in seen_segments or item.request_id in seen_requests:
-                raise RecorderError("render import list contains duplicate segment or request identities")
-            seen_segments.add(item.segment_id)
-            seen_requests.add(item.request_id)
-            complete.append(item)
-        _coverage(complete)
-        if not complete:
-            return _result(identity, existing.metadata, complete, no_coverage_count)
+        with tempfile.TemporaryDirectory(
+            prefix=f"render-attach-{identity.job_id}-",
+            dir=config.paths.runtime,
+        ) as temporary_index:
+            index_runtime = Path(temporary_index)
+            existing = _verify_dataset(config, identity, index_runtime)
+            complete: list[_CompleteImport] = []
+            no_coverage_count = 0
+            seen_segments: set[str] = set()
+            seen_requests: set[str] = set()
+            for value in imported_values:
+                item = _validate_import(config, identity, existing, value)
+                if item is None:
+                    no_coverage_count += 1
+                    continue
+                if item.segment_id in seen_segments or item.request_id in seen_requests:
+                    raise RecorderError("render import list contains duplicate segment or request identities")
+                seen_segments.add(item.segment_id)
+                seen_requests.add(item.request_id)
+                complete.append(item)
+            _coverage(complete)
+            if not complete:
+                return _result(identity, existing.metadata, complete, no_coverage_count)
 
-        current = _verify_dataset(config, identity)
-        if current.manifest_sha256 != existing.manifest_sha256 or current.samples_sha256 != existing.samples_sha256:
-            raise RecorderError("refusing to attach RGB because the structured dataset changed during verification")
-        episode = resolve_episode(config.paths.captures, identity.session_id)
-        scene_store = identity.output / "scene" / "scene-v1.sqlite3"
-        export_episode(
-            episode,
-            identity.output,
-            players=[identity.player_uuid],
-            connections=[identity.connection_id],
-            first_tick=identity.selection_start_tick,
-            last_tick=identity.selection_end_tick,
-            frames=[item.directory for item in complete],
-            scenes=[scene_store] if scene_store.is_file() and not scene_store.is_symlink() else [],
-            force=True,
-        )
-        verified = _verify_dataset(config, identity)
-        return _result(identity, verified.metadata, complete, no_coverage_count)
+            current = _verify_dataset(config, identity, index_runtime)
+            if current.manifest_sha256 != existing.manifest_sha256 or current.samples_sha256 != existing.samples_sha256:
+                raise RecorderError("refusing to attach RGB because the structured dataset changed during verification")
+            episode = resolve_episode(config.paths.captures, identity.session_id)
+            scene_store = identity.output / "scene" / "scene-v1.sqlite3"
+            export_episode(
+                episode,
+                identity.output,
+                players=[identity.player_uuid],
+                connections=[identity.connection_id],
+                first_tick=identity.selection_start_tick,
+                last_tick=identity.selection_end_tick,
+                frames=[item.directory for item in complete],
+                scenes=[scene_store] if scene_store.is_file() and not scene_store.is_symlink() else [],
+                force=True,
+            )
+            verified = _verify_dataset(config, identity, index_runtime)
+            return _result(identity, verified.metadata, complete, no_coverage_count)
 
 
 __all__ = ["RenderAttachmentResult", "attach_imported_renders"]
