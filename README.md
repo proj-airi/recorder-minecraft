@@ -134,40 +134,24 @@ a LAN you trust, or place an HTTPS reverse proxy in front of it. Every route is
 authenticated; mutating requests additionally require same-origin and CSRF
 checks.
 
-The recordings view groups rows by player but keeps every join/reconnect as a
-separate `connection_id`. Active rows cannot be exported. After a player
-disconnects, dataset generation waits until the append-only sidecar has already
-published an immutable slice covering the connection end sequence. Tooling does
-not command the recorder to promote data; it pins and copies verified filesystem
-slices and completed replay archives, then exports only that player UUID,
-connection ID, and observed tick range. Other connected players continue
-recording. Repeated generation reuses a matching verified deterministic export
-and does not overwrite a conflicting dataset.
+The Dashboard is an artifact viewer and render-pipeline operator. It scans
+capture directories, completed Flashback replay ZIPs, and verified dataset
+exports directly from their configured filesystem roots. It does not start,
+stop, inspect, or command the Minecraft server.
 
-Generation waits for the connection's replay archive, extracts every selected
-scene tick on the server, compacts and verifies one immutable scene store, then
-publishes Dataset V2 atomically. A failed or incomplete extraction never leaves
-a partial dataset attached. RGB remains optional and explicitly unavailable
-until requested. Choose a resolution and click **Render RGB** to queue a leased
-GUI job; the headless server never attempts to start a graphics client. The host
-streams the verified dataset into a compact, hash-bound structured-HUD sidecar,
-and the worker applies its exact inventory, selected slot, health, food, air,
-and experience state before each frame. GUI renders that complete this path are
-versioned with the `flashback_server_spectate_structured_hud_v1` presentation
-contract. Older GUI renders, including the spectate-only v1 contract, are shown
-as unsynchronized legacy RGB and can be replaced explicitly with **Re-render
-RGB**; each verified original import remains preserved for audit.
+Select a dataset connection and click **Render RGB** to queue a leased GUI job.
+The headless Dashboard never starts a graphics client. The host streams the
+verified dataset into a hash-bound structured-HUD sidecar, and the worker
+applies its exact inventory, selected slot, health, food, air, and experience
+state before each frame.
 
 Successful scene jobs are removed after the contained store is published. The
 newest failed or intentional `--prepare-only` job is retained for diagnostics;
 older marker-owned crash jobs are pruned under the global operation lock.
 Non-owned or symlinked directories are never removed.
 
-The recorder mod writes
-`.mc-recorder/control/render-ready/<connection-id>.json` when the matching
-ServerReplay archive is saved. The Compose `render-dispatcher` service scans
-those files periodically and publishes matching queued dashboard jobs to
-RabbitMQ. The renderer itself is per task: start one or more worker processes
+The Compose `render-dispatcher` publishes queued dataset jobs from the durable
+SQLite outbox to RabbitMQ. The renderer itself is per task: start one or more worker processes
 from a logged-in graphical desktop session on a machine with the same workspace,
 RabbitMQ access, OpenJDK 21, and Gradle:
 

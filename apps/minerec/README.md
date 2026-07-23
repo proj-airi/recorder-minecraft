@@ -138,12 +138,10 @@ separate GUI render succeeds.
 
 ### Queued RGB rendering and viewer refresh
 
-Rendering stays outside the dashboard process because the recorder server may
-be headless. After dataset generation completes, choose a resolution in
-the recording row and click **Render RGB**. The recorder mod emits
-`.mc-recorder/control/render-ready/<connection-id>.json` after the matching
-ServerReplay archive is saved. `minerec render-dispatcher` reads those
-spool files and publishes matching queued dashboard jobs to RabbitMQ.
+Rendering stays outside the dashboard process because it may run headlessly.
+Select a verified dataset connection and click **Render RGB**.
+`minerec render-dispatcher` publishes pending jobs from the durable render
+queue outbox to RabbitMQ.
 
 Run one GUI render worker process on a machine that has the same workspace,
 RabbitMQ access, OpenJDK 21, Gradle, and a graphical desktop:
@@ -235,12 +233,10 @@ files, and declared size/hash mismatches.
 
 The versioned HTTP interface includes:
 
-- `GET /api/v1/status`, `/api/v1/recordings`, and `/api/v1/jobs/{id}`;
+- `GET /api/v1/status` and `/api/v1/artifacts`;
 - `GET /api/v1/render-jobs`, `/api/v1/render-jobs/{id}`, and
   `/api/v1/render-workers`;
-- `POST /api/v1/server/start`, `/api/v1/server/stop`, and
-  `/api/v1/recordings/{id}/generate`;
-- `POST /api/v1/recordings/{id}/render` and
+- `POST /api/v1/datasets/{id}/render` and
   `/api/v1/render-jobs/{id}/cancel` or `/api/v1/render-jobs/{id}/retry`; and
 - `GET /api/v1/datasets` plus dataset metadata, bounded `trajectory`, paginated
   `samples`, opaque sample detail, `frame`, and `scene-slice` routes below

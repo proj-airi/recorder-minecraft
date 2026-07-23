@@ -9,7 +9,6 @@ The mod creates `config/mc-recorder.json` on first launch:
 ```json
 {
   "capture_root": "/captures",
-  "control_root": "/control",
   "epoch_ticks": 6000,
   "record_all_players": true,
   "writer_queue_capacity": 65536,
@@ -18,9 +17,7 @@ The mod creates `config/mc-recorder.json` on first launch:
 ```
 
 V1 always records all players. `/captures` is the container default and should be mounted to durable
-host storage. Native launches should set it to an absolute writable path. `/control` should be a
-separate host runtime directory bind-mounted read/write for dashboard status, the current-session
-connection ledger, replay segment ledger, and render-ready discovery files.
+host storage. Native launches should set it to an absolute writable path.
 
 ## Source layout
 
@@ -40,13 +37,6 @@ in-progress epoch, but it does not mutate earlier published slices.
 Epoch numbers advance at explicit end-of-tick boundaries. Automatic rotation still limits an epoch
 to `epoch_ticks`. The recorder does not accept external promotion requests; tooling waits for
 already-published slices and copies verified filesystem units when generating datasets.
-
-The recorder atomically refreshes `<control_root>/status.json` and
-`<control_root>/connections.json`. The latter contains one row per connection, including reconnects,
-and terminal tick/sequence fields after disconnect or clean server shutdown. Matching snapshots in
-`<control_root>/sessions/` preserve completed rows across later server starts. Replay segment
-ledgers and `render-ready/<connection-id>.json` files are runtime discovery aids only. These runtime
-files are not a substitute for source and manifest integrity validation.
 
 Every JSONL record carries `session_id`, `epoch_index`, `server_tick`, and a global `sequence`.
 `packet_arrival` records network observation order. `packet_apply` is stamped when
@@ -70,7 +60,7 @@ inside its independently rotated Flashback archive; the local renderer uses it f
 
 Scene-capable captures declare
 `flashback_capture_contract: "client_visible_scene_v1"` in the session manifest, `session_start`,
-replay-segment ledgers, and embedded Flashback `mc_recorder` metadata. The recorder narrowly
+and embedded Flashback `mc_recorder` metadata. The recorder narrowly
 overrides upstream packet exclusions for chunk unloads, player corrections, minecart steps, and
 explicit entity movement/teleport/velocity. It does not override pause state or unrelated capture
 settings. Mutable packet collections are copied before ServerReplay's asynchronous encoding.

@@ -78,56 +78,15 @@ The session manifest declares the exact loaded mods, capture scope, tick/apply
 phase, privacy policy, and record types. `session_end.json` distinguishes clean
 and incomplete shutdowns.
 
-## Runtime control and connection ledger
+## Flashback archive identity
 
-When `control_root` is configured, the recorder atomically maintains these
-runtime-only files for the host dashboard:
-
-```text
-<control_root>/
-  status.json
-  connections.json
-  replay-segments.json
-  sessions/<session-id>.connections.json
-  sessions/<session-id>.replay-segments.json
-  render-ready/<connection-id>.json
-```
-
-`status.json` is refreshed at most once per second while ticks are running. It
-reports the active session/tick/sequence/epoch, writer queue and failure state,
-last writer progress, storage availability, and active connections.
-`connections.json` is bounded to the current session, while the same atomic
-snapshot is retained under `sessions/` so completed rows survive later server
-starts. Each row contains player UUID/name, a unique `connection_id`, join
-tick/sequence, and, after termination, end tick/sequence and `terminal_reason`
-(`disconnect` or `server_shutdown`). A clean server shutdown queues terminal
-source events before closing the writer, then publishes terminal ledger fields
-only after the final slice exists. If final publication fails, the ledger stays
-unterminated so the stale heartbeat is classified as interrupted rather than
-cleanly disconnected.
-
-There is no recorder command spool for promoting data. Tooling that needs a
-connection range waits for an immutable slice whose manifest covers the
-connection end sequence, pins that filesystem unit against retention, and then
-copies/extracts from the verified files. Missing coverage is reported as
-`waiting_for_slice`, not as a request to the recorder.
-
-`replay-segments.json` binds ServerReplay's independently rotated player
-archives to capture identity. The recorder allocates a UUID `segment_id` and a
-monotonic per-session/player `segment_ordinal` at each ServerReplay recorder
-start. Because ServerReplay starts during login, before Fabric publishes the
-player join, the recorder retains recorder-object identity and fills the exact
-`connection_id` when the connection ledger starts. Reconnects therefore cannot
-claim a still-saving archive from an earlier connection. Each segment row
-contains player identity, optional connection join/end boundaries, replay
-format, `recording` or `saved` state, timestamps, host-local source/output
-locations, and `hotbar_snapshot_contract: "item_stack_copy_v1"` for captures
-whose replay packets freeze each mutable `ItemStack` at the synchronous record
-boundary. Flashback rows also contain
-`flashback_capture_contract: "client_visible_scene_v1"`. A saved row includes
-the observed output size; host tooling must
-still enforce replay-root containment and compute a stable SHA-256 before using
-the archive.
+ServerReplay owns Flashback archive creation and finalization. The recorder only
+registers a metadata provider when each player replay starts. That provider
+embeds `mc_recorder` identity in `arcade_replay_meta.json`: session ID, segment
+UUID, per-player segment ordinal, player UUID, connection UUID when known, and
+the capture contracts. The Dashboard discovers completed archives directly from
+the replay filesystem and validates their structure, containment, size, and
+SHA-256; there is no recorder control ledger or render-ready spool.
 
 Every saved replay embeds an `mc_recorder` metadata object in ServerReplay's
 `arcade_replay_meta.json` ZIP entry. Metadata schema v3 contains session ID,

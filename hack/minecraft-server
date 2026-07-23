@@ -77,11 +77,10 @@ prepare() {
   pixi run build-minerec-image
   pixi run build-recorder-mod
 
-  local mods_dir config_dir control_dir jar level_name epoch_ticks eula
+  local mods_dir config_dir jar level_name epoch_ticks eula
   mods_dir="$(env_path MC_LOCAL_MODS_DIR)"
   config_dir="$(env_path MC_CONFIG_SOURCE_DIR)"
-  control_dir="$(env_path MC_CONTROL_DIR)"
-  mkdir -p "${mods_dir}" "${config_dir}/server-replay" "${control_dir}/render-ready"
+  mkdir -p "${mods_dir}" "${config_dir}/server-replay"
 
   eula="$(env_value MC_EULA)"
   eula="$(printf '%s' "${eula}" | tr '[:upper:]' '[:lower:]')"
@@ -153,7 +152,6 @@ EOF
   cat > "${config_dir}/mc-recorder.json" <<EOF
 {
   "capture_root": "/captures",
-  "control_root": "/control",
   "epoch_ticks": ${epoch_ticks},
   "include_inventory_components": true,
   "record_all_players": true,

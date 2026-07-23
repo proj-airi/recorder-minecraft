@@ -30,12 +30,11 @@ playable server rather than only a running container.
 
 The storage monitor sees `/captures` and `/replays`, but cannot access the world
 or server data. After the configured quota is reached it may remove oldest
-immutable source units: sidecar epochs whose seal/count/size/SHA-256 envelope
+immutable source units: sidecar epochs whose count/size/SHA-256 envelope
 verifies, or readable completed replay archives that have remained unchanged
 for at least five minutes. Active/incomplete epochs, recent or partial replay
 files, directories, and symlinks are never eviction candidates.
 
 Vanilla empty-server tick pausing is disabled with
-`PAUSE_WHEN_EMPTY_SECONDS=-1`. The recorder heartbeat and seal-request control
-plane run on server ticks, so they must remain live after the last player
-disconnects even though Minecraft otherwise has no active players.
+`PAUSE_WHEN_EMPTY_SECONDS=-1` so capture tick boundaries remain live after the
+last player disconnects.

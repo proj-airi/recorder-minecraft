@@ -207,7 +207,7 @@ class RenderCliTest(unittest.TestCase):
             mock.patch.object(cli, "RenderQueueStore", return_value=queue) as store,
             mock.patch.object(
                 cli,
-                "dispatch_mod_emitted_render_jobs",
+                "dispatch_pending_render_jobs",
                 return_value=2,
             ) as dispatch,
             mock.patch.object(cli, "publish_render_task_message") as publish,
@@ -228,7 +228,6 @@ class RenderCliTest(unittest.TestCase):
             store.assert_called_once_with(config.paths.runtime / "render-queue.sqlite3")
             dispatch.assert_called_once()
             self.assertIs(dispatch.call_args.args[0], queue)
-            self.assertEqual(config.paths.runtime / "control", dispatch.call_args.args[1])
             publish_callback = dispatch.call_args.kwargs["publish"]
             publish_callback({"job_id": "job"})
             publish.assert_called_once_with(

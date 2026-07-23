@@ -9,25 +9,22 @@ are provenance only and are never authoritative after import.
 
 The dashboard creates one durable RGB queue job only after the deterministic
 structured dataset for a disconnected connection is verified. The job fixes the
-recording, session, player, connection, dataset selection, renderable sample
+session, player, connection, dataset selection, renderable sample
 tick range, dataset identity, resolution, and 20 Hz output rate. The renderable
-range is the dataset's first through last sample tick and may be narrower than
-the ledger's join/disconnect selection bounds; attachment preserves those
-original selection bounds. A worker receives none of those values from
+range is the dataset connection's first through last sample tick. A worker
+receives none of those values from
 browser-controlled paths or command strings.
 
-The recorder mod emits a bounded JSON spool file under
-`control/render-ready/<connection-id>.json` after a disconnected connection has
-at least one saved ServerReplay segment. `minerec render-dispatcher` scans
-that spool and publishes matching queued dashboard jobs to RabbitMQ. By default,
+`minerec render-dispatcher` publishes pending dataset jobs from the render
+queue's durable SQLite outbox to RabbitMQ. By default,
 `minerec render-worker` consumes one RabbitMQ message, claims that exact job,
 runs one Java client in one ephemeral workspace, finalizes the result, and exits.
 
 The worker heartbeats while downloading, rendering, and uploading. A reclaimed
 or canceled lease cannot publish a result, even if an older client later
 resumes. If a replay input is not yet immutable, the server defers that job for
-a 30-second eligibility cooldown. The dispatcher waits for another mod-emitted
-ready file before publishing more work for that connection.
+a 30-second eligibility cooldown. Requeued jobs clear their publication marker
+and become eligible for dispatch again.
 
 A failure after a claim marks/fences that attempt and the process exits before
 another message is consumed. This fail-stop boundary prevents a broken Java
