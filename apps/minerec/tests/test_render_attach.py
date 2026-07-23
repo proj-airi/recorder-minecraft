@@ -137,10 +137,8 @@ def _dataset(config: RecorderConfig, episode: Path, *, matching: bool = True) ->
 def _job(config: RecorderConfig, output: Path) -> dict[str, object]:
     return {
         "id": JOB_ID,
-        "recording_id": RECORDING_ID,
         "state": "verifying",
         "payload": {
-            "recording_id": RECORDING_ID,
             "session_id": SESSION,
             "player_uuid": PLAYER,
             "connection_id": CONNECTION,

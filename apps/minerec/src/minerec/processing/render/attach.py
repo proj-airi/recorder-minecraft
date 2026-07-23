@@ -20,7 +20,6 @@ from minerec.render.control.contract import FULL_CLIENT_PRESENTATION_CONTRACT
 from minerec.render.control.transfer import PORTABLE_REQUEST_TYPE, RENDER_IMPORT_TYPE, ImportedRenderResult
 
 _DATASET_ID_RE = re.compile(r"^[0-9a-f]{32}$")
-_RECORDING_ID_RE = re.compile(r"^[0-9a-f]{24}$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _SEGMENT_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$")
 _MAX_JSON_BYTES = 4 * 1024 * 1024
@@ -145,11 +144,6 @@ def _job_identity(config: RecorderConfig, job: Mapping[str, Any]) -> _JobIdentit
     payload = job.get("payload")
     if not isinstance(payload, Mapping):
         raise RecorderError("render queue job payload must be an object")
-    recording_id = payload.get("recording_id")
-    if not isinstance(recording_id, str) or _RECORDING_ID_RE.fullmatch(recording_id) is None:
-        raise RecorderError("render queue job has an invalid recording ID")
-    if job.get("recording_id") != recording_id:
-        raise RecorderError("render queue job recording identity is inconsistent")
     session_id = payload.get("session_id")
     if not isinstance(session_id, str) or not session_id or session_id.startswith(".") or "/" in session_id or "\\" in session_id:
         raise RecorderError("render queue job has an invalid session ID")

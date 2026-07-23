@@ -40,7 +40,7 @@ from .processing.scene.job import (
 from .processing.scene.store import compact_scene_stream, validate_scene_store
 from .render.control.broker import (
     consume_one_render_task_message,
-    dispatch_mod_emitted_render_jobs,
+    dispatch_pending_render_jobs,
     publish_render_task_message,
 )
 from .render.control.queue import RenderQueueStore
@@ -485,9 +485,8 @@ def run(argv: Sequence[str] | None = None) -> int:
             publish_render_task_message(args.rabbitmq_url, args.queue, message)
 
         while True:
-            count = dispatch_mod_emitted_render_jobs(
+            count = dispatch_pending_render_jobs(
                 queue,
-                config.paths.runtime / "control",
                 publish=publish,
                 limit=args.limit,
             )

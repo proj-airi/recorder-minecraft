@@ -54,7 +54,6 @@ MAX_ERROR_CHARS = 2048
 PORTABLE_NO_GUI_CAPABILITY = "portable_request_no_gui"
 STRUCTURED_CLAIM_FAILURE_CAPABILITY = "structured_claim_failure"
 PLAN_PREPARATION_HEARTBEAT_SECONDS = 20.0
-_HEX_24_RE = re.compile(r"^[0-9a-f]{24}$")
 _HEX_32_RE = re.compile(r"^[0-9a-f]{32}$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _SEGMENT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$")
@@ -302,7 +301,6 @@ def _validate_job_payload(value: object) -> dict[str, Any]:
     payload = _strict_object(
         value,
         required={
-            "recording_id",
             "session_id",
             "player_uuid",
             "connection_id",
@@ -314,8 +312,6 @@ def _validate_job_payload(value: object) -> dict[str, Any]:
         optional={"selection_start_tick", "selection_end_tick"},
         label="render job payload",
     )
-    if not isinstance(payload["recording_id"], str) or not _HEX_24_RE.fullmatch(payload["recording_id"]):
-        raise RecorderError("render job has an invalid recording ID")
     _opaque(payload["session_id"], "session ID", 128)
     _canonical_uuid(payload["player_uuid"], "player UUID")
     _canonical_uuid(payload["connection_id"], "connection UUID")
@@ -1249,7 +1245,6 @@ class RenderRpcService:
             "identity": {
                 "job_id": plan["job_id"],
                 "attempt_id": plan["attempt_id"],
-                "recording_id": plan["payload"]["recording_id"],
                 "dataset_id": plan["payload"]["dataset_id"],
                 "session_id": plan["payload"]["session_id"],
                 "player_uuid": plan["payload"]["player_uuid"],

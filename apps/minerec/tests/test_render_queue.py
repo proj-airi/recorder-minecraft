@@ -14,14 +14,12 @@ sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 from minerec.errors import RecorderError
 from minerec.render.control.queue import RenderQueueStore
 
-RECORDING_ID = "a" * 24
 WORKER_ONE = "11111111-1111-4111-8111-111111111111"
 WORKER_TWO = "22222222-2222-4222-8222-222222222222"
 
 
 def _payload() -> dict[str, object]:
     return {
-        "recording_id": RECORDING_ID,
         "session_id": "20260721T000000.000Z-deadbeef",
         "player_uuid": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
         "connection_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
@@ -53,7 +51,7 @@ class RenderQueueStoreTest(unittest.TestCase):
         self.assertEqual(_payload(), restored["payload"])
         self.assertIsNone(restored["active_attempt"])
 
-    def test_existing_database_is_migrated_with_immediate_queue_eligibility(self) -> None:
+    def test_obsolete_database_requires_explicit_recreation(self) -> None:
         legacy_path = Path(self.temporary.name) / "legacy-render.sqlite3"
         with closing(sqlite3.connect(legacy_path)) as connection:
             connection.execute(
@@ -79,16 +77,18 @@ class RenderQueueStoreTest(unittest.TestCase):
             )
             connection.commit()
 
-        migrated = RenderQueueStore(legacy_path)
-        with closing(sqlite3.connect(legacy_path)) as connection:
-            columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(render_jobs)")}
-        self.assertIn("eligible_at", columns)
+        with self.assertRaisesRegex(RecorderError, "schema is obsolete"):
+            RenderQueueStore(legacy_path)
 
-        job = migrated.create(_payload())
-        migrated.register_worker("worker", worker_id=WORKER_ONE)
-        claimed = migrated.claim(WORKER_ONE)
-        assert claimed is not None
-        self.assertEqual(job["id"], claimed["job"]["id"])
+    def test_jobs_are_published_through_a_durable_outbox(self) -> None:
+        job = self.store.create(_payload())
+        self.assertIsNone(job["published_at"])
+        self.assertEqual([job["id"]], [item["id"] for item in self.store.pending_publication()])
+
+        published = self.store.mark_published(job["id"])
+
+        self.assertIsNotNone(published["published_at"])
+        self.assertEqual([], self.store.pending_publication())
 
     def test_dashboard_restart_preserves_a_live_worker_lease(self) -> None:
         job = self.store.create(_payload())
@@ -151,6 +151,7 @@ class RenderQueueStoreTest(unittest.TestCase):
 
     def test_expired_lease_is_requeued_and_old_worker_is_fenced(self) -> None:
         job = self.store.create(_payload())
+        self.store.mark_published(job["id"])
         self.store.register_worker("first", worker_id=WORKER_ONE)
         self.store.register_worker("second", worker_id=WORKER_TWO)
         claimed = self.store.claim(WORKER_ONE, lease_seconds=10)
@@ -158,7 +159,9 @@ class RenderQueueStoreTest(unittest.TestCase):
         future = time.time() + 20
 
         with mock.patch("minerec.render.control.queue.time.time", return_value=future):
-            self.assertEqual("queued", self.store.get(job["id"])["state"])
+            requeued = self.store.get(job["id"])
+            self.assertEqual("queued", requeued["state"])
+            self.assertIsNone(requeued["published_at"])
             reclaimed = self.store.claim(WORKER_TWO, lease_seconds=10)
             assert reclaimed is not None
             self.assertEqual(2, reclaimed["attempt"]["generation"])

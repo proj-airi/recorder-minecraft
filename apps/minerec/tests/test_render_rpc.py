@@ -98,7 +98,6 @@ class RenderRpcServiceTest(unittest.TestCase):
         )
         self.job = self.service.queue.create(
             {
-                "recording_id": "a" * 24,
                 "session_id": SESSION_ID,
                 "player_uuid": PLAYER_ID,
                 "connection_id": CONNECTION_ID,

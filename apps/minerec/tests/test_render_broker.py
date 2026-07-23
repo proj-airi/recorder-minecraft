@@ -11,16 +11,16 @@ sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 from minerec.render.control.broker import (
     build_render_task_message,
     consume_one_render_task_message,
-    dispatch_mod_emitted_render_jobs,
+    dispatch_pending_render_jobs,
     publish_render_task_message,
 )
 from minerec.render.control.queue import RenderQueueStore
 
 
 class RenderBrokerTest(unittest.TestCase):
-    def _job_payload(self, recording_id: str = "0123456789abcdef01234567") -> dict[str, object]:
+    def _job_payload(self, dataset_id: str = "c" * 32) -> dict[str, object]:
         return {
-            "recording_id": recording_id,
+            "dataset_id": dataset_id,
             "session_id": "session-a",
             "player_uuid": "00000000-0000-4000-8000-000000000021",
         }
@@ -28,7 +28,7 @@ class RenderBrokerTest(unittest.TestCase):
     def test_render_task_message_is_path_free_and_process_scoped(self) -> None:
         job = {
             "id": "00000000-0000-4000-8000-000000000020",
-            "recording_id": "0123456789abcdef01234567",
+            "dataset_id": "c" * 32,
             "payload": self._job_payload(),
             "state": "queued",
         }
@@ -43,40 +43,44 @@ class RenderBrokerTest(unittest.TestCase):
         self.assertEqual(job["payload"], message["payload"])
         self.assertNotIn("/srv/", encoded)
 
-    def test_dispatcher_uses_mod_render_ready_spool_and_deletes_after_publish(self) -> None:
+    def test_dispatcher_publishes_pending_queue_jobs_once(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             store = RenderQueueStore(root / "render-queue.sqlite3")
             payload = self._job_payload()
-            payload["connection_id"] = "00000000-0000-4000-8000-000000000021"
             job = store.create(payload)
-            ready = root / "control" / "render-ready" / f"{payload['connection_id']}.json"
-            ready.parent.mkdir(parents=True)
-            ready.write_text(
-                json.dumps(
-                    {
-                        "schema_version": 1,
-                        "kind": "render_ready",
-                        "session_id": payload["session_id"],
-                        "player_uuid": payload["player_uuid"],
-                        "connection_id": payload["connection_id"],
-                        "segments": [],
-                    }
-                ),
-                encoding="utf-8",
-            )
             published: list[dict[str, object]] = []
 
-            count = dispatch_mod_emitted_render_jobs(
+            count = dispatch_pending_render_jobs(
                 store,
-                root / "control",
                 publish=published.append,
                 limit=10,
             )
 
             self.assertEqual(1, count)
             self.assertEqual(job["id"], published[0]["job_id"])
-            self.assertFalse(ready.exists())
+            self.assertIsNotNone(store.get(job["id"])["published_at"])
+            self.assertEqual(
+                0,
+                dispatch_pending_render_jobs(
+                    store,
+                    publish=published.append,
+                    limit=10,
+                ),
+            )
+
+    def test_publish_failure_leaves_job_pending(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            store = RenderQueueStore(Path(temporary) / "render-queue.sqlite3")
+            job = store.create(self._job_payload())
+
+            def fail(_message: dict[str, object]) -> None:
+                raise RuntimeError("broker unavailable")
+
+            with self.assertRaisesRegex(RuntimeError, "broker unavailable"):
+                dispatch_pending_render_jobs(store, publish=fail)
+
+            self.assertIsNone(store.get(job["id"])["published_at"])
 
     def test_rabbitmq_publisher_declares_durable_queue_and_persistent_json(self) -> None:
         calls: list[tuple[str, dict[str, object]]] = []
@@ -109,7 +113,7 @@ class RenderBrokerTest(unittest.TestCase):
             "kind": "render_job",
             "execution": "per_process_worker",
             "job_id": "00000000-0000-4000-8000-000000000020",
-            "recording_id": "0123456789abcdef01234567",
+            "dataset_id": "c" * 32,
             "payload": self._job_payload(),
         }
 
@@ -143,7 +147,7 @@ class RenderBrokerTest(unittest.TestCase):
             "kind": "render_job",
             "execution": "per_process_worker",
             "job_id": "00000000-0000-4000-8000-000000000020",
-            "recording_id": "0123456789abcdef01234567",
+            "dataset_id": "c" * 32,
             "payload": self._job_payload(),
         }
 
