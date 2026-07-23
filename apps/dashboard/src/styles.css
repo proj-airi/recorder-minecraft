@@ -152,4 +152,10 @@ details { border-top: 1px solid var(--line); padding: .8rem 0; } summary { curso
 @media (max-width: 900px) { .table-row, .dataset-row, .connection-row, .job-row { grid-template-columns: 1fr 1fr; }.table-head { display: none; }.worker-row { grid-template-columns: auto 1fr; } }
 @media (max-width: 900px) { .summary-grid, .sample-grid { grid-template-columns: 1fr; }.dataset-layout { min-height: 70rem; }.recording-row { grid-template-columns: 1fr 1fr; }.viewer-filters { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 700px) { .scene-tools { grid-template-columns: 1fr 1fr; } }
-@media (max-width: 520px) { .pointer-inputs { grid-template-columns: 1fr; } }
+@media (max-width: 520px) {
+  header { align-items: flex-start; padding-top: 1.5rem; }
+  h1 { max-width: 12rem; font-size: 2rem; }
+  .header-counts { flex-direction: column; gap: .2rem; padding-top: 2.8rem; }
+  .pointer-inputs { grid-template-columns: 1fr; }
+  .render-settings { align-items: flex-start; flex-direction: column; }
+}
