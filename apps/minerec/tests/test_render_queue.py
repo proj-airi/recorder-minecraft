@@ -87,6 +87,8 @@ class RenderQueueStoreTest(unittest.TestCase):
         self.assertEqual("d" * 32, queued["payload"]["dataset_id"])
         self.assertEqual(10, queued["payload"]["start_tick"])
         self.assertEqual(40, queued["payload"]["end_tick"])
+        self.assertNotIn("source_artifact_id", queued["payload"])
+        self.assertEqual("a" * 32, queued["source_artifact_id"])
         self.assertEqual(
             [request["id"]],
             [job["id"] for job in self.store.pending_publication()],

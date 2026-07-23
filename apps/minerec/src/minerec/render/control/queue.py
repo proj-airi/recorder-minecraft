@@ -506,6 +506,7 @@ class RenderQueueStore:
         with self._lock, self._session(immediate=True) as connection:
             row = self._preparation_lease(connection, canonical, lease_token, now)
             payload = json.loads(row["payload_json"])
+            payload.pop("source_artifact_id", None)
             payload.update(
                 {
                     "dataset_id": dataset_id,
