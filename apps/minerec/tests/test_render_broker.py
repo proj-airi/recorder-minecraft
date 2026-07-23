@@ -188,3 +188,52 @@ class RenderBrokerTest(unittest.TestCase):
         self.assertEqual([message], handled)
         self.assertIn(("basic_ack", {"delivery_tag": "delivery-1"}), calls)
         self.assertNotIn("basic_nack", [name for name, _kwargs in calls])
+
+    def test_rabbitmq_consumer_acks_a_terminal_handler_failure(self) -> None:
+        calls: list[tuple[str, dict[str, object]]] = []
+        message = {
+            "schema_version": 1,
+            "kind": "render_job",
+            "execution": "per_process_worker",
+            "job_id": "00000000-0000-4000-8000-000000000020",
+            "dataset_id": "c" * 32,
+            "payload": self._job_payload(),
+        }
+
+        class Method:
+            delivery_tag = "delivery-1"
+
+        class Channel:
+            def queue_declare(self, **_kwargs: object) -> None:
+                pass
+
+            def basic_get(self, **_kwargs: object) -> tuple[Method, object, bytes]:
+                return Method(), object(), json.dumps(message).encode("utf-8")
+
+            def basic_ack(self, **kwargs: object) -> None:
+                calls.append(("basic_ack", kwargs))
+
+            def basic_nack(self, **kwargs: object) -> None:
+                calls.append(("basic_nack", kwargs))
+
+        class Connection:
+            def channel(self) -> Channel:
+                return Channel()
+
+            def close(self) -> None:
+                pass
+
+        def fail(_message: dict[str, object]) -> None:
+            raise RuntimeError("job is terminal")
+
+        with self.assertRaisesRegex(RuntimeError, "terminal"):
+            consume_one_render_task_message(
+                "amqp://guest:guest@rabbitmq:5672/%2F",
+                "render.jobs",
+                handle=fail,
+                requeue_on_error=lambda _error: False,
+                connection_factory=lambda _url: Connection(),
+            )
+
+        self.assertIn(("basic_ack", {"delivery_tag": "delivery-1"}), calls)
+        self.assertNotIn("basic_nack", [name for name, _kwargs in calls])

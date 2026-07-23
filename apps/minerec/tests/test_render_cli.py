@@ -188,6 +188,7 @@ class RenderCliTest(unittest.TestCase):
 
             self.assertEqual(0, code)
             consume.assert_called_once()
+            self.assertIn("requeue_on_error", consume.call_args.kwargs)
             local_recorder.assert_called_once_with(Path(temporary), config)
             worker.assert_called_once()
             self.assertEqual(

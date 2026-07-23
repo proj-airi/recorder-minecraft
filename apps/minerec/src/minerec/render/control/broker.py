@@ -110,6 +110,7 @@ def consume_one_render_task_message(
     queue_name: str,
     *,
     handle: Callable[[dict[str, Any]], None],
+    requeue_on_error: Callable[[Exception], bool] | None = None,
     connection_factory: Callable[[str], Any] = _pika_connection_factory,
 ) -> bool:
     if not isinstance(url, str) or not url:
@@ -126,8 +127,11 @@ def consume_one_render_task_message(
         try:
             message = _validate_render_task_message(json.loads(body.decode("utf-8")))
             handle(message)
-        except Exception:
-            channel.basic_nack(delivery_tag=method.delivery_tag, requeue=True)
+        except Exception as exc:
+            if requeue_on_error is None or requeue_on_error(exc):
+                channel.basic_nack(delivery_tag=method.delivery_tag, requeue=True)
+            else:
+                channel.basic_ack(delivery_tag=method.delivery_tag)
             raise
         channel.basic_ack(delivery_tag=method.delivery_tag)
         return True

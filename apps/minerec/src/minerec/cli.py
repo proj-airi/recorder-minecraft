@@ -47,7 +47,7 @@ from .render.control.preparer import RenderPreparer
 from .render.control.queue import RenderQueueStore
 from .render.control.rpc import dispatch_render_rpc
 from .serve.dashboard.server import serve_dashboard
-from .workers.render import LocalRecorder, run_render_worker
+from .workers.render import LocalRecorder, requeue_render_task_error, run_render_worker
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -485,6 +485,7 @@ def run(argv: Sequence[str] | None = None) -> int:
             args.rabbitmq_url,
             args.queue,
             handle=handle,
+            requeue_on_error=requeue_render_task_error,
         )
         print(f"Consumed {1 if consumed else 0} render task(s).", flush=True)
         return 0

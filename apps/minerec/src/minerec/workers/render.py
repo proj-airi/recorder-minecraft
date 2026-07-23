@@ -69,8 +69,16 @@ class _ClaimedJobError(RecorderError):
     """A claimed job failed; stop rather than damaging later queued jobs."""
 
 
+class _ClaimOutcomeUnknownError(_ClaimedJobError):
+    """The worker cannot know whether the server claimed the selected job."""
+
+
 class _IncompatibleServerError(RecorderError):
     """The recorder runtime cannot safely support this render worker."""
+
+
+def requeue_render_task_error(error: Exception) -> bool:
+    return not isinstance(error, _ClaimedJobError) or isinstance(error, _ClaimOutcomeUnknownError)
 
 
 def call_recorder_json(
@@ -529,7 +537,7 @@ def _run_registered_worker_once(
             timeout_seconds=300,
         )
     except RecorderError as exc:
-        raise _ClaimedJobError("render worker stopped because the claim outcome is unknown; inspect the queue before restarting") from exc
+        raise _ClaimOutcomeUnknownError("render worker stopped because the claim outcome is unknown; inspect the queue before restarting") from exc
     if claimed.get("claim") is None:
         reason = claimed.get("reason")
         if reason == "claim_failed":
