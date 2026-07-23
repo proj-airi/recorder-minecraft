@@ -143,6 +143,10 @@ Select a verified dataset connection and click **Render RGB**.
 `minerec render-dispatcher` publishes pending jobs from the durable render
 queue outbox to RabbitMQ.
 
+This dashboard contract intentionally does not migrate the former
+recording-scoped queue schema. Remove `.mc-recorder/render-queue.sqlite3` once
+when upgrading.
+
 Run one GUI render worker process on a machine that has the same workspace,
 RabbitMQ access, OpenJDK 21, Gradle, and a graphical desktop:
 

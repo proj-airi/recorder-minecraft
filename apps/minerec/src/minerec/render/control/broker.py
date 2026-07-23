@@ -8,6 +8,8 @@ from minerec.errors import RecorderError
 from minerec.render.control.queue import RenderQueueStore
 
 RENDER_TASK_SCHEMA_VERSION = 1
+
+
 def _pika_connection_factory(url: str) -> Any:  # noqa: ANN401 - pika connection type is optional at import time.
     try:
         import pika  # type: ignore[import-not-found]

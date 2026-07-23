@@ -172,16 +172,12 @@ class RenderQueueStore:
                 )
             except sqlite3.OperationalError as exc:
                 if "no such column" in str(exc).lower():
-                    raise RecorderError(
-                        "render queue schema is obsolete; remove render-queue.sqlite3 and restart"
-                    ) from exc
+                    raise RecorderError("render queue schema is obsolete; remove render-queue.sqlite3 and restart") from exc
                 raise
             job_columns = {str(row["name"]) for row in connection.execute("PRAGMA table_info(render_jobs)").fetchall()}
             required_columns = {"dataset_id", "published_at", "eligible_at"}
             if not required_columns.issubset(job_columns):
-                raise RecorderError(
-                    "render queue schema is obsolete; remove render-queue.sqlite3 and restart"
-                )
+                raise RecorderError("render queue schema is obsolete; remove render-queue.sqlite3 and restart")
             connection.execute(
                 """
                 CREATE INDEX IF NOT EXISTS render_jobs_claimable
@@ -215,9 +211,7 @@ class RenderQueueStore:
     def create(self, payload: dict[str, Any], *, retry_of: str | None = None) -> dict[str, Any]:
         encoded, _ = _json_object(payload, "render job payload")
         dataset_id = payload.get("dataset_id")
-        if not isinstance(dataset_id, str) or len(dataset_id) != 32 or any(
-            character not in "0123456789abcdef" for character in dataset_id
-        ):
+        if not isinstance(dataset_id, str) or len(dataset_id) != 32 or any(character not in "0123456789abcdef" for character in dataset_id):
             raise RecorderError("render job payload has an invalid dataset ID")
         fingerprint = hashlib.sha256(encoded.encode("utf-8")).hexdigest()
         retry_id = _uuid(retry_of, "retry job ID") if retry_of is not None else None
@@ -296,15 +290,11 @@ class RenderQueueStore:
         canonical = _uuid(job_id, "render job ID")
         now = time.time()
         with self._lock, self._session(immediate=True) as connection:
-            row = connection.execute(
-                "SELECT * FROM render_jobs WHERE id = ?", (canonical,)
-            ).fetchone()
+            row = connection.execute("SELECT * FROM render_jobs WHERE id = ?", (canonical,)).fetchone()
             if row is None:
                 raise KeyError(canonical)
             if row["state"] != "queued":
-                raise RecorderError(
-                    f"render job cannot be published while {row['state']}"
-                )
+                raise RecorderError(f"render job cannot be published while {row['state']}")
             connection.execute(
                 """
                 UPDATE render_jobs SET published_at = COALESCE(published_at, ?),
@@ -312,9 +302,7 @@ class RenderQueueStore:
                 """,
                 (now, now, canonical),
             )
-            updated = connection.execute(
-                "SELECT * FROM render_jobs WHERE id = ?", (canonical,)
-            ).fetchone()
+            updated = connection.execute("SELECT * FROM render_jobs WHERE id = ?", (canonical,)).fetchone()
             assert updated is not None
             return self._job(connection, updated)
 

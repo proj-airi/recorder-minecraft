@@ -77,9 +77,7 @@ def resolve_replay_segments(
         replays_root=root,
     ).scan()
     if catalog.truncated:
-        raise RecorderError(
-            "replay artifact catalog is incomplete; reduce the replay archive count or resolve catalog issues"
-        )
+        raise RecorderError("replay artifact catalog is incomplete; reduce the replay archive count or resolve catalog issues")
 
     for artifact in catalog.replay_archives:
         if artifact.session_id == session and artifact.player_uuid == player and artifact.connection_id is None:

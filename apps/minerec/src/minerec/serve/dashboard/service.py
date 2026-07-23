@@ -38,9 +38,7 @@ class DashboardService:
 
     def __init__(self, config: RecorderConfig) -> None:
         self.config = config
-        self._instance_handle: TextIO | None = self._acquire_instance_lock(
-            config.paths.runtime
-        )
+        self._instance_handle: TextIO | None = self._acquire_instance_lock(config.paths.runtime)
         try:
             self.artifact_catalog = ArtifactCatalog(
                 config.paths.captures,
@@ -51,9 +49,7 @@ class DashboardService:
                 config.paths.runtime,
             )
             self.dataset_index = DatasetIndex(self.dataset_viewer)
-            self.render_queue = RenderQueueStore(
-                config.paths.runtime / "render-queue.sqlite3"
-            )
+            self.render_queue = RenderQueueStore(config.paths.runtime / "render-queue.sqlite3")
         except Exception:
             index = getattr(self, "dataset_index", None)
             if index is not None:
@@ -77,9 +73,7 @@ class DashboardService:
         runtime.mkdir(parents=True, exist_ok=True)
         path = runtime / "dashboard.lock"
         if path.is_symlink():
-            raise RecorderError(
-                f"dashboard instance lock may not be a symlink: {path}"
-            )
+            raise RecorderError(f"dashboard instance lock may not be a symlink: {path}")
         handle = path.open("a+", encoding="utf-8")
         try:
             fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -88,9 +82,7 @@ class DashboardService:
             owner = handle.read(2048).strip()
             handle.close()
             detail = f" ({owner})" if owner else ""
-            raise RecorderError(
-                f"another dashboard process is already running{detail}"
-            ) from exc
+            raise RecorderError(f"another dashboard process is already running{detail}") from exc
         handle.seek(0)
         handle.truncate()
         json.dump(
@@ -121,14 +113,8 @@ class DashboardService:
         return {
             "dashboard": {"state": "ready"},
             "render": {
-                "active_jobs": sum(
-                    job["state"]
-                    not in {"complete", "partial", "failed", "canceled"}
-                    for job in jobs
-                ),
-                "online_workers": sum(
-                    worker["state"] in {"online", "busy"} for worker in workers
-                ),
+                "active_jobs": sum(job["state"] not in {"complete", "partial", "failed", "canceled"} for job in jobs),
+                "online_workers": sum(worker["state"] in {"online", "busy"} for worker in workers),
             },
             "csrf_token": self.csrf_token,
         }
@@ -139,10 +125,7 @@ class DashboardService:
         self.dataset_index.request_refresh()
         return {
             **filesystem,
-            "datasets": [
-                {**asdict(dataset), "id": dataset.dataset_id, "status": "verified"}
-                for dataset in datasets.datasets
-            ],
+            "datasets": [{**asdict(dataset), "id": dataset.dataset_id, "status": "verified"} for dataset in datasets.datasets],
             "rejected_datasets": [asdict(issue) for issue in datasets.rejected],
             "datasets_indexing": indexing,
             "datasets_error": error,
@@ -166,39 +149,21 @@ class DashboardService:
         connections = self.dataset_viewer.list_player_connections(dataset_id)
         if player_uuid is not None:
             canonical_player = _required_uuid(player_uuid, "player UUID")
-            connections = tuple(
-                item for item in connections if item.player_uuid == canonical_player
-            )
+            connections = tuple(item for item in connections if item.player_uuid == canonical_player)
         if connection_id is not None:
             canonical_connection = _required_uuid(connection_id, "connection UUID")
-            connections = tuple(
-                item
-                for item in connections
-                if item.connection_id == canonical_connection
-            )
+            connections = tuple(item for item in connections if item.connection_id == canonical_connection)
         if not connections:
             raise RecorderError("dataset has no matching player connection")
         if len(connections) != 1:
-            raise RecorderError(
-                "dataset has multiple player connections; select one explicitly"
-            )
+            raise RecorderError("dataset has multiple player connections; select one explicitly")
         connection = connections[0]
         replay_catalog = self.artifact_catalog.scan()
         if replay_catalog.truncated:
-            raise RecorderError(
-                "replay artifact catalog is incomplete; resolve catalog issues before rendering"
-            )
-        matching_replays = [
-            replay
-            for replay in replay_catalog.replay_archives
-            if replay.session_id == metadata.session_id
-            and replay.player_uuid == connection.player_uuid
-            and replay.connection_id == connection.connection_id
-        ]
+            raise RecorderError("replay artifact catalog is incomplete; resolve catalog issues before rendering")
+        matching_replays = [replay for replay in replay_catalog.replay_archives if replay.session_id == metadata.session_id and replay.player_uuid == connection.player_uuid and replay.connection_id == connection.connection_id]
         if not matching_replays:
-            raise RecorderError(
-                "dataset connection has no matching saved Flashback replay"
-            )
+            raise RecorderError("dataset connection has no matching saved Flashback replay")
         if metadata.rgb_samples >= metadata.sample_count and metadata.sample_count:
             raise RecorderError("dataset already has complete RGB coverage")
         payload = self._render_job_payload(
@@ -263,9 +228,7 @@ class DashboardService:
     def retry_render_job(self, job_id: str) -> dict[str, Any]:
         original = self.render_queue.get(job_id)
         if original["state"] not in {"failed", "partial", "canceled"}:
-            raise RecorderError(
-                f"render job cannot be retried while {original['state']}"
-            )
+            raise RecorderError(f"render job cannot be retried while {original['state']}")
         payload = original["payload"]
         return self.create_render_job(
             original["dataset_id"],
@@ -285,29 +248,13 @@ class DashboardService:
         fps: object,
         no_gui: object,
     ) -> None:
-        if (
-            not isinstance(width, int)
-            or isinstance(width, bool)
-            or not MIN_RENDER_WIDTH <= width <= MAX_RENDER_WIDTH
-        ):
-            raise RecorderError(
-                f"render width must be between {MIN_RENDER_WIDTH} and {MAX_RENDER_WIDTH}"
-            )
-        if (
-            not isinstance(height, int)
-            or isinstance(height, bool)
-            or not MIN_RENDER_HEIGHT <= height <= MAX_RENDER_HEIGHT
-        ):
-            raise RecorderError(
-                f"render height must be between {MIN_RENDER_HEIGHT} and {MAX_RENDER_HEIGHT}"
-            )
+        if not isinstance(width, int) or isinstance(width, bool) or not MIN_RENDER_WIDTH <= width <= MAX_RENDER_WIDTH:
+            raise RecorderError(f"render width must be between {MIN_RENDER_WIDTH} and {MAX_RENDER_WIDTH}")
+        if not isinstance(height, int) or isinstance(height, bool) or not MIN_RENDER_HEIGHT <= height <= MAX_RENDER_HEIGHT:
+            raise RecorderError(f"render height must be between {MIN_RENDER_HEIGHT} and {MAX_RENDER_HEIGHT}")
         if width * height > MAX_RENDER_PIXELS:
-            raise RecorderError(
-                f"render resolution may not exceed {MAX_RENDER_PIXELS} pixels"
-            )
+            raise RecorderError(f"render resolution may not exceed {MAX_RENDER_PIXELS} pixels")
         if fps != RENDER_FPS:
-            raise RecorderError(
-                f"render fps must be exactly {RENDER_FPS} for tick alignment"
-            )
+            raise RecorderError(f"render fps must be exactly {RENDER_FPS} for tick alignment")
         if not isinstance(no_gui, bool):
             raise RecorderError("render no_gui must be a boolean")

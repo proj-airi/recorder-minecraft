@@ -633,7 +633,9 @@ class EpisodeExportTest(unittest.TestCase):
 
             modalities = [json.loads(line) for line in (output / "modalities.jsonl").read_text().splitlines()]
             self.assertTrue(modalities[0]["rgb"]["valid"])
-            self.assertTrue(Path(modalities[0]["rgb"]["reference"]).is_absolute())
+            reference = Path(modalities[0]["rgb"]["reference"])
+            self.assertFalse(reference.is_absolute())
+            self.assertTrue((output / reference).is_file())
             self.assertEqual(64, len(modalities[0]["rgb"]["artifact_sha256"]))
             self.assertEqual(RENDER_WIDTH, modalities[0]["rgb"]["width"])
             self.assertEqual(RENDER_HEIGHT, modalities[0]["rgb"]["height"])

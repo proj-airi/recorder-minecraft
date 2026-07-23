@@ -489,9 +489,7 @@ class ArtifactCatalog:
 
     def scan(self) -> ArtifactCatalogResult:
         captures, capture_issues = self._scan_captures()
-        replay_archives, replay_issues, replay_truncated = self._scan_replays(
-            MAX_ARTIFACT_ISSUES - len(capture_issues)
-        )
+        replay_archives, replay_issues, replay_truncated = self._scan_replays(MAX_ARTIFACT_ISSUES - len(capture_issues))
         return ArtifactCatalogResult(
             capture_sessions=captures,
             replay_archives=replay_archives,
