@@ -55,7 +55,8 @@ export interface DatasetConnection {
 
 export interface RenderJob {
   id: string
-  dataset_id: string
+  dataset_id: string | null
+  source_artifact_id: string | null
   state: string
   payload: {
     session_id: string

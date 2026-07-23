@@ -14,6 +14,7 @@ defineProps<{
 const emit = defineEmits<{
   refresh: []
   render: [datasetId: string, connection: DatasetConnection, resolution: string, noGui: boolean]
+  renderArtifact: [artifactId: string, resolution: string, noGui: boolean]
   selectDataset: [datasetId: string]
 }>()
 
@@ -54,17 +55,32 @@ const noGui = ref(false)
     <section class="artifact-section">
       <div class="section-heading">
         <h3>Flashback replay ZIP</h3>
-        <span>{{ catalog.replay_archives.length }}</span>
+        <div class="render-settings">
+          <span>{{ catalog.replay_archives.length }}</span>
+          <select v-model="resolution" aria-label="Render resolution">
+            <option value="640x360">640×360</option>
+            <option value="1280x720">1280×720</option>
+            <option value="1920x1080">1920×1080</option>
+          </select>
+          <label><input v-model="noGui" type="checkbox"> Hide GUI</label>
+        </div>
       </div>
       <p v-if="!catalog.replay_archives.length" class="empty">No verified replay archives found.</p>
       <div v-else class="data-table replay-table">
-        <div class="table-row table-head"><span>Archive</span><span>Session</span><span>Player / connection</span><span>Segment</span><span>Size</span></div>
+        <div class="table-row table-head"><span>Archive</span><span>Session</span><span>Player / connection</span><span>Segment</span><span>Size</span><span>Render</span></div>
         <div v-for="replay in catalog.replay_archives" :key="replay.artifact_id" class="table-row">
           <code>{{ replay.relative_path }}</code>
           <code>{{ replay.session_id }}</code>
           <span><code>{{ replay.player_uuid }}</code><small>{{ replay.connection_id || 'unbound' }}</small></span>
           <span>#{{ replay.segment_ordinal }}<small>{{ replay.segment_id }}</small></span>
           <span>{{ fmtBytes(replay.size_bytes) }}</span>
+          <button
+            class="primary"
+            :disabled="!replay.connection_id || catalog.truncated"
+            @click="emit('renderArtifact', replay.artifact_id, resolution, noGui)"
+          >
+            Render RGB
+          </button>
         </div>
       </div>
     </section>

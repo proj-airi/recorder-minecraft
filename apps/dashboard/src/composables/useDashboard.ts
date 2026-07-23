@@ -115,6 +115,31 @@ export function useDashboard() {
     }
   }
 
+  async function queueArtifactRender(
+    artifactId: string,
+    resolution: string,
+    noGui: boolean,
+  ) {
+    const [width, height] = resolution.split('x').map(Number)
+    try {
+      const job = await api(`/api/v1/replay-artifacts/${artifactId}/render`, {
+        body: JSON.stringify({
+          fps: 20,
+          height,
+          no_gui: noGui,
+          width,
+        }),
+        method: 'POST',
+      })
+      showToast(`Render ${job.state}`)
+      view.value = 'renders'
+      await refreshRenders()
+    }
+    catch (error) {
+      showToast(error)
+    }
+  }
+
   async function refreshRenders() {
     try {
       const [jobs, workers] = await Promise.all([
@@ -172,6 +197,7 @@ export function useDashboard() {
   return {
     artifacts,
     loading,
+    queueArtifactRender,
     queueRender,
     refreshArtifacts,
     refreshRenders,

@@ -37,11 +37,14 @@ const emit = defineEmits<{
       <p v-if="!jobs.length" class="empty">No render jobs.</p>
       <div v-else class="job-list">
         <div v-for="job in jobs" :key="job.id" class="job-row">
-          <span><strong>{{ job.payload.session_id }}</strong><code>{{ job.dataset_id }}</code></span>
+          <span>
+            <strong>{{ job.payload.session_id }}</strong>
+            <code>{{ job.dataset_id || job.source_artifact_id || 'dataset pending' }}</code>
+          </span>
           <span><code>{{ job.payload.connection_id }}</code><small>{{ job.payload.render.width }}×{{ job.payload.render.height }} @ {{ job.payload.render.fps }} fps</small></span>
           <span>{{ renderProgress(job) }}</span>
           <StatusPill :value="job.state" />
-          <button v-if="['queued', 'downloading', 'rendering', 'uploading'].includes(job.state)" class="danger" @click="emit('action', job.id, 'cancel')">Cancel</button>
+          <button v-if="['preparing_dataset', 'queued', 'downloading', 'rendering', 'uploading'].includes(job.state)" class="danger" @click="emit('action', job.id, 'cancel')">Cancel</button>
           <button v-else-if="['failed', 'partial', 'canceled'].includes(job.state)" class="quiet" @click="emit('action', job.id, 'retry')">Retry</button>
         </div>
       </div>

@@ -34,6 +34,7 @@ const dashboard = useDashboard()
       :selected-dataset="dashboard.selectedDataset.value"
       @refresh="dashboard.refreshArtifacts"
       @render="dashboard.queueRender"
+      @render-artifact="dashboard.queueArtifactRender"
       @select-dataset="dashboard.selectDataset"
     />
     <RenderPipeline
