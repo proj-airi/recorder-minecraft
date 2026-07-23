@@ -1262,7 +1262,7 @@ def _export_episode_pinned(
         raise RecorderError("--from-tick cannot be greater than --to-tick")
     validation = validate_episode(episode)
     if not validation.valid:
-        raise RecorderError("episode validation failed; run 'mc-recorder episodes validate' for details")
+        raise RecorderError("episode validation failed; run 'minerec episodes validate' for details")
     if validation.sealed_epochs == 0:
         raise RecorderError("episode has no sealed epochs to export")
 

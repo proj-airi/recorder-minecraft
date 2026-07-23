@@ -378,7 +378,7 @@ class DashboardService:
                     and (render_job is None or render_job["state"] in {"failed", "partial", "canceled"} or (legacy_rgb_complete and render_job["state"] == "complete")),
                     "render_job": render_job,
                     "error": (dataset_error or latest_jobs.get(recording_id, {}).get("error") or (capture_failure if capture_failed else None) if state == "failed" else None),
-                    "local_render_command": (f"mc-recorder render {session_id} --player {player_uuid} --connection {connection_id} --replay /path/to/replay.zip"),
+                    "local_render_command": (f"minerec render {session_id} --player {player_uuid} --connection {connection_id} --replay /path/to/replay.zip"),
                 }
             )
         return sorted(

@@ -14,7 +14,7 @@ proto install --config-mode local
 pixi install --locked
 
 if [[ ! -f recorder.toml ]]; then
-  pixi run mc-recorder init
+  pixi run minerec init
 fi
 
 cat <<'EOF'

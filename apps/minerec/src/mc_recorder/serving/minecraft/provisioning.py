@@ -209,16 +209,16 @@ def _project_name(config: RecorderConfig) -> str:
 
 def write_compose_env(config: RecorderConfig) -> Path:
     config.paths.runtime.mkdir(parents=True, exist_ok=True)
-    tooling_source = config.paths.base / "tooling" / "src"
-    if not tooling_source.is_dir():
-        raise RecorderError(f"tooling source directory not found: {tooling_source}")
+    minerec_source = config.paths.base / "apps" / "minerec" / "src"
+    if not minerec_source.is_dir():
+        raise RecorderError(f"minerec source directory not found: {minerec_source}")
     dashboard_static = config.paths.base / "apps" / "dashboard" / "dist"
     if not dashboard_static.is_dir():
         raise RecorderError("dashboard static assets not found; run `pnpm --dir apps/dashboard build` or `hack/start-dashboard` before preparing Docker Compose")
     values = compose_environment_variables(
         config,
         dashboard_static=dashboard_static,
-        tooling_source=tooling_source,
+        minerec_source=minerec_source,
         render_task_queue=DEFAULT_RENDER_TASK_QUEUE,
     )
     target = config.paths.runtime / "compose.env"
@@ -284,7 +284,7 @@ def _compose_environment(config: RecorderConfig) -> dict[str, str]:
 def _require_prepared_runtime(config: RecorderConfig) -> None:
     env_path = config.paths.runtime / "compose.env"
     if not env_path.is_file():
-        raise RecorderError("server runtime is not prepared; run 'mc-recorder server start' first")
+        raise RecorderError("server runtime is not prepared; run 'minerec server start' first")
     if not config.paths.compose_file.is_file():
         raise RecorderError(f"Docker Compose file not found: {config.paths.compose_file}")
 

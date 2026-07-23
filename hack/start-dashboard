@@ -25,4 +25,4 @@ if [[ -z "${MC_RECORDER_DASHBOARD_PASSWORD:-}" ]]; then
   exit 2
 fi
 
-exec pixi run mc-recorder dashboard serve "$@"
+exec pixi run minerec dashboard serve "$@"

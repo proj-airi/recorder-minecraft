@@ -43,7 +43,7 @@ class ServerProvisioningTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             source = initialize(root / "recorder.toml", accept_eula=True)
-            (root / "tooling" / "src").mkdir(parents=True)
+            (root / "apps" / "minerec" / "src").mkdir(parents=True)
             (root / "apps" / "dashboard" / "dist").mkdir(parents=True)
             project = root / "mods" / "recorder-mod" / "build" / "libs"
             project.mkdir(parents=True)
@@ -89,7 +89,7 @@ class ServerProvisioningTest(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            (root / "tooling" / "src").mkdir(parents=True)
+            (root / "apps" / "minerec" / "src").mkdir(parents=True)
             (root / "apps" / "dashboard" / "dist").mkdir(parents=True)
 
             env = write_compose_env(load_config(source)).read_text(encoding="utf-8")
@@ -122,19 +122,19 @@ class ServerProvisioningTest(unittest.TestCase):
             )
 
     def test_compose_keeps_recorder_control_ticks_live_while_empty(self) -> None:
-        compose = (Path(__file__).parents[2] / "deploy" / "docker-compose.yml").read_text(encoding="utf-8")
+        compose = (Path(__file__).parents[3] / "deploy" / "docker-compose.yml").read_text(encoding="utf-8")
         self.assertRegex(compose, r"""PAUSE_WHEN_EMPTY_SECONDS:\s+['"]-1['"]""")
 
     def test_compose_serves_built_dashboard_static_assets(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             source = initialize(root / "recorder.toml", accept_eula=True)
-            (root / "tooling" / "src").mkdir(parents=True)
+            (root / "apps" / "minerec" / "src").mkdir(parents=True)
             dashboard_dist = root / "apps" / "dashboard" / "dist"
             dashboard_dist.mkdir(parents=True)
 
             env = write_compose_env(load_config(source)).read_text(encoding="utf-8")
-            compose = (Path(__file__).parents[2] / "deploy" / "docker-compose.yml").read_text(encoding="utf-8")
+            compose = (Path(__file__).parents[3] / "deploy" / "docker-compose.yml").read_text(encoding="utf-8")
 
             self.assertIn(f'MC_DASHBOARD_STATIC_ROOT="{dashboard_dist.resolve()}"', env)
             self.assertIn("MC_RECORDER_DASHBOARD_STATIC_ROOT: /opt/mc-recorder-dashboard", compose)

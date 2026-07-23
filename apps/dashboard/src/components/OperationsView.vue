@@ -170,7 +170,7 @@ function rgbPresentation(recording: any) {
       </div>
       <div class="worker-strip">
         <p v-if="!renderWorkers.length" class="empty">
-          No recent render-worker activity. Start one-shot mc-recorder render-worker processes in a logged-in graphical session; queued RabbitMQ messages remain safe.
+          No recent render-worker activity. Start one-shot minerec render-worker processes in a logged-in graphical session; queued RabbitMQ messages remain safe.
         </p>
         <div v-for="worker in renderWorkers" v-else :key="worker.name" class="worker">
           <StatusPill :value="worker.state" />

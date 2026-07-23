@@ -145,7 +145,7 @@ class ConfigTest(unittest.TestCase):
             self.assertEqual(dashboard_static.resolve(), env.dashboard.static_root)
             self.assertEqual(replay_root.resolve(), env.replay_root)
             self.assertEqual(DEFAULT_RENDER_TASK_QUEUE, env.render_queue.task_queue)
-            self.assertEqual("mc-recorder", env.worker_cache_root.name)
+            self.assertEqual("minerec", env.worker_cache_root.name)
 
     def test_storage_monitor_environment_uses_recorder_prefixed_names(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -177,7 +177,7 @@ class ConfigTest(unittest.TestCase):
             values = compose_environment_variables(
                 config,
                 dashboard_static=workspace / "apps" / "dashboard" / "dist",
-                tooling_source=workspace / "tooling" / "src",
+                minerec_source=workspace / "apps" / "minerec" / "src",
                 render_task_queue=DEFAULT_RENDER_TASK_QUEUE,
             )
 

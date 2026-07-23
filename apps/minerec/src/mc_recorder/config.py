@@ -15,9 +15,9 @@ from .errors import RecorderError
 CONFIG_VERSION = 1
 DEFAULT_CONFIG_NAME = "recorder.toml"
 _MEMORY_RE = re.compile(r"^[1-9][0-9]*(?:[KMGTP]i?B?|%)$", re.IGNORECASE)
-APP_NAME = "mc-recorder"
+APP_NAME = "minerec"
 DEFAULT_DOCKER_RABBITMQ_URL = "amqp://guest:guest@rabbitmq:5672/%2F"
-DEFAULT_RENDER_TASK_QUEUE = "mc-recorder.render.jobs"
+DEFAULT_RENDER_TASK_QUEUE = "minerec.render.jobs"
 ENV_CONFIG_FILE = "MC_CONFIG_FILE"
 ENV_CONTROL_DIR = "MC_CONTROL_DIR"
 ENV_DASHBOARD_PASSWORD = "MC_RECORDER_DASHBOARD_PASSWORD"
@@ -233,7 +233,7 @@ def load_storage_monitor_env(environ: Mapping[str, str] | None = None) -> Storag
     )
 
 
-def compose_environment_variables(config: RecorderConfig, *, dashboard_static: Path, tooling_source: Path, render_task_queue: str) -> dict[str, object]:
+def compose_environment_variables(config: RecorderConfig, *, dashboard_static: Path, minerec_source: Path, render_task_queue: str) -> dict[str, object]:
     return {
         "MC_IMAGE": config.server.image,
         "MC_EULA": "TRUE" if config.server.eula else "FALSE",
@@ -257,7 +257,7 @@ def compose_environment_variables(config: RecorderConfig, *, dashboard_static: P
         "MC_CAPTURE_DIR": config.paths.captures,
         "MC_REPLAY_DIR": config.paths.replays,
         ENV_CONTROL_DIR: config.paths.runtime / "control",
-        "MC_TOOLING_SOURCE_DIR": tooling_source,
+        "MC_MINEREC_SOURCE_DIR": minerec_source,
         ENV_CONFIG_FILE: config.source,
         "MC_EXPORT_DIR": config.paths.exports,
         "MC_RUNTIME_DIR": config.paths.runtime,
@@ -286,7 +286,7 @@ def compose_runtime_environment(config: RecorderConfig) -> dict[str, str]:
 def load_config(path: str | Path = DEFAULT_CONFIG_NAME) -> RecorderConfig:
     source = Path(path).expanduser().resolve()
     if not source.is_file():
-        raise RecorderError(f"configuration not found: {source}; run 'mc-recorder init' first")
+        raise RecorderError(f"configuration not found: {source}; run 'minerec init' first")
     try:
         with source.open("rb") as handle:
             raw = tomllib.load(handle)

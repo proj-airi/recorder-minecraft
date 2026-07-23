@@ -1,4 +1,4 @@
-# `mc-recorder` CLI
+# `minerec` CLI
 
 The Python 3.14 CLI provisions the pinned Minecraft 1.21.8 Fabric server,
 inspects verified sidecar epochs, exports state/action JSONL, enforces combined
@@ -25,14 +25,14 @@ deliberately writes `server.eula = false`. Review the
 field to `true`. Alternatively, after accepting it, use:
 
 ```sh
-pixi run mc-recorder init --accept-eula --force
+pixi run minerec init --accept-eula --force
 ```
 
 The CLI never accepts the EULA implicitly, and `server start` refuses to run
 while the field is false.
 
 All relative paths resolve from the directory containing `recorder.toml`. Use
-`mc-recorder --config PATH ...` to operate another workspace.
+`minerec --config PATH ...` to operate another workspace.
 
 ## Server lifecycle
 
@@ -48,10 +48,10 @@ They are thin wrappers around the CLI below. Use the raw commands when passing
 `--config PATH` or when you need exact subcommand control:
 
 ```sh
-pixi run mc-recorder server start --wait
-pixi run mc-recorder server status
-pixi run mc-recorder server logs --follow
-pixi run mc-recorder server stop
+pixi run minerec server start --wait
+pixi run minerec server status
+pixi run minerec server logs --follow
+pixi run minerec server stop
 ```
 
 `server start` builds and stages `mods/recorder-mod`, writes the capture and
@@ -77,7 +77,7 @@ export MC_RECORDER_DASHBOARD_PASSWORD='replace-with-a-long-password'
 
 `hack/start-dashboard` runs `pnpm install` and `pnpm build:dashboard` before
 serving. Set `MC_RECORDER_SKIP_DASHBOARD_BUILD=1` to reuse an existing
-dashboard build, or run `pixi run mc-recorder dashboard serve` directly for raw
+dashboard build, or run `pixi run minerec dashboard serve` directly for raw
 CLI control.
 
 The generated configuration contains the intended LAN defaults, which can be
@@ -90,7 +90,7 @@ port = 8765
 ```
 
 `dashboard serve` runs directly on the recorder host and defaults to
-`0.0.0.0:8765` from the `[dashboard]` configuration. `mc-recorder server start`
+`0.0.0.0:8765` from the `[dashboard]` configuration. `minerec server start`
 also prepares a Compose dashboard service for containerized runs with the same
 workspace mounts. Run host-mode dashboard commands with the same
 workspace/configuration and a host account allowed to use Docker Compose. Use
@@ -151,7 +151,7 @@ Rendering stays outside the dashboard process because the recorder server may
 be headless. After dataset generation completes, choose a resolution in
 the recording row and click **Render RGB**. The recorder mod emits
 `.mc-recorder/control/render-ready/<connection-id>.json` after the matching
-ServerReplay archive is saved. `mc-recorder render-dispatcher` reads those
+ServerReplay archive is saved. `minerec render-dispatcher` reads those
 spool files and publishes matching queued dashboard jobs to RabbitMQ.
 
 Run one GUI render worker process on a machine that has the same workspace,
@@ -161,7 +161,7 @@ RabbitMQ access, OpenJDK 21, Gradle, and a graphical desktop:
 proto install --config-mode local
 pixi install --locked
 MC_RECORDER_RABBITMQ_URL=amqp://guest:guest@localhost:5672/%2F \
-  pixi run mc-recorder render-worker
+  pixi run minerec render-worker
 ```
 
 The worker consumes one RabbitMQ message, claims that exact queued job through
@@ -181,7 +181,7 @@ Useful options are:
 
 ```sh
 MC_RECORDER_RABBITMQ_URL=amqp://guest:guest@localhost:5672/%2F \
-  pixi run mc-recorder render-worker \
+  pixi run minerec render-worker \
   --cache /path/to/cache \
   --keep-workspace               # retain this attempt for diagnosis
 ```
@@ -192,8 +192,8 @@ renderer problem, start another worker process. A failed, timed-out, or invalid
 claim leaves the RabbitMQ message unacknowledged so it can be retried by a later
 process.
 
-The default cache is `$XDG_CACHE_HOME/mc-recorder` when that variable is set,
-or `~/.cache/mc-recorder` otherwise. Replay archives live under
+The default cache is `$XDG_CACHE_HOME/minerec` when that variable is set,
+or `~/.cache/minerec` otherwise. Replay archives live under
 `replays/<sha256>.zip`, survive between invocations, and are reused only after
 their byte size and SHA-256 are verified. Owned per-attempt directories under
 `jobs/` are deleted after both success and failure unless `--keep-workspace` is
@@ -258,9 +258,9 @@ The versioned HTTP interface includes:
 ## Inspect and export
 
 ```sh
-pixi run mc-recorder episodes list [--json]
-pixi run mc-recorder episodes validate [SESSION_ID] [--json]
-pixi run mc-recorder export SESSION_ID \
+pixi run minerec episodes list [--json]
+pixi run minerec episodes validate [SESSION_ID] [--json]
+pixi run minerec export SESSION_ID \
   [--player UUID] [--connection UUID] \
   [--from-tick N] [--to-tick N] \
   [--frames RENDER_OUTPUT] [--scene SCENE_STORE] \
@@ -312,7 +312,7 @@ jobs use `render-worker` instead and attach their
 verified results automatically.
 
 ```sh
-pixi run mc-recorder render SESSION_ID \
+pixi run minerec render SESSION_ID \
   --player UUID \
   [--connection ID] \
   [--replay PATH] \
@@ -357,7 +357,7 @@ original client pixels.
 Attach the completed artifacts during export:
 
 ```sh
-pixi run mc-recorder export SESSION_ID \
+pixi run minerec export SESSION_ID \
   --frames artifacts/exports/render-jobs/JOB
 ```
 
@@ -369,7 +369,7 @@ codecs, emits one logical frame at every matching timeline marker, and compacts
 the stream into a structurally shared SQLite store:
 
 ```sh
-pixi run mc-recorder scene extract SESSION_ID \
+pixi run minerec scene extract SESSION_ID \
   --player UUID \
   --connection UUID \
   [--from-tick N] [--to-tick N] \
@@ -409,15 +409,15 @@ that already validates. Python consumers can use `SceneStore.frame`,
 `materialize_crop`, and `slice` for independent random access without replaying
 earlier ticks.
 
-Attach it manually with `pixi run mc-recorder export SESSION_ID --scene PATH`; the
+Attach it manually with `pixi run minerec export SESSION_ID --scene PATH`; the
 dashboard generation path performs extraction, compaction, validation, and
 attachment automatically.
 
 ## Retention
 
 ```sh
-pixi run mc-recorder storage status
-pixi run mc-recorder storage enforce
+pixi run minerec storage status
+pixi run minerec storage enforce
 ```
 
 The quota counts `paths.captures` plus `paths.replays`, but not world data or

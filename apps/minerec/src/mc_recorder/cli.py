@@ -52,7 +52,7 @@ from .workers.render import LocalRecorder, run_render_worker
 
 def _parser() -> argparse.ArgumentParser:
     runtime_env = load_runtime_env()
-    parser = argparse.ArgumentParser(prog="mc-recorder", description="Minecraft gameplay dataset recorder")
+    parser = argparse.ArgumentParser(prog="minerec", description="Minecraft gameplay dataset recorder")
     parser.add_argument("--config", "-c", default=DEFAULT_CONFIG_NAME, help="recorder TOML path (default: recorder.toml)")
     commands = parser.add_subparsers(dest="command", required=True)
 
@@ -330,7 +330,7 @@ def _storage(config_path: str, enforce: bool) -> int:
         report = inspect_or_enforce()
     if not enforce and report.status == "full" and config.storage.evict_oldest:
         print(
-            "storage full: run 'mc-recorder storage enforce' or start the server to evict sealed epochs",
+            "storage full: run 'minerec storage enforce' or start the server to evict sealed epochs",
             file=sys.stderr,
         )
     _print_storage(report)
@@ -344,7 +344,7 @@ def run(argv: Sequence[str] | None = None) -> int:
         print(f"Initialized {path}")
         if not args.accept_eula:
             print("Review the Minecraft EULA, then set server.eula=true before starting.")
-        print("Next: mc-recorder server start")
+        print("Next: minerec server start")
         return 0
 
     if args.command == "episodes":
@@ -594,10 +594,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         return run(argv)
     except RecorderError as exc:
-        print(f"mc-recorder: error: {exc}", file=sys.stderr)
+        print(f"minerec: error: {exc}", file=sys.stderr)
         return 2
     except KeyboardInterrupt:
-        print("mc-recorder: interrupted", file=sys.stderr)
+        print("minerec: interrupted", file=sys.stderr)
         return 130
 
 

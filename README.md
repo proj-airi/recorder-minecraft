@@ -14,7 +14,7 @@ It combines three pieces:
 2. **`mods/recorder-mod`** writes a synchronized server-side JSONL sidecar containing
    all-player state, decoded semantic actions, connection identity, apply
    barriers, and replay timeline markers.
-3. **`mc-recorder` tooling** provisions Docker, validates immutable slices,
+3. **`minerec`** provisions Docker, validates immutable slices,
    enforces capture/replay retention, exports trainable samples, and launches
    headless scene extraction plus deterministic RGB jobs through `mods/renderer-mod`.
 
@@ -37,7 +37,7 @@ It combines three pieces:
 
   If Modrinth's Maven endpoint is unavailable, set
   `MC_RECORDER_FLASHBACK_JAR` to the Flashback 0.39.5 JAR specifically built
-  for Minecraft 1.21.8 before running `pixi run mc-recorder render-worker`.
+  for Minecraft 1.21.8 before running `pixi run minerec render-worker`.
 - Canonical `state + action -> next_state` JSONL samples with provenance and
   exact-key modality attachment.
 - Dataset V2 exports with a contained SQLite scene store that supports direct
@@ -78,7 +78,7 @@ From the workspace root:
 ./hack/install
 ```
 
-`mc-recorder init` always defaults to `server.eula = false`. Read the
+`minerec init` always defaults to `server.eula = false`. Read the
 [Minecraft EULA](https://aka.ms/MinecraftEULA), then explicitly opt in by
 editing `recorder.toml`:
 
@@ -88,7 +88,7 @@ eula = true
 ```
 
 The CLI never accepts the EULA automatically. If you have already reviewed and
-accepted it, `mc-recorder init --accept-eula --force` is an explicit equivalent.
+accepted it, `minerec init --accept-eula --force` is an explicit equivalent.
 
 Start the server and connect to `localhost:25565`:
 
@@ -102,17 +102,17 @@ consuming the latest files, then inspect and validate the capture:
 
 ```sh
 ./hack/stop-minecraft-server
-pixi run mc-recorder episodes list
-pixi run mc-recorder episodes validate SESSION_ID
+pixi run minerec episodes list
+pixi run minerec episodes validate SESSION_ID
 ```
 
 ### LAN dashboard
 
 The dashboard can run either as a host process or as the Compose-managed
-`dashboard` service prepared by `mc-recorder server start`. It remains available
+`dashboard` service prepared by `minerec server start`. It remains available
 while Minecraft is stopped and starts or stops the Compose-managed server by
-calling the same lifecycle code as `mc-recorder server start` and
-`mc-recorder server stop`. Run it as a user that can run Docker Compose, and use
+calling the same lifecycle code as `minerec server start` and
+`minerec server stop`. Run it as a user that can run Docker Compose, and use
 launchd, systemd, or another host service manager when it should survive logouts
 or reboots. Dataset generation also needs the proto-managed Gradle executable;
 if the service does not inherit proto's shim path, set `MC_RECORDER_GRADLE` to
@@ -127,7 +127,7 @@ export MC_RECORDER_DASHBOARD_PASSWORD='replace-with-a-long-password'
 ```
 
 `hack/start-dashboard` installs workspace Node dependencies and builds the
-dashboard before serving it. `mc-recorder server start` also requires an
+dashboard before serving it. `minerec server start` also requires an
 existing `apps/dashboard/dist` build so the Compose dashboard can serve the
 frontend; run `pnpm build:dashboard` first when using Compose dashboard startup.
 Set `MC_RECORDER_SKIP_DASHBOARD_BUILD=1` when you want to reuse an existing
@@ -179,7 +179,7 @@ RabbitMQ access, OpenJDK 21, and Gradle:
 
 ```sh
 MC_RECORDER_RABBITMQ_URL=amqp://guest:guest@localhost:5672/%2F \
-  pixi run mc-recorder render-worker
+  pixi run minerec render-worker
 ```
 
 The worker consumes one RabbitMQ message, claims that exact queued job through
@@ -199,8 +199,8 @@ full-client presentation contract, preventing an upgraded worker from attaching
 pixels through a server that would discard their fidelity provenance.
 
 Downloaded replays persist in a content-addressed cache under
-`$XDG_CACHE_HOME/mc-recorder/replays/` when that variable is set, or
-`~/.cache/mc-recorder/replays/` otherwise. They are reused only after size and
+`$XDG_CACHE_HOME/minerec/replays/` when that variable is set, or
+`~/.cache/minerec/replays/` otherwise. They are reused only after size and
 SHA-256 verification. Per-attempt workspaces under the cache are removed after
 success or failure; `--keep-workspace` retains one for diagnosis, and
 `--cache PATH` moves both areas. If the worker disappears, its fenced lease
@@ -237,7 +237,7 @@ random access by `frame_id`; the browser never replays earlier ticks.
 Export all recorded subjects, or add repeatable player and connection UUID filters:
 
 ```sh
-pixi run mc-recorder export SESSION_ID \
+pixi run minerec export SESSION_ID \
   --player PLAYER_UUID \
   --connection CONNECTION_ID
 ```
@@ -259,7 +259,7 @@ For a standalone manual render outside the dashboard queue, render one recorded
 connection from a completed Flashback archive:
 
 ```sh
-pixi run mc-recorder render SESSION_ID \
+pixi run minerec render SESSION_ID \
   --player PLAYER_UUID \
   --connection CONNECTION_ID \
   --replay artifacts/replays/players/PLAYER_UUID/REPLAY.zip
@@ -289,7 +289,7 @@ Extract a random-access scene store directly from the immutable replay, without
 a GUI client:
 
 ```sh
-pixi run mc-recorder scene extract SESSION_ID \
+pixi run minerec scene extract SESSION_ID \
   --player PLAYER_UUID \
   --connection CONNECTION_ID \
   --output artifacts/scenes/SESSION_ID.sqlite3 \
@@ -312,7 +312,7 @@ generation performs scene extraction and attachment automatically; dashboard
 RGB jobs perform the verified RGB re-export automatically:
 
 ```sh
-pixi run mc-recorder export SESSION_ID \
+pixi run minerec export SESSION_ID \
   --frames artifacts/exports/render-jobs/SESSION_ID-PLAYER_UUID \
   --scene artifacts/scenes/SESSION_ID.sqlite3 \
   --force
@@ -358,13 +358,13 @@ on every selected sidecar slice and replay through atomic publication, so quota
 enforcement skips source units that are still in use.
 
 ```sh
-pixi run mc-recorder storage status
-pixi run mc-recorder storage enforce
+pixi run minerec storage status
+pixi run minerec storage enforce
 ```
 
 ## Configuration and contracts
 
-`mc-recorder init` generates `recorder.toml`; [`recorder.example.toml`](recorder.example.toml)
+`minerec init` generates `recorder.toml`; [`recorder.example.toml`](recorder.example.toml)
 documents every option with EULA acceptance disabled. Relative paths resolve
 from the configuration file's directory.
 
@@ -377,7 +377,7 @@ version selector.
   combined capture stream, barriers, identity, replay alignment, and coverage.
 - [`docs/specs/dataset-v2.md`](docs/specs/dataset-v2.md) defines canonical samples,
   exact modality envelopes, and the random-access scene store.
-- [`tooling/README.md`](tooling/README.md) documents all CLI commands.
+- [`apps/minerec/README.md`](apps/minerec/README.md) documents all CLI commands.
 
 ## Workspace layout
 
@@ -387,7 +387,7 @@ mods/recorder-mod/   server-side Fabric capture sidecar
 mods/scene-extractor-mod/ headless replay-to-scene Fabric server
 mods/renderer-mod/   local Flashback first-person RGB renderer
 docs/specs/     source and Dataset V2 contracts
-tooling/        Python provisioning/export CLI
+apps/minerec/   Python provisioning/export CLI
 ServerReplay/   upstream server replay mod source
 docs/           development environment notes
 ```

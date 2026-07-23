@@ -8,4 +8,4 @@ if ! command -v pixi >/dev/null 2>&1; then
   exit 127
 fi
 
-exec pixi run mc-recorder server start --wait "$@"
+exec pixi run minerec server start --wait "$@"

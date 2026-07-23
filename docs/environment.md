@@ -7,11 +7,11 @@ toolchain. Gradle is installed by proto instead of the Gradle wrapper.
 
 | Area | Owner | Configuration |
 | --- | --- | --- |
-| Python 3.14 development interpreter, editable `mc-recorder` install, and root tasks | Pixi | `pixi.toml`, `pixi.lock` |
+| Python 3.14 development interpreter, editable `minerec` install, and root tasks | Pixi | `pixi.toml`, `pixi.lock` |
 | OpenJDK 21 and Gradle 9.6.1 | proto | `.prototools` |
-| Python package metadata | setuptools | `tooling/pyproject.toml` |
+| Python package metadata | setuptools | `apps/minerec/pyproject.toml` |
 | Fabric/Kotlin build logic and dependencies | Gradle projects | `mods/recorder-mod/`, `mods/scene-extractor-mod/`, `mods/renderer-mod/` |
-| Docker Compose runtime | `mc-recorder` CLI | `deploy/docker-compose.yml`, generated `.mc-recorder/compose.env` |
+| Docker Compose runtime | `minerec` CLI | `deploy/docker-compose.yml`, generated `.mc-recorder/compose.env` |
 | Pull request verification | GitHub Actions | `.github/workflows/ci.yml` |
 
 Do not use a repository-local virtualenv for normal development, and do not add
@@ -32,7 +32,7 @@ Verify the toolchain:
 proto run openjdk -- --version
 proto run gradle -- --version
 pixi run python --version
-pixi run mc-recorder --help
+pixi run minerec --help
 ```
 
 If your shell is configured with proto shims, plain `java` and `gradle` should
@@ -53,7 +53,7 @@ pixi run build-renderer-mod
 pixi run check
 ```
 
-The `hack/` scripts are thin wrappers around the same `pixi run mc-recorder`
+The `hack/` scripts are thin wrappers around the same `pixi run minerec`
 commands used by the dashboard and CI-oriented docs. They keep Compose behind
 the CLI so mod staging, generated configuration, EULA validation, and retention
 checks still run before Docker starts.

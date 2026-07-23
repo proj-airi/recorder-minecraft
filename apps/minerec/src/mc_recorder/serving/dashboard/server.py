@@ -47,7 +47,7 @@ def _dashboard_static_root() -> Path:
     if override is not None:
         return override
 
-    repository_root = Path(__file__).resolve().parents[5]
+    repository_root = Path(__file__).resolve().parents[6]
     return repository_root / "apps" / "dashboard" / "dist"
 
 
@@ -760,7 +760,7 @@ def serve_dashboard(config: RecorderConfig) -> None:
         application.close()
         raise RecorderError(f"cannot bind dashboard to {config.dashboard.bind}:{config.dashboard.port}: {exc}") from exc
     address, port = server.server_address[:2]
-    print(f"mc-recorder dashboard listening on http://{address}:{port}", file=sys.stderr)
+    print(f"minerec dashboard listening on http://{address}:{port}", file=sys.stderr)
     try:
         server.serve_forever(poll_interval=0.25)
     finally:

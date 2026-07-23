@@ -18,9 +18,9 @@ browser-controlled paths or command strings.
 
 The recorder mod emits a bounded JSON spool file under
 `control/render-ready/<connection-id>.json` after a disconnected connection has
-at least one saved ServerReplay segment. `mc-recorder render-dispatcher` scans
+at least one saved ServerReplay segment. `minerec render-dispatcher` scans
 that spool and publishes matching queued dashboard jobs to RabbitMQ. By default,
-`mc-recorder render-worker` consumes one RabbitMQ message, claims that exact job,
+`minerec render-worker` consumes one RabbitMQ message, claims that exact job,
 runs one Java client in one ephemeral workspace, finalizes the result, and exits.
 
 The worker heartbeats while downloading, rendering, and uploading. A reclaimed
