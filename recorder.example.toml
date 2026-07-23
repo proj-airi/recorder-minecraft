@@ -29,9 +29,9 @@ runtime = ".mc-recorder"
 compose_file = "deploy/docker-compose.yml"
 
 [mods]
-recorder_project = "recorder-mod"
-renderer_project = "renderer-mod"
-scene_extractor_project = "scene-extractor-mod"
+recorder_project = "mods/recorder-mod"
+renderer_project = "mods/renderer-mod"
+scene_extractor_project = "mods/scene-extractor-mod"
 # Optional explicit JAR; when empty, build/libs is discovered after a local build.
 recorder_jar = ""
 build_on_start = true

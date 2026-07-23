@@ -40,7 +40,7 @@ class ConfigTest(unittest.TestCase):
             self.assertTrue(config.paths.server_data.is_dir())
             self.assertTrue(config.paths.runtime.is_dir())
             self.assertEqual(
-                (workspace / "scene-extractor-mod").resolve(),
+                (workspace / "mods" / "scene-extractor-mod").resolve(),
                 config.mods.scene_extractor_project,
             )
             self.assertEqual("0.0.0.0", config.dashboard.bind)

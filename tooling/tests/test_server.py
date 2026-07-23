@@ -45,7 +45,7 @@ class ServerProvisioningTest(unittest.TestCase):
             source = initialize(root / "recorder.toml", accept_eula=True)
             (root / "tooling" / "src").mkdir(parents=True)
             (root / "apps" / "dashboard" / "dist").mkdir(parents=True)
-            project = root / "recorder-mod" / "build" / "libs"
+            project = root / "mods" / "recorder-mod" / "build" / "libs"
             project.mkdir(parents=True)
             jar = project / "mc-recorder-capture-0.1.0.jar"
             with zipfile.ZipFile(jar, "w") as archive:

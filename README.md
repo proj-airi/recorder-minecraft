@@ -11,12 +11,12 @@ It combines three pieces:
 1. **ServerReplay** records one replay archive per player, including the chunks
    and entities visible along that player's trajectory, without a graphics
    stack on the server.
-2. **`recorder-mod`** writes a synchronized server-side JSONL sidecar containing
+2. **`mods/recorder-mod`** writes a synchronized server-side JSONL sidecar containing
    all-player state, decoded semantic actions, connection identity, apply
    barriers, and replay timeline markers.
 3. **`mc-recorder` tooling** provisions Docker, validates immutable slices,
    enforces capture/replay retention, exports trainable samples, and launches
-   headless scene extraction plus deterministic RGB jobs through `renderer-mod`.
+   headless scene extraction plus deterministic RGB jobs through `mods/renderer-mod`.
 
 ## Current capabilities
 
@@ -56,7 +56,7 @@ rather than becoming valid air. The default `client_visible` scope includes
 entities and block entities and is marked sensitive when full captured metadata
 is retained. Each job uses its own `runtime/scene-jobs/<job-id>/server-run`
 bootstrap world and an ephemeral server port; it never mounts a captured world,
-shares `scene-extractor-mod/run`, or binds the capture server's port.
+shares `mods/scene-extractor-mod/run`, or binds the capture server's port.
 
 ## Requirements
 
@@ -373,9 +373,9 @@ Fabric Language Kotlin in `.mc-recorder/mods/`, then set
 `mods.server_replay_project = ""`. The default remains the immutable Modrinth
 version selector.
 
-- [`schemas/source-record-v1.md`](schemas/source-record-v1.md) defines the
+- [`docs/specs/source-record-v1.md`](docs/specs/source-record-v1.md) defines the
   combined capture stream, barriers, identity, replay alignment, and coverage.
-- [`schemas/dataset-v2.md`](schemas/dataset-v2.md) defines canonical samples,
+- [`docs/specs/dataset-v2.md`](docs/specs/dataset-v2.md) defines canonical samples,
   exact modality envelopes, and the random-access scene store.
 - [`tooling/README.md`](tooling/README.md) documents all CLI commands.
 
@@ -383,10 +383,10 @@ version selector.
 
 ```text
 deploy/         Docker Compose deployment
-recorder-mod/   server-side Fabric capture sidecar
-scene-extractor-mod/ headless replay-to-scene Fabric server
-renderer-mod/   local Flashback first-person RGB renderer
-schemas/        source and Dataset V2 contracts
+mods/recorder-mod/   server-side Fabric capture sidecar
+mods/scene-extractor-mod/ headless replay-to-scene Fabric server
+mods/renderer-mod/   local Flashback first-person RGB renderer
+docs/specs/     source and Dataset V2 contracts
 tooling/        Python provisioning/export CLI
 ServerReplay/   upstream server replay mod source
 docs/           development environment notes

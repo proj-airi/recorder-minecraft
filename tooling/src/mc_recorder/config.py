@@ -338,11 +338,11 @@ def load_config(path: str | Path = DEFAULT_CONFIG_NAME) -> RecorderConfig:
     if not isinstance(extra_projects, list) or not all(isinstance(item, str) for item in extra_projects):
         raise RecorderError("mods.extra_modrinth_projects must be an array of strings")
     mods = ModConfig(
-        recorder_project=_resolve(base, _value(mods_raw, "recorder_project", "recorder-mod", str)),
-        renderer_project=_resolve(base, _value(mods_raw, "renderer_project", "renderer-mod", str)),
+        recorder_project=_resolve(base, _value(mods_raw, "recorder_project", "mods/recorder-mod", str)),
+        renderer_project=_resolve(base, _value(mods_raw, "renderer_project", "mods/renderer-mod", str)),
         scene_extractor_project=_resolve(
             base,
-            _value(mods_raw, "scene_extractor_project", "scene-extractor-mod", str),
+            _value(mods_raw, "scene_extractor_project", "mods/scene-extractor-mod", str),
         ),
         recorder_jar=_resolve(base, recorder_jar_raw) if recorder_jar_raw else None,
         build_on_start=_value(mods_raw, "build_on_start", True, bool),
@@ -459,9 +459,9 @@ runtime = ".mc-recorder"
 compose_file = "deploy/docker-compose.yml"
 
 [mods]
-recorder_project = "recorder-mod"
-renderer_project = "renderer-mod"
-scene_extractor_project = "scene-extractor-mod"
+recorder_project = "mods/recorder-mod"
+renderer_project = "mods/renderer-mod"
+scene_extractor_project = "mods/scene-extractor-mod"
 # Optional explicit JAR. When empty, build/libs is discovered after a local build.
 recorder_jar = ""
 build_on_start = true

@@ -54,7 +54,7 @@ pixi run mc-recorder server logs --follow
 pixi run mc-recorder server stop
 ```
 
-`server start` builds and stages `recorder-mod`, writes the capture and
+`server start` builds and stages `mods/recorder-mod`, writes the capture and
 ServerReplay configurations, checks the combined capture/replay quota, and
 starts Docker Compose. With `--wait`, it waits for the image's Minecraft health
 check. Every connected player is recorded automatically. ServerReplay writes a
@@ -324,7 +324,7 @@ pixi run mc-recorder render SESSION_ID \
 The renderer accepts completed Flashback replay ZIPs and exactly 20 FPS. The command
 validates/hashes the source episode and replay, selects one recorded connection,
 and writes `render-job.json`. Unless `--prepare-only` is used, the command
-launches `renderer-mod` through Gradle.
+launches `mods/renderer-mod` through Gradle.
 New jobs include the recorded first-person hand/item and full recorded in-game
 HUD by default. `--no-gui` is the explicit HUD-free opt-out; it does not
 remove the requirement for a graphical Java client.
@@ -382,7 +382,7 @@ The only supported scope is `client_visible`. No captured/source world is
 mounted; any dedicated-server bootstrap world lives in the job-owned
 `runtime/scene-jobs/<job-id>/server-run` directory and is never scene input.
 The job binds an ephemeral server port with query and RCON disabled, so it does
-not share `scene-extractor-mod/run` or conflict with the capture server.
+not share `mods/scene-extractor-mod/run` or conflict with the capture server.
 
 Every selected `player_state` tick must resolve. Segment overlaps must describe
 identical logical frames, while gaps, source mutation, unknown state-affecting

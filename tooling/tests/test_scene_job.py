@@ -82,7 +82,7 @@ class SceneJobTest(unittest.TestCase):
 
     def _fixture(self, root: Path) -> tuple[RecorderConfig, Path, ReplaySegmentSource]:
         config = load_config(initialize(root / "recorder.toml", accept_eula=True))
-        config.mods.scene_extractor_project.mkdir()
+        config.mods.scene_extractor_project.mkdir(parents=True)
         episode = config.paths.captures / "session-a"
         episode.mkdir(parents=True)
         replay = config.paths.replays / "segment.zip"

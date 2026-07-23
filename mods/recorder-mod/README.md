@@ -94,5 +94,5 @@ This module intentionally has no Gradle wrapper. From the workspace root, use
 the proto-managed Gradle task:
 
 ```sh
-gradle --project-dir recorder-mod test build
+gradle --project-dir mods/recorder-mod test build
 ```

@@ -132,8 +132,8 @@ class ReplayResolutionTest(unittest.TestCase):
         run.return_value = SimpleNamespace(returncode=0)
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            project = root / "renderer-mod"
-            project.mkdir()
+            project = root / "mods" / "renderer-mod"
+            project.mkdir(parents=True)
             replay = root / "replay.zip"
             replay.write_bytes(b"replay")
             digest = hashlib.sha256(b"replay").hexdigest()
@@ -196,8 +196,8 @@ class ReplayResolutionTest(unittest.TestCase):
         run.return_value = SimpleNamespace(returncode=0)
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            project = root / "renderer-mod"
-            project.mkdir()
+            project = root / "mods" / "renderer-mod"
+            project.mkdir(parents=True)
             replay = root / "replay.zip"
             replay.write_bytes(b"replay")
             digest = hashlib.sha256(b"replay").hexdigest()
@@ -289,8 +289,8 @@ class ReplayResolutionTest(unittest.TestCase):
         run.return_value = SimpleNamespace(returncode=0)
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            project = root / "renderer-mod"
-            project.mkdir()
+            project = root / "mods" / "renderer-mod"
+            project.mkdir(parents=True)
             replay = root / "replay.zip"
             replay.write_bytes(b"replay")
             digest = hashlib.sha256(b"replay").hexdigest()
