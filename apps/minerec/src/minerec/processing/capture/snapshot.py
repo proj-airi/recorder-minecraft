@@ -26,6 +26,8 @@ class CaptureSnapshot:
     session_id: str
     player_uuid: str
     connection_id: str
+    selection_start_tick: int
+    selection_end_tick: int
     provenance: dict[str, Any]
 
 
@@ -309,26 +311,34 @@ def snapshot_connection(
             )
             all_records.extend(records)
 
-        if not any(
-            _matches_connection(
+        joins = [
+            record
+            for record in all_records
+            if _matches_connection(
                 record,
                 record_type="player_join",
                 player_uuid=canonical_player,
                 connection_id=canonical_connection,
             )
-            for record in all_records
-        ):
+        ]
+        if not joins:
             raise RecorderError("selected connection has no player join record")
-        if not any(
-            _matches_connection(
+        leaves = [
+            record
+            for record in all_records
+            if _matches_connection(
                 record,
                 record_type="player_leave",
                 player_uuid=canonical_player,
                 connection_id=canonical_connection,
             )
-            for record in all_records
-        ):
+        ]
+        if not leaves:
             raise RecorderError("selected connection has no player leave record")
+        selection_start_tick = int(joins[0]["server_tick"])
+        selection_end_tick = int(leaves[-1]["server_tick"])
+        if selection_start_tick > selection_end_tick:
+            raise RecorderError("selected connection leave precedes its join")
 
         os.replace(staging, snapshot_episode)
         provenance = {
@@ -337,6 +347,8 @@ def snapshot_connection(
             "session_id": session_id,
             "player_uuid": canonical_player,
             "connection_id": canonical_connection,
+            "selection_start_tick": selection_start_tick,
+            "selection_end_tick": selection_end_tick,
             "segments": segments,
         }
         yield CaptureSnapshot(
@@ -345,6 +357,8 @@ def snapshot_connection(
             session_id=session_id,
             player_uuid=canonical_player,
             connection_id=canonical_connection,
+            selection_start_tick=selection_start_tick,
+            selection_end_tick=selection_end_tick,
             provenance=provenance,
         )
     finally:

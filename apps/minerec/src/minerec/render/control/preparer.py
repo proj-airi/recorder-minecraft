@@ -85,7 +85,7 @@ class RenderPreparer:
             self.config.paths.captures,
             artifact.session_id,
         )
-        output = self.config.paths.exports / f"{artifact.session_id}-{artifact.connection_id}.dataset"
+        output = self.config.paths.exports / (f"{artifact.session_id}-{artifact.player_uuid}-{artifact.connection_id}.dataset")
         if output.is_symlink():
             raise RecorderError("prepared dataset output may not be a symlink")
 
@@ -106,17 +106,34 @@ class RenderPreparer:
                     output,
                     players=[artifact.player_uuid],
                     connections=[artifact.connection_id],
+                    first_tick=source.selection_start_tick,
+                    last_tick=source.selection_end_tick,
                     source_snapshot=source.provenance,
                 )
+                selection_start_tick = source.selection_start_tick
+                selection_end_tick = source.selection_end_tick
         elif not output.is_dir():
             raise RecorderError("prepared dataset output is not a directory")
+        else:
+            selection_start_tick = None
+            selection_end_tick = None
 
         self._heartbeat(job["id"], lease_token, "Dataset exported; verifying")
         dataset_id = self.dataset_id(output.name)
         metadata = self.dataset_viewer.get_dataset_metadata(dataset_id)
+        if selection_start_tick is None:
+            selection_start_tick = metadata.selected_from_tick
+            selection_end_tick = metadata.selected_to_tick
         connections = self.dataset_viewer.list_player_connections(dataset_id)
         matching = [connection for connection in connections if connection.player_uuid == artifact.player_uuid and connection.connection_id == artifact.connection_id]
-        if metadata.session_id != artifact.session_id or len(matching) != 1:
+        if (
+            metadata.session_id != artifact.session_id
+            or not isinstance(selection_start_tick, int)
+            or not isinstance(selection_end_tick, int)
+            or metadata.selected_from_tick != selection_start_tick
+            or metadata.selected_to_tick != selection_end_tick
+            or len(matching) != 1
+        ):
             raise RecorderError("prepared dataset identity does not match the replay artifact")
         connection = matching[0]
         return self.queue.bind_dataset(
@@ -125,6 +142,8 @@ class RenderPreparer:
             dataset_id=dataset_id,
             start_tick=connection.first_tick,
             end_tick=connection.last_tick,
+            selection_start_tick=selection_start_tick,
+            selection_end_tick=selection_end_tick,
         )
 
     def _resolve_artifact(

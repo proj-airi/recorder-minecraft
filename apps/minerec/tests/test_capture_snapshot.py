@@ -135,6 +135,10 @@ class CaptureSnapshotTest(unittest.TestCase):
                 self.assertEqual(10, segment["record_count"])
                 self.assertEqual(CONNECTION, snapshot.connection_id)
                 self.assertEqual(PLAYER, snapshot.player_uuid)
+                self.assertEqual(10, snapshot.selection_start_tick)
+                self.assertEqual(11, snapshot.selection_end_tick)
+                self.assertEqual(10, snapshot.provenance["selection_start_tick"])
+                self.assertEqual(11, snapshot.provenance["selection_end_tick"])
 
             self.assertFalse(snapshot.episode.exists())
 

@@ -87,6 +87,8 @@ class RenderPreparerTest(unittest.TestCase):
             viewer = mock.Mock()
             viewer.get_dataset_metadata.return_value = SimpleNamespace(
                 session_id=SESSION,
+                selected_from_tick=9,
+                selected_to_tick=41,
             )
             viewer.list_player_connections.return_value = (
                 SimpleNamespace(
@@ -102,6 +104,8 @@ class RenderPreparerTest(unittest.TestCase):
                 session_id=SESSION,
                 player_uuid=PLAYER,
                 connection_id=CONNECTION,
+                selection_start_tick=9,
+                selection_end_tick=41,
                 provenance={"format": "append_prefix_v1"},
             )
 
@@ -116,6 +120,8 @@ class RenderPreparerTest(unittest.TestCase):
                 output.mkdir(parents=True)
                 self.assertEqual([PLAYER], kwargs["players"])
                 self.assertEqual([CONNECTION], kwargs["connections"])
+                self.assertEqual(9, kwargs["first_tick"])
+                self.assertEqual(41, kwargs["last_tick"])
                 self.assertEqual(snapshot.provenance, kwargs["source_snapshot"])
 
             preparer = RenderPreparer(
@@ -131,7 +137,7 @@ class RenderPreparerTest(unittest.TestCase):
             result = preparer.run_once()
 
             self.assertEqual({"state": "queued"}, result)
-            expected_output = config.paths.exports / f"{SESSION}-{CONNECTION}.dataset"
+            expected_output = config.paths.exports / f"{SESSION}-{PLAYER}-{CONNECTION}.dataset"
             dataset_id = preparer.dataset_id(expected_output.name)
             viewer.get_dataset_metadata.assert_called_once_with(dataset_id)
             queue.bind_dataset.assert_called_once_with(
@@ -140,6 +146,8 @@ class RenderPreparerTest(unittest.TestCase):
                 dataset_id=dataset_id,
                 start_tick=10,
                 end_tick=40,
+                selection_start_tick=9,
+                selection_end_tick=41,
             )
             queue.fail_preparation.assert_not_called()
 

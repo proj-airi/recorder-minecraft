@@ -496,12 +496,23 @@ class RenderQueueStore:
         dataset_id: str,
         start_tick: int,
         end_tick: int,
+        selection_start_tick: int,
+        selection_end_tick: int,
     ) -> dict[str, Any]:
         canonical = _uuid(job_id, "render job ID")
         if not isinstance(dataset_id, str) or len(dataset_id) != 32 or any(character not in "0123456789abcdef" for character in dataset_id):
             raise RecorderError("prepared dataset ID is invalid")
         if not isinstance(start_tick, int) or isinstance(start_tick, bool) or not isinstance(end_tick, int) or isinstance(end_tick, bool) or start_tick < 0 or end_tick < start_tick:
             raise RecorderError("prepared dataset tick bounds are invalid")
+        if (
+            not isinstance(selection_start_tick, int)
+            or isinstance(selection_start_tick, bool)
+            or not isinstance(selection_end_tick, int)
+            or isinstance(selection_end_tick, bool)
+            or selection_start_tick < 0
+            or not selection_start_tick <= start_tick <= end_tick <= selection_end_tick
+        ):
+            raise RecorderError("prepared dataset selection bounds are invalid")
         now = time.time()
         with self._lock, self._session(immediate=True) as connection:
             row = self._preparation_lease(connection, canonical, lease_token, now)
@@ -512,8 +523,8 @@ class RenderQueueStore:
                     "dataset_id": dataset_id,
                     "start_tick": start_tick,
                     "end_tick": end_tick,
-                    "selection_start_tick": start_tick,
-                    "selection_end_tick": end_tick,
+                    "selection_start_tick": selection_start_tick,
+                    "selection_end_tick": selection_end_tick,
                 }
             )
             encoded, _ = _json_object(payload, "prepared render job payload")

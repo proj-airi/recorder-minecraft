@@ -80,6 +80,8 @@ class RenderQueueStoreTest(unittest.TestCase):
             dataset_id="d" * 32,
             start_tick=10,
             end_tick=40,
+            selection_start_tick=9,
+            selection_end_tick=41,
         )
 
         self.assertEqual("queued", queued["state"])
@@ -87,6 +89,8 @@ class RenderQueueStoreTest(unittest.TestCase):
         self.assertEqual("d" * 32, queued["payload"]["dataset_id"])
         self.assertEqual(10, queued["payload"]["start_tick"])
         self.assertEqual(40, queued["payload"]["end_tick"])
+        self.assertEqual(9, queued["payload"]["selection_start_tick"])
+        self.assertEqual(41, queued["payload"]["selection_end_tick"])
         self.assertNotIn("source_artifact_id", queued["payload"])
         self.assertEqual("a" * 32, queued["source_artifact_id"])
         self.assertEqual(
@@ -119,6 +123,8 @@ class RenderQueueStoreTest(unittest.TestCase):
                     dataset_id="d" * 32,
                     start_tick=10,
                     end_tick=40,
+                    selection_start_tick=10,
+                    selection_end_tick=40,
                 )
             failed = self.store.fail_preparation(
                 request["id"],
