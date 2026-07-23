@@ -8,17 +8,18 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
 from mc_recorder import cli
 from mc_recorder.errors import RecorderError
-from mc_recorder.storage import enforce_quota
+from mc_recorder.processing.capture.storage import enforce_quota
 
 
 class _Input:
-    def __init__(self, raw: bytes):
+    def __init__(self, raw: bytes) -> None:
         self.buffer = io.BytesIO(raw)
 
 
@@ -52,7 +53,7 @@ class RenderCliTest(unittest.TestCase):
             prepared = SimpleNamespace(manifest=root / "prepared" / "scene-job.json")
             reports = []
 
-            def prepare(*_args, **kwargs):
+            def prepare(*_args: Any, **kwargs: Any) -> SimpleNamespace:
                 self.assertEqual((epoch.resolve(),), kwargs["pinned_epoch_paths"])
                 reports.append(
                     enforce_quota(
@@ -138,9 +139,7 @@ class RenderCliTest(unittest.TestCase):
             self.assertEqual({"worker_id": "one"}, cli._read_render_rpc_body())
 
         for raw in (b"[]\n", b'{"number":NaN}\n', b"{" + b" " * (64 * 1024)):
-            with self.subTest(length=len(raw)), mock.patch.object(
-                cli.sys, "stdin", _Input(raw)
-            ), self.assertRaises(RecorderError):
+            with self.subTest(length=len(raw)), mock.patch.object(cli.sys, "stdin", _Input(raw)), self.assertRaises(RecorderError):
                 cli._read_render_rpc_body()
 
     def test_render_rpc_dispatches_stdin_and_prints_one_json_response(self) -> None:
@@ -163,119 +162,94 @@ class RenderCliTest(unittest.TestCase):
         dispatch.assert_called_once_with(config, "register", body)
         self.assertEqual({"worker": {"state": "ready"}}, json.loads(output.getvalue()))
 
-    def test_targeted_render_worker_processes_one_job_and_exits(self) -> None:
-        config = object()
-        remote = object()
+    def test_render_worker_consumes_one_rabbitmq_task_with_local_endpoint(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            config = mock.Mock()
+            config.paths.base = Path(temporary)
+            output = io.StringIO()
+            with (
+                mock.patch.object(cli, "load_config", return_value=config),
+                mock.patch.object(cli, "consume_one_render_task_message", return_value=True) as consume,
+                mock.patch.object(cli, "run_render_worker", return_value={"job": {"state": "complete"}}) as worker,
+                mock.patch.object(cli, "LocalRecorder", wraps=cli.LocalRecorder) as local_recorder,
+                mock.patch("sys.stdout", output),
+            ):
+                code = cli.run(
+                    [
+                        "render-worker",
+                        "--rabbitmq-url",
+                        "amqp://guest:guest@rabbitmq:5672/%2F",
+                        "--queue",
+                        "render.jobs",
+                    ]
+                )
+                handle = consume.call_args.kwargs["handle"]
+                handle({"job_id": "00000000-0000-4000-8000-000000000020"})
+
+            self.assertEqual(0, code)
+            consume.assert_called_once()
+            local_recorder.assert_called_once_with(Path(temporary), config)
+            worker.assert_called_once()
+            self.assertEqual(
+                "00000000-0000-4000-8000-000000000020",
+                worker.call_args.kwargs["job_id"],
+            )
+            self.assertTrue(worker.call_args.kwargs["once"])
+            self.assertIn("Consumed 1 render task", output.getvalue())
+
+    def test_render_dispatcher_publishes_once_to_rabbitmq(self) -> None:
+        config = mock.Mock()
+        config.paths.runtime = Path("/runtime")
+        queue = mock.Mock()
         output = io.StringIO()
-        job_id = "22222222-2222-4222-8222-222222222222"
-
-        def run_worker(*_args: object, **kwargs: object) -> dict[str, object]:
-            result: dict[str, object] = {
-                "job": {"id": job_id, "state": "complete"}
-            }
-            kwargs["on_result"](result)
-            return result
-
         with (
             mock.patch.object(cli, "load_config", return_value=config),
-            mock.patch.object(cli.RemoteRecorder, "parse", return_value=remote) as parse,
+            mock.patch.object(cli, "RenderQueueStore", return_value=queue) as store,
             mock.patch.object(
                 cli,
-                "run_render_worker",
-                side_effect=run_worker,
-            ) as worker,
-            mock.patch.object(cli.sys, "stdout", output),
+                "dispatch_mod_emitted_render_jobs",
+                return_value=2,
+            ) as dispatch,
+            mock.patch.object(cli, "publish_render_task_message") as publish,
+            mock.patch("sys.stdout", output),
         ):
             code = cli.run(
                 [
-                    "render-worker",
-                    "--host",
-                    "mcdatacol",
-                    "--remote-root",
-                    "/srv/mc-play-recorder",
-                    "--job",
-                    job_id,
-                ]
-        )
-
-        self.assertEqual(0, code)
-        parse.assert_called_once_with("mcdatacol", "/srv/mc-play-recorder")
-        worker.assert_called_once()
-        self.assertEqual((config, remote), worker.call_args.args)
-        self.assertEqual(job_id, worker.call_args.kwargs["job_id"])
-        self.assertFalse(worker.call_args.kwargs["once"])
-        self.assertEqual(10.0, worker.call_args.kwargs["poll_interval"])
-        self.assertIn(f"RGB render job {job_id} is complete", output.getvalue())
-
-    def test_render_worker_polls_until_interrupted_by_default(self) -> None:
-        config = object()
-        remote = object()
-        output = io.StringIO()
-        error = io.StringIO()
-        with (
-            mock.patch.object(cli, "load_config", return_value=config),
-            mock.patch.object(cli.RemoteRecorder, "parse", return_value=remote),
-            mock.patch.object(
-                cli,
-                "run_render_worker",
-                side_effect=KeyboardInterrupt,
-            ) as worker,
-            mock.patch.object(cli.sys, "stdout", output),
-            mock.patch.object(cli.sys, "stderr", error),
-        ):
-            code = cli.main(
-                [
-                    "render-worker",
-                    "--host",
-                    "mcdatacol",
-                    "--poll-interval",
-                    "7.5",
+                    "render-dispatcher",
+                    "--rabbitmq-url",
+                    "amqp://guest:guest@rabbitmq:5672/%2F",
+                    "--queue",
+                    "render.jobs",
+                    "--once",
                 ]
             )
 
-        self.assertEqual(130, code)
-        self.assertIn("waiting for server jobs", output.getvalue())
-        self.assertIn("interrupted", error.getvalue())
-        self.assertFalse(worker.call_args.kwargs["once"])
-        self.assertEqual(7.5, worker.call_args.kwargs["poll_interval"])
-
-    def test_render_worker_once_preserves_no_job_exit(self) -> None:
-        output = io.StringIO()
-        with (
-            mock.patch.object(cli, "load_config", return_value=object()),
-            mock.patch.object(cli.RemoteRecorder, "parse", return_value=object()),
-            mock.patch.object(cli, "run_render_worker", return_value=None) as worker,
-            mock.patch.object(cli.sys, "stdout", output),
-        ):
-            code = cli.run(
-                ["render-worker", "--host", "mcdatacol", "--once"]
+            self.assertEqual(0, code)
+            store.assert_called_once_with(config.paths.runtime / "render-queue.sqlite3")
+            dispatch.assert_called_once()
+            self.assertIs(dispatch.call_args.args[0], queue)
+            self.assertEqual(config.paths.runtime / "control", dispatch.call_args.args[1])
+            publish_callback = dispatch.call_args.kwargs["publish"]
+            publish_callback({"job_id": "job"})
+            publish.assert_called_once_with(
+                "amqp://guest:guest@rabbitmq:5672/%2F",
+                "render.jobs",
+                {"job_id": "job"},
             )
+            self.assertIn("Published 2 render task", output.getvalue())
 
-        self.assertEqual(0, code)
-        self.assertTrue(worker.call_args.kwargs["once"])
-        self.assertIn("No queued RGB render job", output.getvalue())
-
-    def test_render_worker_rejects_an_offline_poll_interval(self) -> None:
+    def test_render_worker_requires_rabbitmq_url(self) -> None:
         error = io.StringIO()
         with (
             mock.patch.object(cli, "load_config", return_value=object()),
-            mock.patch.object(cli.RemoteRecorder, "parse", return_value=object()),
             mock.patch.object(cli, "run_render_worker") as worker,
             mock.patch.object(cli.sys, "stderr", error),
         ):
-            code = cli.main(
-                [
-                    "render-worker",
-                    "--host",
-                    "mcdatacol",
-                    "--poll-interval",
-                    "31",
-                ]
-            )
+            code = cli.main(["render-worker"])
 
         self.assertEqual(2, code)
         worker.assert_not_called()
-        self.assertIn("between 1 and 30", error.getvalue())
+        self.assertIn("MC_RECORDER_RABBITMQ_URL", error.getvalue())
 
     def test_finalize_attaches_then_completes_the_server_queue_job(self) -> None:
         job_id = "33333333-3333-4333-8333-333333333333"
@@ -296,7 +270,7 @@ class RenderCliTest(unittest.TestCase):
             mock.patch.object(cli, "RenderQueueStore", return_value=queue) as store,
             mock.patch.object(cli, "attach_imported_renders", return_value=attachment) as attach,
         ):
-            result = cli._attach_finalized_render(config, finalized)
+            result = cli._attach_finalized_render(config, finalized)  # ty:ignore[invalid-argument-type]
 
         store.assert_called_once_with(Path("/runtime/render-queue.sqlite3"))
         queue.set_server_phase.assert_called_once_with(
@@ -325,7 +299,7 @@ class RenderCliTest(unittest.TestCase):
             mock.patch.object(cli, "attach_imported_renders", side_effect=failure),
             self.assertRaisesRegex(RecorderError, "tampered"),
         ):
-            cli._attach_finalized_render(config, finalized)
+            cli._attach_finalized_render(config, finalized)  # ty:ignore[invalid-argument-type]
 
         queue.fail.assert_called_once_with(job_id, str(failure))
         queue.complete.assert_not_called()

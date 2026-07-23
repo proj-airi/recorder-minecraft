@@ -14,13 +14,13 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
-import mc_recorder.scene_store as scene_store_module
-from mc_recorder.scene_integrity import (
+import mc_recorder.processing.scene.store as scene_store_module
+from mc_recorder.processing.scene.integrity import (
     SceneStreamIntegrity,
     VerifiedSceneStream,
     freeze_json_value,
 )
-from mc_recorder.scene_store import (
+from mc_recorder.processing.scene.store import (
     _BLOCK_ENTITY_BOX_SQL,
     _ENTITY_BOX_SQL,
     DEFAULT_MAX_CROP_CELLS,
@@ -254,12 +254,8 @@ class SceneStoreBuilderTest(unittest.TestCase):
                 "client_visible",
             )
             with closing(sqlite3.connect(path)) as connection:
-                section_blobs = connection.execute(
-                    "SELECT COUNT(*) FROM blobs WHERE kind = 'section'"
-                ).fetchone()[0]
-                version_hashes = connection.execute(
-                    "SELECT DISTINCT blob_sha256 FROM section_versions"
-                ).fetchall()
+                section_blobs = connection.execute("SELECT COUNT(*) FROM blobs WHERE kind = 'section'").fetchone()[0]
+                version_hashes = connection.execute("SELECT DISTINCT blob_sha256 FROM section_versions").fetchall()
             self.assertEqual(section_blobs, 1)
             self.assertEqual(len(version_hashes), 1)
 
@@ -287,9 +283,7 @@ class SceneStoreBuilderTest(unittest.TestCase):
     def test_random_tick_access_tracks_changes_and_unloads_as_unknown(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "scene.sqlite3"
-            with SceneStoreBuilder(
-                IDENTITY, start_tick=10, end_tick=14
-            ) as builder:
+            with SceneStoreBuilder(IDENTITY, start_tick=10, end_tick=14) as builder:
                 _add_frames(builder, (10, 12, 14))
                 builder.set_section(10, DIMENSION, (0, 0, 0), (STONE,), _indices())
                 builder.set_section(12, DIMENSION, (0, 0, 0), (DIRT,), _indices())
@@ -303,16 +297,14 @@ class SceneStoreBuilderTest(unittest.TestCase):
                 again = store.materialize_crop(10, (0, 0, 0), (1, 1, 1))
 
             self.assertEqual(newest.cell(0, 0, 0), (False, None))
-            self.assertEqual(oldest.cell(0, 0, 0)[1]["name"], "minecraft:stone")
-            self.assertEqual(middle.cell(0, 0, 0)[1]["name"], "minecraft:dirt")
+            self.assertEqual(oldest.cell(0, 0, 0)[1]["name"], "minecraft:stone")  # ty:ignore[not-subscriptable]
+            self.assertEqual(middle.cell(0, 0, 0)[1]["name"], "minecraft:dirt")  # ty:ignore[not-subscriptable]
             self.assertEqual(again, oldest)
 
     def test_entity_network_id_can_be_reused_by_a_new_nonoverlapping_instance(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "scene.sqlite3"
-            with SceneStoreBuilder(
-                IDENTITY, start_tick=1, end_tick=4
-            ) as builder:
+            with SceneStoreBuilder(IDENTITY, start_tick=1, end_tick=4) as builder:
                 _add_frames(builder, (1, 2, 3, 4))
                 builder.set_section(1, DIMENSION, (0, 4, 0), (AIR,), _indices())
                 builder.set_entity(
@@ -358,13 +350,11 @@ class SceneStoreBuilderTest(unittest.TestCase):
                 "minecraft:carved_pumpkin",
             )
             with self.assertRaises(TypeError):
-                after.entities[0].payload["metadata"] = {}  # type: ignore[index]
+                after.entities[0].payload["metadata"] = {}  # type: ignore[index]  # ty:ignore[invalid-assignment]
 
     def test_rejects_overlapping_live_network_ids(self) -> None:
         with tempfile.TemporaryDirectory():
-            with SceneStoreBuilder(
-                IDENTITY, start_tick=1, end_tick=2
-            ) as builder:
+            with SceneStoreBuilder(IDENTITY, start_tick=1, end_tick=2) as builder:
                 _add_frames(builder, (1, 2))
                 payload = {
                     "dimension": DIMENSION,
@@ -382,9 +372,7 @@ class SceneStoreBuilderTest(unittest.TestCase):
             path = Path(temporary) / "scene.sqlite3"
             indices = _indices()
             indices[_section_offset(8, 0, 8)] = 1
-            with SceneStoreBuilder(
-                IDENTITY, start_tick=5, end_tick=5
-            ) as builder:
+            with SceneStoreBuilder(IDENTITY, start_tick=5, end_tick=5) as builder:
                 _add_frames(builder, (5,))
                 builder.set_section(5, DIMENSION, (0, 4, 0), (AIR, STONE), indices)
                 builder.set_entity(
@@ -429,7 +417,7 @@ class SceneStoreBuilderTest(unittest.TestCase):
             self.assertTrue(value.coverage_complete)
             center = value.cells[4]
             self.assertEqual(center.world_position, (8, 64, 8))
-            self.assertEqual(center.block_state["name"], "minecraft:stone")
+            self.assertEqual(center.block_state["name"], "minecraft:stone")  # ty:ignore[not-subscriptable]
             self.assertEqual([entity.instance_id for entity in value.entities], ["pig"])
             self.assertEqual(value.block_entities[0].type_id, "minecraft:chest")
             self.assertEqual(as_json["world_coordinate"], 64)
@@ -480,21 +468,15 @@ class SceneStoreBuilderTest(unittest.TestCase):
 
         self.assertEqual(1, canonical_json.call_count)
         self.assertEqual([block_state], payload["palette"])
-        self.assertTrue(
-            all(cell["palette_index"] == 0 for cell in payload["cells"])
-        )
-        self.assertTrue(
-            all("block_state" not in cell for cell in payload["cells"])
-        )
+        self.assertTrue(all(cell["palette_index"] == 0 for cell in payload["cells"]))
+        self.assertTrue(all("block_state" not in cell for cell in payload["cells"]))
         encoded = json.dumps(payload, separators=(",", ":")).encode("utf-8")
         self.assertLess(len(encoded), 2 * 1024 * 1024)
 
     def test_enforces_crop_and_slice_bounds(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "scene.sqlite3"
-            with SceneStoreBuilder(
-                IDENTITY, start_tick=1, end_tick=1
-            ) as builder:
+            with SceneStoreBuilder(IDENTITY, start_tick=1, end_tick=1) as builder:
                 _add_frames(builder, (1,))
                 builder.publish(path, expected_ticks=(1,))
             with SceneStore(path) as store:
@@ -522,9 +504,7 @@ class SceneStoreBuilderTest(unittest.TestCase):
     def test_rejects_excessive_scene_object_counts_before_materialization(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "scene.sqlite3"
-            with SceneStoreBuilder(
-                IDENTITY, start_tick=1, end_tick=1
-            ) as builder:
+            with SceneStoreBuilder(IDENTITY, start_tick=1, end_tick=1) as builder:
                 _add_frames(builder, (1,))
                 for index in range(2):
                     builder.set_entity(
@@ -550,9 +530,7 @@ class SceneStoreBuilderTest(unittest.TestCase):
                 with mock.patch.object(scene_store_module, "MAX_CROP_ENTITIES", 1):
                     with self.assertRaisesRegex(SceneStoreError, "entity count"):
                         store.slice(1, "y", 64, (1, 64, 0), 2)
-                with mock.patch.object(
-                    scene_store_module, "MAX_CROP_BLOCK_ENTITIES", 1
-                ):
+                with mock.patch.object(scene_store_module, "MAX_CROP_BLOCK_ENTITIES", 1):
                     with self.assertRaisesRegex(SceneStoreError, "block-entity count"):
                         store.slice(1, "y", 64, (1, 64, 0), 2)
 
@@ -561,9 +539,7 @@ class SceneStoreBuilderTest(unittest.TestCase):
         for kind in ("entity", "block-entity"):
             with self.subTest(kind=kind), tempfile.TemporaryDirectory() as temporary:
                 path = Path(temporary) / "scene.sqlite3"
-                with SceneStoreBuilder(
-                    IDENTITY, start_tick=1, end_tick=1
-                ) as builder:
+                with SceneStoreBuilder(IDENTITY, start_tick=1, end_tick=1) as builder:
                     _add_frames(builder, (1,))
                     if kind == "entity":
                         builder.set_entity(
@@ -608,12 +584,8 @@ class SceneStoreValidationTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             path = self._store(Path(temporary))
             with closing(sqlite3.connect(path)) as connection:
-                connection.execute(
-                    "UPDATE blobs SET zlib_data = ? WHERE kind = 'section'", (b"broken",)
-                )
-                connection.execute(
-                    "UPDATE blobs SET compressed_size = 6 WHERE kind = 'section'"
-                )
+                connection.execute("UPDATE blobs SET zlib_data = ? WHERE kind = 'section'", (b"broken",))
+                connection.execute("UPDATE blobs SET compressed_size = 6 WHERE kind = 'section'")
                 connection.commit()
             with self.assertRaisesRegex(SceneStoreValidationError, "zlib"):
                 validate_scene_store(path)
@@ -622,9 +594,7 @@ class SceneStoreValidationTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             path = self._store(Path(temporary))
             with closing(sqlite3.connect(path)) as connection:
-                digest = connection.execute(
-                    "SELECT blob_sha256 FROM section_versions LIMIT 1"
-                ).fetchone()[0]
+                digest = connection.execute("SELECT blob_sha256 FROM section_versions LIMIT 1").fetchone()[0]
                 connection.execute(
                     "INSERT INTO section_versions VALUES (?, ?, ?, ?, ?, ?, ?)",
                     (DIMENSION, 0, 0, 0, 2, 3, digest),
@@ -660,9 +630,7 @@ class SceneStoreValidationTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             info = validate_scene_store(self._store(Path(temporary)))
             self.assertIsNone(info.extraction)
-            with self.assertRaisesRegex(
-                SceneStoreValidationError, "authenticated extraction provenance"
-            ):
+            with self.assertRaisesRegex(SceneStoreValidationError, "authenticated extraction provenance"):
                 validate_scene_attachment_provenance(info)
 
     def test_rejects_persisted_result_frame_count_that_exceeds_store(self) -> None:
@@ -679,11 +647,7 @@ class SceneStoreValidationTest(unittest.TestCase):
                 _add_frames(builder, (1, 2))
                 builder.publish(path, expected_ticks=(1, 2))
             with closing(sqlite3.connect(path)) as connection:
-                provenance = json.loads(
-                    connection.execute(
-                        "SELECT provenance_json FROM scene_meta"
-                    ).fetchone()[0]
-                )
+                provenance = json.loads(connection.execute("SELECT provenance_json FROM scene_meta").fetchone()[0])
                 provenance["result"]["stream"]["frame_count"] = 3
                 connection.execute(
                     "UPDATE scene_meta SET provenance_json = ?",
@@ -691,9 +655,7 @@ class SceneStoreValidationTest(unittest.TestCase):
                 )
                 connection.commit()
 
-            with self.assertRaisesRegex(
-                SceneStoreValidationError, "frame_count does not match"
-            ):
+            with self.assertRaisesRegex(SceneStoreValidationError, "frame_count does not match"):
                 validate_scene_store(path)
 
     def test_rejects_persisted_subject_pose_provenance_tampering(self) -> None:
@@ -710,11 +672,7 @@ class SceneStoreValidationTest(unittest.TestCase):
                 _add_frames(builder, (1, 2))
                 builder.publish(path, expected_ticks=(1, 2))
             with closing(sqlite3.connect(path)) as connection:
-                provenance = json.loads(
-                    connection.execute(
-                        "SELECT provenance_json FROM scene_meta"
-                    ).fetchone()[0]
-                )
+                provenance = json.loads(connection.execute("SELECT provenance_json FROM scene_meta").fetchone()[0])
                 provenance["result"]["subject_poses"]["record_count"] = 1
                 connection.execute(
                     "UPDATE scene_meta SET provenance_json = ?",
@@ -739,11 +697,7 @@ class SceneStoreValidationTest(unittest.TestCase):
                 _add_frames(builder, (1, 2))
                 builder.publish(path, expected_ticks=(1, 2))
             with closing(sqlite3.connect(path)) as connection:
-                provenance = json.loads(
-                    connection.execute(
-                        "SELECT provenance_json FROM scene_meta"
-                    ).fetchone()[0]
-                )
+                provenance = json.loads(connection.execute("SELECT provenance_json FROM scene_meta").fetchone()[0])
                 provenance["result"]["flashback_capture_contract"] = "legacy"
                 connection.execute(
                     "UPDATE scene_meta SET provenance_json = ?",
@@ -759,9 +713,7 @@ class SceneStoreLongHistoryTest(unittest.TestCase):
     def _store(self, root: Path, interval_count: int = 6_000) -> Path:
         path = root / "long-scene.sqlite3"
         last_tick = interval_count - 1
-        with SceneStoreBuilder(
-            IDENTITY, start_tick=0, end_tick=last_tick
-        ) as builder:
+        with SceneStoreBuilder(IDENTITY, start_tick=0, end_tick=last_tick) as builder:
             _add_frames(builder, (0, last_tick))
             builder.set_entity(
                 0,
@@ -785,29 +737,16 @@ class SceneStoreLongHistoryTest(unittest.TestCase):
             builder.publish(path, expected_ticks=(0, last_tick))
 
         with closing(sqlite3.connect(path)) as connection:
-            entity_digest = connection.execute(
-                "SELECT blob_sha256 FROM entity_versions LIMIT 1"
-            ).fetchone()[0]
-            block_entity_digest = connection.execute(
-                "SELECT blob_sha256 FROM block_entity_versions LIMIT 1"
-            ).fetchone()[0]
+            entity_digest = connection.execute("SELECT blob_sha256 FROM entity_versions LIMIT 1").fetchone()[0]
+            block_entity_digest = connection.execute("SELECT blob_sha256 FROM block_entity_versions LIMIT 1").fetchone()[0]
             connection.executemany(
-                "INSERT INTO entity_versions VALUES "
-                "(?, 77, ?, 'minecraft:pig', ?, ?, 0.1, 64.0, 0.1, "
-                "0.9, 64.9, 0.9, ?)",
-                (
-                    (f"history-{tick}", DIMENSION, tick, tick + 1, entity_digest)
-                    for tick in range(1, interval_count)
-                ),
+                "INSERT INTO entity_versions VALUES (?, 77, ?, 'minecraft:pig', ?, ?, 0.1, 64.0, 0.1, 0.9, 64.9, 0.9, ?)",
+                ((f"history-{tick}", DIMENSION, tick, tick + 1, entity_digest) for tick in range(1, interval_count)),
             )
             connection.commit()
             connection.executemany(
-                "INSERT INTO block_entity_versions VALUES "
-                "(?, 0, 64, 0, 'minecraft:chest', ?, ?, ?)",
-                (
-                    (DIMENSION, tick, tick + 1, block_entity_digest)
-                    for tick in range(1, interval_count)
-                ),
+                "INSERT INTO block_entity_versions VALUES (?, 0, 64, 0, 'minecraft:chest', ?, ?, ?)",
+                ((DIMENSION, tick, tick + 1, block_entity_digest) for tick in range(1, interval_count)),
             )
             connection.commit()
         return path
@@ -829,9 +768,7 @@ class SceneStoreLongHistoryTest(unittest.TestCase):
                 connection.set_progress_handler(progress, 1_000)
                 return connection
 
-            with mock.patch.object(
-                scene_store_module, "_connect_read_only", bounded_connect
-            ):
+            with mock.patch.object(scene_store_module, "_connect_read_only", bounded_connect):
                 info = validate_scene_store(path)
 
             self.assertEqual(info.ticks, (0, 5_999))
@@ -860,28 +797,18 @@ class SceneStoreLongHistoryTest(unittest.TestCase):
                 1,
             )
             with closing(sqlite3.connect(path)) as connection:
-                entity_plan = connection.execute(
-                    "EXPLAIN QUERY PLAN " + _ENTITY_BOX_SQL, query_parameters
-                ).fetchall()
+                entity_plan = connection.execute("EXPLAIN QUERY PLAN " + _ENTITY_BOX_SQL, query_parameters).fetchall()
                 block_entity_plan = connection.execute(
                     "EXPLAIN QUERY PLAN " + _BLOCK_ENTITY_BOX_SQL,
                     query_parameters,
                 ).fetchall()
 
             for plan in (entity_plan, block_entity_plan):
-                access = [
-                    row[3]
-                    for row in plan
-                    if "search" in row[3] or "source" in row[3]
-                ]
+                access = [row[3] for row in plan if "search" in row[3] or "source" in row[3]]
                 self.assertGreaterEqual(len(access), 2, plan)
                 self.assertIn("SCAN search VIRTUAL TABLE INDEX", access[0], plan)
-                self.assertIn(
-                    "SEARCH source USING INTEGER PRIMARY KEY", access[1], plan
-                )
-                self.assertFalse(
-                    any("SCAN source" in detail for detail in access), plan
-                )
+                self.assertIn("SEARCH source USING INTEGER PRIMARY KEY", access[1], plan)
+                self.assertFalse(any("SCAN source" in detail for detail in access), plan)
             with SceneStore(path, validate=False) as store:
                 callbacks = 0
 
@@ -1113,12 +1040,8 @@ class SceneStreamCompactorTest(unittest.TestCase):
                     "instance_id": "segment-b:20:1",
                 },
             ]
-            (stream / "frames.jsonl").write_text(
-                "".join(json.dumps(row) + "\n" for row in frames), encoding="utf-8"
-            )
-            (stream / "changes.jsonl").write_text(
-                "".join(json.dumps(row) + "\n" for row in changes), encoding="utf-8"
-            )
+            (stream / "frames.jsonl").write_text("".join(json.dumps(row) + "\n" for row in frames), encoding="utf-8")
+            (stream / "changes.jsonl").write_text("".join(json.dumps(row) + "\n" for row in changes), encoding="utf-8")
             sources = (
                 {
                     "segment_id": "segment-a",
@@ -1137,7 +1060,7 @@ class SceneStreamCompactorTest(unittest.TestCase):
                     "format": "flashback",
                 },
             )
-            verified = _verified_stream(stream, (5, 6), sources)
+            verified = _verified_stream(stream, (5, 6), sources)  # ty:ignore[invalid-argument-type]
             output = root / "scene.sqlite3"
 
             info = compact_scene_stream(
@@ -1153,16 +1076,12 @@ class SceneStreamCompactorTest(unittest.TestCase):
             self.assertEqual(info.ticks, (5, 6))
             self.assertEqual(info.source_replays[0]["sha256"], "a" * 64)
             self.assertEqual(info.source_replays[1]["sha256"], "b" * 64)
-            self.assertEqual(info.extraction.result, verified.result)
+            self.assertEqual(info.extraction.result, verified.result)  # ty:ignore[unresolved-attribute]
             with SceneStore(output) as store:
-                at_five = store.materialize_crop(
-                    "segment-a:50", (0, 0, 0), (2, 2, 2)
-                )
-                at_seven = store.materialize_crop(
-                    "segment-a:52", (0, 0, 0), (2, 2, 2)
-                )
+                at_five = store.materialize_crop("segment-a:50", (0, 0, 0), (2, 2, 2))
+                at_seven = store.materialize_crop("segment-a:52", (0, 0, 0), (2, 2, 2))
                 plane = store.slice(5, "y", 1, (1, 1, 1), 1)
-            self.assertEqual(at_five.cell(0, 0, 0)[1]["name"], "minecraft:stone")
+            self.assertEqual(at_five.cell(0, 0, 0)[1]["name"], "minecraft:stone")  # ty:ignore[not-subscriptable]
             self.assertEqual(
                 [entity.instance_id for entity in at_five.entities],
                 ["segment-a:20:1"],

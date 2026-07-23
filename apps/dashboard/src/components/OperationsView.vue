@@ -165,12 +165,12 @@ function rgbPresentation(recording: any) {
 
     <section class="panel">
       <div class="panel-heading">
-        <div><p class="eyebrow">FOREGROUND GUI WORKERS</p><h2>RGB render queue</h2></div>
+        <div><p class="eyebrow">RABBITMQ ONE-SHOT WORKERS</p><h2>RGB render queue</h2></div>
         <Button class="quiet" variant="ghost" size="sm" label="Refresh" @click="emit('refreshRenders')" />
       </div>
       <div class="worker-strip">
         <p v-if="!renderWorkers.length" class="empty">
-          No GUI renderer online. Start mc-recorder render-worker in a logged-in graphical session; queued jobs remain safe.
+          No recent render-worker activity. Start one-shot mc-recorder render-worker processes in a logged-in graphical session; queued RabbitMQ messages remain safe.
         </p>
         <div v-for="worker in renderWorkers" v-else :key="worker.name" class="worker">
           <StatusPill :value="worker.state" />
@@ -185,7 +185,7 @@ function rgbPresentation(recording: any) {
         <div v-for="job in renderJobs" v-else :key="job.id" class="job render-job">
           <div>
             <strong>{{ job.payload?.session_id || job.recording_id }}</strong>
-            <small>{{ job.payload?.render?.width }}x{{ job.payload?.render?.height }} @ {{ job.payload?.render?.fps }} fps · {{ renderProgress(job) || 'waiting for worker' }}</small>
+            <small>{{ job.payload?.render?.width }}x{{ job.payload?.render?.height }} @ {{ job.payload?.render?.fps }} fps · {{ renderProgress(job) || 'waiting for RabbitMQ worker' }}</small>
           </div>
           <StatusPill :value="job.state" />
         </div>

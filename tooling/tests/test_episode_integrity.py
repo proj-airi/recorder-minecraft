@@ -9,7 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
-from mc_recorder.episodes import inspect_epoch
+from mc_recorder.processing.capture.episodes import inspect_epoch
 
 
 def _epoch(root: Path, content: bytes = b'{"record":1}\n') -> Path:

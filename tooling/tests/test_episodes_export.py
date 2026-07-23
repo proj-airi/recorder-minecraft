@@ -14,12 +14,12 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
 from mc_recorder.cli import _parser
-from mc_recorder.episodes import inspect_episode, validate_episode
 from mc_recorder.errors import RecorderError
-from mc_recorder.exporter import _safe_replace_directory, export_episode
-from mc_recorder.render_job import prepare_render_job
-from mc_recorder.scene_store import SceneIdentity, SceneStoreBuilder, validate_scene_store
-from mc_recorder.storage import enforce_quota
+from mc_recorder.processing.capture.episodes import inspect_episode, validate_episode
+from mc_recorder.processing.capture.exporter import _safe_replace_directory, export_episode
+from mc_recorder.processing.capture.storage import enforce_quota
+from mc_recorder.processing.render.job import prepare_render_job
+from mc_recorder.processing.scene.store import SceneIdentity, SceneStoreBuilder, validate_scene_store
 
 PLAYER = "00000000-0000-4000-8000-000000000001"
 CONNECTION = "00000000-0000-4000-8000-000000000002"
@@ -276,23 +276,13 @@ def _reconnected_episode(root: Path) -> Path:
 
 
 def _png_chunk(chunk_type: bytes, payload: bytes) -> bytes:
-    return (
-        struct.pack(">I", len(payload))
-        + chunk_type
-        + payload
-        + struct.pack(">I", zlib.crc32(chunk_type + payload) & 0xFFFFFFFF)
-    )
+    return struct.pack(">I", len(payload)) + chunk_type + payload + struct.pack(">I", zlib.crc32(chunk_type + payload) & 0xFFFFFFFF)
 
 
 def _png(width: int, height: int) -> bytes:
     ihdr = struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)
     rows = b"".join(b"\x00" + b"\x00" * (width * 4) for _ in range(height))
-    return (
-        b"\x89PNG\r\n\x1a\n"
-        + _png_chunk(b"IHDR", ihdr)
-        + _png_chunk(b"IDAT", zlib.compress(rows))
-        + _png_chunk(b"IEND", b"")
-    )
+    return b"\x89PNG\r\n\x1a\n" + _png_chunk(b"IHDR", ihdr) + _png_chunk(b"IDAT", zlib.compress(rows)) + _png_chunk(b"IEND", b"")
 
 
 def _render_artifacts(root: Path, *, status: str = "complete") -> Path:
@@ -315,9 +305,7 @@ def _render_artifacts(root: Path, *, status: str = "complete") -> Path:
                 "path": image_name,
             }
         )
-    (frames / "frames.jsonl").write_text(
-        "".join(json.dumps(row) + "\n" for row in frame_rows), encoding="utf-8"
-    )
+    (frames / "frames.jsonl").write_text("".join(json.dumps(row) + "\n" for row in frame_rows), encoding="utf-8")
     (job / "result.json").write_text(
         json.dumps(
             {
@@ -386,12 +374,14 @@ def _scene_store(
             "record_count": 2,
             "first_tick": 10,
             "last_tick": 11,
-            "source_epochs": [{
-                "epoch_index": 0,
-                "events_sha256": "34" * 32,
-                "events_size_bytes": 1000,
-                "record_count": 20,
-            }],
+            "source_epochs": [
+                {
+                    "epoch_index": 0,
+                    "events_sha256": "34" * 32,
+                    "events_size_bytes": 1000,
+                    "record_count": 20,
+                }
+            ],
         },
         "stream": {
             "format": "mc-recorder-scene-stream-v1",
@@ -441,11 +431,7 @@ def _scene_store(
                 frame_id=f"frame-{tick}",
                 replay_tick=tick - 10,
                 dimension=dimension,
-                subject_position=(
-                    subject_positions[tick]
-                    if subject_positions is not None
-                    else (1.0 if tick == 10 else 1.1, 64.0, 2.0)
-                ),
+                subject_position=(subject_positions[tick] if subject_positions is not None else (1.0 if tick == 10 else 1.1, 64.0, 2.0)),
                 coverage_complete=coverage_complete,
             )
         builder.publish(output, expected_ticks=(10, 11))
@@ -477,9 +463,7 @@ class EpisodeExportTest(unittest.TestCase):
                 self.assertTrue(epoch.is_dir())
                 original_publish(staging, destination, force)
 
-            with mock.patch(
-                "mc_recorder.exporter._safe_replace_directory", side_effect=publish
-            ):
+            with mock.patch("mc_recorder.processing.capture.exporter._safe_replace_directory", side_effect=publish):
                 result = export_episode(episode, output, players=[PLAYER])
 
             self.assertEqual(output.resolve(), result.output)
@@ -547,10 +531,7 @@ class EpisodeExportTest(unittest.TestCase):
             self.assertEqual(2, result.state_count)
             self.assertEqual(3, result.action_count)
             for filename in ("states.jsonl", "actions.jsonl", "modalities.jsonl"):
-                rows = [
-                    json.loads(line)
-                    for line in (output / filename).read_text(encoding="utf-8").splitlines()
-                ]
+                rows = [json.loads(line) for line in (output / filename).read_text(encoding="utf-8").splitlines()]
                 self.assertTrue(rows)
                 self.assertEqual({PLAYER}, {row["player_uuid"] for row in rows})
                 self.assertEqual({CONNECTION}, {row["connection_id"] for row in rows})
@@ -609,9 +590,7 @@ class EpisodeExportTest(unittest.TestCase):
             self.assertEqual(1, first.sample_count)
             self.assertEqual(1, second.sample_count)
             first_sample = json.loads((first_output / "samples.jsonl").read_text(encoding="utf-8"))
-            second_sample = json.loads(
-                (second_output / "samples.jsonl").read_text(encoding="utf-8")
-            )
+            second_sample = json.loads((second_output / "samples.jsonl").read_text(encoding="utf-8"))
             self.assertEqual(
                 (10, CONNECTION),
                 (first_sample["server_tick"], first_sample["connection_id"]),
@@ -621,10 +600,7 @@ class EpisodeExportTest(unittest.TestCase):
                 (second_sample["server_tick"], second_sample["connection_id"]),
             )
             self.assertEqual(PEER, second_sample["peers"]["state"][0]["player_uuid"])
-            second_states = [
-                json.loads(line)
-                for line in (second_output / "states.jsonl").read_text(encoding="utf-8").splitlines()
-            ]
+            second_states = [json.loads(line) for line in (second_output / "states.jsonl").read_text(encoding="utf-8").splitlines()]
             self.assertEqual(
                 {RECONNECTED_CONNECTION},
                 {row["connection_id"] for row in second_states},
@@ -655,9 +631,7 @@ class EpisodeExportTest(unittest.TestCase):
             self.assertEqual(2, result.rgb_count)
             self.assertEqual(0, result.scene_count)
 
-            modalities = [
-                json.loads(line) for line in (output / "modalities.jsonl").read_text().splitlines()
-            ]
+            modalities = [json.loads(line) for line in (output / "modalities.jsonl").read_text().splitlines()]
             self.assertTrue(modalities[0]["rgb"]["valid"])
             self.assertTrue(Path(modalities[0]["rgb"]["reference"]).is_absolute())
             self.assertEqual(64, len(modalities[0]["rgb"]["artifact_sha256"]))
@@ -712,20 +686,14 @@ class EpisodeExportTest(unittest.TestCase):
             attachment = manifest["selection"]["scene_attachment"]
             self.assertTrue(attachment["sensitive"])
             self.assertEqual("client_visible", attachment["scope"])
-            self.assertEqual(
-                "full_packet_metadata", attachment["metadata_policy"]
-            )
+            self.assertEqual("full_packet_metadata", attachment["metadata_policy"])
             self.assertEqual("job-export-test", attachment["result"]["job_id"])
-            self.assertEqual(
-                "/sealed/replay-0.zip", attachment["source_replays"][0]["path"]
-            )
+            self.assertEqual("/sealed/replay-0.zip", attachment["source_replays"][0]["path"])
 
     def test_rejects_scene_store_without_authenticated_extraction(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            with self.assertRaisesRegex(
-                RecorderError, "authenticated extraction provenance"
-            ):
+            with self.assertRaisesRegex(RecorderError, "authenticated extraction provenance"):
                 export_episode(
                     _episode(root),
                     root / "dataset",
@@ -771,8 +739,8 @@ class EpisodeExportTest(unittest.TestCase):
                         output,
                         players=[PLAYER],
                         connections=[CONNECTION],
-                        scenes=[_scene_store(root, **scene_options)],
-                        **export_options,
+                        scenes=[_scene_store(root, **scene_options)],  # ty:ignore[invalid-argument-type]
+                        **export_options,  # ty:ignore[invalid-argument-type]
                     )
                 self.assertFalse(output.exists())
 
@@ -849,9 +817,7 @@ class EpisodeExportTest(unittest.TestCase):
             rows = [json.loads(line) for line in index_path.read_text().splitlines()]
             for row in rows:
                 row["player_uuid"] = UNKNOWN_PLAYER
-            index_path.write_text(
-                "".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8"
-            )
+            index_path.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
             with self.assertRaisesRegex(RecorderError, "no matching episode player_state"):
                 export_episode(episode, root / "dataset", frames=[render])
 
@@ -904,9 +870,7 @@ class EpisodeExportTest(unittest.TestCase):
             ]
         )
         self.assertFalse(render.no_gui)
-        no_gui_render = _parser().parse_args(
-            ["render", "session-a", "--player", PLAYER, "--no-gui"]
-        )
+        no_gui_render = _parser().parse_args(["render", "session-a", "--player", PLAYER, "--no-gui"])
         self.assertTrue(no_gui_render.no_gui)
 
     def test_marks_barrier_disagreement_invalid_without_losing_sample(self) -> None:
@@ -1071,7 +1035,7 @@ class EpisodeExportTest(unittest.TestCase):
                     first_tick=None,
                     last_tick=None,
                     force=False,
-                    no_gui=1,  # type: ignore[arg-type]
+                    no_gui=1,  # type: ignore[arg-type]  # ty:ignore[invalid-argument-type]
                 )
 
     def test_render_force_refuses_non_owned_directory(self) -> None:
@@ -1120,8 +1084,8 @@ class EpisodeExportTest(unittest.TestCase):
                 first_tick=None,
                 last_tick=None,
             )
-            prepare_render_job(episode, replay, output, force=False, **arguments)
-            prepare_render_job(episode, replay, output, force=True, **arguments)
+            prepare_render_job(episode, replay, output, force=False, **arguments)  # ty:ignore[invalid-argument-type]
+            prepare_render_job(episode, replay, output, force=True, **arguments)  # ty:ignore[invalid-argument-type]
             self.assertTrue((output / "render-job.json").is_file())
 
 

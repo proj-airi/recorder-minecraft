@@ -1,16 +1,39 @@
 from __future__ import annotations
 
+import os
 import re
 import tomllib
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from platformdirs import user_cache_path
 
 from .errors import RecorderError
 
 CONFIG_VERSION = 1
 DEFAULT_CONFIG_NAME = "recorder.toml"
 _MEMORY_RE = re.compile(r"^[1-9][0-9]*(?:[KMGTP]i?B?|%)$", re.IGNORECASE)
+APP_NAME = "mc-recorder"
+DEFAULT_DOCKER_RABBITMQ_URL = "amqp://guest:guest@rabbitmq:5672/%2F"
+DEFAULT_RENDER_TASK_QUEUE = "mc-recorder.render.jobs"
+ENV_CONFIG_FILE = "MC_CONFIG_FILE"
+ENV_CONTROL_DIR = "MC_CONTROL_DIR"
+ENV_DASHBOARD_PASSWORD = "MC_RECORDER_DASHBOARD_PASSWORD"
+ENV_DASHBOARD_STATIC_ROOT = "MC_RECORDER_DASHBOARD_STATIC_ROOT"
+ENV_DASHBOARD_USERNAME = "MC_RECORDER_DASHBOARD_USERNAME"
+ENV_GRADLE_EXECUTABLE = "MC_RECORDER_GRADLE"
+ENV_RENDER_JOB = "MC_RECORDER_RENDER_JOB"
+ENV_RENDER_TASK_QUEUE = "MC_RECORDER_RENDER_TASK_QUEUE"
+ENV_REPLAY_ROOT = "MC_RECORDER_REPLAY_ROOT"
+ENV_RABBITMQ_URL = "MC_RECORDER_RABBITMQ_URL"
+ENV_SCENE_JOB = "MC_RECORDER_SCENE_JOB"
+ENV_STORAGE_CAPTURE_ROOT = "MC_RECORDER_CAPTURE_ROOT"
+ENV_STORAGE_CHECK_INTERVAL = "MC_RECORDER_CHECK_INTERVAL"
+ENV_STORAGE_EVICT_OLDEST = "MC_RECORDER_EVICT_OLDEST"
+ENV_STORAGE_QUOTA_BYTES = "MC_RECORDER_QUOTA_BYTES"
+ENV_STORAGE_WARN_PERCENT = "MC_RECORDER_WARN_PERCENT"
 
 
 def _table(data: dict[str, Any], name: str) -> dict[str, Any]:
@@ -20,7 +43,7 @@ def _table(data: dict[str, Any], name: str) -> dict[str, Any]:
     return value
 
 
-def _value(table: dict[str, Any], key: str, default: Any, expected: type) -> Any:
+def _value(table: dict[str, Any], key: str, default: Any, expected: type) -> Any:  # noqa: ANN401
     value = table.get(key, default)
     if expected is float and isinstance(value, int):
         value = float(value)
@@ -109,6 +132,155 @@ class RecorderConfig:
     storage: StorageConfig
     capture: CaptureConfig
     dashboard: DashboardConfig
+
+
+@dataclass(frozen=True)
+class DashboardEnvConfig:
+    username: str
+    password: str
+    static_root: Path | None
+
+
+@dataclass(frozen=True)
+class RenderQueueEnvConfig:
+    rabbitmq_url: str
+    task_queue: str
+
+
+@dataclass(frozen=True)
+class StorageMonitorEnvConfig:
+    capture_root: Path
+    quota_bytes: int
+    warn_percent: int
+    check_interval_seconds: int
+    evict_oldest: bool
+
+
+@dataclass(frozen=True)
+class RuntimeEnvConfig:
+    dashboard: DashboardEnvConfig
+    render_queue: RenderQueueEnvConfig
+    replay_root: Path | None
+    gradle_executable: str | None
+    worker_cache_root: Path
+
+
+def _env(environ: Mapping[str, str], name: str, default: str = "") -> str:
+    return environ.get(name, default)
+
+
+def _env_path(environ: Mapping[str, str], name: str) -> Path | None:
+    value = _env(environ, name).strip()
+    return Path(value).expanduser().resolve() if value else None
+
+
+def _env_bool(environ: Mapping[str, str], name: str, default: bool) -> bool:
+    value = environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_int(environ: Mapping[str, str], name: str, default: int | None = None) -> int:
+    value = environ.get(name)
+    if value is None:
+        if default is None:
+            raise RecorderError(f"{name} is required")
+        return default
+    try:
+        return int(value)
+    except ValueError as exc:
+        raise RecorderError(f"{name} must be an integer") from exc
+
+
+def current_process_environment() -> dict[str, str]:
+    """Return a mutable copy of the host environment.
+
+    Keeping this boundary in one module makes it clear which code is inheriting
+    ambient process state and keeps direct environment reads out of business
+    logic modules.
+    """
+
+    return dict(os.environ)
+
+
+def load_runtime_env(environ: Mapping[str, str] | None = None) -> RuntimeEnvConfig:
+    source = os.environ if environ is None else environ
+    return RuntimeEnvConfig(
+        dashboard=DashboardEnvConfig(
+            username=_env(source, ENV_DASHBOARD_USERNAME),
+            password=_env(source, ENV_DASHBOARD_PASSWORD),
+            static_root=_env_path(source, ENV_DASHBOARD_STATIC_ROOT),
+        ),
+        render_queue=RenderQueueEnvConfig(
+            rabbitmq_url=_env(source, ENV_RABBITMQ_URL),
+            task_queue=_env(source, ENV_RENDER_TASK_QUEUE, DEFAULT_RENDER_TASK_QUEUE),
+        ),
+        replay_root=_env_path(source, ENV_REPLAY_ROOT),
+        gradle_executable=_env(source, ENV_GRADLE_EXECUTABLE) or None,
+        worker_cache_root=user_cache_path(APP_NAME),
+    )
+
+
+def load_storage_monitor_env(environ: Mapping[str, str] | None = None) -> StorageMonitorEnvConfig:
+    source = os.environ if environ is None else environ
+    return StorageMonitorEnvConfig(
+        capture_root=Path(_env(source, ENV_STORAGE_CAPTURE_ROOT, "/captures")).expanduser().resolve(),
+        quota_bytes=_env_int(source, ENV_STORAGE_QUOTA_BYTES),
+        warn_percent=_env_int(source, ENV_STORAGE_WARN_PERCENT, 80),
+        check_interval_seconds=_env_int(source, ENV_STORAGE_CHECK_INTERVAL, 60),
+        evict_oldest=_env_bool(source, ENV_STORAGE_EVICT_OLDEST, True),
+    )
+
+
+def compose_environment_variables(config: RecorderConfig, *, dashboard_static: Path, tooling_source: Path, render_task_queue: str) -> dict[str, object]:
+    return {
+        "MC_IMAGE": config.server.image,
+        "MC_EULA": "TRUE" if config.server.eula else "FALSE",
+        "MC_VERSION": config.server.minecraft_version,
+        "MC_FABRIC_LOADER_VERSION": config.server.fabric_loader_version,
+        "MC_PORT": config.server.port,
+        "MC_MEMORY": config.server.memory,
+        "MC_SEED": config.server.seed,
+        "MC_GAME_MODE": config.server.game_mode,
+        "MC_DIFFICULTY": config.server.difficulty,
+        "MC_VIEW_DISTANCE": config.server.view_distance,
+        "MC_SIMULATION_DISTANCE": config.server.simulation_distance,
+        "MC_ONLINE_MODE": str(config.server.online_mode).lower(),
+        "MC_MAX_PLAYERS": config.server.max_players,
+        "MC_LEVEL_NAME": config.server.level_name,
+        "MC_MOTD": config.server.motd,
+        "MC_MODRINTH_PROJECTS": ",".join(project for project in (config.mods.server_replay_project, *config.mods.extra_modrinth_projects) if project.strip()),
+        "MC_DATA_DIR": config.paths.server_data,
+        "MC_LOCAL_MODS_DIR": config.paths.runtime / "mods",
+        "MC_CONFIG_SOURCE_DIR": config.paths.runtime / "config",
+        "MC_CAPTURE_DIR": config.paths.captures,
+        "MC_REPLAY_DIR": config.paths.replays,
+        ENV_CONTROL_DIR: config.paths.runtime / "control",
+        "MC_TOOLING_SOURCE_DIR": tooling_source,
+        ENV_CONFIG_FILE: config.source,
+        "MC_EXPORT_DIR": config.paths.exports,
+        "MC_RUNTIME_DIR": config.paths.runtime,
+        "MC_DASHBOARD_BIND": config.dashboard.bind,
+        "MC_DASHBOARD_PORT": config.dashboard.port,
+        "MC_DASHBOARD_STATIC_ROOT": dashboard_static,
+        ENV_RABBITMQ_URL: DEFAULT_DOCKER_RABBITMQ_URL,
+        ENV_RENDER_TASK_QUEUE: render_task_queue,
+        ENV_STORAGE_CAPTURE_ROOT: config.paths.captures,
+        ENV_STORAGE_QUOTA_BYTES: config.storage.quota_bytes,
+        ENV_STORAGE_WARN_PERCENT: config.storage.warn_percent,
+        ENV_STORAGE_EVICT_OLDEST: str(config.storage.evict_oldest).lower(),
+        ENV_STORAGE_CHECK_INTERVAL: config.storage.check_interval_seconds,
+        ENV_REPLAY_ROOT: config.paths.replays,
+    }
+
+
+def compose_runtime_environment(config: RecorderConfig) -> dict[str, str]:
+    """Supply additive Compose variables missing from an older prepared runtime."""
+
+    environment = current_process_environment()
+    environment[ENV_CONTROL_DIR] = str(config.paths.runtime / "control")
+    return environment
 
 
 def load_config(path: str | Path = DEFAULT_CONFIG_NAME) -> RecorderConfig:
@@ -246,9 +418,7 @@ def _validate(
     for index, (left_label, left_path) in enumerate(managed_paths):
         for right_label, right_path in managed_paths[index + 1 :]:
             if _paths_overlap(left_path, right_path):
-                raise RecorderError(
-                    f"{left_label} and {right_label} paths must be separate and non-nested"
-                )
+                raise RecorderError(f"{left_label} and {right_label} paths must be separate and non-nested")
 
 
 def _paths_overlap(left: Path, right: Path) -> bool:
@@ -259,7 +429,7 @@ def _paths_overlap(left: Path, right: Path) -> bool:
 
 def default_config_text(*, accept_eula: bool = False) -> str:
     eula = "true" if accept_eula else "false"
-    return f'''version = 1
+    return f"""version = 1
 
 [server]
 # Set true only after accepting https://aka.ms/MinecraftEULA
@@ -313,10 +483,10 @@ check_interval_seconds = 60
 
 [dashboard]
 # Bind to all interfaces for the trusted-LAN dashboard. HTTP Basic credentials
-# come from MC_RECORDER_DASHBOARD_USERNAME and MC_RECORDER_DASHBOARD_PASSWORD.
+# come from {ENV_DASHBOARD_USERNAME} and {ENV_DASHBOARD_PASSWORD}.
 bind = "0.0.0.0"
 port = 8765
-'''
+"""
 
 
 def initialize(path: str | Path, *, accept_eula: bool = False, force: bool = False) -> Path:

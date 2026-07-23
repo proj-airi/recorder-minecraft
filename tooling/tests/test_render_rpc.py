@@ -8,18 +8,19 @@ import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
 from mc_recorder.errors import RecorderError
-from mc_recorder.render_contract import (
+from mc_recorder.protocol.render.contract import (
     FULL_CLIENT_PRESENTATION_CAPABILITY_KEY,
     FULL_CLIENT_PRESENTATION_CONTRACT,
 )
-from mc_recorder.render_rpc import RenderRpcService, _PlanLeaseKeeper
-from mc_recorder.render_sources import ReplayNotReadyError, ReplaySegmentSource
-from mc_recorder.render_transfer import ImportedRenderResult
+from mc_recorder.protocol.render.rpc import RenderRpcService, _PlanLeaseKeeper
+from mc_recorder.protocol.render.sources import ReplayNotReadyError, ReplaySegmentSource
+from mc_recorder.protocol.render.transfer import ImportedRenderResult
 
 WORKER_ID = "11111111-1111-4111-8111-111111111111"
 PLAYER_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
@@ -53,7 +54,7 @@ class RenderRpcServiceTest(unittest.TestCase):
                 exports=self.exports,
             )
         )
-        self.service = RenderRpcService(self.config)
+        self.service = RenderRpcService(self.config)  # ty:ignore[invalid-argument-type]
         self.service.dispatch(
             "register",
             {
@@ -61,9 +62,7 @@ class RenderRpcServiceTest(unittest.TestCase):
                 "name": "ephemeral-test",
                 "capabilities": {
                     "portable_request_no_gui": True,
-                    FULL_CLIENT_PRESENTATION_CAPABILITY_KEY: (
-                        FULL_CLIENT_PRESENTATION_CONTRACT
-                    ),
+                    FULL_CLIENT_PRESENTATION_CAPABILITY_KEY: (FULL_CLIENT_PRESENTATION_CONTRACT),
                     "structured_claim_failure": True,
                 },
             },
@@ -100,7 +99,7 @@ class RenderRpcServiceTest(unittest.TestCase):
         )
 
     def _gui_job(self) -> dict[str, object]:
-        payload = dict(self.job["payload"])
+        payload = dict(self.job["payload"])  # ty:ignore[no-matching-overload]
         payload["render"] = {
             **payload["render"],
             "no_gui": False,
@@ -108,9 +107,7 @@ class RenderRpcServiceTest(unittest.TestCase):
         }
         return self.service.queue.create(payload)
 
-    def _claim(
-        self, sources: list[ReplaySegmentSource], *, lease_seconds: int = 120
-    ) -> dict[str, object]:
+    def _claim(self, sources: list[ReplaySegmentSource], *, lease_seconds: int = 120) -> dict[str, object]:
         payload = self.job["payload"]
         hud_envelope = {
             "schema_version": 1,
@@ -118,22 +115,20 @@ class RenderRpcServiceTest(unittest.TestCase):
             "format": "jsonl",
             "sha256": "d" * 64,
             "size_bytes": 123,
-            "record_count": payload["end_tick"] - payload["start_tick"] + 1,
-            "first_tick": payload["start_tick"],
-            "last_tick": payload["end_tick"],
-            "dataset_id": payload["dataset_id"],
+            "record_count": payload["end_tick"] - payload["start_tick"] + 1,  # ty:ignore[not-subscriptable]
+            "first_tick": payload["start_tick"],  # ty:ignore[not-subscriptable]
+            "last_tick": payload["end_tick"],  # ty:ignore[not-subscriptable]
+            "dataset_id": payload["dataset_id"],  # ty:ignore[not-subscriptable]
             "dataset_manifest_sha256": "e" * 64,
             "samples_sha256": "f" * 64,
-            "session_id": payload["session_id"],
-            "player_uuid": payload["player_uuid"],
-            "connection_id": payload["connection_id"],
+            "session_id": payload["session_id"],  # ty:ignore[not-subscriptable]
+            "player_uuid": payload["player_uuid"],  # ty:ignore[not-subscriptable]
+            "connection_id": payload["connection_id"],  # ty:ignore[not-subscriptable]
         }
         with (
+            mock.patch("mc_recorder.protocol.render.rpc.resolve_replay_segments", return_value=sources),
             mock.patch(
-                "mc_recorder.render_rpc.resolve_replay_segments", return_value=sources
-            ),
-            mock.patch(
-                "mc_recorder.render_rpc.create_structured_hud_sidecar",
+                "mc_recorder.protocol.render.rpc.create_structured_hud_sidecar",
                 return_value=SimpleNamespace(envelope=lambda: hud_envelope),
             ),
         ):
@@ -147,7 +142,7 @@ class RenderRpcServiceTest(unittest.TestCase):
             )
 
     @staticmethod
-    def _portable_mocks():
+    def _portable_mocks() -> tuple[list[dict[str, object]], Any, Any, Any, Any]:  # noqa: ANN401
         created: list[dict[str, object]] = []
 
         def create(_episode: Path, _replay: Path, **kwargs: object) -> dict[str, object]:
@@ -162,9 +157,7 @@ class RenderRpcServiceTest(unittest.TestCase):
             }
 
         def write(path: Path, value: dict[str, object]) -> SimpleNamespace:
-            encoded = (
-                json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n"
-            ).encode()
+            encoded = (json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n").encode()
             if path.exists() and path.read_bytes() != encoded:
                 raise RecorderError("portable request conflict")
             path.write_bytes(encoded)
@@ -174,7 +167,7 @@ class RenderRpcServiceTest(unittest.TestCase):
                 request_id=value["request_id"],
             )
 
-        return created, create, write
+        return created, create, write  # ty:ignore[invalid-return-type]
 
     def _request(
         self,
@@ -185,28 +178,26 @@ class RenderRpcServiceTest(unittest.TestCase):
     ) -> tuple[dict[str, object], list[dict[str, object]]]:
         claim = claimed["claim"]
         assert isinstance(claim, dict)
-        attempt = claim["attempt"]
+        attempt = claim["attempt"]  # ty:ignore[invalid-argument-type]
         assert isinstance(attempt, dict)
         body: dict[str, object] = {
             "worker_id": WORKER_ID,
-            "attempt_id": attempt["id"],
-            "lease_token": attempt["lease_token"],
+            "attempt_id": attempt["id"],  # ty:ignore[invalid-argument-type]
+            "lease_token": attempt["lease_token"],  # ty:ignore[invalid-argument-type]
             "segment_id": segment_id,
         }
         if newer_cutoff is not None:
             body["newer_cutoff"] = newer_cutoff
-        created, create, write = self._portable_mocks()
+        created, create, write = self._portable_mocks()  # ty:ignore[invalid-assignment]
         with (
-            mock.patch("mc_recorder.render_rpc.create_portable_render_request", create),
-            mock.patch("mc_recorder.render_rpc.write_portable_render_request", write),
+            mock.patch("mc_recorder.protocol.render.rpc.create_portable_render_request", create),
+            mock.patch("mc_recorder.protocol.render.rpc.write_portable_render_request", write),
         ):
             result = self.service.dispatch("request", body)
         return result, created
 
     def test_server_plan_lease_keeper_renews_during_slow_input_preparation(self) -> None:
-        claim = self.service.queue.claim(
-            WORKER_ID, job_id=self.job["id"], lease_seconds=10
-        )
+        claim = self.service.queue.claim(WORKER_ID, job_id=self.job["id"], lease_seconds=10)  # ty:ignore[invalid-argument-type]
         assert claim is not None
         attempt = claim["attempt"]
         with mock.patch.object(
@@ -232,19 +223,17 @@ class RenderRpcServiceTest(unittest.TestCase):
         self.job = self._gui_job()
         source = self._source(NEW_SEGMENT, 5, b"new replay")
 
-        def fail_after_write(
-            _viewer: object, _dataset_id: str, output: Path, **_kwargs: object
-        ) -> object:
+        def fail_after_write(_viewer: object, _dataset_id: str, output: Path, **_kwargs: object) -> object:
             output.write_bytes(b"sensitive derived HUD state")
             raise RecorderError("synthetic HUD authoring failure")
 
         with (
             mock.patch(
-                "mc_recorder.render_rpc.resolve_replay_segments",
+                "mc_recorder.protocol.render.rpc.resolve_replay_segments",
                 return_value=[source],
             ),
             mock.patch(
-                "mc_recorder.render_rpc.create_structured_hud_sidecar",
+                "mc_recorder.protocol.render.rpc.create_structured_hud_sidecar",
                 side_effect=fail_after_write,
             ),
         ):
@@ -268,9 +257,7 @@ class RenderRpcServiceTest(unittest.TestCase):
         payload = self.job["payload"]
         source = self._source(NEW_SEGMENT, 5, b"new replay")
 
-        def create_sidecar(
-            _viewer: object, _dataset_id: str, output: Path, **_kwargs: object
-        ) -> object:
+        def create_sidecar(_viewer: object, _dataset_id: str, output: Path, **_kwargs: object) -> object:
             contents = b"verified HUD bytes"
             output.write_bytes(contents)
             envelope = {
@@ -279,25 +266,25 @@ class RenderRpcServiceTest(unittest.TestCase):
                 "format": "jsonl",
                 "sha256": hashlib.sha256(contents).hexdigest(),
                 "size_bytes": len(contents),
-                "record_count": payload["end_tick"] - payload["start_tick"] + 1,
-                "first_tick": payload["start_tick"],
-                "last_tick": payload["end_tick"],
-                "dataset_id": payload["dataset_id"],
+                "record_count": payload["end_tick"] - payload["start_tick"] + 1,  # ty:ignore[not-subscriptable]
+                "first_tick": payload["start_tick"],  # ty:ignore[not-subscriptable]
+                "last_tick": payload["end_tick"],  # ty:ignore[not-subscriptable]
+                "dataset_id": payload["dataset_id"],  # ty:ignore[not-subscriptable]
                 "dataset_manifest_sha256": "e" * 64,
                 "samples_sha256": "f" * 64,
-                "session_id": payload["session_id"],
-                "player_uuid": payload["player_uuid"],
-                "connection_id": payload["connection_id"],
+                "session_id": payload["session_id"],  # ty:ignore[not-subscriptable]
+                "player_uuid": payload["player_uuid"],  # ty:ignore[not-subscriptable]
+                "connection_id": payload["connection_id"],  # ty:ignore[not-subscriptable]
             }
             return SimpleNamespace(envelope=lambda: envelope)
 
         with (
             mock.patch(
-                "mc_recorder.render_rpc.resolve_replay_segments",
+                "mc_recorder.protocol.render.rpc.resolve_replay_segments",
                 return_value=[source],
             ),
             mock.patch(
-                "mc_recorder.render_rpc.create_structured_hud_sidecar",
+                "mc_recorder.protocol.render.rpc.create_structured_hud_sidecar",
                 side_effect=create_sidecar,
             ),
         ):
@@ -332,9 +319,9 @@ class RenderRpcServiceTest(unittest.TestCase):
         new = self._source(NEW_SEGMENT, 5, b"new replay")
         result = self._claim([old, new])
 
-        self.assertEqual([NEW_SEGMENT, OLD_SEGMENT], [s["segment_id"] for s in result["sources"]])
+        self.assertEqual([NEW_SEGMENT, OLD_SEGMENT], [s["segment_id"] for s in result["sources"]])  # ty:ignore[not-iterable]
         claim = result["claim"]
-        attempt = claim["attempt"]
+        attempt = claim["attempt"]  # ty:ignore[not-subscriptable]
         plan_root = (self.runtime / "render-rpc" / "attempts" / attempt["id"]).resolve()
         plan = json.loads((plan_root / "plan.json").read_text())
         self.assertEqual("mc-recorder-remote-render-plan-v1", plan["plan_type"])
@@ -343,7 +330,7 @@ class RenderRpcServiceTest(unittest.TestCase):
             hashlib.sha256(attempt["lease_token"].encode()).hexdigest(),
             plan["lease_token_sha256"],
         )
-        for response_source, authoritative in zip(result["sources"], [new, old]):
+        for response_source, authoritative in zip(result["sources"], [new, old]):  # ty:ignore[invalid-argument-type, not-iterable]
             pinned = Path(response_source["path"])
             self.assertTrue(pinned.is_relative_to(plan_root))
             self.assertNotEqual(authoritative.path, pinned)
@@ -353,7 +340,7 @@ class RenderRpcServiceTest(unittest.TestCase):
 
     def test_claim_defers_while_server_replay_is_still_saving(self) -> None:
         with mock.patch(
-            "mc_recorder.render_rpc.resolve_replay_segments",
+            "mc_recorder.protocol.render.rpc.resolve_replay_segments",
             side_effect=ReplayNotReadyError("the exact replay segment is still being saved"),
         ):
             result = self.service.dispatch(
@@ -369,7 +356,7 @@ class RenderRpcServiceTest(unittest.TestCase):
         self.assertEqual("replay_pending", result["reason"])
         self.assertEqual(self.job["id"], result["pending_job"]["id"])
         self.assertEqual(30, result["deferred_job_cooldown_seconds"])
-        queued = self.service.queue.get(self.job["id"])
+        queued = self.service.queue.get(self.job["id"])  # ty:ignore[invalid-argument-type]
         self.assertEqual("queued", queued["state"])
         self.assertEqual(1, queued["attempt_count"])
         self.assertIsNone(queued["active_attempt"])
@@ -378,22 +365,18 @@ class RenderRpcServiceTest(unittest.TestCase):
         created = time.time()
         pending_jobs = [self.job]
         for offset, width in enumerate((700, 720), 1):
-            payload = dict(self.job["payload"])
+            payload = dict(self.job["payload"])  # ty:ignore[no-matching-overload]
             payload["render"] = {**payload["render"], "width": width}
-            with mock.patch(
-                "mc_recorder.render_queue.time.time", return_value=created + offset
-            ):
+            with mock.patch("mc_recorder.protocol.render.queue.time.time", return_value=created + offset):
                 pending_jobs.append(self.service.queue.create(payload))
-        later_payload = dict(self.job["payload"])
+        later_payload = dict(self.job["payload"])  # ty:ignore[no-matching-overload]
         later_payload["render"] = {**later_payload["render"], "width": 800}
-        with mock.patch(
-            "mc_recorder.render_queue.time.time", return_value=created + 3
-        ):
+        with mock.patch("mc_recorder.protocol.render.queue.time.time", return_value=created + 3):
             later = self.service.queue.create(later_payload)
         source = self._source(NEW_SEGMENT, 5, b"new replay")
 
         with mock.patch(
-            "mc_recorder.render_rpc.resolve_replay_segments",
+            "mc_recorder.protocol.render.rpc.resolve_replay_segments",
             side_effect=[
                 ReplayNotReadyError("the exact replay segment is still being saved"),
                 ReplayNotReadyError("the exact replay segment is still being saved"),
@@ -418,9 +401,7 @@ class RenderRpcServiceTest(unittest.TestCase):
             [response["pending_job"]["id"] for response in pending],
         )
         self.assertTrue(all(response["reason"] == "replay_pending" for response in pending))
-        self.assertTrue(
-            all(response["deferred_job_cooldown_seconds"] == 30 for response in pending)
-        )
+        self.assertTrue(all(response["deferred_job_cooldown_seconds"] == 30 for response in pending))
         self.assertEqual(later["id"], claimed["claim"]["job"]["id"])
 
     def test_old_worker_cannot_claim_gui_mode_bound_requests(self) -> None:
@@ -440,7 +421,7 @@ class RenderRpcServiceTest(unittest.TestCase):
                 },
             )
 
-        self.assertEqual("queued", self.service.queue.get(self.job["id"])["state"])
+        self.assertEqual("queued", self.service.queue.get(self.job["id"])["state"])  # ty:ignore[invalid-argument-type]
 
     def test_worker_must_advertise_matching_full_client_presentation_contract(self) -> None:
         incompatible_worker = "88888888-8888-4888-8888-888888888888"
@@ -453,9 +434,7 @@ class RenderRpcServiceTest(unittest.TestCase):
             },
         )
 
-        with self.assertRaisesRegex(
-            RecorderError, "required full-client presentation contract"
-        ):
+        with self.assertRaisesRegex(RecorderError, "required full-client presentation contract"):
             self.service.dispatch(
                 "claim",
                 {
@@ -465,7 +444,7 @@ class RenderRpcServiceTest(unittest.TestCase):
                 },
             )
 
-        self.assertEqual("queued", self.service.queue.get(self.job["id"])["state"])
+        self.assertEqual("queued", self.service.queue.get(self.job["id"])["state"])  # ty:ignore[invalid-argument-type]
 
     def test_old_worker_receives_nonzero_error_for_a_failed_claim_plan(self) -> None:
         self.service.dispatch(
@@ -475,9 +454,7 @@ class RenderRpcServiceTest(unittest.TestCase):
                 "name": "pre-persistent-worker",
                 "capabilities": {
                     "portable_request_no_gui": True,
-                    FULL_CLIENT_PRESENTATION_CAPABILITY_KEY: (
-                        FULL_CLIENT_PRESENTATION_CONTRACT
-                    ),
+                    FULL_CLIENT_PRESENTATION_CAPABILITY_KEY: (FULL_CLIENT_PRESENTATION_CONTRACT),
                 },
             },
         )
@@ -488,9 +465,7 @@ class RenderRpcServiceTest(unittest.TestCase):
                 "_create_plan",
                 side_effect=RecorderError("plan preparation broke"),
             ),
-            self.assertRaisesRegex(
-                RecorderError, "failed claimed render job.*plan preparation broke"
-            ),
+            self.assertRaisesRegex(RecorderError, "failed claimed render job.*plan preparation broke"),
         ):
             self.service.dispatch(
                 "claim",
@@ -501,7 +476,7 @@ class RenderRpcServiceTest(unittest.TestCase):
                 },
             )
 
-        self.assertEqual("failed", self.service.queue.get(self.job["id"])["state"])
+        self.assertEqual("failed", self.service.queue.get(self.job["id"])["state"])  # ty:ignore[invalid-argument-type]
 
     def test_process_presence_heartbeat_keeps_a_registered_worker_online(self) -> None:
         result = self.service.dispatch(
@@ -537,7 +512,7 @@ class RenderRpcServiceTest(unittest.TestCase):
         )
 
     def test_claim_validates_optional_dataset_selection_bounds(self) -> None:
-        base = dict(self.job["payload"])
+        base = dict(self.job["payload"])  # ty:ignore[no-matching-overload]
         cases = (
             (
                 {**base, "selection_start_tick": 9},
@@ -555,9 +530,7 @@ class RenderRpcServiceTest(unittest.TestCase):
         for payload, message in cases:
             with self.subTest(message=message):
                 job = self.service.queue.create(payload)
-                with mock.patch(
-                    "mc_recorder.render_rpc.resolve_replay_segments", return_value=[]
-                ):
+                with mock.patch("mc_recorder.protocol.render.rpc.resolve_replay_segments", return_value=[]):
                     result = self.service.dispatch(
                         "claim",
                         {
@@ -591,7 +564,7 @@ class RenderRpcServiceTest(unittest.TestCase):
         self.assertEqual(older_calls[0]["request_id"], repeated_calls[0]["request_id"])
 
     def test_render_gui_mode_is_strict_and_propagates_to_portable_requests(self) -> None:
-        base = dict(self.job["payload"])
+        base = dict(self.job["payload"])  # ty:ignore[no-matching-overload]
         for invalid in (0, "false", None):
             with self.subTest(invalid=invalid):
                 payload = {
@@ -629,21 +602,19 @@ class RenderRpcServiceTest(unittest.TestCase):
             FULL_CLIENT_PRESENTATION_CONTRACT,
             calls[0]["presentation_contract"],
         )
-        self.assertEqual("mc-recorder-structured-hud-v1", calls[0]["structured_hud"]["sidecar_type"])
-        self.assertEqual(self.job["payload"]["dataset_id"], calls[0]["structured_hud"]["dataset_id"])
-        self.assertNotIn("path", calls[0]["structured_hud"])
+        self.assertEqual("mc-recorder-structured-hud-v1", calls[0]["structured_hud"]["sidecar_type"])  # ty:ignore[not-subscriptable]
+        self.assertEqual(self.job["payload"]["dataset_id"], calls[0]["structured_hud"]["dataset_id"])  # ty:ignore[not-subscriptable]
+        self.assertNotIn("path", calls[0]["structured_hud"])  # ty:ignore[invalid-argument-type]
 
     def test_wider_dataset_selection_authors_only_the_renderable_sample_range(self) -> None:
         payload = {
-            **self.job["payload"],
+            **self.job["payload"],  # ty:ignore[invalid-argument-type]
             "selection_start_tick": 9,
             "selection_end_tick": 41,
         }
         job = self.service.queue.create(payload)
         source = self._source(NEW_SEGMENT, 5, b"new replay")
-        with mock.patch(
-            "mc_recorder.render_rpc.resolve_replay_segments", return_value=[source]
-        ):
+        with mock.patch("mc_recorder.protocol.render.rpc.resolve_replay_segments", return_value=[source]):
             claimed = self.service.dispatch(
                 "claim",
                 {
@@ -662,7 +633,7 @@ class RenderRpcServiceTest(unittest.TestCase):
         new = self._source(NEW_SEGMENT, 5, b"new replay")
         claimed = self._claim([old, new])
         claim = claimed["claim"]
-        attempt = claim["attempt"]
+        attempt = claim["attempt"]  # ty:ignore[not-subscriptable]
         base = {
             "worker_id": WORKER_ID,
             "attempt_id": attempt["id"],
@@ -680,13 +651,13 @@ class RenderRpcServiceTest(unittest.TestCase):
     def test_tampered_pinned_source_is_rejected_before_request_authoring(self) -> None:
         source = self._source(NEW_SEGMENT, 5, b"new replay")
         claimed = self._claim([source])
-        pinned = Path(claimed["sources"][0]["path"])
+        pinned = Path(claimed["sources"][0]["path"])  # ty:ignore[not-subscriptable]
         pinned.unlink()
         pinned.write_bytes(b"tampered")
         claim = claimed["claim"]
-        attempt = claim["attempt"]
+        attempt = claim["attempt"]  # ty:ignore[not-subscriptable]
         with (
-            mock.patch("mc_recorder.render_rpc.create_portable_render_request") as create,
+            mock.patch("mc_recorder.protocol.render.rpc.create_portable_render_request") as create,
             self.assertRaisesRegex(RecorderError, "integrity envelope"),
         ):
             self.service.dispatch(
@@ -703,10 +674,10 @@ class RenderRpcServiceTest(unittest.TestCase):
     def test_expired_attempt_is_fenced_even_with_its_original_token(self) -> None:
         source = self._source(NEW_SEGMENT, 5, b"new replay")
         claimed = self._claim([source], lease_seconds=10)
-        attempt = claimed["claim"]["attempt"]
+        attempt = claimed["claim"]["attempt"]  # ty:ignore[not-subscriptable]
         future = time.time() + 20
         with (
-            mock.patch("mc_recorder.render_queue.time.time", return_value=future),
+            mock.patch("mc_recorder.protocol.render.queue.time.time", return_value=future),
             self.assertRaisesRegex(RecorderError, "no longer active"),
         ):
             self.service.dispatch(
@@ -718,25 +689,23 @@ class RenderRpcServiceTest(unittest.TestCase):
                     "segment_id": NEW_SEGMENT,
                 },
             )
-        self.assertEqual("queued", self.service.queue.get(self.job["id"])["state"])
+        self.assertEqual("queued", self.service.queue.get(self.job["id"])["state"])  # ty:ignore[invalid-argument-type]
 
     def test_finalize_marks_uploaded_before_import_and_persists_durable_result(self) -> None:
         source = self._source(NEW_SEGMENT, 5, b"new replay")
         claimed = self._claim([source])
         request_result, _calls = self._request(claimed, NEW_SEGMENT)
         claim = claimed["claim"]
-        attempt = claim["attempt"]
-        upload = Path(claimed["upload_directory"]) / NEW_SEGMENT
+        attempt = claim["attempt"]  # ty:ignore[not-subscriptable]
+        upload = Path(claimed["upload_directory"]) / NEW_SEGMENT  # ty:ignore[invalid-argument-type]
         upload.mkdir()
         calls: list[tuple[Path, Path, Path, Path]] = []
 
-        def fake_import(
-            request_path: Path, bundle: Path, replay: Path, destination: Path
-        ) -> ImportedRenderResult:
-            self.assertEqual("verifying", self.service.queue.get(self.job["id"])["state"])
+        def fake_import(request_path: Path, bundle: Path, replay: Path, destination: Path) -> ImportedRenderResult:
+            self.assertEqual("verifying", self.service.queue.get(self.job["id"])["state"])  # ty:ignore[invalid-argument-type]
             self.assertEqual(upload, bundle)
             self.assertEqual(
-                (self.exports / "render-jobs" / self.job["id"] / NEW_SEGMENT).resolve(),
+                (self.exports / "render-jobs" / self.job["id"] / NEW_SEGMENT).resolve(),  # ty:ignore[unsupported-operator]
                 destination,
             )
             destination.mkdir(parents=True, exist_ok=True)
@@ -749,7 +718,7 @@ class RenderRpcServiceTest(unittest.TestCase):
                 directory=destination,
                 result=result,
                 manifest=manifest,
-                request_id=request_result["request"]["request_id"],
+                request_id=request_result["request"]["request_id"],  # ty:ignore[not-subscriptable]
                 status="complete",
                 reused=len(calls) > 1,
             )
@@ -759,7 +728,7 @@ class RenderRpcServiceTest(unittest.TestCase):
             "attempt_id": attempt["id"],
             "lease_token": attempt["lease_token"],
         }
-        with mock.patch("mc_recorder.render_rpc.import_render_bundle", fake_import):
+        with mock.patch("mc_recorder.protocol.render.rpc.import_render_bundle", fake_import):
             finalized = self.service.dispatch("finalize", body)
             repeated = self.service.dispatch("finalize", body)
         self.assertEqual("verifying", finalized["job"]["state"])
@@ -774,13 +743,13 @@ class RenderRpcServiceTest(unittest.TestCase):
         source = self._source(NEW_SEGMENT, 5, b"new replay")
         claimed = self._claim([source])
         self._request(claimed, NEW_SEGMENT)
-        attempt = claimed["claim"]["attempt"]
+        attempt = claimed["claim"]["attempt"]  # ty:ignore[not-subscriptable]
         outside = Path(self.temporary.name) / "outside-upload"
         outside.mkdir()
-        upload = Path(claimed["upload_directory"]) / NEW_SEGMENT
+        upload = Path(claimed["upload_directory"]) / NEW_SEGMENT  # ty:ignore[invalid-argument-type]
         upload.symlink_to(outside, target_is_directory=True)
         with (
-            mock.patch("mc_recorder.render_rpc.import_render_bundle") as importer,
+            mock.patch("mc_recorder.protocol.render.rpc.import_render_bundle") as importer,
             self.assertRaisesRegex(RecorderError, "symlink|missing"),
         ):
             self.service.dispatch(
@@ -792,18 +761,18 @@ class RenderRpcServiceTest(unittest.TestCase):
                 },
             )
         importer.assert_not_called()
-        self.assertIn(self.service.queue.get(self.job["id"])["state"], {"downloading", "rendering"})
+        self.assertIn(self.service.queue.get(self.job["id"])["state"], {"downloading", "rendering"})  # ty:ignore[invalid-argument-type]
 
     def test_symlinked_durable_job_destination_fails_verification_job(self) -> None:
         source = self._source(NEW_SEGMENT, 5, b"new replay")
         claimed = self._claim([source])
         self._request(claimed, NEW_SEGMENT)
-        attempt = claimed["claim"]["attempt"]
-        upload = Path(claimed["upload_directory"]) / NEW_SEGMENT
+        attempt = claimed["claim"]["attempt"]  # ty:ignore[not-subscriptable]
+        upload = Path(claimed["upload_directory"]) / NEW_SEGMENT  # ty:ignore[invalid-argument-type]
         upload.mkdir()
         outside = Path(self.temporary.name) / "outside-import"
         outside.mkdir()
-        job_import = self.exports / "render-jobs" / self.job["id"]
+        job_import = self.exports / "render-jobs" / self.job["id"]  # ty:ignore[unsupported-operator]
         job_import.symlink_to(outside, target_is_directory=True)
         with self.assertRaisesRegex(RecorderError, "symlink|escapes"):
             self.service.dispatch(
@@ -814,13 +783,13 @@ class RenderRpcServiceTest(unittest.TestCase):
                     "lease_token": attempt["lease_token"],
                 },
             )
-        self.assertEqual("failed", self.service.queue.get(self.job["id"])["state"])
+        self.assertEqual("failed", self.service.queue.get(self.job["id"])["state"])  # ty:ignore[invalid-argument-type]
         self.assertEqual([], list(outside.iterdir()))
 
     def test_failure_and_progress_bodies_are_bounded_and_lease_owned(self) -> None:
         source = self._source(NEW_SEGMENT, 5, b"new replay")
         claimed = self._claim([source])
-        attempt = claimed["claim"]["attempt"]
+        attempt = claimed["claim"]["attempt"]  # ty:ignore[not-subscriptable]
         with self.assertRaisesRegex(RecorderError, "owned"):
             self.service.dispatch(
                 "heartbeat",

@@ -17,6 +17,7 @@ ty = ">=0.0.61,<0.0.62"
 
 [pypi-dependencies]
 mc-recorder = { path = "tooling", editable = true }
+platformdirs = ">=4.11.0, <5"
 
 [tasks]
 setup-jvm = "proto install --config-mode local"

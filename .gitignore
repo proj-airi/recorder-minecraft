@@ -5,7 +5,10 @@
 /.pixi/
 /.idea/
 /.vscode/
-/.DS_Store
+.DS_Store
+
+# AI Agents
+.superpowers/
 
 **/build/
 **/.gradle/
@@ -13,6 +16,7 @@
 **/__pycache__/
 **/.pytest_cache/
 **/*.py[cod]
+**/*.egg-info/
 
 node_modules/
 **/dist/

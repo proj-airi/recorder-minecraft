@@ -11,7 +11,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
 from mc_recorder.errors import RecorderError
-from mc_recorder.render_sources import (
+from mc_recorder.protocol.render.sources import (
     FLASHBACK_CAPTURE_CONTRACT,
     resolve_replay_segments,
 )
@@ -41,13 +41,9 @@ def _write_archive(
         },
     }
     if hotbar_snapshot_contract is not None:
-        arcade_metadata["mc_recorder"][
-            "hotbar_snapshot_contract"
-        ] = hotbar_snapshot_contract
+        arcade_metadata["mc_recorder"]["hotbar_snapshot_contract"] = hotbar_snapshot_contract
     if flashback_capture_contract is not None:
-        arcade_metadata["mc_recorder"][
-            "flashback_capture_contract"
-        ] = flashback_capture_contract
+        arcade_metadata["mc_recorder"]["flashback_capture_contract"] = flashback_capture_contract
     path.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(path, "w") as archive:
         archive.writestr("metadata.json", json.dumps({"uuid": str(uuid.uuid4())}))

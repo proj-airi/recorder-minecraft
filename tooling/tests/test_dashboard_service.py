@@ -14,10 +14,10 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
 from mc_recorder.config import initialize, load_config
-from mc_recorder.dashboard_service import DashboardService
-from mc_recorder.dataset_viewer import DatasetCatalogResult
 from mc_recorder.errors import RecorderError
-from mc_recorder.render_contract import FULL_CLIENT_PRESENTATION_CONTRACT
+from mc_recorder.processing.dataset.viewer import DatasetCatalogResult
+from mc_recorder.protocol.render.contract import FULL_CLIENT_PRESENTATION_CONTRACT
+from mc_recorder.serving.dashboard.service import DashboardService
 
 PLAYER = "00000000-0000-4000-8000-000000000001"
 ACTIVE = "00000000-0000-4000-8000-000000000002"
@@ -55,7 +55,7 @@ class DashboardServiceTest(unittest.TestCase):
                                 "end_server_tick": 10,
                                 "end_sequence": 99,
                             },
-                        ]
+                        ],
                     }
                 ),
                 encoding="utf-8",
@@ -73,7 +73,7 @@ class DashboardServiceTest(unittest.TestCase):
                     encoding="utf-8",
                 )
                 rows = service.recordings()
-                self.assertEqual(["recording", "waiting_for_seal"], [row["state"] for row in rows])
+                self.assertEqual(["recording", "waiting_for_slice"], [row["state"] for row in rows])
                 active = next(row for row in rows if row["connection_id"] == ACTIVE)
                 ended = next(row for row in rows if row["connection_id"] == ENDED)
                 self.assertFalse(active["can_generate"])
@@ -118,9 +118,7 @@ class DashboardServiceTest(unittest.TestCase):
             )
             try:
                 with (
-                    mock.patch.object(
-                        service, "_dataset_match", return_value=("matching", None)
-                    ),
+                    mock.patch.object(service, "_dataset_match", return_value=("matching", None)),
                     mock.patch.object(
                         service.dataset_viewer,
                         "get_dataset_metadata",
@@ -135,12 +133,8 @@ class DashboardServiceTest(unittest.TestCase):
                 with mock.patch.object(service, "recordings", return_value=[row]):
                     with self.assertRaisesRegex(RecorderError, "complete RGB coverage"):
                         service.create_render_job(row["id"])
-                    with self.assertRaisesRegex(
-                        RecorderError, "only allowed for fully covered legacy GUI RGB"
-                    ):
-                        service.create_render_job(
-                            row["id"], replace_legacy_rgb=True
-                        )
+                    with self.assertRaisesRegex(RecorderError, "only allowed for fully covered legacy GUI RGB"):
+                        service.create_render_job(row["id"], replace_legacy_rgb=True)
             finally:
                 service.close()
 
@@ -180,9 +174,7 @@ class DashboardServiceTest(unittest.TestCase):
             completed = {"state": "complete"}
             try:
                 with (
-                    mock.patch.object(
-                        service, "_dataset_match", return_value=("matching", None)
-                    ),
+                    mock.patch.object(service, "_dataset_match", return_value=("matching", None)),
                     mock.patch.object(
                         service.dataset_viewer,
                         "get_dataset_metadata",
@@ -201,17 +193,11 @@ class DashboardServiceTest(unittest.TestCase):
                 self.assertTrue(row["can_render"])
 
                 with mock.patch.object(service, "recordings", return_value=[row]):
-                    with self.assertRaisesRegex(
-                        RecorderError, "replace_legacy_rgb=true"
-                    ):
+                    with self.assertRaisesRegex(RecorderError, "replace_legacy_rgb=true"):
                         service.create_render_job(row["id"])
                     with self.assertRaisesRegex(RecorderError, "full-client"):
-                        service.create_render_job(
-                            row["id"], no_gui=True, replace_legacy_rgb=True
-                        )
-                    job = service.create_render_job(
-                        row["id"], replace_legacy_rgb=True
-                    )
+                        service.create_render_job(row["id"], no_gui=True, replace_legacy_rgb=True)
+                    job = service.create_render_job(row["id"], replace_legacy_rgb=True)
                 self.assertEqual("queued", job["state"])
                 self.assertEqual(
                     FULL_CLIENT_PRESENTATION_CONTRACT,
@@ -301,7 +287,7 @@ class DashboardServiceTest(unittest.TestCase):
                 row = self._wait_for_recording_state(service, "failed")
                 self.assertEqual("failed", row["state"])
                 self.assertFalse(row["can_generate"])
-                self.assertIn("viewer-valid", row["error"])
+                self.assertIn("viewer-valid", row["error"])  # ty:ignore[invalid-argument-type]
             finally:
                 service.close()
 
@@ -373,9 +359,9 @@ class DashboardServiceTest(unittest.TestCase):
                 row = self._wait_for_recording_state(service, "failed")
                 self.assertEqual("failed", row["state"])
                 self.assertFalse(row["can_generate"])
-                self.assertIn("viewer-valid", row["error"])
+                self.assertIn("viewer-valid", row["error"])  # ty:ignore[invalid-argument-type]
                 with self.assertRaisesRegex(RecorderError, "not ready"):
-                    service.generate_job(row["id"])
+                    service.generate_job(row["id"])  # ty:ignore[invalid-argument-type]
             finally:
                 service.close()
 
@@ -421,8 +407,8 @@ class DashboardServiceTest(unittest.TestCase):
             try:
                 row = self._wait_for_recording_state(service, "complete")
                 self.assertEqual("complete", row["state"])
-                self.assertRegex(row["dataset_id"], r"^[0-9a-f]{32}$")
-                job = service.generate_job(row["id"])
+                self.assertRegex(row["dataset_id"], r"^[0-9a-f]{32}$")  # ty:ignore[invalid-argument-type]
+                job = service.generate_job(row["id"])  # ty:ignore[invalid-argument-type]
                 deadline = time.monotonic() + 2
                 while time.monotonic() < deadline:
                     completed = service.jobs.store.get(job["id"])
@@ -524,13 +510,13 @@ class DashboardServiceTest(unittest.TestCase):
             catalog_started = threading.Event()
             release_catalog = threading.Event()
 
-            def blocked_catalog(_viewer):
+            def blocked_catalog(_viewer: object) -> DatasetCatalogResult:
                 catalog_started.set()
                 release_catalog.wait(2)
                 return DatasetCatalogResult((), ())
 
             with mock.patch(
-                "mc_recorder.dataset_viewer.DatasetViewer.catalog",
+                "mc_recorder.processing.dataset.viewer.DatasetViewer.catalog",
                 autospec=True,
                 side_effect=blocked_catalog,
             ):
@@ -547,7 +533,7 @@ class DashboardServiceTest(unittest.TestCase):
                     release_catalog.set()
                     service.close()
 
-    def test_failed_seal_job_does_not_make_an_interrupted_recording_retriable(self) -> None:
+    def test_failed_slice_job_does_not_make_an_interrupted_recording_retriable(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             config = load_config(initialize(root / "recorder.toml", accept_eula=True))
@@ -583,7 +569,7 @@ class DashboardServiceTest(unittest.TestCase):
                     "generate_dataset",
                     {"recording_id": initial["id"]},
                 )
-                service.jobs.store.fail(job["id"], "seal timed out")
+                service.jobs.store.fail(job["id"], "slice timed out")
 
                 row = service.recordings()[0]
                 self.assertEqual("interrupted", row["state"])
@@ -603,18 +589,20 @@ class DashboardServiceTest(unittest.TestCase):
             pinned_epochs = (root / "episode" / "epochs" / "epoch-000000",)
             try:
                 for outcome in ({"output": "dataset"}, RecorderError("compaction failed")):
-                    with self.subTest(outcome=type(outcome).__name__), mock.patch(
-                        "mc_recorder.dashboard_service.prepare_scene_job",
-                        return_value=scene_job,
-                    ) as prepare, mock.patch(
-                        "mc_recorder.dashboard_service.cleanup_scene_job"
-                    ) as cleanup, mock.patch(
-                        "mc_recorder.dashboard_service.cleanup_stale_scene_jobs"
-                    ) as cleanup_stale, mock.patch.object(
-                        service,
-                        "_publish_prepared_scene_job",
-                        side_effect=outcome if isinstance(outcome, Exception) else None,
-                        return_value=outcome if isinstance(outcome, dict) else None,
+                    with (
+                        self.subTest(outcome=type(outcome).__name__),
+                        mock.patch(
+                            "mc_recorder.serving.dashboard.service.prepare_scene_job",
+                            return_value=scene_job,
+                        ) as prepare,
+                        mock.patch("mc_recorder.serving.dashboard.service.cleanup_scene_job") as cleanup,
+                        mock.patch("mc_recorder.serving.dashboard.service.cleanup_stale_scene_jobs") as cleanup_stale,
+                        mock.patch.object(
+                            service,
+                            "_publish_prepared_scene_job",
+                            side_effect=outcome if isinstance(outcome, Exception) else None,
+                            return_value=outcome if isinstance(outcome, dict) else None,
+                        ),
                     ):
                         if isinstance(outcome, Exception):
                             with self.assertRaisesRegex(RecorderError, "compaction failed"):
@@ -676,18 +664,16 @@ class DashboardServiceTest(unittest.TestCase):
             try:
                 with (
                     mock.patch(
-                        "mc_recorder.dashboard_service.operation_lock",
+                        "mc_recorder.serving.dashboard.service.operation_lock",
                         return_value=nullcontext(),
                     ),
-                    mock.patch.object(
-                        service, "_sealed_through_sequence", return_value=99
-                    ),
+                    mock.patch.object(service, "_sliced_through_sequence", return_value=99),
                     mock.patch(
-                        "mc_recorder.dashboard_service.resolve_episode",
+                        "mc_recorder.serving.dashboard.service.resolve_episode",
                         return_value=episode,
                     ),
                     mock.patch(
-                        "mc_recorder.dashboard_service.pin_sealed_epochs",
+                        "mc_recorder.serving.dashboard.service.pin_sealed_epochs",
                         return_value=nullcontext(pinned_epochs),
                     ),
                     mock.patch.object(
@@ -706,6 +692,55 @@ class DashboardServiceTest(unittest.TestCase):
                     connection_id=ENDED,
                     pinned_epoch_paths=pinned_epochs,
                 )
+            finally:
+                service.close()
+
+    def test_generation_never_writes_recorder_command_spool_when_slice_is_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            config = load_config(initialize(root / "recorder.toml", accept_eula=True))
+            session = "20260721T000000.000Z-deadbeef"
+            control = config.paths.runtime / "control"
+            control.mkdir(parents=True)
+            (control / "connections.json").write_text(
+                json.dumps(
+                    {
+                        "session_id": session,
+                        "connections": [
+                            {
+                                "player_uuid": PLAYER,
+                                "player_name": "Player",
+                                "connection_id": ENDED,
+                                "join_server_tick": 5,
+                                "join_sequence": 2,
+                                "end_server_tick": 10,
+                                "end_sequence": 99,
+                                "terminal_reason": "disconnect",
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (control / "status.json").write_text(
+                json.dumps(
+                    {
+                        "session_id": session,
+                        "state": "recording",
+                        "updated_at_unix_ms": int(time.time() * 1000),
+                    }
+                ),
+                encoding="utf-8",
+            )
+            service = DashboardService(config)
+            try:
+                row = service.recordings()[0]
+                self.assertEqual("waiting_for_slice", row["state"])
+                self.assertTrue(row["can_generate"])
+                with self.assertRaisesRegex(RecorderError, "slice is not ready"):
+                    service._generate_dataset(row)
+                self.assertFalse((control / "requests").exists())
+                self.assertFalse((control / "responses").exists())
             finally:
                 service.close()
 
@@ -733,9 +768,7 @@ class DashboardServiceTest(unittest.TestCase):
                 # host lifecycle/generation operation slot.
                 service.jobs.store.create("server_start", {})
                 with mock.patch.object(service, "recordings", return_value=[row]):
-                    job = service.create_render_job(
-                        recording_id, width=1280, height=720, fps=20
-                    )
+                    job = service.create_render_job(recording_id, width=1280, height=720, fps=20)
                     self.assertEqual("queued", job["state"])
                     self.assertEqual(ENDED, job["payload"]["connection_id"])
                     self.assertEqual((6, 9), (job["payload"]["start_tick"], job["payload"]["end_tick"]))
@@ -763,7 +796,7 @@ class DashboardServiceTest(unittest.TestCase):
                     with self.assertRaisesRegex(RecorderError, "width"):
                         service.create_render_job(recording_id, width=True)
                     with self.assertRaisesRegex(RecorderError, "no_gui must be a boolean"):
-                        service.create_render_job(recording_id, no_gui=0)  # type: ignore[arg-type]
+                        service.create_render_job(recording_id, no_gui=0)  # type: ignore[arg-type]  # ty:ignore[invalid-argument-type]
                     with self.assertRaisesRegex(RecorderError, "replace_legacy_rgb"):
                         service.create_render_job(
                             recording_id,
@@ -772,7 +805,7 @@ class DashboardServiceTest(unittest.TestCase):
                     with self.assertRaisesRegex(RecorderError, "replace_legacy_rgb"):
                         service.create_render_job(
                             recording_id,
-                            replace_legacy_rgb=1,  # type: ignore[arg-type]
+                            replace_legacy_rgb=1,  # type: ignore[arg-type]  # ty:ignore[invalid-argument-type]
                         )
                     with self.assertRaisesRegex(RecorderError, "retried while queued"):
                         service.retry_render_job(job["id"])

@@ -3,11 +3,9 @@
 The Python 3.14 CLI provisions the pinned Minecraft 1.21.8 Fabric server,
 inspects verified sidecar epochs, exports state/action JSONL, enforces combined
 capture/replay retention, extracts headless random-access scene stores, and
-launches the local Flashback RGB renderer. Pixi owns the Python environment;
-proto owns OpenJDK 21 and Gradle. Docker Compose is required on the recorder
-host. A graphical desktop, OpenSSH, and `rsync` are required on a remote
-renderer; the recorder host also needs an SSH server and `rsync` for that
-workflow.
+launches local Flashback RGB/voxel rendering through RabbitMQ-dispatched
+one-shot worker processes. Pixi owns the Python environment. proto owns OpenJDK
+21 and Gradle. Docker Compose is required on the recorder host.
 
 The capture stack defaults to the exact `itzg/minecraft-server:2026.7.0-java21` image and the
 immutable ServerReplay Modrinth selector `server-replay:TbWIikrT`. The companion
@@ -61,13 +59,13 @@ ServerReplay configurations, checks the combined capture/replay quota, and
 starts Docker Compose. With `--wait`, it waits for the image's Minecraft health
 check. Every connected player is recorded automatically. ServerReplay writes a
 Flashback archive per player, including that player's client-visible chunks,
-under `paths.replays`; the sidecar writes combined event epochs under
+under `paths.replays`; the sidecar writes combined event slices under
 `paths.captures`.
 
-`server stop` requests a graceful Minecraft shutdown. Sidecar epochs are
+`server stop` requests a graceful Minecraft shutdown. Sidecar slices are
 exportable only after `events.jsonl.inprogress` has been atomically published
-as `events.jsonl` with a matching sealed manifest. Completed ServerReplay
-archives are independent of sidecar epochs.
+as `events.jsonl` with a matching manifest. Completed ServerReplay archives
+are independent of sidecar slices.
 
 ## LAN dashboard
 
@@ -92,12 +90,12 @@ port = 8765
 ```
 
 `dashboard serve` runs directly on the recorder host and defaults to
-`0.0.0.0:8765` from the `[dashboard]` configuration. It is deliberately not a
-Compose service: the host process can invoke the existing Docker lifecycle
-without mounting the Docker socket into a container, and it stays reachable
-while Minecraft is stopped. Run it with the same workspace/configuration and a
-host account allowed to use Docker Compose. Use launchd, systemd, or another
-host service manager to keep it running independently of an interactive shell.
+`0.0.0.0:8765` from the `[dashboard]` configuration. `mc-recorder server start`
+also prepares a Compose dashboard service for containerized runs with the same
+workspace mounts. Run host-mode dashboard commands with the same
+workspace/configuration and a host account allowed to use Docker Compose. Use
+launchd, systemd, or another host service manager to keep host mode running
+independently of an interactive shell.
 Dataset generation launches the proto-managed Gradle executable for scene
 extraction. Service-manager environments often omit proto's shim path; set
 `MC_RECORDER_GRADLE` to an absolute executable Gradle path when `gradle` is not
@@ -113,7 +111,7 @@ or terminate HTTPS in a reverse proxy.
 
 The dashboard reports structured Compose states, capture heartbeat/epoch/writer
 health, storage usage, persisted background jobs, recordings, and exported
-datasets. Start, stop, seal, and export mutations are serialized with the same
+datasets. Start, stop, slice, and export mutations are serialized with the same
 interprocess lock used by the CLI. A lifecycle or generation request returns
 immediately as a job; progress and any actionable failure remain visible after
 page reloads.
@@ -122,18 +120,16 @@ page reloads.
 
 Each player join has its own row and `connection_id`; reconnects are grouped
 under the player without being merged. A row can move through `recording`,
-`disconnected`, `waiting_for_seal`, `sealing`, `generating`, `complete`,
-`interrupted`, or `failed`. **Seal & Generate Dataset** is enabled only after the
+`disconnected`, `waiting_for_slice`, `slicing`, `generating`, `complete`,
+`interrupted`, or `failed`. Dataset generation is enabled only after the
 connection has a terminal end sequence. A stale heartbeat without a clean
 terminal marker is interrupted and cannot be promoted.
 
-If the connection end is not already covered by a verified epoch, generation
-requests a global manual rotation at an end-of-tick boundary. The recorder
-fsyncs and seals the current shared epoch, publishes its integrity manifest,
-acknowledges the request, and continues the same session in a monotonically
-numbered epoch. Other players remain connected and keep recording. An already
-covering seal is reused, and a manual request coalesces with an automatic
-rotation that is already due.
+If the connection end is not already covered by a verified immutable slice,
+generation reports `waiting_for_slice` while the recorder continues appending.
+The tooling never sends recorder command requests for promotion; it consumes
+only already-published slice manifests and completed replay archives, then pins
+and copies those filesystem units under the global operation lock.
 
 The export intersects the ledger's player UUID, connection ID, and observed
 tick range and writes:
@@ -152,74 +148,49 @@ separate GUI render succeeds.
 ### Queued RGB rendering and viewer refresh
 
 Rendering stays outside the dashboard process because the recorder server may
-be headless. After **Seal & Generate Dataset** completes, choose a resolution in
-the recording row and click **Render RGB**. The resulting job remains queued on
-the server until a GUI-capable machine runs the foreground worker.
+be headless. After dataset generation completes, choose a resolution in
+the recording row and click **Render RGB**. The recorder mod emits
+`.mc-recorder/control/render-ready/<connection-id>.json` after the matching
+ServerReplay archive is saved. `mc-recorder render-dispatcher` reads those
+spool files and publishes matching queued dashboard jobs to RabbitMQ.
 
-Prepare that machine from the same project revision deployed on the server:
+Run one GUI render worker process on a machine that has the same workspace,
+RabbitMQ access, OpenJDK 21, Gradle, and a graphical desktop:
 
 ```sh
 proto install --config-mode local
 pixi install --locked
-pixi run mc-recorder init
-ssh -o BatchMode=yes mcdatacol true
-pixi run mc-recorder render-worker \
-  --host mcdatacol \
-  --remote-root /srv/mc-play-recorder
+MC_RECORDER_RABBITMQ_URL=amqp://guest:guest@localhost:5672/%2F \
+  pixi run mc-recorder render-worker
 ```
 
-The local `recorder.toml` anchors `renderer-mod`, the proto-managed Gradle
-toolchain, and the worker cache; it is not the remote server configuration.
-OpenJDK 21 and a working graphical desktop are required to launch the Minecraft
-client. `ssh` and `rsync` must be installed locally, and the Debian recorder
-host must run an SSH server and have `rsync`. Because the worker uses SSH batch
-mode, `mcdatacol` must resolve through the local SSH configuration and
-authenticate without an interactive password prompt. That SSH identity is the
-authority boundary: the remote account must be able to read the deployed Python
-tooling and replay sources, write the configured runtime/export roots, and run
-the tooling under `/srv/mc-play-recorder`. Dashboard Basic-auth credentials are
-not sent to the worker.
+The worker consumes one RabbitMQ message, claims that exact queued job through
+the local recorder runtime, renders it with the GUI client, finalizes the
+result, acknowledges the message, and exits. Supervisors can start as many
+one-shot worker processes as needed. Dashboard
+Basic-auth credentials are not sent to the worker.
 
 The normal build resolves Flashback through immutable Modrinth version ID
 `9YgAwnpm`, which is the 0.39.5 artifact for Minecraft 1.21.8. No environment
 override is required. `MC_RECORDER_FLASHBACK_JAR` remains available only for
 offline builds and must point to that same Minecraft 1.21.8 artifact.
 
-By default, one foreground process registers one worker UUID, polls every 10
-seconds, and processes queued jobs sequentially until Ctrl-C. Each claimed job
-still has an ephemeral workspace and launches exactly one Java client; that
-client exits and the workspace is removed before the worker claims another
-job. Keep the process running inside a logged-in graphical desktop session.
-There is no launchd service integration yet. Useful options are:
+Each claimed job has an ephemeral workspace and launches exactly one Java
+client; that client exits and the workspace is removed before the process exits.
+Useful options are:
 
 ```sh
-pixi run mc-recorder render-worker --host mcdatacol \
-  --remote-root /srv/mc-play-recorder \
-  --job JOB_UUID                 # claim only this queued job
-
-pixi run mc-recorder render-worker --host mcdatacol \
-  --remote-root /srv/mc-play-recorder \
-  --once                         # make one claim attempt and exit
-
-pixi run mc-recorder render-worker --host mcdatacol \
-  --remote-root /srv/mc-play-recorder \
-  --poll-interval 5              # continuous polling; allowed range is 1-30
-
-pixi run mc-recorder render-worker --host mcdatacol \
-  --remote-root /srv/mc-play-recorder \
+MC_RECORDER_RABBITMQ_URL=amqp://guest:guest@localhost:5672/%2F \
+  pixi run mc-recorder render-worker \
   --cache /path/to/cache \
   --keep-workspace               # retain this attempt for diagnosis
 ```
 
 A claimed-job failure fences/fails that attempt and stops the worker before it
 can touch later queued jobs. After correcting the local Java, Gradle, disk, or
-renderer problem, restart the command. Failures reaching the server before a
-claim during worker registration use bounded retry backoff and leave the queue
-unchanged. A failed, timed-out, or invalid `claim` response stops the worker:
-the server may already have leased work, so automatically claiming again would
-be unsafe. Inspect the dashboard queue before restarting. Persistent mode also
-requires upgraded server tooling; use `--once` only when deliberately working
-with a pre-extension server.
+renderer problem, start another worker process. A failed, timed-out, or invalid
+claim leaves the RabbitMQ message unacknowledged so it can be retried by a later
+process.
 
 The default cache is `$XDG_CACHE_HOME/mc-recorder` when that variable is set,
 or `~/.cache/mc-recorder` otherwise. Replay archives live under
@@ -228,13 +199,12 @@ their byte size and SHA-256 are verified. Owned per-attempt directories under
 `jobs/` are deleted after both success and failure unless `--keep-workspace` is
 set. A heartbeat renews a fenced lease while the GUI is active; a killed worker
 cannot finalize after its lease is reclaimed. Its job returns to `queued`, and
-a later worker claim creates a new attempt.
+a later worker process creates a new attempt.
 
 An exact replay archive may still be saving after the player disconnects. In
 that case the server immediately defers the attempt back to `queued` with a
-30-second eligibility cooldown. The worker continues polling and can process a
-later ready job instead of repeatedly reclaiming the deferred oldest job.
-`--once` and `--job` retain the successful no-ready-job exit.
+30-second eligibility cooldown. The dispatcher waits for another mod-emitted
+ready file before publishing more work for that connection.
 
 The server pins every saved replay archive for the exact player connection and
 authors path-free requests. The worker downloads the pinned archives, verifies
@@ -297,7 +267,7 @@ pixi run mc-recorder export SESSION_ID \
   [--output PATH] [--force]
 ```
 
-Validation recalculates every sealed stream's record count, byte count, and
+Validation recalculates every published stream's record count, byte count, and
 SHA-256 and checks session identity, `epoch_index`, global `sequence`, and
 non-decreasing server ticks.
 
@@ -307,7 +277,7 @@ without discarding other players from the selected sample's peer context. The
 normalized connection selection is preserved in `manifest.json` as
 `selection.connections`.
 
-The exporter validates the source first, reads only sealed epochs, and emits:
+The exporter validates the source first, reads only immutable slices, and emits:
 
 ```text
 artifacts/exports/<session-id>.dataset/
@@ -419,8 +389,8 @@ identical logical frames, while gaps, source mutation, unknown state-affecting
 packets, and identity mismatch fail the job. Before compaction the CLI verifies
 the terminal identity, policy, capture contract, sources, frame/change counts,
 index sizes and SHA-256 hashes, and every referenced canonical blob's name,
-digest, count, and bytes. The selected player's pose is copied from sealed,
-hash-verified `player_state` epochs into an owned integrity-enveloped stream and
+digest, count, and bytes. The selected player's pose is copied from sliced,
+hash-verified `player_state` records into an owned integrity-enveloped stream and
 overlaid before each frame and overlap hash; ServerReplay's sampled local-player
 position is not treated as authoritative. A frozen verification envelope is
 checked again before reads and before publication, then persisted with the
@@ -453,11 +423,11 @@ pixi run mc-recorder storage enforce
 The quota counts `paths.captures` plus `paths.replays`, but not world data or
 exports. Usage at `warn_percent` produces a visible warning. At the quota,
 optional eviction removes oldest immutable source units until usage reaches the
-warning threshold. Eligible units are verified whole sidecar epochs and stable,
+warning threshold. Eligible units are verified whole sidecar slices and stable,
 readable completed `.zip`/`.mcpr` replay archives. Replay archives must be
-unchanged and at least five minutes old. Active/incomplete epochs,
+unchanged and at least five minutes old. Active/incomplete slices,
 recent/partial archives, directories, symlinks, and unexpected paths are never
-candidates. Dataset publication holds shared locks on its sealed epochs and
+candidates. Dataset publication holds shared locks on its sidecar slices and
 replays, so retention skips them. Successful scene jobs are removed; only the
 newest failed or `--prepare-only` marker-owned job is retained, and older crash
 jobs are pruned without touching symlinked or non-owned directories.

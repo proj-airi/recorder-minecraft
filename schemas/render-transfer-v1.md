@@ -5,7 +5,7 @@ worker and moves verified derivative artifacts back to the recorder host. The
 server-authored request is immutable and path-free. A worker's filesystem paths
 are provenance only and are never authoritative after import.
 
-## Dashboard queue and persistent foreground worker
+## Dashboard queue and RabbitMQ one-shot worker
 
 The dashboard creates one durable RGB queue job only after the deterministic
 structured dataset for a disconnected connection is verified. The job fixes the
@@ -16,40 +16,29 @@ the ledger's join/disconnect selection bounds; attachment preserves those
 original selection bounds. A worker receives none of those values from
 browser-controlled paths or command strings.
 
-By default, `mc-recorder render-worker` registers one process UUID and polls the
-queue continuously in a logged-in graphical session. It claims and completes
-jobs sequentially: each job owns an ephemeral workspace and one Java client,
-and that client exits before another claim begins. Ctrl-C stops the foreground
-process. The default empty-queue poll interval is 10 seconds and may be set from
-1 through 30 seconds. `--once` retains a single claim attempt, while `--job`
-targets one job and exits without falling through to unrelated work. No launchd
-service contract is defined yet.
+The recorder mod emits a bounded JSON spool file under
+`control/render-ready/<connection-id>.json` after a disconnected connection has
+at least one saved ServerReplay segment. `mc-recorder render-dispatcher` scans
+that spool and publishes matching queued dashboard jobs to RabbitMQ. By default,
+`mc-recorder render-worker` consumes one RabbitMQ message, claims that exact job,
+runs one Java client in one ephemeral workspace, finalizes the result, and exits.
 
 The worker heartbeats while downloading, rendering, and uploading. A reclaimed
 or canceled lease cannot publish a result, even if an older client later
-resumes. A persistent process also sends the path-free `worker-heartbeat` RPC
-under its registered UUID, independently of an attempt lease, so it stays
-visibly online during a long server-side import/re-export finalize call. If a
-replay input is not yet immutable, the server defers that job for a 30-second
-eligibility cooldown; polling may claim later ready work meanwhile.
-That response includes `deferred_job_cooldown_seconds`, scoped to the exact
-deferred job. Its presence tells a continuous worker that it may immediately
-issue another generic claim to scan other eligible jobs; it is not a request to
-pause the entire queue. Pre-extension servers omit the field, so upgraded
-workers use their normal poll delay instead of repeatedly reclaiming the same
-job.
+resumes. If a replay input is not yet immutable, the server defers that job for
+a 30-second eligibility cooldown. The dispatcher waits for another mod-emitted
+ready file before publishing more work for that connection.
 
-A failure after a claim marks/fences that attempt and stops the foreground
-worker before another job is claimed. This fail-stop boundary prevents a broken
-Java runtime, Gradle installation, disk, or renderer build from failing the
-remaining queue. If server-side plan preparation fails after leasing, `claim`
-returns `reason: "claim_failed"`, the failed job identity, and a bounded error
-instead of making that failure indistinguishable from a pre-claim SSH outage.
-Registration failures use bounded retry backoff. A lost or invalid `claim` RPC
-response is fail-stop because the server may already have leased or failed a
-job even when the worker did not receive the response.
+A failure after a claim marks/fences that attempt and the process exits before
+another message is consumed. This fail-stop boundary prevents a broken Java
+runtime, Gradle installation, disk, or renderer build from failing remaining
+queue messages. If server-side plan preparation fails after leasing, `claim`
+returns `reason: "claim_failed"`, the failed job identity, and a bounded error.
+A lost or invalid `claim` RPC response is fail-stop because the server may
+already have leased or failed a job even when the worker did not receive the
+response.
 
-Workers advertise `portable_request_no_gui: true`,
+Workers advertise `ephemeral: true`, `portable_request_no_gui: true`,
 `full_client_presentation_contract: "flashback_server_spectate_structured_hud_v1"`, and
 `structured_claim_failure: true` before claiming. The server rejects workers
 without the portable-request capability or current presentation contract so a
@@ -57,18 +46,16 @@ strict pre-extension V1 worker cannot claim a GUI request whose pixels require
 the replay-server spectate synchronization path. The `register` response
 advertises both `server_capabilities.structured_claim_failure: true` and the
 same full-client presentation contract. All workers fail closed when the
-contract is absent or mismatched; continuous workers additionally fail closed
-with upgrade guidance when the structured-failure marker is absent. For a
-worker that does not advertise structured claim failures, a server-side plan
-failure still fences the attempt but returns a nonzero RPC error so an older
-one-shot worker cannot misreport it as an empty queue.
+contract is absent or mismatched. For a worker that does not advertise
+structured claim failures, a server-side plan failure still fences the attempt
+but returns a nonzero RPC error so an older one-shot worker cannot misreport it
+as an empty queue.
 
-The SSH connection is the worker's authority boundary. RPC calls invoke only the
-deployed `mc-recorder render-rpc` actions beneath the configured remote recorder
-root; request bodies have bounded, action-specific schemas. Replay downloads and
-bundle uploads are limited to server-returned descendants of that root. HTTP
-Basic-auth credentials, arbitrary commands, browser paths, JVM flags, and
-environment values are not queue fields.
+The local recorder runtime is the worker's authority boundary. RPC actions are
+direct in-process calls with bounded, action-specific JSON schemas. Replay reads
+and bundle writes are limited to verified descendants of the configured
+workspace roots. HTTP Basic-auth credentials, arbitrary commands, browser paths,
+JVM flags, and environment values are not queue fields.
 
 The worker cache stores replay archives and structured HUD sidecars by declared
 SHA-256 and verifies stable size and digest before every reuse. Per-attempt

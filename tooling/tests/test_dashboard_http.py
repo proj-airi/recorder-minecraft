@@ -14,20 +14,21 @@ import urllib.request
 from http import HTTPStatus
 from pathlib import Path
 from types import MappingProxyType
+from typing import Any
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
 from mc_recorder.config import initialize, load_config
-from mc_recorder.dashboard_http import (
+from mc_recorder.errors import RecorderError
+from mc_recorder.processing.dataset.viewer import DatasetValidationError, VerifiedArtifact
+from mc_recorder.processing.scene.store import SceneIdentity, SceneStoreBuilder
+from mc_recorder.serving.dashboard.server import (
     DashboardApplication,
     DashboardHandler,
     DashboardHTTPServer,
     serve_dashboard,
 )
-from mc_recorder.dataset_viewer import DatasetValidationError, VerifiedArtifact
-from mc_recorder.errors import RecorderError
-from mc_recorder.scene_store import SceneIdentity, SceneStoreBuilder
 
 
 def _write_viewer_dataset(exports: Path) -> None:
@@ -70,12 +71,14 @@ def _write_viewer_dataset(exports: Path) -> None:
             "record_count": 1,
             "first_tick": 20,
             "last_tick": 20,
-            "source_epochs": [{
-                "epoch_index": 0,
-                "events_sha256": "34" * 32,
-                "events_size_bytes": 1000,
-                "record_count": 20,
-            }],
+            "source_epochs": [
+                {
+                    "epoch_index": 0,
+                    "events_sha256": "34" * 32,
+                    "events_size_bytes": 1000,
+                    "record_count": 20,
+                }
+            ],
         },
         "stream": {
             "format": "mc-recorder-scene-stream-v1",
@@ -275,12 +278,9 @@ def _write_viewer_dataset(exports: Path) -> None:
                 "records_attached": 1,
                 "index": "modalities.jsonl",
                 "store": "scene/scene-v1.sqlite3",
-            }
+            },
         },
-        "files": {
-            name: {"size_bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}
-            for name, data in streams.items()
-        },
+        "files": {name: {"size_bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()} for name, data in streams.items()},
     }
     scene_data = scene_path.read_bytes()
     manifest["files"]["scene/scene-v1.sqlite3"] = {
@@ -303,7 +303,7 @@ def _write_viewer_dataset(exports: Path) -> None:
         "result": result,
         "sensitive": True,
         "source_replays": list(sources),
-    }
+    }  # ty:ignore[invalid-assignment]
     (directory / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
 
 
@@ -386,7 +386,7 @@ class DashboardHTTPTest(unittest.TestCase):
         self.assertEqual(403, raised.exception.code)
         raised.exception.close()
 
-        self.application.service.start_server_job = lambda: {
+        self.application.service.start_server_job = lambda: {  # ty:ignore[invalid-assignment]
             "id": "00000000-0000-4000-8000-000000000001",
             "kind": "server_start",
             "state": "queued",
@@ -435,112 +435,69 @@ class DashboardHTTPTest(unittest.TestCase):
         self.assertEqual("session-http", metadata["session_id"])
         self.assertEqual(1, metadata["scene_samples"])
         self.assertEqual("client_visible", metadata["scene_scope"])
-        self.assertEqual(
-            "full_packet_metadata", metadata["scene_metadata_policy"]
-        )
+        self.assertEqual("full_packet_metadata", metadata["scene_metadata_policy"])
         self.assertIs(metadata["scene_sensitive"], True)
-        trajectory = json.load(
-            self._request(
-                f"/api/v1/datasets/{dataset_id}/trajectory?max_points=10"
-            )
-        )
+        trajectory = json.load(self._request(f"/api/v1/datasets/{dataset_id}/trajectory?max_points=10"))
         self.assertEqual(1, trajectory["total_points"])
         self.assertEqual(20, trajectory["tracks"][0]["points"][0]["server_tick"])
-        page = json.load(
-            self._request(f"/api/v1/datasets/{dataset_id}/samples?limit=1")
-        )
+        page = json.load(self._request(f"/api/v1/datasets/{dataset_id}/samples?limit=1"))
         sample_id = page["samples"][0]["sample_id"]
         self.assertRegex(sample_id, r"^[0-9a-f]{32}$")
         self.assertTrue(page["samples"][0]["scene_available"])
-        detail = json.load(
-            self._request(f"/api/v1/datasets/{dataset_id}/samples/{sample_id}")
-        )
+        detail = json.load(self._request(f"/api/v1/datasets/{dataset_id}/samples/{sample_id}"))
         self.assertEqual(20, detail["record"]["server_tick"])
         self.assertNotIn("reference", detail["record"]["modalities"]["rgb"])
         self.assertNotIn("reference", detail["record"]["modalities"]["scene"])
-        self.assertEqual(
-            sample_id, detail["record"]["modalities"]["scene"]["artifact_id"]
-        )
-        self.assertEqual(
-            "client_visible", detail["record"]["modalities"]["scene"]["scope"]
-        )
+        self.assertEqual(sample_id, detail["record"]["modalities"]["scene"]["artifact_id"])
+        self.assertEqual("client_visible", detail["record"]["modalities"]["scene"]["scope"])
         self.assertEqual(
             "full_packet_metadata",
             detail["record"]["modalities"]["scene"]["metadata_policy"],
         )
-        self.assertIs(
-            detail["record"]["modalities"]["scene"]["sensitive"], True
-        )
+        self.assertIs(detail["record"]["modalities"]["scene"]["sensitive"], True)
         with self.assertRaises(urllib.error.HTTPError) as raised:
             self._request(f"/api/v1/datasets/{dataset_id}/samples/{sample_id}/frame")
         self.assertEqual(404, raised.exception.code)
         raised.exception.close()
 
-        scene_slice = json.load(
-            self._request(
-                f"/api/v1/datasets/{dataset_id}/samples/{sample_id}/scene-slice"
-                "?axis=y&radius=4"
-            )
+        scene_slice = json.load(self._request(f"/api/v1/datasets/{dataset_id}/samples/{sample_id}/scene-slice?axis=y&radius=4"))
+        self.assertEqual(
+            (64, 9, 9),
+            (
+                scene_slice["coordinate"],
+                scene_slice["width"],
+                scene_slice["height"],
+            ),
         )
-        self.assertEqual((64, 9, 9), (
-            scene_slice["coordinate"],
-            scene_slice["width"],
-            scene_slice["height"],
-        ))
         self.assertEqual(81, len(scene_slice["cells"]))
         self.assertGreaterEqual(len(scene_slice["palette"]), 1)
         self.assertEqual("client_visible", scene_slice["scope"])
         self.assertEqual("full_packet_metadata", scene_slice["metadata_policy"])
         self.assertIs(scene_slice["sensitive"], True)
         self.assertTrue(any(cell["color"] for cell in scene_slice["cells"]))
-        self.assertTrue(
-            all("block_state" not in cell for cell in scene_slice["cells"])
-        )
-        self.assertTrue(
-            all(
-                cell["palette_index"] is None
-                if not cell["covered"]
-                else 0 <= cell["palette_index"] < len(scene_slice["palette"])
-                for cell in scene_slice["cells"]
-            )
-        )
+        self.assertTrue(all("block_state" not in cell for cell in scene_slice["cells"]))
+        self.assertTrue(all(cell["palette_index"] is None if not cell["covered"] else 0 <= cell["palette_index"] < len(scene_slice["palette"]) for cell in scene_slice["cells"]))
         self.assertEqual("minecraft:cow", scene_slice["entities"][0]["type_id"])
-        self.assertEqual(
-            "minecraft:chest", scene_slice["block_entities"][0]["type_id"]
-        )
+        self.assertEqual("minecraft:chest", scene_slice["block_entities"][0]["type_id"])
         self.assertEqual(
             {"row": 2.5, "column": 1.5},
-            {
-                key: scene_slice["entities"][0]["projection"][key]
-                for key in ("row", "column")
-            },
+            {key: scene_slice["entities"][0]["projection"][key] for key in ("row", "column")},
         )
-        overridden = json.load(
-            self._request(
-                f"/api/v1/datasets/{dataset_id}/samples/{sample_id}/scene-slice"
-                "?axis=x&coordinate=1&radius=1"
-            )
+        overridden = json.load(self._request(f"/api/v1/datasets/{dataset_id}/samples/{sample_id}/scene-slice?axis=x&coordinate=1&radius=1"))
+        self.assertEqual(
+            ("x", 1, 3, 3),
+            (
+                overridden["axis"],
+                overridden["coordinate"],
+                overridden["width"],
+                overridden["height"],
+            ),
         )
-        self.assertEqual(("x", 1, 3, 3), (
-            overridden["axis"],
-            overridden["coordinate"],
-            overridden["width"],
-            overridden["height"],
-        ))
-        scene_page = json.load(
-            self._request(
-                f"/api/v1/datasets/{dataset_id}/samples?modality=scene"
-            )
-        )
+        scene_page = json.load(self._request(f"/api/v1/datasets/{dataset_id}/samples?modality=scene"))
         self.assertEqual(1, scene_page["total"])
         for invalid_radius in (0, 65):
-            with self.subTest(radius=invalid_radius), self.assertRaises(
-                urllib.error.HTTPError
-            ) as raised:
-                self._request(
-                    f"/api/v1/datasets/{dataset_id}/samples/{sample_id}/scene-slice"
-                    f"?radius={invalid_radius}"
-                )
+            with self.subTest(radius=invalid_radius), self.assertRaises(urllib.error.HTTPError) as raised:
+                self._request(f"/api/v1/datasets/{dataset_id}/samples/{sample_id}/scene-slice?radius={invalid_radius}")
             self.assertEqual(400, raised.exception.code)
             raised.exception.close()
 
@@ -549,35 +506,24 @@ class DashboardHTTPTest(unittest.TestCase):
             f"coordinate={-(10**100)}",
             f"radius={10**100}",
         ):
-            with self.subTest(query=query), self.assertRaises(
-                urllib.error.HTTPError
-            ) as raised:
-                self._request(
-                    f"/api/v1/datasets/{dataset_id}/samples/{sample_id}/scene-slice"
-                    f"?{query}"
-                )
+            with self.subTest(query=query), self.assertRaises(urllib.error.HTTPError) as raised:
+                self._request(f"/api/v1/datasets/{dataset_id}/samples/{sample_id}/scene-slice?{query}")
             self.assertEqual(400, raised.exception.code)
             self.assertEqual("no-store", raised.exception.headers["Cache-Control"])
             raised.exception.close()
 
         with self.assertRaises(urllib.error.HTTPError) as raised:
-            self._request(
-                f"/api/v1/datasets/{dataset_id}/samples/{sample_id}/voxel-slice"
-            )
+            self._request(f"/api/v1/datasets/{dataset_id}/samples/{sample_id}/voxel-slice")
         self.assertEqual(404, raised.exception.code)
         raised.exception.close()
 
         with self.assertRaises(urllib.error.HTTPError) as raised:
-            self._request(
-                f"/api/v1/datasets/{dataset_id}/samples?modality=voxels"
-            )
+            self._request(f"/api/v1/datasets/{dataset_id}/samples?modality=voxels")
         self.assertEqual(400, raised.exception.code)
         raised.exception.close()
 
         with self.assertRaises(urllib.error.HTTPError) as raised:
-            self._request(
-                f"/api/v1/datasets/{dataset_id}/samples?from_tick=9223372036854775808"
-            )
+            self._request(f"/api/v1/datasets/{dataset_id}/samples?from_tick=9223372036854775808")
         self.assertEqual(400, raised.exception.code)
         self.assertEqual("no-store", raised.exception.headers["Cache-Control"])
         raised.exception.close()
@@ -741,7 +687,7 @@ class DashboardHTTPTest(unittest.TestCase):
         method: str = "GET",
         body: bytes | None = None,
         headers: dict[str, str] | None = None,
-    ):
+    ) -> Any:  # noqa: ANN401
         request = urllib.request.Request(
             self.base + path,
             data=body,
@@ -818,10 +764,7 @@ class DashboardServeConfigurationTest(unittest.TestCase):
         self.assertNotIn("block_state", payload["cells"][0])
         self.assertEqual(
             {"row": 1.5, "column": 0.5},
-            {
-                key: payload["entities"][0]["projection"][key]
-                for key in ("row", "column")
-            },
+            {key: payload["entities"][0]["projection"][key] for key in ("row", "column")},
         )
         self.assertEqual(
             {"row": 1.0, "column": 1.0},
@@ -830,12 +773,8 @@ class DashboardServeConfigurationTest(unittest.TestCase):
 
     def test_rejects_oversized_json_response_before_writing(self) -> None:
         handler = object.__new__(DashboardHandler)
-        with mock.patch(
-            "mc_recorder.dashboard_http.MAX_JSON_RESPONSE_BYTES", 64
-        ), mock.patch.object(handler, "_bytes") as write_response:
-            with self.assertRaisesRegex(
-                DatasetValidationError, "serialized JSON response exceeds 64 bytes"
-            ):
+        with mock.patch("mc_recorder.serving.dashboard.server.MAX_JSON_RESPONSE_BYTES", 64), mock.patch.object(handler, "_bytes") as write_response:
+            with self.assertRaisesRegex(DatasetValidationError, "serialized JSON response exceeds 64 bytes"):
                 handler._json(HTTPStatus.OK, {"payload": "x" * 128})
 
         write_response.assert_not_called()
@@ -858,9 +797,7 @@ class DashboardServeConfigurationTest(unittest.TestCase):
             "block_entities": [],
         }
 
-        with self.assertRaisesRegex(
-            DatasetValidationError, "invalid palette entry"
-        ):
+        with self.assertRaisesRegex(DatasetValidationError, "invalid palette entry"):
             DashboardHandler._scene_slice_payload(value)
 
     def test_rgb_recheck_uses_a_bounded_read(self) -> None:
@@ -882,9 +819,7 @@ class DashboardServeConfigurationTest(unittest.TestCase):
 
     def test_rejects_colon_in_basic_auth_username_before_binding(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            config = load_config(
-                initialize(Path(temporary) / "recorder.toml", accept_eula=True)
-            )
+            config = load_config(initialize(Path(temporary) / "recorder.toml", accept_eula=True))
             with mock.patch.dict(
                 os.environ,
                 {

@@ -66,7 +66,7 @@ class CaptureCoordinatorShutdownTest {
     }
 
     @Test
-    fun `capture abort fails and retires unresolved seal requests`() {
+    fun `capture abort publishes failure without command spools`() {
         val sessionId = "session-abort-request"
         val sessionDirectory = directory.resolve(sessionId)
         Files.createDirectories(sessionDirectory.resolve("epochs"))
@@ -85,29 +85,16 @@ class CaptureCoordinatorShutdownTest {
         val connectionId = UUID.randomUUID().toString()
         plane.connectionStarted(playerUuid, "Alex", connectionId, 0, 2)
         plane.connectionEnded(connectionId, 8, 10, "disconnect")
-        val requestId = UUID.randomUUID().toString()
-        val request = JsonObject().apply {
-            addProperty("schema_version", 1)
-            addProperty("request_id", requestId)
-            addProperty("operation", "seal_connection")
-            addProperty("expected_session_id", sessionId)
-            addProperty("player_uuid", playerUuid)
-            addProperty("connection_id", connectionId)
-            addProperty("connection_end_sequence", 10)
-        }
-        val requestPath = config.controlPath().resolve("requests/$requestId.json")
-        Files.writeString(requestPath, request.toString())
 
         coordinator.abort(IllegalStateException("synthetic writer failure"))
 
-        val responsePath = config.controlPath().resolve("responses/$requestId.json")
-        val response = Files.newBufferedReader(responsePath).use {
+        val status = Files.newBufferedReader(config.controlPath().resolve("status.json")).use {
             JsonParser.parseReader(it).asJsonObject
         }
-        assertEquals("failed", response.get("status").asString)
-        assertEquals("writer_failed", response.getAsJsonObject("error").get("code").asString)
-        assertTrue(response.getAsJsonObject("error").get("message").asString.contains("synthetic writer failure"))
-        assertFalse(Files.exists(requestPath))
+        assertEquals("failed", status.get("state").asString)
+        assertTrue(status.get("failure_reason").asString.contains("synthetic writer failure"))
+        assertFalse(Files.exists(config.controlPath().resolve("requests")))
+        assertFalse(Files.exists(config.controlPath().resolve("responses")))
     }
 
     @Suppress("UNCHECKED_CAST")

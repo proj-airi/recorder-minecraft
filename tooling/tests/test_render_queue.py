@@ -12,7 +12,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
 from mc_recorder.errors import RecorderError
-from mc_recorder.render_queue import RenderQueueStore
+from mc_recorder.protocol.render.queue import RenderQueueStore
 
 RECORDING_ID = "a" * 24
 WORKER_ONE = "11111111-1111-4111-8111-111111111111"
@@ -81,9 +81,7 @@ class RenderQueueStoreTest(unittest.TestCase):
 
         migrated = RenderQueueStore(legacy_path)
         with closing(sqlite3.connect(legacy_path)) as connection:
-            columns = {
-                str(row[1]) for row in connection.execute("PRAGMA table_info(render_jobs)")
-            }
+            columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(render_jobs)")}
         self.assertIn("eligible_at", columns)
 
         job = migrated.create(_payload())
@@ -142,9 +140,7 @@ class RenderQueueStoreTest(unittest.TestCase):
         self.assertEqual("online", self.store.workers()[0]["state"])
         attaching = self.store.set_server_phase(uploaded["id"], "attaching")
         self.assertEqual("attaching", attaching["state"])
-        complete = self.store.complete(
-            attaching["id"], {"dataset_id": _payload()["dataset_id"]}
-        )
+        complete = self.store.complete(attaching["id"], {"dataset_id": _payload()["dataset_id"]})
         self.assertEqual("complete", complete["state"])
 
         self.assertEqual(
@@ -161,7 +157,7 @@ class RenderQueueStoreTest(unittest.TestCase):
         assert claimed is not None
         future = time.time() + 20
 
-        with mock.patch("mc_recorder.render_queue.time.time", return_value=future):
+        with mock.patch("mc_recorder.protocol.render.queue.time.time", return_value=future):
             self.assertEqual("queued", self.store.get(job["id"])["state"])
             reclaimed = self.store.claim(WORKER_TWO, lease_seconds=10)
             assert reclaimed is not None
@@ -176,7 +172,7 @@ class RenderQueueStoreTest(unittest.TestCase):
 
     def test_expired_scoped_lease_clears_an_earlier_defer_cooldown(self) -> None:
         base_time = 2_000_000.0
-        with mock.patch("mc_recorder.render_queue.time.time", return_value=base_time):
+        with mock.patch("mc_recorder.protocol.render.queue.time.time", return_value=base_time):
             job = self.store.create(_payload())
             self.store.register_worker("first", worker_id=WORKER_ONE)
             self.store.register_worker("second", worker_id=WORKER_TWO)
@@ -190,10 +186,10 @@ class RenderQueueStoreTest(unittest.TestCase):
                 "replay is still being saved",
             )
 
-        with mock.patch("mc_recorder.render_queue.time.time", return_value=base_time + 1):
+        with mock.patch("mc_recorder.protocol.render.queue.time.time", return_value=base_time + 1):
             forced = self.store.claim(WORKER_ONE, job_id=job["id"], lease_seconds=10)
         assert forced is not None
-        with mock.patch("mc_recorder.render_queue.time.time", return_value=base_time + 12):
+        with mock.patch("mc_recorder.protocol.render.queue.time.time", return_value=base_time + 12):
             reclaimed = self.store.claim(WORKER_TWO, lease_seconds=10)
         assert reclaimed is not None
         self.assertEqual(job["id"], reclaimed["job"]["id"])
@@ -241,12 +237,12 @@ class RenderQueueStoreTest(unittest.TestCase):
         base_time = 1_000_000.0
         later_payload = _payload()
         later_payload["dataset_id"] = "d" * 32
-        with mock.patch("mc_recorder.render_queue.time.time", return_value=base_time):
+        with mock.patch("mc_recorder.protocol.render.queue.time.time", return_value=base_time):
             oldest = self.store.create(_payload())
-        with mock.patch("mc_recorder.render_queue.time.time", return_value=base_time + 1):
+        with mock.patch("mc_recorder.protocol.render.queue.time.time", return_value=base_time + 1):
             later = self.store.create(later_payload)
             self.store.register_worker("worker", worker_id=WORKER_ONE)
-        with mock.patch("mc_recorder.render_queue.time.time", return_value=base_time + 2):
+        with mock.patch("mc_recorder.protocol.render.queue.time.time", return_value=base_time + 2):
             claimed_oldest = self.store.claim(WORKER_ONE, job_id=oldest["id"])
             assert claimed_oldest is not None
             attempt = claimed_oldest["attempt"]
@@ -257,12 +253,12 @@ class RenderQueueStoreTest(unittest.TestCase):
                 "replay is still being saved",
             )
 
-        with mock.patch("mc_recorder.render_queue.time.time", return_value=base_time + 3):
+        with mock.patch("mc_recorder.protocol.render.queue.time.time", return_value=base_time + 3):
             claimed_later = self.store.claim(WORKER_ONE)
         assert claimed_later is not None
         self.assertEqual(later["id"], claimed_later["job"]["id"])
 
-        with mock.patch("mc_recorder.render_queue.time.time", return_value=base_time + 4):
+        with mock.patch("mc_recorder.protocol.render.queue.time.time", return_value=base_time + 4):
             later_attempt = claimed_later["attempt"]
             self.store.fail_attempt(
                 WORKER_ONE,
@@ -270,7 +266,7 @@ class RenderQueueStoreTest(unittest.TestCase):
                 later_attempt["lease_token"],
                 "test cleanup",
             )
-        with mock.patch("mc_recorder.render_queue.time.time", return_value=base_time + 33):
+        with mock.patch("mc_recorder.protocol.render.queue.time.time", return_value=base_time + 33):
             reclaimed_oldest = self.store.claim(WORKER_ONE)
         assert reclaimed_oldest is not None
         self.assertEqual(oldest["id"], reclaimed_oldest["job"]["id"])

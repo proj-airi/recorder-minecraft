@@ -10,11 +10,12 @@ import unittest
 from collections.abc import Mapping
 from contextlib import closing
 from pathlib import Path
+from typing import Any
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
-from mc_recorder.dataset_viewer import (
+from mc_recorder.processing.dataset.viewer import (
     ArtifactUnavailableError,
     DatasetValidationError,
     DatasetViewer,
@@ -22,13 +23,13 @@ from mc_recorder.dataset_viewer import (
     SampleNotFoundError,
     opaque_dataset_id,
 )
-from mc_recorder.render_contract import FULL_CLIENT_PRESENTATION_CONTRACT
-from mc_recorder.scene_store import (
+from mc_recorder.processing.scene.store import (
     SceneIdentity,
     SceneStoreBuilder,
     validate_scene_attachment_provenance,
     validate_scene_store,
 )
+from mc_recorder.protocol.render.contract import FULL_CLIENT_PRESENTATION_CONTRACT
 
 _AUTO_SCENE_ATTACHMENT = object()
 
@@ -151,7 +152,7 @@ def _sample(
 
 
 def _state_stream_row(tick: dict[str, object]) -> dict[str, object]:
-    state = dict(tick["state"])
+    state = dict(tick["state"])  # ty:ignore[no-matching-overload]
     state.update(
         {
             "schema_version": 2,
@@ -160,7 +161,7 @@ def _state_stream_row(tick: dict[str, object]) -> dict[str, object]:
             "epoch_index": tick.get("epoch_index", 0),
             "server_tick": tick["server_tick"],
             "sequence": tick["server_tick"],
-            "recorded_at_ns": tick["server_tick"] * 100,
+            "recorded_at_ns": tick["server_tick"] * 100,  # ty:ignore[unsupported-operator]
             "player_uuid": tick["player_uuid"],
             "connection_id": tick["connection_id"],
             "source": {},
@@ -177,8 +178,8 @@ def _modality_stream_row(tick: dict[str, object]) -> dict[str, object]:
         "server_tick": tick["server_tick"],
         "player_uuid": tick["player_uuid"],
         "connection_id": tick["connection_id"],
-        "scene": tick["modalities"]["scene"],
-        "rgb": tick["modalities"]["rgb"],
+        "scene": tick["modalities"]["scene"],  # ty:ignore[not-subscriptable]
+        "rgb": tick["modalities"]["rgb"],  # ty:ignore[not-subscriptable]
         "source": {},
     }
 
@@ -199,21 +200,10 @@ def _write_dataset(
     directory.mkdir(parents=True, exist_ok=True)
     tick_rows = samples if ticks is None else ticks
     streams = {
-        "samples.jsonl": b"".join(
-            json.dumps(row, sort_keys=True, separators=(",", ":")).encode() + b"\n"
-            for row in samples
-        ),
-        "states.jsonl": b"".join(
-            json.dumps(_state_stream_row(row), sort_keys=True, separators=(",", ":")).encode()
-            + b"\n"
-            for row in tick_rows
-        ),
+        "samples.jsonl": b"".join(json.dumps(row, sort_keys=True, separators=(",", ":")).encode() + b"\n" for row in samples),
+        "states.jsonl": b"".join(json.dumps(_state_stream_row(row), sort_keys=True, separators=(",", ":")).encode() + b"\n" for row in tick_rows),
         "actions.jsonl": b"",
-        "modalities.jsonl": b"".join(
-            json.dumps(_modality_stream_row(row), sort_keys=True, separators=(",", ":")).encode()
-            + b"\n"
-            for row in tick_rows
-        ),
+        "modalities.jsonl": b"".join(json.dumps(_modality_stream_row(row), sort_keys=True, separators=(",", ":")).encode() + b"\n" for row in tick_rows),
     }
     for file_name, content in streams.items():
         (directory / file_name).write_bytes(content)
@@ -254,26 +244,17 @@ def _write_dataset(
             },
             "rgb": {
                 "availability": "per-sample",
-                "records_attached": sum(
-                    row["modalities"]["rgb"].get("available") is True
-                    for row in tick_rows
-                ),
+                "records_attached": sum(row["modalities"]["rgb"].get("available") is True for row in tick_rows),  # ty:ignore[not-subscriptable]
                 "index": "modalities.jsonl",
             },
             "scene": {
                 "availability": "per-sample",
-                "records_attached": sum(
-                    row["modalities"]["scene"].get("available") is True
-                    for row in tick_rows
-                ),
+                "records_attached": sum(row["modalities"]["scene"].get("available") is True for row in tick_rows),  # ty:ignore[not-subscriptable]
                 "index": "modalities.jsonl",
                 "store": "scene/scene-v1.sqlite3" if scene_store is not None else None,
             },
         },
-        "files": {
-            file_name: {"size_bytes": len(content), "sha256": _sha256(content)}
-            for file_name, content in streams.items()
-        },
+        "files": {file_name: {"size_bytes": len(content), "sha256": _sha256(content)} for file_name, content in streams.items()},
     }
     if scene_store is not None:
         scene_directory = directory / "scene"
@@ -306,7 +287,7 @@ def _write_dataset(
             }
     if scene_attachment is _AUTO_SCENE_ATTACHMENT:
         scene_attachment = None
-    manifest["selection"]["scene_attachment"] = scene_attachment
+    manifest["selection"]["scene_attachment"] = scene_attachment  # ty:ignore[invalid-assignment]
     (directory / "manifest.json").write_text(
         json.dumps(manifest, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
@@ -356,12 +337,14 @@ def _scene_store_bytes(
             "record_count": 1,
             "first_tick": tick,
             "last_tick": tick,
-            "source_epochs": [{
-                "epoch_index": 0,
-                "events_sha256": "34" * 32,
-                "events_size_bytes": 1000,
-                "record_count": 20,
-            }],
+            "source_epochs": [
+                {
+                    "epoch_index": 0,
+                    "events_sha256": "34" * 32,
+                    "events_size_bytes": 1000,
+                    "record_count": 20,
+                }
+            ],
         },
         "stream": {
             "format": "mc-recorder-scene-stream-v1",
@@ -434,11 +417,7 @@ def _scene_store_bytes(
             frame_id=f"scene-frame-{tick}",
             replay_tick=tick,
             dimension=dimension,
-            subject_position=(
-                subject_position
-                if subject_position is not None
-                else (tick + 0.25, 64.0, -tick - 0.5)
-            ),
+            subject_position=(subject_position if subject_position is not None else (tick + 0.25, 64.0, -tick - 0.5)),
             coverage_complete=True,
         )
         builder.publish(output, expected_ticks=(tick,))
@@ -460,44 +439,30 @@ class DatasetCatalogTest(unittest.TestCase):
             nested.mkdir()
             _write_dataset(nested, [_sample(1)], name="not-direct.dataset")
 
-            bad_owner = _write_dataset(
-                exports, [_sample(1)], name="bad-owner.dataset", owner="someone-else"
-            )
+            bad_owner = _write_dataset(exports, [_sample(1)], name="bad-owner.dataset", owner="someone-else")
             _write_dataset(
                 exports,
                 [_sample(1)],
                 name="bad-format.dataset",
                 format_name="not-mc-recorder",
             )
-            bad_schema = _write_dataset(
-                exports, [_sample(1)], name="bad-schema.dataset"
-            )
-            bad_schema_manifest = json.loads(
-                (bad_schema / "manifest.json").read_text(encoding="utf-8")
-            )
+            bad_schema = _write_dataset(exports, [_sample(1)], name="bad-schema.dataset")
+            bad_schema_manifest = json.loads((bad_schema / "manifest.json").read_text(encoding="utf-8"))
             bad_schema_manifest["schema_version"] = 1
-            (bad_schema / "manifest.json").write_text(
-                json.dumps(bad_schema_manifest), encoding="utf-8"
-            )
+            (bad_schema / "manifest.json").write_text(json.dumps(bad_schema_manifest), encoding="utf-8")
             bad_files = _write_dataset(exports, [_sample(1)], name="bad-files.dataset")
-            bad_files_manifest = json.loads(
-                (bad_files / "manifest.json").read_text(encoding="utf-8")
-            )
+            bad_files_manifest = json.loads((bad_files / "manifest.json").read_text(encoding="utf-8"))
             bad_files_manifest["files"]["other.jsonl"] = {
                 "size_bytes": 0,
                 "sha256": _sha256(b""),
             }
-            (bad_files / "manifest.json").write_text(
-                json.dumps(bad_files_manifest), encoding="utf-8"
-            )
+            (bad_files / "manifest.json").write_text(json.dumps(bad_files_manifest), encoding="utf-8")
             extra = _write_dataset(exports, [_sample(1)], name="extra.dataset")
             (extra / "unexpected.txt").write_text("not part of v2", encoding="utf-8")
             bad_hash = _write_dataset(exports, [_sample(1)], name="bad-hash.dataset")
             (bad_hash / "samples.jsonl").write_bytes(b"changed after manifest\n")
             try:
-                os.symlink(
-                    bad_owner, exports / "linked.dataset", target_is_directory=True
-                )
+                os.symlink(bad_owner, exports / "linked.dataset", target_is_directory=True)
             except OSError:
                 pass
 
@@ -534,7 +499,7 @@ class DatasetCatalogTest(unittest.TestCase):
             bounded_handle.__enter__.return_value.read.return_value = b"x" * 33
             original_open = Path.open
 
-            def open_path(path: Path, *args, **kwargs):
+            def open_path(path: Path, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
                 if path == manifest:
                     return bounded_handle
                 return original_open(path, *args, **kwargs)
@@ -598,9 +563,7 @@ class DatasetIndexTest(unittest.TestCase):
             self.assertEqual(2, summary.connection_count)
             self.assertEqual((10, 12), (summary.first_tick, summary.last_tick))
             self.assertTrue(viewer.index_path.is_file())
-            self.assertTrue(
-                viewer.index_path.is_relative_to((root / "runtime").resolve())
-            )
+            self.assertTrue(viewer.index_path.is_relative_to((root / "runtime").resolve()))
 
             metadata = viewer.get_dataset_metadata(summary.dataset_id)
             self.assertEqual(4, metadata.sample_count)
@@ -613,9 +576,7 @@ class DatasetIndexTest(unittest.TestCase):
 
             connections = viewer.list_player_connections(summary.dataset_id)
             self.assertEqual(2, len(connections))
-            primary = next(
-                item for item in connections if item.player_uuid == "player-a"
-            )
+            primary = next(item for item in connections if item.player_uuid == "player-a")
             self.assertEqual(3, primary.state_count)
             self.assertEqual(2, primary.valid_transitions)
             self.assertEqual(0, primary.scene_states)
@@ -624,14 +585,10 @@ class DatasetIndexTest(unittest.TestCase):
             self.assertEqual(4, first_page.total)
             self.assertEqual(2, len(first_page.items))
             self.assertIsNotNone(first_page.next_cursor)
-            second_page = viewer.list_sample_summaries(
-                summary.dataset_id, limit=2, cursor=first_page.next_cursor
-            )
+            second_page = viewer.list_sample_summaries(summary.dataset_id, limit=2, cursor=first_page.next_cursor)
             self.assertEqual(2, len(second_page.items))
             self.assertIsNone(second_page.next_cursor)
-            without_scene = viewer.list_sample_summaries(
-                summary.dataset_id, scene_available=False
-            )
+            without_scene = viewer.list_sample_summaries(summary.dataset_id, scene_available=False)
             self.assertEqual(4, without_scene.total)
 
             invalid = viewer.list_sample_summaries(
@@ -655,26 +612,18 @@ class DatasetIndexTest(unittest.TestCase):
             self.assertEqual(0, trajectory.omitted_tracks)
             self.assertEqual(
                 (10.25, 12.25),
-                (trajectory.bounds.min_x, trajectory.bounds.max_x),
+                (trajectory.bounds.min_x, trajectory.bounds.max_x),  # ty:ignore[unresolved-attribute]
             )
-            primary_track = next(
-                track for track in trajectory.tracks if track.player_uuid == "player-a"
-            )
+            primary_track = next(track for track in trajectory.tracks if track.player_uuid == "player-a")
             self.assertEqual(3, primary_track.point_count)
-            self.assertEqual(
-                [10, 12], [point.server_tick for point in primary_track.points]
-            )
+            self.assertEqual([10, 12], [point.server_tick for point in primary_track.points])
             self.assertEqual(
                 [False, False],
                 [point.continuous_from_previous for point in primary_track.points],
             )
-            self.assertAlmostEqual(
-                2**0.5, primary_track.horizontal_distance_blocks
-            )
+            self.assertAlmostEqual(2**0.5, primary_track.horizontal_distance_blocks)
 
-            bounded_trajectory = viewer.get_trajectory(
-                summary.dataset_id, max_points=1
-            )
+            bounded_trajectory = viewer.get_trajectory(summary.dataset_id, max_points=1)
             self.assertEqual(1, bounded_trajectory.returned_points)
             self.assertEqual(1, bounded_trajectory.omitted_tracks)
             self.assertEqual(1, len(bounded_trajectory.tracks))
@@ -687,26 +636,18 @@ class DatasetIndexTest(unittest.TestCase):
                 transition_valid=False,
             )
             self.assertEqual(1, invalid_trajectory.total_points)
-            self.assertEqual(
-                11, invalid_trajectory.tracks[0].points[0].server_tick
-            )
+            self.assertEqual(11, invalid_trajectory.tracks[0].points[0].server_tick)
 
-            detail = viewer.get_sample_detail(
-                summary.dataset_id, invalid.items[0].sample_id
-            )
+            detail = viewer.get_sample_detail(summary.dataset_id, invalid.items[0].sample_id)
             self.assertEqual(11, detail.record["server_tick"])
             self.assertNotIn("reference", detail.record["modalities"]["rgb"])
             self.assertIsNone(detail.record["modalities"]["rgb"]["artifact_id"])
             self.assertNotIn("reference", detail.record["modalities"]["scene"])
             self.assertIsNone(detail.record["modalities"]["scene"]["artifact_id"])
             with self.assertRaises(ArtifactUnavailableError):
-                viewer.resolve_rgb_artifact(
-                    summary.dataset_id, invalid.items[0].sample_id
-                )
+                viewer.resolve_rgb_artifact(summary.dataset_id, invalid.items[0].sample_id)
             with self.assertRaises(ArtifactUnavailableError):
-                viewer.get_scene_slice(
-                    summary.dataset_id, invalid.items[0].sample_id, axis="y"
-                )
+                viewer.get_scene_slice(summary.dataset_id, invalid.items[0].sample_id, axis="y")
             with self.assertRaisesRegex(DatasetViewerError, "axis"):
                 viewer.get_scene_slice(
                     summary.dataset_id,
@@ -736,9 +677,7 @@ class DatasetIndexTest(unittest.TestCase):
 
             page = viewer.list_sample_summaries(summary.dataset_id)
             first, terminal = page.items
-            detail = viewer.get_sample_detail(
-                summary.dataset_id, terminal.sample_id
-            ).record
+            detail = viewer.get_sample_detail(summary.dataset_id, terminal.sample_id).record
             trajectory = viewer.get_trajectory(summary.dataset_id)
 
             self.assertEqual((1, 2), (summary.sample_count, summary.state_count))
@@ -760,17 +699,10 @@ class DatasetIndexTest(unittest.TestCase):
             )
             self.assertEqual(
                 [False, True],
-                [
-                    point.continuous_from_previous
-                    for point in trajectory.tracks[0].points
-                ],
+                [point.continuous_from_previous for point in trajectory.tracks[0].points],
             )
-            self.assertAlmostEqual(
-                2**0.5, trajectory.tracks[0].horizontal_distance_blocks
-            )
-            valid_only = viewer.list_sample_summaries(
-                summary.dataset_id, transition_valid=True
-            )
+            self.assertAlmostEqual(2**0.5, trajectory.tracks[0].horizontal_distance_blocks)
+            valid_only = viewer.list_sample_summaries(summary.dataset_id, transition_valid=True)
             self.assertEqual(1, valid_only.total)
             self.assertEqual(20, valid_only.items[0].server_tick)
 
@@ -832,14 +764,12 @@ class DatasetIndexTest(unittest.TestCase):
                             continue
                         structured_hud = attachment.get("structured_hud")
                         if isinstance(structured_hud, dict):
-                            structured_hud["dataset_id"] = opaque_dataset_id(
-                                exports, name
-                            )
+                            structured_hud["dataset_id"] = opaque_dataset_id(exports, name)  # ty:ignore[invalid-assignment]
                     _write_dataset(
                         exports,
-                        [_sample(1, rgb=rgb)],
+                        [_sample(1, rgb=rgb)],  # ty:ignore[invalid-argument-type]
                         name=name,
-                        frame_attachments=attachments,
+                        frame_attachments=attachments,  # ty:ignore[invalid-argument-type]
                     )
                     viewer = DatasetViewer(exports, root / "runtime")
                     dataset_id = viewer.list_datasets()[0].dataset_id
@@ -867,9 +797,7 @@ class DatasetIndexTest(unittest.TestCase):
             with self.assertRaises(SampleNotFoundError):
                 viewer.get_sample_detail(dataset_id, old_sample_id)
             with closing(sqlite3.connect(viewer.index_path)) as database:
-                indexed_count = database.execute(
-                    "SELECT COUNT(*) FROM samples WHERE dataset_id = ?", (dataset_id,)
-                ).fetchone()[0]
+                indexed_count = database.execute("SELECT COUNT(*) FROM samples WHERE dataset_id = ?", (dataset_id,)).fetchone()[0]
             self.assertEqual(3, indexed_count)
 
     def test_rejects_same_size_tampering_when_mtime_is_restored(self) -> None:
@@ -916,10 +844,10 @@ class DatasetIndexTest(unittest.TestCase):
             exports.mkdir()
             _write_dataset(exports, [_sample(2**63)], name="bad-tick.dataset")
             non_finite = _sample(1)
-            non_finite["state"]["position"]["x"] = float("nan")
+            non_finite["state"]["position"]["x"] = float("nan")  # ty:ignore[not-subscriptable]
             _write_dataset(exports, [non_finite], name="bad-float.dataset")
             huge_integer = _sample(2)
-            huge_integer["state"]["position"]["x"] = 10**400
+            huge_integer["state"]["position"]["x"] = 10**400  # ty:ignore[not-subscriptable]
             _write_dataset(exports, [huge_integer], name="bad-coordinate.dataset")
 
             catalog = DatasetViewer(exports, root / "runtime").catalog()
@@ -948,14 +876,12 @@ class DatasetArtifactTest(unittest.TestCase):
             _write_dataset(
                 exports,
                 [],
-                ticks=[_sample(7, scene=scene)],
+                ticks=[_sample(7, scene=scene)],  # ty:ignore[invalid-argument-type]
                 scene_store=_scene_store_bytes(root),
             )
             viewer = DatasetViewer(exports, root / "runtime")
             summary = viewer.list_datasets()[0]
-            page = viewer.list_sample_summaries(
-                summary.dataset_id, scene_available=True
-            )
+            page = viewer.list_sample_summaries(summary.dataset_id, scene_available=True)
             sample_id = page.items[0].sample_id
 
             detail = viewer.get_sample_detail(summary.dataset_id, sample_id)
@@ -968,9 +894,7 @@ class DatasetArtifactTest(unittest.TestCase):
                 radius=8,
             )
             for coordinate in (10**100, -(10**100)):
-                with self.subTest(coordinate=coordinate), self.assertRaisesRegex(
-                    DatasetViewerError, "SQLite-safe world bounds"
-                ):
+                with self.subTest(coordinate=coordinate), self.assertRaisesRegex(DatasetViewerError, "SQLite-safe world bounds"):
                     viewer.get_scene_slice(
                         summary.dataset_id,
                         sample_id,
@@ -994,13 +918,9 @@ class DatasetArtifactTest(unittest.TestCase):
             self.assertFalse(page.items[0].transition_available)
             self.assertFalse(detail.record["transition_available"])
             self.assertNotIn("reference", detail.record["modalities"]["scene"])
-            self.assertEqual(
-                sample_id, detail.record["modalities"]["scene"]["artifact_id"]
-            )
+            self.assertEqual(sample_id, detail.record["modalities"]["scene"]["artifact_id"])
             self.assertEqual("client_visible", metadata.scene_scope)
-            self.assertEqual(
-                "full_packet_metadata", metadata.scene_metadata_policy
-            )
+            self.assertEqual("full_packet_metadata", metadata.scene_metadata_policy)
             self.assertTrue(metadata.scene_sensitive)
             self.assertEqual(
                 {
@@ -1010,16 +930,12 @@ class DatasetArtifactTest(unittest.TestCase):
                 },
                 policy,
             )
-            self.assertEqual(
-                "client_visible", detail.record["modalities"]["scene"]["scope"]
-            )
+            self.assertEqual("client_visible", detail.record["modalities"]["scene"]["scope"])
             self.assertEqual(
                 "full_packet_metadata",
                 detail.record["modalities"]["scene"]["metadata_policy"],
             )
-            self.assertIs(
-                True, detail.record["modalities"]["scene"]["sensitive"]
-            )
+            self.assertIs(True, detail.record["modalities"]["scene"]["sensitive"])
             self.assertEqual((64, 17, 17), (plane.coordinate, plane.width, plane.height))
             self.assertGreater(sum(cell.covered for cell in plane.cells), 0)
             covered = next(cell for cell in plane.cells if cell.covered)
@@ -1043,7 +959,7 @@ class DatasetArtifactTest(unittest.TestCase):
             }
             directory = _write_dataset(
                 exports,
-                [_sample(7, scene=scene)],
+                [_sample(7, scene=scene)],  # ty:ignore[invalid-argument-type]
                 scene_store=_scene_store_bytes(root),
             )
             scene_path = directory / "scene" / "scene-v1.sqlite3"
@@ -1086,7 +1002,7 @@ class DatasetArtifactTest(unittest.TestCase):
             }
             _write_dataset(
                 exports,
-                [_sample(7, scene=scene)],
+                [_sample(7, scene=scene)],  # ty:ignore[invalid-argument-type]
                 scene_store=_scene_store_bytes(root, authenticated=False),
                 scene_attachment={},
             )
@@ -1094,9 +1010,7 @@ class DatasetArtifactTest(unittest.TestCase):
             catalog = DatasetViewer(exports, root / "runtime").catalog()
 
             self.assertEqual((), catalog.datasets)
-            self.assertIn(
-                "authenticated extraction provenance", catalog.rejected[0].message
-            )
+            self.assertIn("authenticated extraction provenance", catalog.rejected[0].message)
 
     def test_scene_attachment_presence_exactly_tracks_the_contained_store(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -1113,7 +1027,7 @@ class DatasetArtifactTest(unittest.TestCase):
             }
             _write_dataset(
                 exports,
-                [_sample(7, scene=scene)],
+                [_sample(7, scene=scene)],  # ty:ignore[invalid-argument-type]
                 name="null-attachment.dataset",
                 scene_store=_scene_store_bytes(root),
                 scene_attachment=None,
@@ -1170,7 +1084,7 @@ class DatasetArtifactTest(unittest.TestCase):
                 name = f"bad-{field.replace('_', '-')}.dataset"
                 directory = _write_dataset(
                     exports,
-                    [_sample(7, scene=scene)],
+                    [_sample(7, scene=scene)],  # ty:ignore[invalid-argument-type]
                     name=name,
                     scene_store=scene_bytes,
                 )
@@ -1185,10 +1099,7 @@ class DatasetArtifactTest(unittest.TestCase):
             catalog = DatasetViewer(exports, root / "runtime").catalog()
 
             self.assertEqual((), catalog.datasets)
-            self.assertEqual(set(mutations), {
-                issue.name.removeprefix("bad-").removesuffix(".dataset").replace("-", "_")
-                for issue in catalog.rejected
-            })
+            self.assertEqual(set(mutations), {issue.name.removeprefix("bad-").removesuffix(".dataset").replace("-", "_") for issue in catalog.rejected})
 
     def test_scene_attachment_path_is_opaque_provenance_text(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -1205,14 +1116,12 @@ class DatasetArtifactTest(unittest.TestCase):
             }
             directory = _write_dataset(
                 exports,
-                [_sample(7, scene=scene)],
+                [_sample(7, scene=scene)],  # ty:ignore[invalid-argument-type]
                 scene_store=_scene_store_bytes(root),
             )
             manifest_path = directory / "manifest.json"
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            manifest["selection"]["scene_attachment"]["path"] = (
-                "historical source path, not a viewer input"
-            )
+            manifest["selection"]["scene_attachment"]["path"] = "historical source path, not a viewer input"
             manifest_path.write_text(
                 json.dumps(manifest, indent=2, sort_keys=True) + "\n",
                 encoding="utf-8",
@@ -1241,7 +1150,7 @@ class DatasetArtifactTest(unittest.TestCase):
                 "width": 1,
                 "height": 1,
             }
-            _write_dataset(exports, [_sample(1, rgb=rgb)])
+            _write_dataset(exports, [_sample(1, rgb=rgb)])  # ty:ignore[invalid-argument-type]
             viewer = DatasetViewer(exports, root / "runtime")
             dataset_id = viewer.list_datasets()[0].dataset_id
             sample_id = viewer.list_sample_summaries(dataset_id).items[0].sample_id
@@ -1252,9 +1161,7 @@ class DatasetArtifactTest(unittest.TestCase):
             self.assertEqual("image/png", artifact.media_type)
             detail = viewer.get_sample_detail(dataset_id, sample_id)
             self.assertNotIn("reference", detail.record["modalities"]["rgb"])
-            self.assertEqual(
-                sample_id, detail.record["modalities"]["rgb"]["artifact_id"]
-            )
+            self.assertEqual(sample_id, detail.record["modalities"]["rgb"]["artifact_id"])
 
             frame.write_bytes(png + b"tampered")
             with self.assertRaises(DatasetValidationError):
@@ -1275,7 +1182,7 @@ class DatasetArtifactTest(unittest.TestCase):
                 "artifact_bytes": len(png),
                 "artifact_sha256": _sha256(png),
             }
-            _write_dataset(exports, [_sample(1, rgb=rgb)])
+            _write_dataset(exports, [_sample(1, rgb=rgb)])  # ty:ignore[invalid-argument-type]
             viewer = DatasetViewer(exports, root / "runtime")
             dataset_id = viewer.list_datasets()[0].dataset_id
             sample_id = viewer.list_sample_summaries(dataset_id).items[0].sample_id
@@ -1290,7 +1197,7 @@ class DatasetArtifactTest(unittest.TestCase):
             except OSError:
                 self.skipTest("symlinks are unavailable")
             rgb["reference"] = str(linked)
-            _write_dataset(exports, [_sample(1, rgb=rgb)])
+            _write_dataset(exports, [_sample(1, rgb=rgb)])  # ty:ignore[invalid-argument-type]
             dataset_id = viewer.list_datasets()[0].dataset_id
             sample_id = viewer.list_sample_summaries(dataset_id).items[0].sample_id
             with self.assertRaisesRegex(DatasetValidationError, "symlink"):
@@ -1309,7 +1216,7 @@ class DatasetArtifactTest(unittest.TestCase):
                 "frame_id": "scene-frame-1",
                 "reason": None,
             }
-            _write_dataset(exports, [_sample(1, scene=scene)])
+            _write_dataset(exports, [_sample(1, scene=scene)])  # ty:ignore[invalid-argument-type]
 
             catalog = DatasetViewer(exports, root / "runtime").catalog()
 
@@ -1331,7 +1238,7 @@ class DatasetArtifactTest(unittest.TestCase):
             }
             _write_dataset(
                 exports,
-                [_sample(8, scene=scene)],
+                [_sample(8, scene=scene)],  # ty:ignore[invalid-argument-type]
                 scene_store=_scene_store_bytes(root, tick=7),
             )
 
@@ -1357,31 +1264,23 @@ class DatasetArtifactTest(unittest.TestCase):
                 exports,
                 [],
                 name="bad-scene-dimension.dataset",
-                ticks=[_sample(7, scene=scene)],
-                scene_store=_scene_store_bytes(
-                    root, dimension="minecraft:the_nether"
-                ),
+                ticks=[_sample(7, scene=scene)],  # ty:ignore[invalid-argument-type]
+                scene_store=_scene_store_bytes(root, dimension="minecraft:the_nether"),
             )
             _write_dataset(
                 exports,
                 [],
                 name="bad-scene-position.dataset",
-                ticks=[_sample(7, scene=scene)],
-                scene_store=_scene_store_bytes(
-                    root, subject_position=(7.250000000000001, 64.0, -7.5)
-                ),
+                ticks=[_sample(7, scene=scene)],  # ty:ignore[invalid-argument-type]
+                scene_store=_scene_store_bytes(root, subject_position=(7.250000000000001, 64.0, -7.5)),
             )
 
             catalog = DatasetViewer(exports, root / "runtime").catalog()
 
             self.assertEqual((), catalog.datasets)
             rejected = {issue.name: issue.message for issue in catalog.rejected}
-            self.assertIn(
-                "scene frame dimension", rejected["bad-scene-dimension.dataset"]
-            )
-            self.assertIn(
-                "scene frame subject_position", rejected["bad-scene-position.dataset"]
-            )
+            self.assertIn("scene frame dimension", rejected["bad-scene-dimension.dataset"])
+            self.assertIn("scene frame subject_position", rejected["bad-scene-position.dataset"])
 
 
 if __name__ == "__main__":

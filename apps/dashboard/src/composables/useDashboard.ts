@@ -245,7 +245,7 @@ export function useDashboard() {
         }),
         method: 'POST',
       })
-      showToast(`RGB render ${job.state}; the foreground GUI worker will claim it when online.`)
+      showToast(`RGB render ${job.state}; RabbitMQ will hand it to the next one-shot render-worker process.`)
       await Promise.all([refreshRecordings(), refreshRenders()])
     }
     catch (error) {

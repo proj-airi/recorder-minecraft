@@ -3,7 +3,6 @@ package dev.mcdata.recorder.control
 import com.google.gson.GsonBuilder
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
-import com.google.gson.JsonParser
 import dev.mcdata.recorder.io.AsyncEpochWriter
 import org.slf4j.Logger
 import java.nio.file.AtomicMoveNotSupportedException
@@ -16,8 +15,9 @@ import java.time.Instant
 import java.util.UUID
 
 /**
- * Runtime-only dashboard bridge. None of these files are accepted as capture source truth: source
- * records and verified sealed epoch manifests remain authoritative.
+ * Runtime-only dashboard bridge. None of these files are accepted as capture source truth:
+ * append-only source records, completed replay archives, and verified slice manifests remain
+ * authoritative.
  */
 class RecorderControlPlane(
     private val sessionId: String,
@@ -27,9 +27,8 @@ class RecorderControlPlane(
     private val nowMillis: () -> Long = System::currentTimeMillis
 ) {
     private val root = controlRoot.toAbsolutePath().normalize()
-    private val requests = root.resolve("requests")
-    private val responses = root.resolve("responses")
     private val sessions = root.resolve("sessions")
+    private val renderReady = root.resolve("render-ready")
     private val connections = linkedMapOf<String, ConnectionRecord>()
     private var connectionsDirty = true
 
@@ -37,15 +36,13 @@ class RecorderControlPlane(
         require(SESSION_ID_PATTERN.matches(sessionId)) { "session_id is not safe for the control spool" }
         Files.createDirectories(root)
         check(!Files.isSymbolicLink(root)) { "control_root must not be a symbolic link: $root" }
-        Files.createDirectories(requests)
-        Files.createDirectories(responses)
         Files.createDirectories(sessions)
+        Files.createDirectories(renderReady)
         check(
-            !Files.isSymbolicLink(requests) &&
-                !Files.isSymbolicLink(responses) &&
-                !Files.isSymbolicLink(sessions)
+            !Files.isSymbolicLink(sessions) &&
+                !Files.isSymbolicLink(renderReady)
         ) {
-            "control request, response, and session directories must not be symbolic links"
+            "control session and render-ready directories must not be symbolic links"
         }
         writeConnections()
     }
@@ -83,88 +80,6 @@ class RecorderControlPlane(
         connection.endSequence = endSequence
         connection.terminalReason = terminalReason
         writeConnections()
-    }
-
-    @Synchronized
-    fun pollSealRequests(): List<SealRequest> {
-        if (!Files.isDirectory(requests, LinkOption.NOFOLLOW_LINKS)) return emptyList()
-        val accepted = mutableListOf<SealRequest>()
-        Files.newDirectoryStream(requests, "*.json").use { stream ->
-            stream.asSequence()
-                .map { path ->
-                    path to path.fileName.toString().removeSuffix(".json")
-                }
-                .filter { (_, fileRequestId) ->
-                    if (!isUuid(fileRequestId)) {
-                        false
-                    } else if (responseExists(fileRequestId)) {
-                        retireRequest(fileRequestId)
-                        false
-                    } else {
-                        true
-                    }
-                }
-                .sortedBy { (path, _) -> path.fileName.toString() }
-                .take(MAX_REQUESTS_PER_POLL)
-                .forEach { (path, fileRequestId) ->
-                    val parsed = runCatching { parseRequest(path, fileRequestId) }
-                    if (parsed.isFailure) {
-                        writeFailure(
-                            fileRequestId,
-                            "invalid_request",
-                            parsed.exceptionOrNull()?.message ?: "request is invalid"
-                        )
-                        return@forEach
-                    }
-                    val request = parsed.getOrThrow()
-                    val validationFailure = validate(request)
-                    if (validationFailure != null) {
-                        writeFailure(request.requestId, validationFailure.first, validationFailure.second)
-                    } else {
-                        accepted += request
-                    }
-                }
-        }
-        return accepted
-    }
-
-    @Synchronized
-    fun completeSealRequest(
-        request: SealRequest,
-        sealed: AsyncEpochWriter.SealedEpoch,
-        reused: Boolean,
-        coalesced: Boolean
-    ) {
-        if (responseExists(request.requestId)) {
-            retireRequest(request.requestId)
-            return
-        }
-        check(sealed.lastSequence >= request.connectionEndSequence) {
-            "epoch ${sealed.epochIndex} does not cover connection end sequence ${request.connectionEndSequence}"
-        }
-        val manifestRelative = sessionDirectory.relativize(sealed.manifestPath).toString()
-        val response = responseEnvelope(request.requestId, "complete").apply {
-            addProperty("operation", SEAL_OPERATION)
-            addProperty("session_id", sessionId)
-            addProperty("player_uuid", request.playerUuid)
-            addProperty("connection_id", request.connectionId)
-            addProperty("connection_end_sequence", request.connectionEndSequence)
-            addProperty("sealed_epoch_index", sealed.epochIndex)
-            addProperty("sealed_through_sequence", sealed.lastSequence)
-            addProperty("sealed_manifest", manifestRelative)
-            addProperty("events_sha256", sealed.eventsSha256)
-            addProperty("rotation_reason", sealed.rotationReason)
-            addProperty("forced_seal", sealed.forced)
-            addProperty("reused_existing_seal", reused)
-            addProperty("coalesced", coalesced)
-        }
-        atomicWrite(responsePath(request.requestId), response)
-        retireRequest(request.requestId)
-    }
-
-    @Synchronized
-    fun failSealRequests(requests: Collection<SealRequest>, code: String, message: String) {
-        requests.forEach { writeFailure(it.requestId, code, message) }
     }
 
     @Synchronized
@@ -225,6 +140,52 @@ class RecorderControlPlane(
         }
         atomicWrite(sessions.resolve("$sessionId.replay-segments.json"), json)
         atomicWrite(root.resolve("replay-segments.json"), json)
+        publishRenderReadySegments(segments)
+    }
+
+    private fun publishRenderReadySegments(segments: List<ReplaySegmentSnapshot>) {
+        segments
+            .filter {
+                it.state == "saved" &&
+                    it.connectionId != null &&
+                    it.connectionEndServerTick != null &&
+                    it.connectionEndSequence != null &&
+                    it.output != null &&
+                    it.outputSizeBytes != null
+            }
+            .groupBy { checkNotNull(it.connectionId) }
+            .forEach { (connectionId, connectionSegments) ->
+                if (!isUuid(connectionId)) return@forEach
+                val first = connectionSegments.minBy { it.segmentOrdinal }
+                val now = nowMillis()
+                val json = JsonObject().apply {
+                    addProperty("schema_version", CONTROL_SCHEMA_VERSION)
+                    addProperty("kind", "render_ready")
+                    addProperty("session_id", sessionId)
+                    addProperty("player_uuid", first.playerUuid)
+                    addProperty("connection_id", connectionId)
+                    addProperty("connection_end_server_tick", first.connectionEndServerTick)
+                    addProperty("connection_end_sequence", first.connectionEndSequence)
+                    first.terminalReason?.let { addProperty("terminal_reason", it) }
+                    addProperty("emitted_at", Instant.ofEpochMilli(now).toString())
+                    addProperty("emitted_at_unix_ms", now)
+                    add("segments", JsonArray().also { array ->
+                        connectionSegments.sortedBy { it.segmentOrdinal }.forEach { segment ->
+                            array.add(JsonObject().apply {
+                                addProperty("segment_id", segment.segmentId)
+                                addProperty("segment_ordinal", segment.segmentOrdinal)
+                                addProperty("state", segment.state)
+                                addProperty("output", segment.output)
+                                addProperty("output_size_bytes", segment.outputSizeBytes)
+                                addProperty("replay_format", segment.replayFormat)
+                                addProperty("hotbar_snapshot_contract", segment.hotbarSnapshotContract)
+                                segment.flashbackCaptureContract?.let { addProperty("flashback_capture_contract", it) }
+                            })
+                        }
+                    })
+                }
+                atomicWrite(renderReady.resolve("$connectionId.json"), json)
+            }
     }
 
     @Synchronized
@@ -239,48 +200,6 @@ class RecorderControlPlane(
             endSequence = it.endSequence,
             terminalReason = it.terminalReason
         )
-    }
-
-    private fun parseRequest(path: Path, fileRequestId: String): SealRequest {
-        check(Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)) { "request must be a regular file" }
-        val size = Files.size(path)
-        check(size in 1..MAX_REQUEST_BYTES) { "request size must be between 1 and $MAX_REQUEST_BYTES bytes" }
-        val json = Files.newBufferedReader(path).use { reader -> JsonParser.parseReader(reader).asJsonObject }
-        check(requiredInt(json, "schema_version") == CONTROL_SCHEMA_VERSION) {
-            "unsupported schema_version"
-        }
-        check(requiredString(json, "operation") == SEAL_OPERATION) { "unsupported operation" }
-        val requestId = requiredString(json, "request_id")
-        check(requestId == fileRequestId && isUuid(requestId)) {
-            "request_id must be a canonical UUID matching the filename"
-        }
-        return SealRequest(
-            requestId = requestId,
-            expectedSessionId = requiredString(json, "expected_session_id"),
-            playerUuid = requiredString(json, "player_uuid").also { check(isUuid(it)) { "player_uuid must be a UUID" } },
-            connectionId = requiredString(json, "connection_id").also { check(isUuid(it)) { "connection_id must be a UUID" } },
-            connectionEndSequence = requiredLong(json, "connection_end_sequence").also {
-                check(it >= 0) { "connection_end_sequence must not be negative" }
-            }
-        )
-    }
-
-    private fun validate(request: SealRequest): Pair<String, String>? {
-        if (request.expectedSessionId != sessionId) {
-            return "stale_session" to "expected session does not match the active capture session"
-        }
-        val connection = connections[request.connectionId]
-            ?: return "unknown_connection" to "connection_id does not exist in the active session ledger"
-        if (connection.playerUuid != request.playerUuid) {
-            return "connection_player_mismatch" to "connection_id does not belong to player_uuid"
-        }
-        if (connection.active) {
-            return "connection_active" to "a recording can be sealed only after the player disconnects"
-        }
-        if (connection.endSequence != request.connectionEndSequence) {
-            return "connection_end_mismatch" to "connection_end_sequence does not match the recorder ledger"
-        }
-        return null
     }
 
     private fun writeConnections() {
@@ -318,63 +237,6 @@ class RecorderControlPlane(
         }
     }
 
-    private fun writeFailure(requestId: String, code: String, message: String) {
-        if (responseExists(requestId)) {
-            retireRequest(requestId)
-            return
-        }
-        val response = responseEnvelope(requestId, "failed").apply {
-            addProperty("operation", SEAL_OPERATION)
-            addProperty("session_id", sessionId)
-            add("error", JsonObject().apply {
-                addProperty("code", code)
-                addProperty("message", message.take(2_048))
-            })
-        }
-        atomicWrite(responsePath(requestId), response)
-        retireRequest(requestId)
-        logger.warn("Rejected recorder control request {}: {}", requestId, code)
-    }
-
-    private fun retireRequest(requestId: String) {
-        runCatching { Files.deleteIfExists(requests.resolve("$requestId.json")) }.onFailure {
-            logger.warn("Could not retire completed recorder control request {}", requestId, it)
-        }
-    }
-
-    private fun responseEnvelope(requestId: String, status: String): JsonObject {
-        val now = nowMillis()
-        return JsonObject().apply {
-            addProperty("schema_version", CONTROL_SCHEMA_VERSION)
-            addProperty("request_id", requestId)
-            addProperty("status", status)
-            addProperty("completed_at", Instant.ofEpochMilli(now).toString())
-            addProperty("completed_at_unix_ms", now)
-        }
-    }
-
-    private fun responseExists(requestId: String): Boolean =
-        Files.isRegularFile(responsePath(requestId), LinkOption.NOFOLLOW_LINKS)
-
-    private fun responsePath(requestId: String): Path = responses.resolve("$requestId.json")
-
-    private fun requiredString(json: JsonObject, name: String): String {
-        val value = json.get(name)
-        check(value != null && value.isJsonPrimitive && value.asJsonPrimitive.isString) { "$name must be a string" }
-        return value.asString.also { check(it.isNotBlank()) { "$name must not be blank" } }
-    }
-
-    private fun requiredLong(json: JsonObject, name: String): Long {
-        val value = json.get(name)
-        check(value != null && value.isJsonPrimitive && value.asJsonPrimitive.isNumber) { "$name must be an integer" }
-        return runCatching { value.asBigDecimal.longValueExact() }
-            .getOrElse { throw IllegalStateException("$name must be an integer") }
-    }
-
-    private fun requiredInt(json: JsonObject, name: String): Int = requiredLong(json, name).also {
-        check(it in Int.MIN_VALUE..Int.MAX_VALUE) { "$name is out of range" }
-    }.toInt()
-
     private fun isUuid(value: String): Boolean = runCatching { UUID.fromString(value).toString() == value }.getOrDefault(false)
 
     private fun atomicWrite(destination: Path, json: JsonObject) {
@@ -393,14 +255,6 @@ class RecorderControlPlane(
             Files.deleteIfExists(partial)
         }
     }
-
-    data class SealRequest(
-        val requestId: String,
-        val expectedSessionId: String,
-        val playerUuid: String,
-        val connectionId: String,
-        val connectionEndSequence: Long
-    )
 
     data class StatusSnapshot(
         val state: String,
@@ -495,9 +349,6 @@ class RecorderControlPlane(
 
     companion object {
         private const val CONTROL_SCHEMA_VERSION = 1
-        private const val SEAL_OPERATION = "seal_connection"
-        private const val MAX_REQUEST_BYTES = 64L * 1024
-        private const val MAX_REQUESTS_PER_POLL = 128
         private val TERMINAL_REASONS = setOf("disconnect", "server_shutdown")
         private val SESSION_ID_PATTERN = Regex("[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
         private val GSON = GsonBuilder().setPrettyPrinting().create()

@@ -14,10 +14,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
 from mc_recorder.errors import RecorderError
-from mc_recorder.exporter import CANONICAL_RENDER_RESULT_TYPE, export_episode
-from mc_recorder.render_contract import FULL_CLIENT_PRESENTATION_CONTRACT
-from mc_recorder.render_hud import hud_result_envelope
-from mc_recorder.render_transfer import (
+from mc_recorder.processing.capture.exporter import CANONICAL_RENDER_RESULT_TYPE, export_episode
+from mc_recorder.processing.render.hud import hud_result_envelope
+from mc_recorder.protocol.render.contract import FULL_CLIENT_PRESENTATION_CONTRACT
+from mc_recorder.protocol.render.transfer import (
     PORTABLE_REQUEST_TYPE,
     create_portable_render_request,
     create_render_bundle,
@@ -124,20 +124,10 @@ def _replay(root: Path) -> Path:
 
 def _png(width: int = 64, height: int = 64) -> bytes:
     def chunk(name: bytes, data: bytes) -> bytes:
-        return (
-            struct.pack(">I", len(data))
-            + name
-            + data
-            + struct.pack(">I", zlib.crc32(name + data) & 0xFFFFFFFF)
-        )
+        return struct.pack(">I", len(data)) + name + data + struct.pack(">I", zlib.crc32(name + data) & 0xFFFFFFFF)
 
     pixels = b"".join(b"\x00" + b"\x00" * (width * 4) for _ in range(height))
-    return (
-        b"\x89PNG\r\n\x1a\n"
-        + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0))
-        + chunk(b"IDAT", zlib.compress(pixels))
-        + chunk(b"IEND", b"")
-    )
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(pixels)) + chunk(b"IEND", b"")
 
 
 def _request(
@@ -200,11 +190,7 @@ def _complete_job(
         request,
         replay,
         root / "job",
-        structured_hud=(
-            root / "structured-hud.jsonl"
-            if request.get("structured_hud") is not None
-            else None
-        ),
+        structured_hud=(root / "structured-hud.jsonl" if request.get("structured_hud") is not None else None),
     )
     frames = job.directory / "frames"
     rows: list[dict[str, object]] = []
@@ -224,9 +210,7 @@ def _complete_job(
                 "path": filename,
             }
         )
-    (frames / "frames.jsonl").write_text(
-        "".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8"
-    )
+    (frames / "frames.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
     digest = hashlib.sha256(replay.read_bytes()).hexdigest()
     (job.directory / "result.json").write_text(
         json.dumps(
@@ -247,17 +231,13 @@ def _complete_job(
                 "fps": 20,
                 "width": 64,
                 "height": 64,
-                "no_gui": request["render"].get("no_gui", True),
+                "no_gui": request["render"].get("no_gui", True),  # ty:ignore[unresolved-attribute]
                 **(
                     {
-                        "presentation_contract": request["render"][
-                            "presentation_contract"
-                        ],
-                        "structured_hud": hud_result_envelope(
-                            request["structured_hud"]
-                        ),
+                        "presentation_contract": request["render"]["presentation_contract"],  # ty:ignore[not-subscriptable]
+                        "structured_hud": hud_result_envelope(request["structured_hud"]),  # ty:ignore[invalid-argument-type]
                     }
-                    if "presentation_contract" in request["render"]
+                    if "presentation_contract" in request["render"]  # ty:ignore[unsupported-operator]
                     else {}
                 ),
             }
@@ -275,15 +255,13 @@ class PortableRenderTransferTest(unittest.TestCase):
             encoded = json.dumps(request)
             self.assertNotIn(str(root), encoded)
             self.assertEqual(PORTABLE_REQUEST_TYPE, request["request_type"])
-            self.assertEqual("segment-0001", request["source_replay"]["segment_id"])
-            self.assertFalse(request["render"]["no_gui"])
+            self.assertEqual("segment-0001", request["source_replay"]["segment_id"])  # ty:ignore[not-subscriptable]
+            self.assertFalse(request["render"]["no_gui"])  # ty:ignore[not-subscriptable]
             published = write_portable_render_request(root / "request.json", request)
             self.assertEqual(published, load_portable_render_request(root / "request.json"))
             self.assertEqual(published, write_portable_render_request(root / "request.json", request))
 
-            materialized = materialize_portable_render_job(
-                published, replay, root / "render-job"
-            )
+            materialized = materialize_portable_render_job(published, replay, root / "render-job")
             job = json.loads(materialized.manifest.read_text())
             self.assertEqual(published.sha256, job["portable_request"]["sha256"])
             self.assertEqual(str(replay.resolve()), job["replay"])
@@ -292,9 +270,7 @@ class PortableRenderTransferTest(unittest.TestCase):
 
             legacy = json.loads(json.dumps(request))
             legacy["render"].pop("no_gui")
-            legacy_job = materialize_portable_render_job(
-                legacy, replay, root / "legacy-render-job"
-            )
+            legacy_job = materialize_portable_render_job(legacy, replay, root / "legacy-render-job")
             self.assertTrue(json.loads(legacy_job.manifest.read_text())["no_gui"])
 
             invalid = json.loads(json.dumps(request))
@@ -328,9 +304,7 @@ class PortableRenderTransferTest(unittest.TestCase):
             result = json.loads(result_path.read_text())
             result.pop("no_gui")
             result_path.write_text(json.dumps(result), encoding="utf-8")
-            bundle = create_render_bundle(
-                job, root / "legacy-bundle", legacy, use_hardlinks=False
-            )
+            bundle = create_render_bundle(job, root / "legacy-bundle", legacy, use_hardlinks=False)
             self.assertTrue(bundle.manifest.is_file())
 
     def test_complete_bundle_imports_canonical_relative_result_and_exports(self) -> None:
@@ -340,12 +314,8 @@ class PortableRenderTransferTest(unittest.TestCase):
             request_path = root / "request.json"
             write_portable_render_request(request_path, request)
             job = _complete_job(root, request, replay)
-            bundle = create_render_bundle(
-                job, root / "bundle", request_path, use_hardlinks=False
-            )
-            imported = import_render_bundle(
-                request_path, bundle.directory, replay, root / "imported"
-            )
+            bundle = create_render_bundle(job, root / "bundle", request_path, use_hardlinks=False)
+            imported = import_render_bundle(request_path, bundle.directory, replay, root / "imported")
             self.assertFalse(imported.reused)
             self.assertEqual("complete", imported.status)
             result = json.loads(imported.result.read_text())
@@ -356,9 +326,7 @@ class PortableRenderTransferTest(unittest.TestCase):
             self.assertNotIn(str(root), imported.result.read_text())
             self.assertEqual("segment-0001", result["source_replay"]["segment_id"])
 
-            reused = import_render_bundle(
-                request_path, bundle.directory, replay, root / "imported"
-            )
+            reused = import_render_bundle(request_path, bundle.directory, replay, root / "imported")
             self.assertTrue(reused.reused)
             dataset = export_episode(episode, root / "dataset", frames=[imported.directory])
             self.assertEqual(2, dataset.rgb_count)
@@ -396,9 +364,7 @@ class PortableRenderTransferTest(unittest.TestCase):
             result_path.write_text(json.dumps(result), encoding="utf-8")
 
             with self.assertRaisesRegex(RecorderError, "requires no_gui=false"):
-                create_render_bundle(
-                    job, root / "invalid-bundle", request, use_hardlinks=False
-                )
+                create_render_bundle(job, root / "invalid-bundle", request, use_hardlinks=False)
 
     def test_full_client_presentation_contract_round_trips_and_is_request_bound(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -409,7 +375,7 @@ class PortableRenderTransferTest(unittest.TestCase):
             )
             self.assertEqual(
                 FULL_CLIENT_PRESENTATION_CONTRACT,
-                request["render"]["presentation_contract"],
+                request["render"]["presentation_contract"],  # ty:ignore[not-subscriptable]
             )
             job = _complete_job(root, request, replay)
             job_manifest = json.loads((job / "render-job.json").read_text())
@@ -419,7 +385,7 @@ class PortableRenderTransferTest(unittest.TestCase):
             )
             self.assertEqual(
                 {
-                    **hud_result_envelope(request["structured_hud"]),
+                    **hud_result_envelope(request["structured_hud"]),  # ty:ignore[invalid-argument-type]
                     "path": str((job / "hud-states.jsonl").resolve()),
                 },
                 job_manifest["structured_hud"],
@@ -428,32 +394,22 @@ class PortableRenderTransferTest(unittest.TestCase):
                 (root / "structured-hud.jsonl").read_bytes(),
                 (job / "hud-states.jsonl").read_bytes(),
             )
-            bundle = create_render_bundle(
-                job, root / "bundle", request, use_hardlinks=False
-            )
-            imported = import_render_bundle(
-                request, bundle.directory, replay, root / "imported"
-            )
+            bundle = create_render_bundle(job, root / "bundle", request, use_hardlinks=False)
+            imported = import_render_bundle(request, bundle.directory, replay, root / "imported")
             canonical = json.loads(imported.result.read_text())
             self.assertEqual(
                 FULL_CLIENT_PRESENTATION_CONTRACT,
                 canonical["presentation_contract"],
             )
-            dataset = export_episode(
-                episode, root / "dataset", frames=[imported.directory]
-            )
+            dataset = export_episode(episode, root / "dataset", frames=[imported.directory])
             manifest = json.loads((dataset.output / "manifest.json").read_text())
             self.assertEqual(
                 FULL_CLIENT_PRESENTATION_CONTRACT,
-                manifest["selection"]["frame_attachments"][0][
-                    "presentation_contract"
-                ],
+                manifest["selection"]["frame_attachments"][0]["presentation_contract"],
             )
             self.assertEqual(
-                request["structured_hud"]["sha256"],
-                manifest["selection"]["frame_attachments"][0]["structured_hud"][
-                    "sha256"
-                ],
+                request["structured_hud"]["sha256"],  # ty:ignore[not-subscriptable]
+                manifest["selection"]["frame_attachments"][0]["structured_hud"]["sha256"],
             )
 
             result_path = job / "result.json"
@@ -467,15 +423,11 @@ class PortableRenderTransferTest(unittest.TestCase):
                     request,
                     use_hardlinks=False,
                 )
-            result["structured_hud"]["sha256"] = request["structured_hud"]["sha256"]
+            result["structured_hud"]["sha256"] = request["structured_hud"]["sha256"]  # ty:ignore[not-subscriptable]
             result.pop("presentation_contract")
             result_path.write_text(json.dumps(result), encoding="utf-8")
-            with self.assertRaisesRegex(
-                RecorderError, "presentation_contract does not match"
-            ):
-                create_render_bundle(
-                    job, root / "mismatched-bundle", request, use_hardlinks=False
-                )
+            with self.assertRaisesRegex(RecorderError, "presentation_contract does not match"):
+                create_render_bundle(job, root / "mismatched-bundle", request, use_hardlinks=False)
 
     def test_structured_hud_request_is_path_free_identity_bound_and_verified(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -511,7 +463,7 @@ class PortableRenderTransferTest(unittest.TestCase):
                 root,
                 presentation_contract=FULL_CLIENT_PRESENTATION_CONTRACT,
             )
-            request["timeline"]["global_end_tick"] = 10
+            request["timeline"]["global_end_tick"] = 10  # ty:ignore[invalid-assignment]
             job = materialize_portable_render_job(
                 request,
                 replay,
@@ -526,18 +478,12 @@ class PortableRenderTransferTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             request, _episode_path, replay = _request(root)
-            self.assertNotIn("presentation_contract", request["render"])
+            self.assertNotIn("presentation_contract", request["render"])  # ty:ignore[invalid-argument-type]
             legacy_job = _complete_job(root, request, replay)
-            self.assertTrue(
-                create_render_bundle(
-                    legacy_job, root / "legacy-bundle", request, use_hardlinks=False
-                ).manifest.is_file()
-            )
+            self.assertTrue(create_render_bundle(legacy_job, root / "legacy-bundle", request, use_hardlinks=False).manifest.is_file())
             result_path = legacy_job / "result.json"
             upgraded_result = json.loads(result_path.read_text())
-            upgraded_result[
-                "presentation_contract"
-            ] = FULL_CLIENT_PRESENTATION_CONTRACT
+            upgraded_result["presentation_contract"] = FULL_CLIENT_PRESENTATION_CONTRACT
             result_path.write_text(json.dumps(upgraded_result), encoding="utf-8")
             with self.assertRaisesRegex(RecorderError, "was not requested"):
                 create_render_bundle(
@@ -549,16 +495,12 @@ class PortableRenderTransferTest(unittest.TestCase):
 
             invalid = json.loads(json.dumps(request))
             invalid["render"]["presentation_contract"] = "unknown_v9"
-            with self.assertRaisesRegex(
-                RecorderError, "presentation_contract is unsupported"
-            ):
+            with self.assertRaisesRegex(RecorderError, "presentation_contract is unsupported"):
                 write_portable_render_request(root / "invalid.json", invalid)
 
             hud_free = json.loads(json.dumps(request))
             hud_free["render"]["no_gui"] = True
-            hud_free["render"][
-                "presentation_contract"
-            ] = FULL_CLIENT_PRESENTATION_CONTRACT
+            hud_free["render"]["presentation_contract"] = FULL_CLIENT_PRESENTATION_CONTRACT
             with self.assertRaisesRegex(RecorderError, "requires no_gui=false"):
                 write_portable_render_request(root / "hud-free.json", hud_free)
 
@@ -569,9 +511,7 @@ class PortableRenderTransferTest(unittest.TestCase):
                 root = Path(temporary)
                 request, _episode_path, replay = _request(root)
                 job = _complete_job(root, request, replay)
-                bundle = create_render_bundle(
-                    job, root / "bundle", request, use_hardlinks=False
-                )
+                bundle = create_render_bundle(job, root / "bundle", request, use_hardlinks=False)
                 frame = bundle.directory / "frames" / "frame_000001.png"
                 if case == "tamper":
                     frame.write_bytes(b"tampered")
@@ -624,14 +564,12 @@ class PortableRenderTransferTest(unittest.TestCase):
                         "session_id": "session-a",
                         "connection_id": CONNECTION,
                         "player_uuid": PLAYER,
-                        "no_gui": request["render"].get("no_gui", True),
+                        "no_gui": request["render"].get("no_gui", True),  # ty:ignore[unresolved-attribute]
                     }
                 ),
                 encoding="utf-8",
             )
-            bundle = create_render_bundle(
-                job, root / "bundle", request, use_hardlinks=False
-            )
+            bundle = create_render_bundle(job, root / "bundle", request, use_hardlinks=False)
             imported = import_render_bundle(request, bundle.directory, replay, root / "imported")
             self.assertEqual("no_coverage", imported.status)
             result = json.loads(imported.result.read_text())
@@ -640,9 +578,7 @@ class PortableRenderTransferTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            request, _episode_path, replay = _request(
-                root, range_policy="intersection", newer_cutoff=11
-            )
+            request, _episode_path, replay = _request(root, range_policy="intersection", newer_cutoff=11)
             job = _complete_job(root, request, replay, ticks=(11,))
             with self.assertRaisesRegex(RecorderError, "outside the requested segment intersection"):
                 create_render_bundle(job, root / "bundle", request, use_hardlinks=False)

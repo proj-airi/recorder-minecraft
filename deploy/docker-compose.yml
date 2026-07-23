@@ -22,7 +22,7 @@ services:
       LEVEL: '${MC_LEVEL_NAME}'
       MOTD: '${MC_MOTD}'
       ENABLE_RCON: 'false'
-      PAUSE_WHEN_EMPTY_SECONDS: '-1'
+      PAUSE_WHEN_EMPTY_SECONDS: "-1"
       MODRINTH_PROJECTS: '${MC_MODRINTH_PROJECTS}'
       MODRINTH_DOWNLOAD_DEPENDENCIES: required
       SYNC_SKIP_NEWER_IN_DESTINATION: 'false'
@@ -45,17 +45,84 @@ services:
     image: python:3.11.15-alpine3.24
     restart: unless-stopped
     init: true
-    command: ['python', '-m', 'mc_recorder.storage_monitor']
+    command: ['python', '-m', 'mc_recorder.processing.capture.storage_monitor']
     environment:
       PYTHONPATH: /opt/mc-recorder
       PYTHONUNBUFFERED: '1'
       MC_RECORDER_CAPTURE_ROOT: /captures
       MC_RECORDER_REPLAY_ROOT: /replays
-      MC_RECORDER_QUOTA_BYTES: '${MC_CAPTURE_QUOTA_BYTES}'
-      MC_RECORDER_WARN_PERCENT: '${MC_CAPTURE_WARN_PERCENT}'
-      MC_RECORDER_EVICT_OLDEST: '${MC_CAPTURE_EVICT_OLDEST}'
-      MC_RECORDER_CHECK_INTERVAL: '${MC_STORAGE_CHECK_INTERVAL}'
+      MC_RECORDER_QUOTA_BYTES: '${MC_RECORDER_QUOTA_BYTES}'
+      MC_RECORDER_WARN_PERCENT: '${MC_RECORDER_WARN_PERCENT}'
+      MC_RECORDER_EVICT_OLDEST: '${MC_RECORDER_EVICT_OLDEST}'
+      MC_RECORDER_CHECK_INTERVAL: '${MC_RECORDER_CHECK_INTERVAL}'
     volumes:
       - '${MC_CAPTURE_DIR}:/captures'
       - '${MC_REPLAY_DIR}:/replays'
       - '${MC_TOOLING_SOURCE_DIR}:/opt/mc-recorder:ro'
+
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    restart: unless-stopped
+    ports:
+      - '5672:5672'
+      - '15672:15672'
+    healthcheck:
+      test: ['CMD', 'rabbitmq-diagnostics', '-q', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 18
+
+  dashboard:
+    image: python:3.14-slim
+    restart: unless-stopped
+    init: true
+    command:
+      - sh
+      - -c
+      - >-
+        python -m pip install --disable-pip-version-check --quiet 'pika>=1.3.2' &&
+        python -m mc_recorder --config /recorder.toml dashboard serve
+    environment:
+      PYTHONPATH: /opt/mc-recorder
+      PYTHONUNBUFFERED: '1'
+      MC_RECORDER_DASHBOARD_USERNAME: '${MC_RECORDER_DASHBOARD_USERNAME}'
+      MC_RECORDER_DASHBOARD_PASSWORD: '${MC_RECORDER_DASHBOARD_PASSWORD}'
+      MC_RECORDER_RABBITMQ_URL: '${MC_RECORDER_RABBITMQ_URL}'
+      MC_RECORDER_RENDER_TASK_QUEUE: '${MC_RECORDER_RENDER_TASK_QUEUE}'
+      MC_RECORDER_DASHBOARD_STATIC_ROOT: /opt/mc-recorder-dashboard
+    ports:
+      - '${MC_DASHBOARD_PORT}:${MC_DASHBOARD_PORT}'
+    volumes:
+      - '${MC_CONFIG_FILE}:/recorder.toml:ro'
+      - '${MC_CAPTURE_DIR}:${MC_CAPTURE_DIR}'
+      - '${MC_REPLAY_DIR}:${MC_REPLAY_DIR}'
+      - '${MC_EXPORT_DIR}:${MC_EXPORT_DIR}'
+      - '${MC_RUNTIME_DIR}:${MC_RUNTIME_DIR}'
+      - '${MC_TOOLING_SOURCE_DIR}:/opt/mc-recorder:ro'
+      - '${MC_DASHBOARD_STATIC_ROOT}:/opt/mc-recorder-dashboard:ro'
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  render-dispatcher:
+    image: python:3.14-slim
+    restart: unless-stopped
+    init: true
+    command:
+      - sh
+      - -c
+      - >-
+        python -m pip install --disable-pip-version-check --quiet 'pika>=1.3.2' &&
+        python -m mc_recorder --config /recorder.toml render-dispatcher
+    environment:
+      PYTHONPATH: /opt/mc-recorder
+      PYTHONUNBUFFERED: '1'
+      MC_RECORDER_RABBITMQ_URL: '${MC_RECORDER_RABBITMQ_URL}'
+      MC_RECORDER_RENDER_TASK_QUEUE: '${MC_RECORDER_RENDER_TASK_QUEUE}'
+    volumes:
+      - '${MC_CONFIG_FILE}:/recorder.toml:ro'
+      - '${MC_RUNTIME_DIR}:${MC_RUNTIME_DIR}'
+      - '${MC_TOOLING_SOURCE_DIR}:/opt/mc-recorder:ro'
+    depends_on:
+      rabbitmq:
+        condition: service_healthy

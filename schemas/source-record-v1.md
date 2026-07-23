@@ -13,7 +13,7 @@ artifacts/captures/<session-id>/
   session_end.json                    # written on close; status may be incomplete
   epochs/
     epoch-000000/
-      events.jsonl                    # present only after sealing
+      events.jsonl                    # present only after slice publication
       manifest.json
 
 artifacts/replays/
@@ -22,9 +22,9 @@ artifacts/replays/
 ```
 
 The default sidecar epoch is 6,000 ticks, nominally five minutes at 20 Hz.
-While it is active, its stream is named `events.jsonl.inprogress`. Sealing
-flushes and syncs the stream, atomically publishes it as `events.jsonl`, and
-then publishes a manifest containing:
+While it is active, its stream is named `events.jsonl.inprogress`. Slice
+publication flushes and syncs the stream, atomically publishes it as
+`events.jsonl`, and then publishes a manifest containing:
 
 - `session_id` and `epoch_index`;
 - `sealed: true`;
@@ -35,12 +35,11 @@ then publishes a manifest containing:
 - `sealed_at`, `rotation_reason`, and `forced_seal` boundary metadata.
 
 Epoch indices are session-local, contiguous, and monotonically increasing.
-Automatic rotation occurs after the configured number of complete ticks. A
-manual rotation is processed only after `tick_end`, seals all records through
-that tick, and starts the automatic interval again with the next tick. If a
-manual request arrives at an already-due automatic boundary, one
-`manual_and_automatic` rotation satisfies both. Manual rotation never changes
-the session ID or ServerReplay's independent archive schedule.
+Automatic rotation occurs after the configured number of complete ticks. The
+recorder does not accept external promotion requests; it keeps appending to the
+active stream and publishes immutable slices only at its own rotation and
+shutdown boundaries. Slice rotation never changes the session ID or
+ServerReplay's independent archive schedule.
 
 Readers, exporters, and retention code accept an epoch as immutable only when
 the final file and all three integrity checks (record count, byte count, and
@@ -91,8 +90,7 @@ runtime-only files for the host dashboard:
   replay-segments.json
   sessions/<session-id>.connections.json
   sessions/<session-id>.replay-segments.json
-  requests/<request-uuid>.json
-  responses/<request-uuid>.json
+  render-ready/<connection-id>.json
 ```
 
 `status.json` is refreshed at most once per second while ticks are running. It
@@ -103,20 +101,16 @@ snapshot is retained under `sessions/` so completed rows survive later server
 starts. Each row contains player UUID/name, a unique `connection_id`, join
 tick/sequence, and, after termination, end tick/sequence and `terminal_reason`
 (`disconnect` or `server_shutdown`). A clean server shutdown queues terminal
-source events before the final session seal, then publishes terminal ledger
-fields only after that seal succeeds. If sealing fails, the ledger stays
+source events before closing the writer, then publishes terminal ledger fields
+only after the final slice exists. If final publication fails, the ledger stays
 unterminated so the stale heartbeat is classified as interrupted rather than
 cleanly disconnected.
 
-A seal request uses control schema v1 and operation `seal_connection`, with a
-UUID request ID, `expected_session_id`, exact player UUID/connection ID, and the
-ledger's `connection_end_sequence`. Active, unknown, stale-session, or
-mismatched requests receive atomic failure responses. Valid requests are
-coalesced at the next end-of-tick boundary, or reuse an already-published seal
-that covers the end sequence. A success response names the epoch, its terminal
-sequence, manifest, and event hash and is written only after the epoch stream is
-fsynced and its integrity manifest exists. Existing responses make request IDs
-idempotent.
+There is no recorder command spool for promoting data. Tooling that needs a
+connection range waits for an immutable slice whose manifest covers the
+connection end sequence, pins that filesystem unit against retention, and then
+copies/extracts from the verified files. Missing coverage is reported as
+`waiting_for_slice`, not as a request to the recorder.
 
 `replay-segments.json` binds ServerReplay's independently rotated player
 archives to capture identity. The recorder allocates a UUID `segment_id` and a
@@ -159,7 +153,7 @@ and session-history segment ledgers are atomic runtime indexes, not substitutes
 for archive metadata, timeline markers, or host integrity verification.
 
 These files coordinate the dashboard; they are never source truth. Exporters
-must still validate the immutable source events and sealed epoch manifests.
+must still validate the immutable source events and slice manifests.
 
 ## Packet observation and authoritative order
 

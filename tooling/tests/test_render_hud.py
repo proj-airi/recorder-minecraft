@@ -11,9 +11,9 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
-from mc_recorder.dataset_viewer import DatasetValidationError, DatasetViewer, opaque_dataset_id
 from mc_recorder.errors import RecorderError
-from mc_recorder.render_hud import (
+from mc_recorder.processing.dataset.viewer import DatasetValidationError, DatasetViewer, opaque_dataset_id
+from mc_recorder.processing.render.hud import (
     create_structured_hud_sidecar,
     validate_hud_sidecar_envelope,
 )

@@ -13,14 +13,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
-from mc_recorder.config import initialize, load_config
-from mc_recorder.dataset_viewer import opaque_dataset_id
+from mc_recorder.config import RecorderConfig, initialize, load_config
 from mc_recorder.errors import RecorderError
-from mc_recorder.exporter import export_episode
-from mc_recorder.render_attach import attach_imported_renders
-from mc_recorder.render_contract import FULL_CLIENT_PRESENTATION_CONTRACT
-from mc_recorder.render_hud import hud_result_envelope
-from mc_recorder.render_transfer import (
+from mc_recorder.processing.capture.exporter import export_episode
+from mc_recorder.processing.dataset.viewer import opaque_dataset_id
+from mc_recorder.processing.render.attach import attach_imported_renders
+from mc_recorder.processing.render.hud import hud_result_envelope
+from mc_recorder.protocol.render.contract import FULL_CLIENT_PRESENTATION_CONTRACT
+from mc_recorder.protocol.render.transfer import (
     create_portable_render_request,
     create_render_bundle,
     import_render_bundle,
@@ -114,23 +114,13 @@ def _replay(root: Path) -> Path:
 
 def _png() -> bytes:
     def chunk(name: bytes, payload: bytes) -> bytes:
-        return (
-            struct.pack(">I", len(payload))
-            + name
-            + payload
-            + struct.pack(">I", zlib.crc32(name + payload) & 0xFFFFFFFF)
-        )
+        return struct.pack(">I", len(payload)) + name + payload + struct.pack(">I", zlib.crc32(name + payload) & 0xFFFFFFFF)
 
     rows = b"".join(b"\0" + b"\0" * (64 * 4) for _ in range(64))
-    return (
-        b"\x89PNG\r\n\x1a\n"
-        + chunk(b"IHDR", struct.pack(">IIBBBBB", 64, 64, 8, 6, 0, 0, 0))
-        + chunk(b"IDAT", zlib.compress(rows))
-        + chunk(b"IEND", b"")
-    )
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 64, 64, 8, 6, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b"")
 
 
-def _dataset(config, episode: Path, *, matching: bool = True) -> Path:
+def _dataset(config: RecorderConfig, episode: Path, *, matching: bool = True) -> Path:
     output = config.paths.exports / f"{SESSION}-{PLAYER}-{CONNECTION}.dataset"
     export_episode(
         episode,
@@ -143,7 +133,7 @@ def _dataset(config, episode: Path, *, matching: bool = True) -> Path:
     return output
 
 
-def _job(config, output: Path) -> dict[str, object]:
+def _job(config: RecorderConfig, output: Path) -> dict[str, object]:
     return {
         "id": JOB_ID,
         "recording_id": RECORDING_ID,
@@ -162,7 +152,7 @@ def _job(config, output: Path) -> dict[str, object]:
 
 
 def _import(
-    config,
+    config: RecorderConfig,
     episode: Path,
     replay: Path,
     *,
@@ -178,12 +168,7 @@ def _import(
     if full_client:
         work.mkdir(parents=True, exist_ok=True)
         hud_path = work / "structured-hud.jsonl"
-        hud_path.write_bytes(
-            b"".join(
-                json.dumps({"server_tick": tick}).encode() + b"\n"
-                for tick in range(first_tick, last_tick + 1)
-            )
-        )
+        hud_path.write_bytes(b"".join(json.dumps({"server_tick": tick}).encode() + b"\n" for tick in range(first_tick, last_tick + 1)))
         dataset = config.paths.exports / f"{SESSION}-{PLAYER}-{CONNECTION}.dataset"
         manifest_bytes = (dataset / "manifest.json").read_bytes()
         manifest = json.loads(manifest_bytes)
@@ -216,9 +201,7 @@ def _import(
         last_tick=last_tick,
         request_id=str(uuid.uuid5(uuid.NAMESPACE_DNS, segment_id)),
         range_policy="intersection",
-        presentation_contract=(
-            FULL_CLIENT_PRESENTATION_CONTRACT if full_client else None
-        ),
+        presentation_contract=(FULL_CLIENT_PRESENTATION_CONTRACT if full_client else None),
         structured_hud=structured_hud,
     )
     materialized = materialize_portable_render_job(
@@ -256,9 +239,7 @@ def _import(
                     "path": name,
                 }
             )
-        (frames / "frames.jsonl").write_text(
-            "".join(json.dumps(row) + "\n" for row in frame_rows), encoding="utf-8"
-        )
+        (frames / "frames.jsonl").write_text("".join(json.dumps(row) + "\n" for row in frame_rows), encoding="utf-8")
         raw_result = {
             "status": "complete",
             "replay": str(replay.resolve()),
@@ -283,9 +264,7 @@ def _import(
         raw_result["presentation_contract"] = FULL_CLIENT_PRESENTATION_CONTRACT
         raw_result["structured_hud"] = hud_result_envelope(structured_hud)
     (materialized.directory / "result.json").write_text(json.dumps(raw_result), encoding="utf-8")
-    bundle = create_render_bundle(
-        materialized.directory, work / "bundle", request, use_hardlinks=False
-    )
+    bundle = create_render_bundle(materialized.directory, work / "bundle", request, use_hardlinks=False)
     destination = config.paths.exports / "render-jobs" / JOB_ID / segment_id
     imported = import_render_bundle(request, bundle.directory, replay, destination)
     return {
@@ -300,7 +279,7 @@ def _import(
 
 
 class RenderAttachmentTest(unittest.TestCase):
-    def _fixture(self, root: Path):
+    def _fixture(self, root: Path) -> tuple[RecorderConfig, Path, Path, Path, dict[str, object]]:
         config = load_config(initialize(root / "recorder.toml", accept_eula=True))
         episode = _episode(config.paths.captures)
         replay = _replay(root)
@@ -340,7 +319,7 @@ class RenderAttachmentTest(unittest.TestCase):
     def test_render_range_can_be_narrower_than_the_preserved_dataset_selection(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             config, episode, replay, output, job = self._fixture(Path(temporary))
-            job["payload"].update(
+            job["payload"].update(  # ty:ignore[unresolved-attribute]
                 {
                     "start_tick": 10,
                     "end_tick": 11,
@@ -362,7 +341,7 @@ class RenderAttachmentTest(unittest.TestCase):
     def test_full_client_import_is_bound_to_the_exact_verified_dataset(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             config, episode, replay, _output, job = self._fixture(Path(temporary))
-            job["payload"].update(
+            job["payload"].update(  # ty:ignore[unresolved-attribute]
                 {
                     "start_tick": 10,
                     "end_tick": 11,
@@ -386,7 +365,7 @@ class RenderAttachmentTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temporary:
             config, episode, replay, output, job = self._fixture(Path(temporary))
-            job["payload"].update(
+            job["payload"].update(  # ty:ignore[unresolved-attribute]
                 {
                     "start_tick": 10,
                     "end_tick": 11,
@@ -403,9 +382,7 @@ class RenderAttachmentTest(unittest.TestCase):
                 full_client=True,
             )
             samples_path = output / "samples.jsonl"
-            samples_path.write_bytes(
-                b"".join(b" " + line + b"\n" for line in samples_path.read_bytes().splitlines())
-            )
+            samples_path.write_bytes(b"".join(b" " + line + b"\n" for line in samples_path.read_bytes().splitlines()))
             manifest_path = output / "manifest.json"
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             manifest["files"]["samples.jsonl"] = {
@@ -431,11 +408,7 @@ class RenderAttachmentTest(unittest.TestCase):
                 imported = _import(config, episode, replay)
                 if case == "tampered":
                     (output / "samples.jsonl").write_text("tampered\n", encoding="utf-8")
-                snapshot = (
-                    {path.name: path.read_bytes() for path in output.iterdir()}
-                    if output.exists()
-                    else None
-                )
+                snapshot = {path.name: path.read_bytes() for path in output.iterdir()} if output.exists() else None
 
                 with self.assertRaises(RecorderError):
                     attach_imported_renders(config, job, [imported])

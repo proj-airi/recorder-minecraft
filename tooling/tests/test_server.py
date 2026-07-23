@@ -11,9 +11,9 @@ sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
 from unittest.mock import patch
 
-from mc_recorder.config import initialize, load_config
+from mc_recorder.config import RecorderConfig, initialize, load_config
 from mc_recorder.errors import RecorderError
-from mc_recorder.server import (
+from mc_recorder.serving.minecraft.provisioning import (
     _build_recorder_mod,
     compose_status,
     provision_local_mod,
@@ -28,7 +28,7 @@ from mc_recorder.server import (
 
 class ServerProvisioningTest(unittest.TestCase):
     @staticmethod
-    def _prepared_config(root: Path):
+    def _prepared_config(root: Path) -> RecorderConfig:
         source = root / "recorder.toml"
         if not source.exists():
             source = initialize(source, accept_eula=True)
@@ -44,6 +44,7 @@ class ServerProvisioningTest(unittest.TestCase):
             root = Path(temporary)
             source = initialize(root / "recorder.toml", accept_eula=True)
             (root / "tooling" / "src").mkdir(parents=True)
+            (root / "apps" / "dashboard" / "dist").mkdir(parents=True)
             project = root / "recorder-mod" / "build" / "libs"
             project.mkdir(parents=True)
             jar = project / "mc-recorder-capture-0.1.0.jar"
@@ -59,16 +60,12 @@ class ServerProvisioningTest(unittest.TestCase):
             self.assertEqual(jar.read_bytes(), staged.read_bytes())
 
             write_mod_configs(config)
-            replay_config = json.loads(
-                (config.paths.runtime / "config" / "server-replay" / "config.json").read_text()
-            )
+            replay_config = json.loads((config.paths.runtime / "config" / "server-replay" / "config.json").read_text())
             self.assertTrue(replay_config["automatically_record"])
             self.assertEqual({"type": "all"}, replay_config["player_predicate"])
             self.assertEqual("/replays/players", replay_config["player_recording_path"])
             self.assertTrue(replay_config["record_hotbar"])
-            capture_config = json.loads(
-                (config.paths.runtime / "config" / "mc-recorder.json").read_text()
-            )
+            capture_config = json.loads((config.paths.runtime / "config" / "mc-recorder.json").read_text())
             self.assertEqual("/captures", capture_config["capture_root"])
             self.assertEqual("/control", capture_config["control_root"])
             self.assertEqual(6000, capture_config["epoch_ticks"])
@@ -93,6 +90,7 @@ class ServerProvisioningTest(unittest.TestCase):
                 encoding="utf-8",
             )
             (root / "tooling" / "src").mkdir(parents=True)
+            (root / "apps" / "dashboard" / "dist").mkdir(parents=True)
 
             env = write_compose_env(load_config(source)).read_text(encoding="utf-8")
             self.assertIn('MC_MODRINTH_PROJECTS=""', env)
@@ -103,7 +101,7 @@ class ServerProvisioningTest(unittest.TestCase):
             config = load_config(initialize(root / "recorder.toml", accept_eula=True))
             config.mods.recorder_project.mkdir(parents=True)
 
-            with patch("mc_recorder.server._run") as run:
+            with patch("mc_recorder.serving.minecraft.provisioning._run") as run:
                 run.return_value = type(
                     "Result",
                     (),
@@ -124,10 +122,29 @@ class ServerProvisioningTest(unittest.TestCase):
             )
 
     def test_compose_keeps_recorder_control_ticks_live_while_empty(self) -> None:
-        compose = (Path(__file__).parents[2] / "deploy" / "docker-compose.yml").read_text(
-            encoding="utf-8"
-        )
-        self.assertIn("PAUSE_WHEN_EMPTY_SECONDS: '-1'", compose)
+        compose = (Path(__file__).parents[2] / "deploy" / "docker-compose.yml").read_text(encoding="utf-8")
+        self.assertRegex(compose, r"""PAUSE_WHEN_EMPTY_SECONDS:\s+['"]-1['"]""")
+
+    def test_compose_serves_built_dashboard_static_assets(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = initialize(root / "recorder.toml", accept_eula=True)
+            (root / "tooling" / "src").mkdir(parents=True)
+            dashboard_dist = root / "apps" / "dashboard" / "dist"
+            dashboard_dist.mkdir(parents=True)
+
+            env = write_compose_env(load_config(source)).read_text(encoding="utf-8")
+            compose = (Path(__file__).parents[2] / "deploy" / "docker-compose.yml").read_text(encoding="utf-8")
+
+            self.assertIn(f'MC_DASHBOARD_STATIC_ROOT="{dashboard_dist.resolve()}"', env)
+            self.assertIn("MC_RECORDER_DASHBOARD_STATIC_ROOT: /opt/mc-recorder-dashboard", compose)
+            self.assertIn("MC_RECORDER_DASHBOARD_USERNAME: '${MC_RECORDER_DASHBOARD_USERNAME}'", compose)
+            self.assertIn("MC_RECORDER_DASHBOARD_PASSWORD: '${MC_RECORDER_DASHBOARD_PASSWORD}'", compose)
+            self.assertIn(
+                "'${MC_DASHBOARD_STATIC_ROOT}:/opt/mc-recorder-dashboard:ro'",
+                compose,
+            )
+            self.assertNotIn("MC_RECORDER_DASHBOARD_PASSWORD=", env)
 
     def test_compose_status_maps_structured_service_state(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -141,14 +158,12 @@ class ServerProvisioningTest(unittest.TestCase):
                     (),
                     {
                         "returncode": 0,
-                        "stdout": json.dumps(
-                            [{"Service": "minecraft", "State": "running", "Health": "healthy"}]
-                        ),
+                        "stdout": json.dumps([{"Service": "minecraft", "State": "running", "Health": "healthy"}]),
                         "stderr": "",
                     },
                 )(),
             ]
-            with patch("mc_recorder.server._run", side_effect=responses) as run:
+            with patch("mc_recorder.serving.minecraft.provisioning._run", side_effect=responses) as run:
                 self.assertEqual("running", compose_status(config)["state"])
             self.assertEqual(
                 str(config.paths.runtime / "control"),
@@ -177,7 +192,7 @@ class ServerProvisioningTest(unittest.TestCase):
                             {"returncode": 0, "stdout": json.dumps(services), "stderr": ""},
                         )(),
                     ]
-                    with patch("mc_recorder.server._run", side_effect=responses):
+                    with patch("mc_recorder.serving.minecraft.provisioning._run", side_effect=responses):
                         self.assertEqual(expected, compose_status(config)["state"])
 
     def test_compose_status_reports_unprepared_and_docker_failure(self) -> None:
@@ -196,11 +211,11 @@ class ServerProvisioningTest(unittest.TestCase):
                     "stderr": "Docker daemon unavailable" + "x" * 4096,
                 },
             )()
-            with patch("mc_recorder.server._run", return_value=unavailable):
+            with patch("mc_recorder.serving.minecraft.provisioning._run", return_value=unavailable):
                 status = compose_status(config)
             self.assertEqual("docker_unavailable", status["state"])
-            self.assertIn("Docker daemon unavailable", status["message"])
-            self.assertEqual(2048, len(status["message"]))
+            self.assertIn("Docker daemon unavailable", status["message"])  # ty:ignore[invalid-argument-type]
+            self.assertEqual(2048, len(status["message"]))  # ty:ignore[invalid-argument-type]
 
     def test_start_rejects_unaccepted_eula_before_provisioning(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -221,9 +236,9 @@ class ServerProvisioningTest(unittest.TestCase):
                 },
             )()
             with (
-                patch("mc_recorder.server.write_compose_env"),
-                patch("mc_recorder.server.verify_docker"),
-                patch("mc_recorder.server._run", return_value=failed) as run,
+                patch("mc_recorder.serving.minecraft.provisioning.write_compose_env"),
+                patch("mc_recorder.serving.minecraft.provisioning.verify_docker"),
+                patch("mc_recorder.serving.minecraft.provisioning._run", return_value=failed) as run,
             ):
                 with self.assertRaisesRegex(RecorderError, "daemon refused"):
                     stop_server(config, capture_output=True)
@@ -241,7 +256,7 @@ class ServerProvisioningTest(unittest.TestCase):
             config.paths.compose_file.write_text("services: {}\n", encoding="utf-8")
 
             successful = type("Result", (), {"returncode": 0, "stdout": "", "stderr": ""})()
-            with patch("mc_recorder.server._run", return_value=successful) as run:
+            with patch("mc_recorder.serving.minecraft.provisioning._run", return_value=successful) as run:
                 self.assertEqual(0, show_status(config))
                 self.assertEqual(0, show_logs(config, follow=False, tail=5, service="minecraft"))
 

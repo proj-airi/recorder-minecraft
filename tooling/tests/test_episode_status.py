@@ -13,8 +13,8 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
 from mc_recorder.cli import _list
-from mc_recorder.episodes import inspect_episode
-from mc_recorder.storage import sealed_epoch_paths
+from mc_recorder.processing.capture.episodes import inspect_episode
+from mc_recorder.processing.capture.storage import sealed_epoch_paths
 
 
 def _active_episode(root: Path, *, terminal_status: str | None = None, clean: bool = False) -> Path:

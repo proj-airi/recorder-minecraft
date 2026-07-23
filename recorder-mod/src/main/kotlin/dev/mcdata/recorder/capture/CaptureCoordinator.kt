@@ -217,7 +217,6 @@ class CaptureCoordinator(
     }
 
     override fun close() {
-        var pendingRequests = emptyList<RecorderControlPlane.SealRequest>()
         var shutdownConnections = emptyList<ShutdownConnection>()
         try {
             synchronized(this) {
@@ -236,7 +235,6 @@ class CaptureCoordinator(
                     addProperty("clean_shutdown", true)
                     addProperty("apply_sequence_at_end", applySequence)
                 }
-                pendingRequests = pollSealRequests()
                 active = false
                 publishStatus(force = true, state = "stopping")
             }
@@ -257,11 +255,8 @@ class CaptureCoordinator(
                     "server_shutdown"
                 )
             }
-            writer.metrics().lastSealedEpoch?.let { sealed ->
-                completeRequests(pendingRequests, sealed, reused = false, coalesced = pendingRequests.size > 1)
-            }
             publishStatus(force = true, state = "stopped")
-            logger.info("Sealed dataset recording session {} at tick {}", session.sessionId, serverTick)
+            logger.info("Completed dataset recording session {} at tick {}", session.sessionId, serverTick)
         } catch (throwable: Throwable) {
             // If publishing the final record failed before the coordinator became inactive,
             // abandon the active epoch and publish an incomplete session marker.
@@ -277,10 +272,6 @@ class CaptureCoordinator(
             previous
         }
         val reason = "${failure::class.java.simpleName}: ${failure.message ?: "capture failure"}"
-        val pendingRequests = pollSealRequests()
-        controlSafely("publish writer failure responses") {
-            it.failSealRequests(pendingRequests, "writer_failed", reason)
-        }
         writer.abort(reason)
         publishStatus(force = true, state = "failed", failureReason = reason)
         if (wasActive) {
@@ -327,54 +318,14 @@ class CaptureCoordinator(
     }
 
     private fun processEndOfTickControl() {
-        val pending = pollSealRequests()
-        val latestSeal = writer.metrics().lastSealedEpoch
-        val (reused, requiringSeal) = pending.partition { request ->
-            latestSeal != null && latestSeal.lastSequence >= request.connectionEndSequence
-        }
-        if (latestSeal != null) {
-            completeRequests(reused, latestSeal, reused = true, coalesced = reused.size > 1)
-        }
-
-        val rotation = epochRotation.rotationAtEndTick(serverTick, requiringSeal.isNotEmpty()) ?: return
+        val rotation = epochRotation.rotationAtEndTick(serverTick, manualRequested = false) ?: return
         val sealed = try {
             writer.sealEpoch(rotation.reason, rotation.forced)
-        } catch (throwable: Throwable) {
-            controlSafely("publish seal failure") {
-                it.failSealRequests(
-                    requiringSeal,
-                    "seal_failed",
-                    "${throwable::class.java.simpleName}: ${throwable.message ?: "epoch seal failed"}"
-                )
-            }
-            throw throwable
-        }
+        } catch (throwable: Throwable) { throw throwable }
         check(sealed.epochIndex == rotation.epochIndex) {
             "writer sealed epoch ${sealed.epochIndex}, expected ${rotation.epochIndex}"
         }
         epochRotation.advanceAfter(rotation, serverTick)
-        completeRequests(
-            requiringSeal,
-            sealed,
-            reused = false,
-            coalesced = requiringSeal.size > 1 || rotation.automatic
-        )
-    }
-
-    private fun pollSealRequests(): List<RecorderControlPlane.SealRequest> =
-        controlSafely("poll seal requests", emptyList()) { it.pollSealRequests() }
-
-    private fun completeRequests(
-        requests: Collection<RecorderControlPlane.SealRequest>,
-        sealed: AsyncEpochWriter.SealedEpoch,
-        reused: Boolean,
-        coalesced: Boolean
-    ) {
-        requests.forEach { request ->
-            controlSafely("publish seal response") {
-                it.completeSealRequest(request, sealed, reused, coalesced)
-            }
-        }
     }
 
     private fun publishStatus(

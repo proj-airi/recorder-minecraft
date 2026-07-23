@@ -42,125 +42,13 @@ class RecorderControlPlaneTest {
     }
 
     @Test
-    fun `only an exact disconnected connection request is accepted`() {
-        val session = "session-request"
-        val plane = plane(session)
-        val player = UUID.randomUUID().toString()
-        val connection = UUID.randomUUID().toString()
-        plane.connectionStarted(player, "Steve", connection, 1, 2)
+    fun `control plane publishes file-only state without command spools`() {
+        plane("session-file-only")
 
-        val activeRequest = writeRequest(session, player, connection, 40)
-        assertTrue(plane.pollSealRequests().isEmpty())
-        assertFailure(activeRequest, "connection_active")
-
-        plane.connectionEnded(connection, 10, 40, "disconnect")
-        val exactRequest = writeRequest(session, player, connection, 40)
-        val accepted = plane.pollSealRequests()
-        assertEquals(listOf(exactRequest), accepted.map { it.requestId })
-
-        val mismatchRequest = writeRequest(session, player, connection, 39)
-        plane.pollSealRequests()
-        assertFailure(mismatchRequest, "connection_end_mismatch")
-
-        val staleRequest = writeRequest("another-session", player, connection, 40)
-        plane.pollSealRequests()
-        assertFailure(staleRequest, "stale_session")
-    }
-
-    @Test
-    fun `completed responses are idempotent and refer to a published verified manifest`() {
-        val session = "session-complete"
-        val sessionDirectory = directory.resolve(session)
-        Files.createDirectories(sessionDirectory.resolve("epochs"))
-        val plane = RecorderControlPlane(
-            session,
-            sessionDirectory,
-            directory.resolve("control"),
-            LoggerFactory.getLogger("test"),
-            nowMillis = { 1_000 }
-        )
-        val player = UUID.randomUUID().toString()
-        val connection = UUID.randomUUID().toString()
-        plane.connectionStarted(player, "Alex", connection, 1, 2)
-        plane.connectionEnded(connection, 8, 10, "disconnect")
-        val requestId = writeRequest(session, player, connection, 10)
-        val request = plane.pollSealRequests().single()
-
-        val writer = AsyncEpochWriter(session, sessionDirectory, 1_024, LoggerFactory.getLogger("test"))
-        writer.submit(record(0, 8, 10, "tick_end"))
-        val sealed = writer.sealEpoch("manual", forced = true)
-        plane.completeSealRequest(request, sealed, reused = false, coalesced = false)
-        val responsePath = responsePath(requestId)
-        val original = Files.readString(responsePath)
-
-        assertTrue(Files.isRegularFile(sealed.manifestPath))
-        val response = readJson(responsePath)
-        assertEquals("complete", response.get("status").asString)
-        assertEquals(0, response.get("sealed_epoch_index").asInt)
-        assertEquals(10, response.get("sealed_through_sequence").asInt)
-        assertTrue(response.get("forced_seal").asBoolean)
-        assertFalse(Files.exists(directory.resolve("control/requests/$requestId.json")))
-        assertTrue(plane.pollSealRequests().isEmpty())
-        plane.completeSealRequest(request, sealed, reused = true, coalesced = true)
-        assertEquals(original, Files.readString(responsePath))
-        writer.close()
-    }
-
-    @Test
-    fun `completed request files do not starve later unresolved requests`() {
-        val session = "session-spool-cap"
-        val plane = plane(session)
-        val player = UUID.randomUUID().toString()
-        val connection = UUID.randomUUID().toString()
-        plane.connectionStarted(player, "Alex", connection, 1, 2)
-        plane.connectionEnded(connection, 8, 10, "disconnect")
-
-        repeat(128) { index ->
-            val requestId = "00000000-0000-0000-0000-${(index + 1).toString().padStart(12, '0')}"
-            writeRequest(session, player, connection, 10, requestId)
-            Files.writeString(responsePath(requestId), "{}\n")
-        }
-        val unresolved = "ffffffff-ffff-ffff-ffff-ffffffffffff"
-        writeRequest(session, player, connection, 10, unresolved)
-
-        assertEquals(listOf(unresolved), plane.pollSealRequests().map { it.requestId })
-    }
-
-    @Test
-    fun `one global seal satisfies concurrent disconnected player requests`() {
-        val session = "session-coalesced"
-        val sessionDirectory = directory.resolve(session)
-        Files.createDirectories(sessionDirectory.resolve("epochs"))
-        val plane = RecorderControlPlane(
-            session,
-            sessionDirectory,
-            directory.resolve("control"),
-            LoggerFactory.getLogger("test")
-        )
-        val firstPlayer = UUID.randomUUID().toString()
-        val firstConnection = UUID.randomUUID().toString()
-        val secondPlayer = UUID.randomUUID().toString()
-        val secondConnection = UUID.randomUUID().toString()
-        plane.connectionStarted(firstPlayer, "One", firstConnection, 1, 2)
-        plane.connectionStarted(secondPlayer, "Two", secondConnection, 1, 3)
-        plane.connectionEnded(firstConnection, 10, 20, "disconnect")
-        plane.connectionEnded(secondConnection, 10, 22, "disconnect")
-        val firstRequest = writeRequest(session, firstPlayer, firstConnection, 20)
-        val secondRequest = writeRequest(session, secondPlayer, secondConnection, 22)
-        val requests = plane.pollSealRequests()
-        assertEquals(2, requests.size)
-
-        val writer = AsyncEpochWriter(session, sessionDirectory, 1_024, LoggerFactory.getLogger("test"))
-        writer.submit(record(0, 10, 20, "player_leave"))
-        writer.submit(record(0, 10, 22, "tick_end"))
-        val sealed = writer.sealEpoch("manual", forced = true)
-        requests.forEach { plane.completeSealRequest(it, sealed, reused = false, coalesced = true) }
-
-        assertEquals(0, readJson(responsePath(firstRequest)).get("sealed_epoch_index").asInt)
-        assertEquals(0, readJson(responsePath(secondRequest)).get("sealed_epoch_index").asInt)
-        assertTrue(readJson(responsePath(firstRequest)).get("coalesced").asBoolean)
-        assertTrue(readJson(responsePath(secondRequest)).get("coalesced").asBoolean)
-        writer.close()
+        assertTrue(Files.isDirectory(directory.resolve("control/sessions")))
+        assertTrue(Files.isDirectory(directory.resolve("control/render-ready")))
+        assertFalse(Files.exists(directory.resolve("control/requests")))
+        assertFalse(Files.exists(directory.resolve("control/responses")))
     }
 
     @Test
@@ -220,6 +108,66 @@ class RecorderControlPlaneTest {
     }
 
     @Test
+    fun `saved terminal replay segment emits a render ready spool file`() {
+        val session = "session-render-ready"
+        val sessionDirectory = directory.resolve(session)
+        Files.createDirectories(sessionDirectory.resolve("epochs"))
+        val plane = RecorderControlPlane(
+            session,
+            sessionDirectory,
+            directory.resolve("control"),
+            LoggerFactory.getLogger("test"),
+            nowMillis = { 12_000 }
+        )
+        val player = UUID.randomUUID().toString()
+        val connection = UUID.randomUUID().toString()
+        plane.connectionStarted(player, "Alex", connection, 4, 8)
+        plane.connectionEnded(connection, 40, 80, "disconnect")
+
+        plane.publishReplaySegments(
+            listOf(
+                RecorderControlPlane.ReplaySegmentSnapshot(
+                    segmentId = UUID.randomUUID().toString(),
+                    segmentOrdinal = 0,
+                    playerUuid = player,
+                    playerName = "Alex",
+                    connectionId = connection,
+                    connectionJoinServerTick = 4,
+                    connectionJoinSequence = 8,
+                    connectionEndServerTick = 40,
+                    connectionEndSequence = 80,
+                    terminalReason = "disconnect",
+                    replayFormat = "flashback",
+                    hotbarSnapshotContract = "item_stack_copy_v1",
+                    flashbackCaptureContract = "client_visible_scene_v1",
+                    sourceLocation = "/replays/players/$player",
+                    state = "saved",
+                    startedAtUnixMs = 10_000,
+                    savedAtUnixMs = 11_000,
+                    output = "/replays/players/$player.zip",
+                    outputSizeBytes = 123
+                )
+            )
+        )
+
+        val ready = readJson(directory.resolve("control/render-ready/$connection.json"))
+        assertEquals(1, ready.get("schema_version").asInt)
+        assertEquals("render_ready", ready.get("kind").asString)
+        assertEquals(session, ready.get("session_id").asString)
+        assertEquals(player, ready.get("player_uuid").asString)
+        assertEquals(connection, ready.get("connection_id").asString)
+        assertEquals(40, ready.get("connection_end_server_tick").asLong)
+        assertEquals(80, ready.get("connection_end_sequence").asLong)
+        assertEquals(12_000, ready.get("emitted_at_unix_ms").asLong)
+        val segments = ready.getAsJsonArray("segments")
+        assertEquals(1, segments.size())
+        assertEquals(
+            "client_visible_scene_v1",
+            segments.single().asJsonObject.get("flashback_capture_contract").asString
+        )
+    }
+
+    @Test
     fun `heartbeat repairs a connection ledger after a transient publication failure`() {
         val session = "session-ledger-retry"
         val sessionDirectory = directory.resolve(session)
@@ -269,37 +217,6 @@ class RecorderControlPlaneTest {
             LoggerFactory.getLogger("test")
         )
     }
-
-    private fun writeRequest(
-        session: String,
-        player: String,
-        connection: String,
-        endSequence: Long,
-        requestId: String = UUID.randomUUID().toString()
-    ): String {
-        val json = JsonObject().apply {
-            addProperty("schema_version", 1)
-            addProperty("request_id", requestId)
-            addProperty("operation", "seal_connection")
-            addProperty("expected_session_id", session)
-            addProperty("player_uuid", player)
-            addProperty("connection_id", connection)
-            addProperty("connection_end_sequence", endSequence)
-        }
-        val requestDirectory = directory.resolve("control/requests")
-        Files.createDirectories(requestDirectory)
-        Files.writeString(requestDirectory.resolve("$requestId.json"), json.toString())
-        return requestId
-    }
-
-    private fun assertFailure(requestId: String, expectedCode: String) {
-        val response = readJson(responsePath(requestId))
-        assertEquals("failed", response.get("status").asString)
-        assertEquals(expectedCode, response.getAsJsonObject("error").get("code").asString)
-        assertFalse(Files.exists(directory.resolve("control/requests/$requestId.json")))
-    }
-
-    private fun responsePath(requestId: String): Path = directory.resolve("control/responses/$requestId.json")
 
     private fun readJson(path: Path): JsonObject =
         Files.newBufferedReader(path).use { JsonParser.parseReader(it).asJsonObject }

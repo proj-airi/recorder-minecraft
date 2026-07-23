@@ -20,7 +20,7 @@ The mod creates `config/mc-recorder.json` on first launch:
 V1 always records all players. `/captures` is the container default and should be mounted to durable
 host storage. Native launches should set it to an absolute writable path. `/control` should be a
 separate host runtime directory bind-mounted read/write for dashboard status, the current-session
-connection ledger, and seal request/response spools.
+connection ledger, replay segment ledger, and render-ready discovery files.
 
 ## Source layout
 
@@ -30,25 +30,23 @@ connection ledger, and seal request/response spools.
   session_end.json                 # complete/incomplete close status when available
   epochs/epoch-000000/
     events.jsonl
-    manifest.json                  # sealed=true, counts, byte length, SHA-256
+    manifest.json                  # immutable slice counts, byte length, SHA-256
 ```
 
 The active epoch is named `events.jsonl.inprogress`; converters must ignore it. Rotation closes,
 syncs, and atomically renames the event stream before publishing its manifest. A crash may leave an
-in-progress epoch, but it does not mutate earlier sealed epochs.
+in-progress epoch, but it does not mutate earlier published slices.
 
 Epoch numbers advance at explicit end-of-tick boundaries. Automatic rotation still limits an epoch
-to `epoch_ticks`; a validated manual request for a disconnected connection seals the current epoch
-after `tick_end` and continues the same session in the next epoch. Requests that coincide with an
-automatic boundary share one seal.
+to `epoch_ticks`. The recorder does not accept external promotion requests; tooling waits for
+already-published slices and copies verified filesystem units when generating datasets.
 
 The recorder atomically refreshes `<control_root>/status.json` and
 `<control_root>/connections.json`. The latter contains one row per connection, including reconnects,
 and terminal tick/sequence fields after disconnect or clean server shutdown. Matching snapshots in
-`<control_root>/sessions/` preserve completed rows across later server starts. The dashboard writes
-`requests/<uuid>.json` and waits for `responses/<uuid>.json`; a success response is published only
-after the covering epoch manifest exists. These runtime files are not a substitute for source and
-manifest integrity validation.
+`<control_root>/sessions/` preserve completed rows across later server starts. Replay segment
+ledgers and `render-ready/<connection-id>.json` files are runtime discovery aids only. These runtime
+files are not a substitute for source and manifest integrity validation.
 
 Every JSONL record carries `session_id`, `epoch_index`, `server_tick`, and a global `sequence`.
 `packet_arrival` records network observation order. `packet_apply` is stamped when
@@ -86,8 +84,9 @@ settings. Mutable packet collections are copied before ServerReplay's asynchrono
 - `player_state.replay_coverage` is only a best-effort client-visible center/view-distance hint and
   declares `complete=false`. The headless scene extractor materializes loaded block sections,
   entities, and block entities from replay state; unloaded positions remain explicitly unknown.
-- Storage quota warnings and eviction of verified sealed epochs or stable completed replay archives
-  are orchestrator responsibilities; the recorder itself only seals immutable sidecar units.
+- Storage quota warnings and eviction of verified sidecar slices or stable completed replay archives
+  are orchestrator responsibilities; the recorder itself only appends and publishes bounded
+  immutable sidecar units.
 
 ## Build
 

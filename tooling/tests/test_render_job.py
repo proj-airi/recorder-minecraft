@@ -12,8 +12,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
 from mc_recorder.errors import RecorderError
-from mc_recorder.render_contract import FULL_CLIENT_PRESENTATION_CONTRACT
-from mc_recorder.render_job import (
+from mc_recorder.processing.render.job import (
     OWNER,
     RENDER_JOB_TYPE,
     RenderJobResult,
@@ -22,6 +21,7 @@ from mc_recorder.render_job import (
     prepare_render_job,
     resolve_replay,
 )
+from mc_recorder.protocol.render.contract import FULL_CLIENT_PRESENTATION_CONTRACT
 
 PLAYER_UUID = "12345678-1234-5678-1234-567812345678"
 CONNECTION_UUID = "87654321-4321-4678-9234-567812345678"
@@ -39,17 +39,17 @@ class ReplayResolutionTest(unittest.TestCase):
             validation = SimpleNamespace(valid=True, sealed_epochs=1, session_id="session")
             connection = "22222222-2222-2222-2222-222222222222"
             patches = (
-                mock.patch("mc_recorder.render_job.validate_episode", return_value=validation),
+                mock.patch("mc_recorder.processing.render.job.validate_episode", return_value=validation),
                 mock.patch(
-                    "mc_recorder.render_job._select_connection",
+                    "mc_recorder.processing.render.job._select_connection",
                     return_value=(connection, 10, 20),
                 ),
-                mock.patch("mc_recorder.render_job._detect_replay_format", return_value="flashback"),
+                mock.patch("mc_recorder.processing.render.job._detect_replay_format", return_value="flashback"),
                 mock.patch(
-                    "mc_recorder.render_job._stable_file_digest",
+                    "mc_recorder.processing.render.job._stable_file_digest",
                     return_value=(hashlib.sha256(b"replay").hexdigest(), 6),
                 ),
-                mock.patch("mc_recorder.render_job.sha256_file", return_value="a" * 64),
+                mock.patch("mc_recorder.processing.render.job.sha256_file", return_value="a" * 64),
             )
             for patch in patches:
                 patch.start()
@@ -112,14 +112,7 @@ class ReplayResolutionTest(unittest.TestCase):
             frames = job / "frames"
             frames.mkdir(parents=True)
             (job / "render-job.json").write_text(
-                (
-                    "{"
-                    f'"owner":"{OWNER}",'
-                    f'"job_type":"{RENDER_JOB_TYPE}",'
-                    f'"output":"{frames.resolve()}",'
-                    f'"result":"{(job / "result.json").resolve()}"'
-                    "}"
-                ),
+                (f'{{"owner":"{OWNER}","job_type":"{RENDER_JOB_TYPE}","output":"{frames.resolve()}","result":"{(job / "result.json").resolve()}"}}'),
                 encoding="utf-8",
             )
             (frames / "frame_000001.png").write_bytes(b"owned")
@@ -134,10 +127,8 @@ class ReplayResolutionTest(unittest.TestCase):
             (frames / "personal-notes.txt").write_text("do not delete", encoding="utf-8")
             self.assertFalse(_owned_render_directory(job))
 
-    @mock.patch("mc_recorder.render_job.subprocess.run")
-    def test_launcher_accepts_atomic_no_coverage_only_for_intersection_jobs(
-        self, run: mock.Mock
-    ) -> None:
+    @mock.patch("mc_recorder.processing.render.job.subprocess.run")
+    def test_launcher_accepts_atomic_no_coverage_only_for_intersection_jobs(self, run: mock.Mock) -> None:
         run.return_value = SimpleNamespace(returncode=0)
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -174,7 +165,7 @@ class ReplayResolutionTest(unittest.TestCase):
             )
 
             result = launch_render_job(
-                config,
+                config,  # ty:ignore[invalid-argument-type]
                 RenderJobResult(directory, manifest, replay, "connection"),
             )
 
@@ -196,11 +187,11 @@ class ReplayResolutionTest(unittest.TestCase):
             manifest.write_text(json.dumps(manifest_value), encoding="utf-8")
             with self.assertRaisesRegex(RecorderError, "no_gui does not match"):
                 launch_render_job(
-                    config,
+                    config,  # ty:ignore[invalid-argument-type]
                     RenderJobResult(directory, manifest, replay, "connection"),
                 )
 
-    @mock.patch("mc_recorder.render_job.subprocess.run")
+    @mock.patch("mc_recorder.processing.render.job.subprocess.run")
     def test_launcher_validates_gui_presentation_contract(self, run: mock.Mock) -> None:
         run.return_value = SimpleNamespace(returncode=0)
         with tempfile.TemporaryDirectory() as temporary:
@@ -263,7 +254,7 @@ class ReplayResolutionTest(unittest.TestCase):
             )
             job = RenderJobResult(directory, manifest, replay, CONNECTION_UUID)
 
-            result = launch_render_job(config, job)
+            result = launch_render_job(config, job)  # ty:ignore[invalid-argument-type]
             self.assertEqual(
                 FULL_CLIENT_PRESENTATION_CONTRACT,
                 result["presentation_contract"],
@@ -272,28 +263,28 @@ class ReplayResolutionTest(unittest.TestCase):
             result_value["presentation_contract"] = "direct_camera_v0"
             result_path.write_text(json.dumps(result_value), encoding="utf-8")
             with self.assertRaisesRegex(RecorderError, "presentation_contract does not match"):
-                launch_render_job(config, job)
+                launch_render_job(config, job)  # ty:ignore[invalid-argument-type]
 
             result_value["presentation_contract"] = FULL_CLIENT_PRESENTATION_CONTRACT
             result_path.write_text(json.dumps(result_value), encoding="utf-8")
             hud.write_bytes(b"tampered")
             with self.assertRaisesRegex(RecorderError, "failed its integrity envelope"):
-                launch_render_job(config, job)
+                launch_render_job(config, job)  # ty:ignore[invalid-argument-type]
             hud.write_bytes(b'{"server_tick":10}\n{"server_tick":11}\n')
 
             result_value["structured_hud"]["sha256"] = "0" * 64
             result_path.write_text(json.dumps(result_value), encoding="utf-8")
             with self.assertRaisesRegex(RecorderError, "structured_hud does not match"):
-                launch_render_job(config, job)
+                launch_render_job(config, job)  # ty:ignore[invalid-argument-type]
             result_value["structured_hud"]["sha256"] = hud_digest
             result_path.write_text(json.dumps(result_value), encoding="utf-8")
 
             manifest_value["presentation_contract"] = "direct_camera_v0"
             manifest.write_text(json.dumps(manifest_value), encoding="utf-8")
             with self.assertRaisesRegex(RecorderError, "presentation_contract is not supported"):
-                launch_render_job(config, job)
+                launch_render_job(config, job)  # ty:ignore[invalid-argument-type]
 
-    @mock.patch("mc_recorder.render_job.subprocess.run")
+    @mock.patch("mc_recorder.processing.render.job.subprocess.run")
     def test_launcher_preserves_legacy_unmarked_gui_results(self, run: mock.Mock) -> None:
         run.return_value = SimpleNamespace(returncode=0)
         with tempfile.TemporaryDirectory() as temporary:
@@ -332,7 +323,7 @@ class ReplayResolutionTest(unittest.TestCase):
             )
 
             result = launch_render_job(
-                config,
+                config,  # ty:ignore[invalid-argument-type]
                 RenderJobResult(directory, manifest, replay, "connection"),
             )
 
