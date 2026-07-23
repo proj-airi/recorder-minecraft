@@ -1,23 +1,22 @@
 from __future__ import annotations
 
-import hashlib
 import json
+import os
 import uuid
 import zipfile
-from dataclasses import asdict, dataclass
-from pathlib import Path, PurePosixPath
+import zlib
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from minerec.errors import RecorderError
+from minerec.processing.artifacts import catalog as artifact_catalog
 
-MAX_LEDGER_BYTES = 8 * 1024 * 1024
-MAX_ARCHIVE_METADATA_BYTES = 1024 * 1024
-HOTBAR_SNAPSHOT_CONTRACT = "item_stack_copy_v1"
-FLASHBACK_CAPTURE_CONTRACT = "client_visible_scene_v1"
+FLASHBACK_CAPTURE_CONTRACT = artifact_catalog.FLASHBACK_CAPTURE_CONTRACT
 
 
 class ReplayNotReadyError(RecorderError):
-    """The exact replay exists but ServerReplay has not published immutable bytes yet."""
+    """A replay source is temporarily unavailable to the render RPC."""
 
 
 @dataclass(frozen=True)
@@ -33,10 +32,17 @@ class ReplaySegmentSource:
     flashback_capture_contract: str | None = None
 
     def as_json(self) -> dict[str, Any]:
-        value = asdict(self)
-        value["path"] = str(self.path)
-        if self.flashback_capture_contract is None:
-            value.pop("flashback_capture_contract")
+        value: dict[str, Any] = {
+            "segment_id": self.segment_id,
+            "segment_ordinal": self.segment_ordinal,
+            "player_uuid": self.player_uuid,
+            "connection_id": self.connection_id,
+            "replay_format": self.replay_format,
+            "sha256": self.sha256,
+            "size_bytes": self.size_bytes,
+        }
+        if self.flashback_capture_contract is not None:
+            value["flashback_capture_contract"] = self.flashback_capture_contract
         return value
 
 
@@ -53,212 +59,170 @@ def _session_id(value: object) -> str:
     return value
 
 
-def _read_ledger(path: Path) -> dict[str, Any]:
+def _disabled_captures_root(replays_root: Path) -> Path:
+    return replays_root.absolute() / ".minerec-render-source-catalog" / f"disabled-captures-{uuid.uuid4()}"
+
+
+def _verified_archive_path(
+    replays_root: Path,
+    artifact: artifact_catalog.ReplayArchiveArtifact,
+) -> Path:
+    root = replays_root.absolute()
+    root_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
     try:
-        if path.is_symlink() or not path.is_file():
-            raise RecorderError(f"replay segment ledger is unavailable: {path}")
-        before = path.stat()
-        if before.st_size > MAX_LEDGER_BYTES:
-            raise RecorderError(f"replay segment ledger is too large: {path}")
-        raw = path.read_bytes()
-        after = path.stat()
+        root_descriptor = os.open(root, root_flags)
     except OSError as exc:
-        raise RecorderError(f"cannot read replay segment ledger: {path}") from exc
-    if (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns) != (
-        after.st_dev,
-        after.st_ino,
-        after.st_size,
-        after.st_mtime_ns,
+        raise RecorderError("replay root is not a safe directory") from exc
+    try:
+        file_descriptor = artifact_catalog._open_replay_candidate(
+            root_descriptor,
+            artifact.relative_path,
+        )
+    finally:
+        os.close(root_descriptor)
+    try:
+        sha256, size_bytes = artifact_catalog._stable_digest(file_descriptor)
+    finally:
+        os.close(file_descriptor)
+    if sha256 != artifact.sha256 or size_bytes != artifact.size_bytes:
+        raise RecorderError(f"replay archive changed after catalog validation: {artifact.relative_path}")
+    return root.joinpath(*artifact_catalog._path_parts(artifact.relative_path))
+
+
+def _issue_claim(
+    replays_root: Path,
+    relative_path: str,
+    *,
+    session_id: str,
+    player_uuid: str,
+    connection_id: str,
+) -> str | None:
+    root_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
+    try:
+        root_descriptor = os.open(replays_root.absolute(), root_flags)
+        try:
+            file_descriptor = artifact_catalog._open_replay_candidate(
+                root_descriptor,
+                relative_path,
+            )
+        finally:
+            os.close(root_descriptor)
+        try:
+            with os.fdopen(os.dup(file_descriptor), "rb") as source:
+                artifact_catalog._preflight_zip_entry_count(source)
+                with zipfile.ZipFile(source) as archive:
+                    entries = [entry for entry in archive.infolist() if entry.filename == "arcade_replay_meta.json"]
+                    if len(entries) != 1:
+                        return None
+                    entry = entries[0]
+                    if entry.file_size > artifact_catalog.MAX_ARCHIVE_METADATA_BYTES:
+                        return None
+                    with archive.open(entry) as handle:
+                        raw = handle.read(artifact_catalog.MAX_ARCHIVE_METADATA_BYTES + 1)
+        finally:
+            os.close(file_descriptor)
+    except (
+        EOFError,
+        NotImplementedError,
+        OSError,
+        RecorderError,
+        RuntimeError,
+        zipfile.BadZipFile,
+        zipfile.LargeZipFile,
+        zlib.error,
     ):
-        raise RecorderError(f"replay segment ledger changed while it was read: {path}")
-    try:
-        value = json.loads(raw)
-    except (json.JSONDecodeError, UnicodeDecodeError, RecursionError) as exc:
-        raise RecorderError(f"replay segment ledger is invalid JSON: {path}") from exc
-    if not isinstance(value, dict):
-        raise RecorderError(f"replay segment ledger must be an object: {path}")
-    return value
-
-
-def _host_replay_path(raw: object, replays_root: Path) -> Path:
-    if not isinstance(raw, str) or not raw:
-        raise RecorderError("saved replay segment has no output path")
-    root = replays_root.resolve()
-    container_path = PurePosixPath(raw)
-    if container_path.is_absolute() and container_path.parts[:2] == ("/", "replays"):
-        relative_parts = container_path.parts[2:]
-        unresolved = root.joinpath(*relative_parts)
-    else:
-        unresolved = Path(raw)
-        if not unresolved.is_absolute():
-            raise RecorderError("saved replay output path must be absolute")
-    if unresolved.is_symlink():
-        raise RecorderError(f"saved replay may not be a symlink: {unresolved}")
-    try:
-        candidate = unresolved.resolve(strict=True)
-        candidate.relative_to(root)
-    except (OSError, ValueError) as exc:
-        raise RecorderError(f"saved replay escapes the configured replay root: {unresolved}") from exc
-    cursor = root
-    for part in candidate.relative_to(root).parts[:-1]:
-        cursor /= part
-        if cursor.is_symlink():
-            raise RecorderError(f"saved replay traverses a symlinked directory: {unresolved}")
-    if not candidate.is_file():
-        raise RecorderError(f"saved replay is not a regular file: {candidate}")
-    return candidate
-
-
-def _stable_digest(path: Path) -> tuple[str, int]:
-    digest = hashlib.sha256()
-    try:
-        before = path.stat()
-        with path.open("rb") as handle:
-            while chunk := handle.read(1024 * 1024):
-                digest.update(chunk)
-        after = path.stat()
-    except OSError as exc:
-        raise RecorderError(f"cannot hash replay archive: {path}") from exc
-    if (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns) != (
-        after.st_dev,
-        after.st_ino,
-        after.st_size,
-        after.st_mtime_ns,
-    ):
-        raise RecorderError(f"replay archive changed while it was hashed: {path}")
-    if after.st_size <= 0:
-        raise RecorderError(f"replay archive is empty: {path}")
-    return digest.hexdigest(), after.st_size
-
-
-def _archive_identity(path: Path) -> dict[str, Any]:
-    try:
-        with zipfile.ZipFile(path) as archive:
-            entries = archive.infolist()
-            flashback_metadata = [item for item in entries if item.filename == "metadata.json"]
-            matching = [item for item in entries if item.filename == "arcade_replay_meta.json"]
-            if len(flashback_metadata) != 1 or not any(item.filename.endswith(".flashback") for item in entries):
-                raise RecorderError(f"replay is not a complete Flashback archive: {path}")
-            if len(matching) != 1:
-                raise RecorderError(f"ServerReplay archive must contain one arcade_replay_meta.json: {path}")
-            item = matching[0]
-            if item.file_size > MAX_ARCHIVE_METADATA_BYTES:
-                raise RecorderError(f"ServerReplay metadata is too large: {path}")
-            raw = archive.read(item)
-    except (OSError, zipfile.BadZipFile, RuntimeError) as exc:
-        raise RecorderError(f"replay is not a readable Flashback archive: {path}") from exc
+        return None
+    if len(raw) > artifact_catalog.MAX_ARCHIVE_METADATA_BYTES:
+        return None
     try:
         metadata = json.loads(raw)
-    except (json.JSONDecodeError, UnicodeDecodeError, RecursionError) as exc:
-        raise RecorderError(f"ServerReplay metadata is invalid JSON: {path}") from exc
-    if not isinstance(metadata, dict) or not isinstance(metadata.get("mc_recorder"), dict):
-        raise RecorderError(f"replay lacks exact mc_recorder segment identity: {path}")
-    return metadata["mc_recorder"]
+    except json.JSONDecodeError, UnicodeDecodeError, RecursionError:
+        return None
+    if not isinstance(metadata, dict):
+        return None
+    identity = metadata.get("mc_recorder")
+    if not isinstance(identity, dict):
+        return None
+    if identity.get("session_id") != session_id:
+        return None
+    try:
+        claimed_player = _canonical_uuid(identity.get("player_uuid"), "player UUID")
+    except RecorderError:
+        return None
+    if claimed_player != player_uuid:
+        return None
+    raw_connection = identity.get("connection_id")
+    if raw_connection is None:
+        return "missing_connection"
+    try:
+        claimed_connection = _canonical_uuid(raw_connection, "connection UUID")
+    except RecorderError:
+        return "missing_connection"
+    return "exact" if claimed_connection == connection_id else None
 
 
 def resolve_replay_segments(
     *,
-    control_root: Path,
     replays_root: Path,
     session_id: str,
     player_uuid: str,
     connection_id: str,
 ) -> list[ReplaySegmentSource]:
-    """Resolve and integrity-envelope every saved segment for one exact connection."""
+    """Resolve every catalog-verified archive for one exact connection."""
 
+    root = Path(replays_root).absolute()
     session = _session_id(session_id)
     player = _canonical_uuid(player_uuid, "player UUID")
     connection = _canonical_uuid(connection_id, "connection UUID")
-    ledger_path = control_root / "sessions" / f"{session}.replay-segments.json"
-    ledger = _read_ledger(ledger_path)
-    if ledger.get("schema_version") != 1 or ledger.get("session_id") != session:
-        raise RecorderError("replay segment ledger does not match the requested session")
-    raw_segments = ledger.get("segments")
-    if not isinstance(raw_segments, list):
-        raise RecorderError("replay segment ledger has no segments array")
+    catalog = artifact_catalog.ArtifactCatalog(
+        captures_root=_disabled_captures_root(root),
+        replays_root=root,
+    ).scan()
 
-    sources: list[ReplaySegmentSource] = []
+    for artifact in catalog.replay_archives:
+        if artifact.session_id == session and artifact.player_uuid == player and artifact.connection_id is None:
+            raise RecorderError("saved replay archive does not have a supported connection identity")
+
+    for issue in catalog.issues:
+        if issue.artifact_type != "replay" or issue.relative_path == ".":
+            continue
+        claim = _issue_claim(
+            root,
+            issue.relative_path,
+            session_id=session,
+            player_uuid=player,
+            connection_id=connection,
+        )
+        if claim == "missing_connection":
+            raise RecorderError("saved replay archive does not have a supported connection identity")
+        if claim == "exact":
+            raise RecorderError(f"requested replay archive was rejected by the artifact catalog: {issue.message}")
+
+    matching = [artifact for artifact in catalog.replay_archives if artifact.session_id == session and artifact.player_uuid == player and artifact.connection_id == connection]
+    if not matching:
+        raise RecorderError("no exact saved replay segments exist for this connection")
+
     seen_ids: set[str] = set()
     seen_ordinals: set[int] = set()
-    for raw in raw_segments:
-        if not isinstance(raw, dict):
-            raise RecorderError("replay segment ledger contains a non-object row")
-        if raw.get("player_uuid") != player or raw.get("connection_id") != connection:
-            continue
-        if raw.get("state") != "saved":
-            continue
-        segment_id = _canonical_uuid(raw.get("segment_id"), "replay segment ID")
-        ordinal = raw.get("segment_ordinal")
-        if not isinstance(ordinal, int) or isinstance(ordinal, bool) or ordinal < 0:
-            raise RecorderError(f"replay segment {segment_id} has an invalid ordinal")
-        if segment_id in seen_ids or ordinal in seen_ordinals:
-            raise RecorderError("replay segment ledger has duplicate identities or ordinals")
-        seen_ids.add(segment_id)
-        seen_ordinals.add(ordinal)
-
-        path = _host_replay_path(raw.get("output"), replays_root)
-        archive_identity = _archive_identity(path)
-        expected_identity = {
-            "session_id": session,
-            "segment_id": segment_id,
-            "segment_ordinal": ordinal,
-            "player_uuid": player,
-            "connection_id": connection,
-        }
-        if any(archive_identity.get(key) != value for key, value in expected_identity.items()):
-            raise RecorderError(f"replay archive identity does not match its segment ledger: {path}")
-        archive_schema = archive_identity.get("schema_version")
-        ledger_hotbar_contract = raw.get("hotbar_snapshot_contract")
-        archive_hotbar_contract = archive_identity.get("hotbar_snapshot_contract")
-        ledger_flashback_contract = raw.get("flashback_capture_contract")
-        archive_flashback_contract = archive_identity.get("flashback_capture_contract")
-        if archive_schema == 1:
-            if any(
-                value is not None
-                for value in (
-                    ledger_hotbar_contract,
-                    archive_hotbar_contract,
-                    ledger_flashback_contract,
-                    archive_flashback_contract,
-                )
-            ):
-                raise RecorderError(f"legacy replay archive has inconsistent capture metadata: {path}")
-        elif archive_schema == 2:
-            if ledger_hotbar_contract != HOTBAR_SNAPSHOT_CONTRACT or archive_hotbar_contract != HOTBAR_SNAPSHOT_CONTRACT:
-                raise RecorderError(f"replay archive hotbar snapshot contract does not match its segment ledger: {path}")
-            if ledger_flashback_contract is not None or archive_flashback_contract is not None:
-                raise RecorderError(f"schema-two replay archive has inconsistent scene capture metadata: {path}")
-        elif archive_schema == 3:
-            if ledger_hotbar_contract != HOTBAR_SNAPSHOT_CONTRACT or archive_hotbar_contract != HOTBAR_SNAPSHOT_CONTRACT:
-                raise RecorderError(f"replay archive hotbar snapshot contract does not match its segment ledger: {path}")
-            if ledger_flashback_contract != FLASHBACK_CAPTURE_CONTRACT or archive_flashback_contract != FLASHBACK_CAPTURE_CONTRACT:
-                raise RecorderError(f"replay archive scene capture contract does not match its segment ledger: {path}")
-        else:
-            raise RecorderError(f"replay archive has an unsupported mc_recorder schema: {path}")
-        sha256, size_bytes = _stable_digest(path)
-        declared_size = raw.get("output_size_bytes")
-        if declared_size is not None and declared_size != size_bytes:
-            raise RecorderError(f"replay archive size does not match its segment ledger: {path}")
-        replay_format = raw.get("replay_format")
-        if not isinstance(replay_format, str) or replay_format.lower() != "flashback":
-            raise RecorderError(f"replay segment {segment_id} is not a Flashback archive")
+    sources: list[ReplaySegmentSource] = []
+    for artifact in matching:
+        if artifact.segment_id in seen_ids:
+            raise RecorderError("saved replay archives have a duplicate segment ID")
+        if artifact.segment_ordinal in seen_ordinals:
+            raise RecorderError("saved replay archives have a duplicate segment ordinal")
+        seen_ids.add(artifact.segment_id)
+        seen_ordinals.add(artifact.segment_ordinal)
         sources.append(
             ReplaySegmentSource(
-                segment_id=segment_id,
-                segment_ordinal=ordinal,
-                player_uuid=player,
+                segment_id=artifact.segment_id,
+                segment_ordinal=artifact.segment_ordinal,
+                player_uuid=artifact.player_uuid,
                 connection_id=connection,
-                path=path,
+                path=_verified_archive_path(root, artifact),
                 replay_format="flashback",
-                sha256=sha256,
-                size_bytes=size_bytes,
-                flashback_capture_contract=(FLASHBACK_CAPTURE_CONTRACT if archive_schema == 3 else None),
+                sha256=artifact.sha256,
+                size_bytes=artifact.size_bytes,
+                flashback_capture_contract=artifact.flashback_capture_contract,
             )
         )
-
-    if not sources:
-        pending = any(isinstance(raw, dict) and raw.get("player_uuid") == player and raw.get("connection_id") == connection and raw.get("state") == "recording" for raw in raw_segments)
-        if pending:
-            raise ReplayNotReadyError("the exact replay segment is still being saved")
-        raise RecorderError("no exact saved replay segments exist for this connection")
     return sorted(sources, key=lambda source: source.segment_ordinal)

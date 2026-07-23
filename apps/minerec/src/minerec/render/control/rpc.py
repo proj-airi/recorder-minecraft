@@ -666,7 +666,6 @@ class RenderRpcService:
         if not isinstance(lease_token, str) or not 16 <= len(lease_token) <= 256:
             raise RecorderError("render queue returned an invalid lease token")
         sources = resolve_replay_segments(
-            control_root=self.runtime / "control",
             replays_root=self.config.paths.replays,
             session_id=payload["session_id"],
             player_uuid=payload["player_uuid"],

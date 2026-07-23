@@ -6,6 +6,8 @@ import sys
 import tempfile
 import time
 import unittest
+import uuid
+import zipfile
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -33,6 +35,33 @@ OLD_SEGMENT = "33333333-3333-4333-8333-333333333333"
 def _digest(path: Path) -> tuple[str, int]:
     value = path.read_bytes()
     return hashlib.sha256(value).hexdigest(), len(value)
+
+
+def _write_archive(
+    path: Path,
+    *,
+    segment_id: str = NEW_SEGMENT,
+    segment_ordinal: int = 0,
+    connection_id: str = CONNECTION_ID,
+) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    identity = {
+        "schema_version": 3,
+        "session_id": SESSION_ID,
+        "segment_id": segment_id,
+        "segment_ordinal": segment_ordinal,
+        "player_uuid": PLAYER_ID,
+        "connection_id": connection_id,
+        "hotbar_snapshot_contract": "item_stack_copy_v1",
+        "flashback_capture_contract": "client_visible_scene_v1",
+    }
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr("metadata.json", json.dumps({"uuid": str(uuid.uuid4())}))
+        archive.writestr(
+            "arcade_replay_meta.json",
+            json.dumps({"mc_recorder": identity}),
+        )
+        archive.writestr("chunks/c0.flashback", b"replay")
 
 
 class RenderRpcServiceTest(unittest.TestCase):
@@ -337,6 +366,43 @@ class RenderRpcServiceTest(unittest.TestCase):
             self.assertEqual(authoritative.path.stat().st_ino, pinned.stat().st_ino)
             self.assertEqual(authoritative.sha256, _digest(pinned)[0])
         self.assertEqual(0o600, (plan_root / "plan.json").stat().st_mode & 0o777)
+
+    def test_claim_prepares_from_archive_metadata_without_a_control_ledger(self) -> None:
+        replay = self.replays / "saved" / "segment.zip"
+        _write_archive(replay)
+        self.assertFalse((self.runtime / "control").exists())
+
+        result = self.service.dispatch(
+            "claim",
+            {
+                "worker_id": WORKER_ID,
+                "job_id": self.job["id"],
+                "lease_seconds": 120,
+            },
+        )
+
+        self.assertEqual([NEW_SEGMENT], [source["segment_id"] for source in result["sources"]])
+        self.assertNotEqual(replay, Path(result["sources"][0]["path"]))
+        self.assertEqual(replay.stat().st_ino, Path(result["sources"][0]["path"]).stat().st_ino)
+
+    def test_claim_does_not_choose_a_saved_archive_for_another_connection(self) -> None:
+        _write_archive(
+            self.replays / "other-connection.zip",
+            connection_id="cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        )
+
+        result = self.service.dispatch(
+            "claim",
+            {
+                "worker_id": WORKER_ID,
+                "job_id": self.job["id"],
+                "lease_seconds": 120,
+            },
+        )
+
+        self.assertEqual("claim_failed", result["reason"])
+        self.assertIn("no exact saved replay", result["error"])
+        self.assertEqual([], result["sources"])
 
     def test_claim_defers_while_server_replay_is_still_saving(self) -> None:
         with mock.patch(
