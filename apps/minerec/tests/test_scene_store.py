@@ -1089,6 +1089,131 @@ class SceneStreamCompactorTest(unittest.TestCase):
             self.assertEqual(at_seven.entities, ())
             self.assertEqual((plane.width, plane.height), (3, 3))
 
+    def test_retires_an_entity_before_same_tick_network_id_reuse(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            stream = root / "stream"
+            blobs = stream / "blobs"
+            blobs.mkdir(parents=True)
+            first_entity = canonical_json_blob(
+                {
+                    "dimension": DIMENSION,
+                    "type_id": "minecraft:pig",
+                    "network_id": 20,
+                    "uuid": "11111111-1111-1111-1111-111111111111",
+                    "position": [1.5, 1.0, 1.5],
+                    "aabb": [1.05, 1.0, 1.05, 1.95, 1.9, 1.95],
+                }
+            )
+            second_entity = canonical_json_blob(
+                {
+                    "dimension": DIMENSION,
+                    "type_id": "minecraft:cow",
+                    "network_id": 20,
+                    "uuid": "22222222-2222-2222-2222-222222222222",
+                    "position": [2.5, 1.0, 2.5],
+                    "aabb": [2.05, 1.0, 2.05, 2.95, 2.9, 2.95],
+                }
+            )
+            first_hash = hashlib.sha256(first_entity).hexdigest()
+            second_hash = hashlib.sha256(second_entity).hexdigest()
+            (blobs / f"{first_hash}.zlib").write_bytes(zlib.compress(first_entity))
+            (blobs / f"{second_hash}.zlib").write_bytes(zlib.compress(second_entity))
+            frames = [
+                {
+                    "frame_id": f"segment-0:{tick}",
+                    "server_tick": tick,
+                    "replay_tick": tick,
+                    "segment_id": "segment-0",
+                    "segment_ordinal": 0,
+                    "dimension": DIMENSION,
+                    "subject_position": [0.5, 1.0, 0.5],
+                    "complete": True,
+                    "reasons": [],
+                    "metadata": {
+                        "entity_count": 1,
+                        "event_sequence": tick,
+                        "loaded_section_count": 0,
+                        "metadata_policy": "full_packet_metadata",
+                        "scene_snapshot_sha256": f"{tick:064x}",
+                        "scope": "client_visible",
+                        "subject_entity_id": 2,
+                    },
+                }
+                for tick in (5, 6)
+            ]
+            changes = [
+                {
+                    "schema_version": 1,
+                    "sequence": 0,
+                    "server_tick": 5,
+                    "replay_tick": -1,
+                    "segment_id": "segment-0",
+                    "segment_ordinal": 0,
+                    "type": "segment_begin",
+                    "sha256": "01" * 32,
+                    "size_bytes": 100,
+                },
+                {
+                    "schema_version": 1,
+                    "sequence": 1,
+                    "type": "entity_set",
+                    "server_tick": 5,
+                    "replay_tick": 5,
+                    "segment_id": "segment-0",
+                    "segment_ordinal": 0,
+                    "instance_id": "segment-0:20:1",
+                    "blob_sha256": first_hash,
+                },
+                {
+                    "schema_version": 1,
+                    "sequence": 2,
+                    "type": "entity_remove",
+                    "server_tick": 6,
+                    "replay_tick": 6,
+                    "segment_id": "segment-0",
+                    "segment_ordinal": 0,
+                    "instance_id": "segment-0:20:1",
+                },
+                {
+                    "schema_version": 1,
+                    "sequence": 3,
+                    "type": "entity_set",
+                    "server_tick": 6,
+                    "replay_tick": 6,
+                    "segment_id": "segment-0",
+                    "segment_ordinal": 0,
+                    "instance_id": "segment-0:20:2",
+                    "blob_sha256": second_hash,
+                },
+            ]
+            (stream / "frames.jsonl").write_text(
+                "".join(json.dumps(row) + "\n" for row in frames),
+                encoding="utf-8",
+            )
+            (stream / "changes.jsonl").write_text(
+                "".join(json.dumps(row) + "\n" for row in changes),
+                encoding="utf-8",
+            )
+            sources = _sources()
+            output = root / "scene.sqlite3"
+
+            compact_scene_stream(
+                stream,
+                output,
+                expected_session_id=IDENTITY.session_id,
+                expected_player_uuid=IDENTITY.player_uuid,
+                expected_connection_id=IDENTITY.connection_id,
+                expected_ticks=(5, 6),
+                verified_stream=_verified_stream(stream, (5, 6), sources),
+            )
+
+            with SceneStore(output) as store:
+                at_five = store.materialize_crop(5, (0, 0, 0), (4, 4, 4))
+                at_six = store.materialize_crop(6, (0, 0, 0), (4, 4, 4))
+            self.assertEqual([entity.instance_id for entity in at_five.entities], ["segment-0:20:1"])
+            self.assertEqual([entity.instance_id for entity in at_six.entities], ["segment-0:20:2"])
+
     def test_rejects_symlinked_stream_blob(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

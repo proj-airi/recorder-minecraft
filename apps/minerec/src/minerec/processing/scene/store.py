@@ -2290,10 +2290,17 @@ def _change_resource(event_type: str, body: Mapping[str, Any]) -> tuple[int, tup
         payload = {"type": event_type, "instance_id": body.get("instance_id")}
         if event_type == "entity_set":
             payload["blob_sha256"] = body.get("blob_sha256", body.get("blob"))
+        priority = 1
+        if event_type == "entity_remove":
+            instance_id = body.get("instance_id")
+            segment_id = body.get("segment_id")
+            parts = instance_id.rsplit(":", 2) if isinstance(instance_id, str) else ()
+            instance_segment = parts[0] if len(parts) == 3 else None
+            # Within one segment, retire an old generation before reusing its network ID.
+            # At a segment boundary, establish the new alias before retiring the old alias.
+            priority = 2 if isinstance(segment_id, str) and instance_segment != segment_id else 0
         return (
-            # Apply a new segment's aliases before retiring the preceding
-            # segment's aliases at the same global tick.
-            0 if event_type == "entity_set" else 1,
+            priority,
             ("entity", payload["instance_id"]),
             payload,
         )
