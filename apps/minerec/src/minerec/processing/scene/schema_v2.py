@@ -23,6 +23,7 @@ from sqlalchemy import (
     String,
     Table,
     UniqueConstraint,
+    select,
 )
 
 SCENE_STORE_V2_SCHEMA = "mc-recorder-scene-store-v2"
@@ -240,6 +241,15 @@ player_states = Table(
 )
 Index("ix_player_states_entity_instance", player_states.c.entity_instance_id)
 
+# Keep portable read intent beside the portable tables.  SQLite compiles this
+# statement for its immutable native adapter; a future PostgreSQL adapter can
+# execute the same Core value without inheriting SQLite SQL or PRAGMAs.
+FRAME_ALIGNMENT_SELECT = select(
+    frames.c.server_tick,
+    frames.c.frame_id,
+    frames.c.replay_tick,
+).order_by(frames.c.server_tick)
+
 PORTABLE_TABLES = (
     schema_info,
     scene_meta,
@@ -252,6 +262,7 @@ PORTABLE_TABLES = (
 )
 
 __all__ = [
+    "FRAME_ALIGNMENT_SELECT",
     "PORTABLE_TABLES",
     "SCENE_STORE_V2_SCHEMA",
     "SCENE_STORE_V2_SCHEMA_VERSION",

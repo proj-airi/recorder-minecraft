@@ -6,20 +6,25 @@ import hashlib
 import json
 import math
 import os
+import re
 import sqlite3
 import tempfile
+import uuid
 import zlib
 from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType, TracebackType
-from typing import Any, Iterable, Iterator, Mapping, Sequence
+from typing import Any, Iterable, Iterator, Mapping, Sequence, cast
 from urllib.parse import quote
 
-from sqlalchemy import create_engine, insert
+from sqlalchemy import and_, bindparam, create_engine, func, insert, or_, select
+from sqlalchemy.dialects import sqlite as sqlite_dialect
 from sqlalchemy.engine import URL, Connection
+from sqlalchemy.sql.elements import ClauseElement
 
 from minerec.processing.scene.schema_v2 import (
+    FRAME_ALIGNMENT_SELECT,
     SCENE_STORE_V2_SCHEMA,
     SCENE_STORE_V2_SCHEMA_VERSION,
     SCENE_STORE_V2_USER_VERSION,
@@ -59,12 +64,28 @@ from minerec.processing.scene.store import (
     _block_entity_type,
     _decode_section_blob,
     _entity_fields,
+    _validated_extraction_provenance,
     canonical_json_blob,
     validate_scene_store,
 )
 
 MAX_STATE_JSONL_LINE_BYTES = 64 * 1024 * 1024
 MAX_STATE_READ_ROWS = 100_000
+MAX_PRIVATE_TEXT_BYTES = 8 * 1024 * 1024
+
+_ABILITY_FIELDS = frozenset({"invulnerable", "flying", "may_fly", "instant_build", "may_build"})
+_EFFECT_FIELDS = frozenset({"effect", "duration", "amplifier", "ambient", "visible", "show_icon"})
+_ENTITY_REFERENCE_FIELDS = frozenset({"entity_id", "uuid", "type"})
+_INVENTORY_REQUIRED_FIELDS = frozenset({"slot", "item", "count", "damage", "max_damage"})
+_INVENTORY_OPTIONAL_FIELDS = frozenset({"components_debug", "stack_snbt"})
+_SOURCE_REPLAY_FIELDS = frozenset({"segment_id", "segment_ordinal", "path", "sha256", "size_bytes", "format"})
+_RESOURCE_LOCATION_RE = re.compile(r"^[a-z0-9_.-]+:[a-z0-9_./-]+$")
+_SAFE_SEGMENT_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+_WINDOWS_ABSOLUTE_PATH_RE = re.compile(r"^[A-Za-z]:[\\\\/]")
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+_REDACTED_HOST_PATH = "recorder-intermediate://host-path-removed"
+
+_SQLITE_CORE_DIALECT = sqlite_dialect.dialect(paramstyle="named")
 
 
 class SceneStoreV2Error(SceneStoreError):
@@ -123,6 +144,14 @@ class PlayerStateV2:
     selected_slot: int
     state_barrier_apply_sequence: int
     payload: Mapping[str, Any]
+
+
+@dataclass(frozen=True)
+class SceneFrameAlignment:
+    server_tick: int
+    frame_id: str
+    segment_id: str | None
+    replay_tick: int | None
 
 
 @dataclass(frozen=True)
@@ -324,6 +353,18 @@ def _connect_read_only(path: Path) -> sqlite3.Connection:
     return connection
 
 
+def _execute_core(
+    connection: sqlite3.Connection,
+    statement: ClauseElement,
+    parameters: Mapping[str, Any] | None = None,
+) -> sqlite3.Cursor:
+    """Execute one portable Core statement through the native SQLite shell."""
+
+    compiled = statement.compile(dialect=_SQLITE_CORE_DIALECT)
+    values = compiled.construct_params(dict(parameters or {})) or {}
+    return connection.execute(str(compiled), values)
+
+
 def _decompress(data: bytes, expected_size: int, description: str) -> bytes:
     inflater = zlib.decompressobj()
     try:
@@ -339,9 +380,16 @@ def _decompress(data: bytes, expected_size: int, description: str) -> bytes:
 
 
 def _blob_value(connection: sqlite3.Connection, digest: str, expected_kind: str) -> bytes:
-    row = connection.execute(
-        "SELECT kind, encoding, uncompressed_size, compressed_size, data FROM blobs WHERE sha256 = ?",
-        (digest,),
+    row = _execute_core(
+        connection,
+        select(
+            blobs.c.kind,
+            blobs.c.encoding,
+            blobs.c.uncompressed_size,
+            blobs.c.compressed_size,
+            blobs.c.data,
+        ).where(blobs.c.sha256 == bindparam("digest")),
+        {"digest": digest},
     ).fetchone()
     if row is None:
         raise SceneStoreV2ValidationError(f"missing {expected_kind} blob {digest}")
@@ -399,6 +447,138 @@ def _required_bool(value: object, description: str) -> bool:
     return value
 
 
+def _bounded_int(
+    value: object,
+    description: str,
+    minimum: int,
+    maximum: int,
+) -> int:
+    result = _required_int(value, description)
+    if not minimum <= result <= maximum:
+        raise SceneStoreV2Error(f"{description} must be an integer from {minimum} to {maximum}")
+    return result
+
+
+def _bounded_text(value: object, description: str, maximum_bytes: int) -> str:
+    result = _required_text(value, description)
+    if len(result.encode("utf-8")) > maximum_bytes or any(ord(character) < 0x20 for character in result):
+        raise SceneStoreV2Error(f"{description} must be bounded printable text")
+    return result
+
+
+def _resource_location(value: object, description: str) -> str:
+    result = _bounded_text(value, description, 512)
+    if _RESOURCE_LOCATION_RE.fullmatch(result) is None:
+        raise SceneStoreV2Error(f"{description} must be a resource location")
+    return result
+
+
+def _canonical_uuid(value: object, description: str) -> str:
+    result = _bounded_text(value, description, 36)
+    try:
+        canonical = str(uuid.UUID(result))
+    except ValueError as exc:
+        raise SceneStoreV2Error(f"{description} must be a canonical UUID") from exc
+    if result != canonical:
+        raise SceneStoreV2Error(f"{description} must use canonical UUID spelling")
+    return result
+
+
+def _validate_entity_reference(value: object, description: str) -> tuple[int, str]:
+    if not isinstance(value, Mapping) or set(value) != _ENTITY_REFERENCE_FIELDS:
+        raise SceneStoreV2Error(f"{description} must contain exactly entity_id, uuid, and type")
+    entity_id = _bounded_int(
+        value.get("entity_id"),
+        f"{description} entity_id",
+        0,
+        2**31 - 1,
+    )
+    entity_uuid = _canonical_uuid(value.get("uuid"), f"{description} uuid")
+    _resource_location(value.get("type"), f"{description} type")
+    return entity_id, entity_uuid
+
+
+def _validate_private_state_payload(record: Mapping[str, Any]) -> None:
+    """Validate the complete private fields emitted by PlayerSnapshot.
+
+    The canonical JSON blob remains byte-for-byte source data.  This helper
+    validates its semantic shape without projecting it into a second model.
+    """
+
+    abilities = record.get("abilities")
+    if not isinstance(abilities, Mapping) or set(abilities) != _ABILITY_FIELDS:
+        raise SceneStoreV2Error("player_state abilities must contain the complete v1 ability fields")
+    for name in sorted(_ABILITY_FIELDS):
+        _required_bool(abilities.get(name), f"player_state abilities.{name}")
+
+    effects = record.get("effects")
+    if not isinstance(effects, list):
+        raise SceneStoreV2Error("player_state effects must be a list")
+    seen_effects: set[str] = set()
+    for index, effect in enumerate(effects):
+        description = f"player_state effects[{index}]"
+        if not isinstance(effect, Mapping) or set(effect) != _EFFECT_FIELDS:
+            raise SceneStoreV2Error(f"{description} must contain the complete v1 effect fields")
+        effect_id = _resource_location(effect.get("effect"), f"{description}.effect")
+        if effect_id in seen_effects:
+            raise SceneStoreV2Error("player_state effects must have unique effect IDs")
+        seen_effects.add(effect_id)
+        _bounded_int(effect.get("duration"), f"{description}.duration", -1, 2**31 - 1)
+        _bounded_int(effect.get("amplifier"), f"{description}.amplifier", 0, 255)
+        for name in ("ambient", "visible", "show_icon"):
+            _required_bool(effect.get(name), f"{description}.{name}")
+
+    vehicle = record.get("vehicle")
+    if vehicle is not None:
+        _validate_entity_reference(vehicle, "player_state vehicle")
+
+    passengers = record.get("passengers")
+    if not isinstance(passengers, list):
+        raise SceneStoreV2Error("player_state passengers must be a list")
+    passenger_ids: set[int] = set()
+    passenger_uuids: set[str] = set()
+    for index, passenger in enumerate(passengers):
+        entity_id, entity_uuid = _validate_entity_reference(
+            passenger,
+            f"player_state passengers[{index}]",
+        )
+        if entity_id in passenger_ids or entity_uuid in passenger_uuids:
+            raise SceneStoreV2Error("player_state passengers must have unique entity IDs and UUIDs")
+        passenger_ids.add(entity_id)
+        passenger_uuids.add(entity_uuid)
+
+    inventory = record.get("inventory")
+    if not isinstance(inventory, list):
+        raise SceneStoreV2Error("player_state inventory must be a list")
+    slots: set[int] = set()
+    for index, stack in enumerate(inventory):
+        description = f"player_state inventory[{index}]"
+        if not isinstance(stack, Mapping):
+            raise SceneStoreV2Error(f"{description} must be an object")
+        fields = set(stack)
+        if not _INVENTORY_REQUIRED_FIELDS <= fields or not fields <= (_INVENTORY_REQUIRED_FIELDS | _INVENTORY_OPTIONAL_FIELDS):
+            raise SceneStoreV2Error(f"{description} fields do not match the v1 inventory contract")
+        slot = _bounded_int(stack.get("slot"), f"{description}.slot", 0, 42)
+        if slot in slots:
+            raise SceneStoreV2Error("player_state inventory must have unique slots")
+        slots.add(slot)
+        _resource_location(stack.get("item"), f"{description}.item")
+        _bounded_int(stack.get("count"), f"{description}.count", 1, 999)
+        _bounded_int(stack.get("damage"), f"{description}.damage", 0, 2**31 - 1)
+        _bounded_int(
+            stack.get("max_damage"),
+            f"{description}.max_damage",
+            0,
+            2**31 - 1,
+        )
+        for name in sorted(_INVENTORY_OPTIONAL_FIELDS & fields):
+            _bounded_text(
+                stack.get(name),
+                f"{description}.{name}",
+                MAX_PRIVATE_TEXT_BYTES,
+            )
+
+
 def _finite(value: object, description: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise SceneStoreV2Error(f"{description} must be a finite number")
@@ -428,20 +608,10 @@ def _rotation(value: object) -> tuple[float, float, float]:
 
 
 def _state_columns(record: Mapping[str, Any]) -> dict[str, Any]:
+    _validate_private_state_payload(record)
     position = _vector(record.get("position"), "player_state position")
     velocity = _vector(record.get("velocity"), "player_state velocity")
     rotation = _rotation(record.get("rotation"))
-    for name, expected in (
-        ("abilities", dict),
-        ("effects", list),
-        ("passengers", list),
-        ("inventory", list),
-    ):
-        if not isinstance(record.get(name), expected):
-            raise SceneStoreV2Error(f"player_state {name} must be a {expected.__name__}")
-    vehicle = record.get("vehicle")
-    if vehicle is not None and not isinstance(vehicle, dict):
-        raise SceneStoreV2Error("player_state vehicle must be an object or null")
     selected_slot = _required_int(record.get("selected_slot"), "player_state selected_slot")
     if not 0 <= selected_slot <= 8:
         raise SceneStoreV2Error("player_state selected_slot must be from 0 to 8")
@@ -578,7 +748,27 @@ def _v1_blob_json(source: sqlite3.Connection, digest: str, kind: str) -> dict[st
     return parsed
 
 
-def _canonical_meta_json(value: object, description: str, expected_type: type[Any]) -> bytes:
+def _subject_entity_problem(
+    type_id: object,
+    entity_uuid: object,
+    identity: SceneIdentity,
+) -> str | None:
+    if type_id != "minecraft:player":
+        return f"linked entity type is {type_id!r}, not 'minecraft:player'"
+    try:
+        observed_uuid = _canonical_uuid(entity_uuid, "linked player entity UUID")
+    except SceneStoreV2Error as exc:
+        return str(exc)
+    if observed_uuid != identity.player_uuid:
+        return f"linked player entity UUID {observed_uuid!r} does not match subject {identity.player_uuid!r}"
+    return None
+
+
+def _meta_json_value(
+    value: object,
+    description: str,
+    expected_type: type[Any],
+) -> Any:  # noqa: ANN401
     if isinstance(value, bytes):
         raw = value
     elif isinstance(value, str):
@@ -591,7 +781,166 @@ def _canonical_meta_json(value: object, description: str, expected_type: type[An
         raise SceneStoreV2Error(f"{description} is invalid JSON") from exc
     if not isinstance(parsed, expected_type):
         raise SceneStoreV2Error(f"{description} must contain a {expected_type.__name__}")
-    return _canonical_json(parsed, description)
+    return parsed
+
+
+def _portable_replay_entry_name(bundle_ordinal: int, segment_id: str) -> str:
+    if _SAFE_SEGMENT_ID_RE.fullmatch(segment_id) is None:
+        raise SceneStoreV2Error(f"scene source replay segment_id is not bundle-safe: {segment_id!r}")
+    return f"replays/{bundle_ordinal:06d}--{segment_id}.zip"
+
+
+def _validated_portable_source_replays(
+    value: object,
+    description: str = "Scene V2 source replays",
+) -> tuple[dict[str, Any], ...]:
+    if not isinstance(value, (list, tuple)):
+        raise SceneStoreV2Error(f"{description} must be an array")
+    result: list[dict[str, Any]] = []
+    segment_ids: set[str] = set()
+    previous_source_ordinal = -1
+    for bundle_ordinal, raw in enumerate(value):
+        context = f"{description}[{bundle_ordinal}]"
+        if not isinstance(raw, Mapping) or set(raw) != _SOURCE_REPLAY_FIELDS:
+            raise SceneStoreV2Error(f"{context} fields do not match the source replay contract")
+        segment_id = _required_text(raw.get("segment_id"), f"{context} segment_id")
+        expected_path = _portable_replay_entry_name(bundle_ordinal, segment_id)
+        source_ordinal = _bounded_int(
+            raw.get("segment_ordinal"),
+            f"{context} segment_ordinal",
+            0,
+            2**31 - 1,
+        )
+        if source_ordinal <= previous_source_ordinal or segment_id in segment_ids:
+            raise SceneStoreV2Error(f"{description} must have unique IDs and increasing source ordinals")
+        path = _required_text(raw.get("path"), f"{context} path")
+        if path != expected_path:
+            raise SceneStoreV2Error(f"{context} path must be the deterministic bundle-relative replay path")
+        digest = _required_text(raw.get("sha256"), f"{context} sha256")
+        if _SHA256_RE.fullmatch(digest) is None:
+            raise SceneStoreV2Error(f"{context} sha256 must be lowercase SHA-256 text")
+        size_bytes = _bounded_int(
+            raw.get("size_bytes"),
+            f"{context} size_bytes",
+            1,
+            2**63 - 1,
+        )
+        if raw.get("format") != "flashback":
+            raise SceneStoreV2Error(f"{context} format must be flashback")
+        result.append(
+            {
+                "segment_id": segment_id,
+                "segment_ordinal": source_ordinal,
+                "path": path,
+                "sha256": digest,
+                "size_bytes": size_bytes,
+                "format": "flashback",
+            }
+        )
+        segment_ids.add(segment_id)
+        previous_source_ordinal = source_ordinal
+    return tuple(result)
+
+
+def _portable_source_replays(value: object) -> tuple[dict[str, Any], ...]:
+    if not isinstance(value, list):
+        raise SceneStoreV2Error("Scene V1 source_replays_json must contain a list")
+    portable: list[dict[str, Any]] = []
+    for bundle_ordinal, raw in enumerate(value):
+        if not isinstance(raw, Mapping):
+            raise SceneStoreV2Error(f"Scene V1 source replay {bundle_ordinal} must be an object")
+        normalized = dict(raw)
+        segment_id = _required_text(
+            normalized.get("segment_id"),
+            f"Scene V1 source replay {bundle_ordinal} segment_id",
+        )
+        normalized["path"] = _portable_replay_entry_name(bundle_ordinal, segment_id)
+        portable.append(normalized)
+    return _validated_portable_source_replays(
+        portable,
+        "normalized Scene V1 source replays",
+    )
+
+
+def _is_absolute_host_path(value: str) -> bool:
+    lowered = value.casefold()
+    return value.startswith(("/", "\\")) or _WINDOWS_ABSOLUTE_PATH_RE.match(value) is not None or lowered.startswith("file:")
+
+
+def _portable_provenance_value(
+    value: Any,  # noqa: ANN401
+    source_replays: tuple[dict[str, Any], ...],
+) -> Any:  # noqa: ANN401
+    if isinstance(value, Mapping):
+        normalized: dict[str, Any] = {}
+        for key, item in value.items():
+            if key == "source_replays":
+                nested = _portable_source_replays(item)
+                if nested != source_replays:
+                    raise SceneStoreV2Error("Scene V1 provenance source replays do not match scene metadata")
+                normalized[str(key)] = list(nested)
+            else:
+                normalized[str(key)] = _portable_provenance_value(
+                    item,
+                    source_replays,
+                )
+        return normalized
+    if isinstance(value, list):
+        return [_portable_provenance_value(item, source_replays) for item in value]
+    if isinstance(value, str) and _is_absolute_host_path(value):
+        return _REDACTED_HOST_PATH
+    return value
+
+
+def _reject_host_paths(value: Any, description: str) -> None:  # noqa: ANN401
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            _reject_host_paths(item, f"{description}.{key}")
+    elif isinstance(value, (list, tuple)):
+        for index, item in enumerate(value):
+            _reject_host_paths(item, f"{description}[{index}]")
+    elif isinstance(value, str) and _is_absolute_host_path(value):
+        raise SceneStoreV2Error(f"{description} contains a host-local absolute path")
+
+
+def _validated_portable_provenance(
+    value: object,
+    source_replays: tuple[dict[str, Any], ...],
+    *,
+    identity: SceneIdentity,
+    start_tick: int,
+    end_tick: int,
+    frame_count: int,
+) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise SceneStoreV2Error("Scene V2 provenance must be an object")
+    _reject_host_paths(value, "Scene V2 provenance")
+    if not source_replays and not value:
+        return cast(dict[str, Any], value)
+    if not source_replays or not value:
+        raise SceneStoreV2Error("Scene V2 source replays and extraction provenance must appear together")
+    validation_value = json.loads(_canonical_json(value, "Scene V2 provenance validation copy"))
+    result = validation_value.get("result")
+    subject_poses = result.get("subject_poses") if isinstance(result, dict) else None
+    stream = result.get("stream") if isinstance(result, dict) else None
+    if not isinstance(subject_poses, dict) or subject_poses.get("path") != _REDACTED_HOST_PATH or not isinstance(stream, dict) or stream.get("path") != _REDACTED_HOST_PATH:
+        raise SceneStoreV2Error("Scene V2 provenance must redact non-portable subject-pose and stream paths")
+    # The V1 provenance validator intentionally requires the original private
+    # subject-pose path.  Validate the portable value through that mature
+    # semantic contract with an ephemeral sentinel; never persist the sentinel.
+    subject_poses["path"] = "/portable/subject-poses.jsonl"
+    try:
+        _validated_extraction_provenance(
+            source_replays,
+            validation_value,
+            identity=identity,
+            start_tick=start_tick,
+            end_tick=end_tick,
+            frame_count=frame_count,
+        )
+    except SceneStoreValidationError as exc:
+        raise SceneStoreV2Error(f"Scene V2 provenance is invalid: {exc}") from exc
+    return cast(dict[str, Any], value)
 
 
 def _entity_for_state(
@@ -607,11 +956,13 @@ def _entity_for_state(
         raise SceneStoreV2Error(f"player_state at tick {tick} must link to exactly one active scene entity version; found {len(candidates)}")
     selected = candidates[0]
     payload = _v1_blob_json(source, selected["blob_sha256"], "entity")
-    entity_uuid = payload.get("uuid")
-    if entity_uuid is not None and entity_uuid != identity.player_uuid:
-        raise SceneStoreV2Error(f"player_state at tick {tick} links to entity UUID {entity_uuid!r}, not the subject player")
-    if entity_uuid is None and selected["type_id"] != "minecraft:player":
-        raise SceneStoreV2Error(f"player_state at tick {tick} links to a non-player entity without a matching UUID")
+    problem = _subject_entity_problem(
+        selected["type_id"],
+        payload.get("uuid"),
+        identity,
+    )
+    if problem is not None:
+        raise SceneStoreV2Error(f"player_state at tick {tick} {problem}")
     return selected
 
 
@@ -624,15 +975,28 @@ def _copy_v1_into_v2(
     meta = source.execute("SELECT * FROM scene_meta WHERE singleton = 1").fetchone()
     if meta is None:
         raise SceneStoreV2Error("Scene V1 metadata is missing")
-    source_replays_json = _canonical_meta_json(
+    source_replays_value = _meta_json_value(
         meta["source_replays_json"],
         "Scene V1 source_replays_json",
         list,
     )
-    provenance_json = _canonical_meta_json(
+    provenance_value = _meta_json_value(
         meta["provenance_json"],
         "Scene V1 provenance_json",
         dict,
+    )
+    portable_sources = _portable_source_replays(source_replays_value)
+    portable_provenance = _portable_provenance_value(
+        provenance_value,
+        portable_sources,
+    )
+    _validated_portable_provenance(
+        portable_provenance,
+        portable_sources,
+        identity=identity,
+        start_tick=meta["start_tick"],
+        end_tick=meta["end_tick"],
+        frame_count=len(states_by_tick),
     )
     destination.execute(
         insert(schema_info).values(
@@ -649,9 +1013,15 @@ def _copy_v1_into_v2(
             connection_id=identity.connection_id,
             start_tick=meta["start_tick"],
             end_tick=meta["end_tick"],
-            source_replays_json=source_replays_json,
+            source_replays_json=_canonical_json(
+                list(portable_sources),
+                "Scene V2 source replays",
+            ),
             sensitive=bool(meta["sensitive"]),
-            provenance_json=provenance_json,
+            provenance_json=_canonical_json(
+                portable_provenance,
+                "Scene V2 provenance",
+            ),
         )
     )
 
@@ -836,7 +1206,10 @@ def _json_meta_value(data: object, description: str, expected_type: type[Any]) -
 
 
 def _meta_row(connection: sqlite3.Connection) -> sqlite3.Row:
-    row = connection.execute("SELECT * FROM scene_meta WHERE singleton = 1").fetchone()
+    row = _execute_core(
+        connection,
+        select(scene_meta).where(scene_meta.c.singleton == 1),
+    ).fetchone()
     if row is None:
         raise SceneStoreV2ValidationError("Scene V2 metadata is missing")
     return row
@@ -844,25 +1217,31 @@ def _meta_row(connection: sqlite3.Connection) -> sqlite3.Row:
 
 def _validate_no_overlap(
     connection: sqlite3.Connection,
-    table: str,
-    key_columns: Sequence[str],
+    table: Any,  # noqa: ANN401
+    key_columns: Sequence[Any],
     *,
-    where: str | None = None,
+    where: Any | None = None,  # noqa: ANN401
     description: str | None = None,
 ) -> None:
-    partition = ", ".join(key_columns)
-    filter_sql = "" if where is None else f"WHERE {where}"
-    overlap = connection.execute(
-        "SELECT 1 FROM ("
-        "SELECT start_tick, MAX(end_tick) OVER ("
-        f"PARTITION BY {partition} "
-        "ORDER BY start_tick, end_tick, version_id "
-        "ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING"
-        f") AS prior_max_end FROM {table} {filter_sql}"
-        ") WHERE prior_max_end > start_tick LIMIT 1"
+    prior_max_end = (
+        func.max(table.c.end_tick)
+        .over(
+            partition_by=list(key_columns),
+            order_by=(table.c.start_tick, table.c.end_tick, table.c.version_id),
+            rows=(None, -1),
+        )
+        .label("prior_max_end")
+    )
+    ordered = select(table.c.start_tick, prior_max_end)
+    if where is not None:
+        ordered = ordered.where(where)
+    candidates = ordered.subquery()
+    overlap = _execute_core(
+        connection,
+        select(candidates.c.start_tick).where(candidates.c.prior_max_end > candidates.c.start_tick).limit(1),
     ).fetchone()
     if overlap is not None:
-        raise SceneStoreV2ValidationError(description or f"{table} contains overlapping intervals")
+        raise SceneStoreV2ValidationError(description or f"{table.name} contains overlapping intervals")
 
 
 def _validate_rtrees(connection: sqlite3.Connection) -> None:
@@ -891,6 +1270,105 @@ def _validate_rtrees(connection: sqlite3.Connection) -> None:
     block_extra = connection.execute("SELECT 1 FROM block_entity_versions_rtree AS search LEFT JOIN block_entity_versions AS source ON source.version_id = search.version_id WHERE source.version_id IS NULL LIMIT 1").fetchone()
     if block_mismatch is not None or block_extra is not None:
         raise SceneStoreV2ValidationError("block-entity R-tree does not match explicit block-entity version IDs")
+
+
+def _validate_entity_version_rows(
+    connection: sqlite3.Connection,
+) -> dict[int, tuple[str, str | None]]:
+    linked_identities: dict[int, tuple[str, str | None]] = {}
+    rows = _execute_core(
+        connection,
+        select(
+            entity_versions.c.version_id,
+            entity_versions.c.instance_id,
+            entity_versions.c.network_id,
+            entity_versions.c.dimension,
+            entity_versions.c.type_id,
+            entity_versions.c.min_x,
+            entity_versions.c.min_y,
+            entity_versions.c.min_z,
+            entity_versions.c.max_x,
+            entity_versions.c.max_y,
+            entity_versions.c.max_z,
+            entity_versions.c.blob_sha256,
+        ).order_by(entity_versions.c.version_id),
+    )
+    for row in rows:
+        payload = _parse_canonical_json(
+            _blob_value(connection, row["blob_sha256"], "entity"),
+            f"entity version {row['version_id']}",
+        )
+        if not isinstance(payload, dict):
+            raise SceneStoreV2ValidationError(f"entity version {row['version_id']} payload must contain an object")
+        try:
+            (
+                dimension,
+                type_id,
+                network_id,
+                entity_uuid,
+                _position,
+                _velocity,
+                _rotation,
+                aabb,
+            ) = _entity_fields(row["instance_id"], payload)
+        except SceneStoreError as exc:
+            raise SceneStoreV2ValidationError(f"entity version {row['version_id']} payload is invalid: {exc}") from exc
+        typed = (
+            row["dimension"],
+            row["type_id"],
+            row["network_id"],
+            row["min_x"],
+            row["min_y"],
+            row["min_z"],
+            row["max_x"],
+            row["max_y"],
+            row["max_z"],
+        )
+        canonical = (dimension, type_id, network_id, *aabb)
+        if typed != canonical:
+            raise SceneStoreV2ValidationError(f"entity version {row['version_id']} typed columns disagree with its canonical payload")
+        linked_identities[row["version_id"]] = (type_id, entity_uuid)
+    return linked_identities
+
+
+def _validate_block_entity_version_rows(connection: sqlite3.Connection) -> None:
+    rows = _execute_core(
+        connection,
+        select(
+            block_entity_versions.c.version_id,
+            block_entity_versions.c.dimension,
+            block_entity_versions.c.block_x,
+            block_entity_versions.c.block_y,
+            block_entity_versions.c.block_z,
+            block_entity_versions.c.type_id,
+            block_entity_versions.c.blob_sha256,
+        ).order_by(block_entity_versions.c.version_id),
+    )
+    for row in rows:
+        payload = _parse_canonical_json(
+            _blob_value(connection, row["blob_sha256"], "block_entity"),
+            f"block-entity version {row['version_id']}",
+        )
+        if not isinstance(payload, dict):
+            raise SceneStoreV2ValidationError(f"block-entity version {row['version_id']} payload must contain an object")
+        try:
+            type_id = _block_entity_type(payload)
+        except SceneStoreError as exc:
+            raise SceneStoreV2ValidationError(f"block-entity version {row['version_id']} payload is invalid: {exc}") from exc
+        embedded_dimension = payload.get("dimension")
+        if embedded_dimension is not None and embedded_dimension != row["dimension"]:
+            raise SceneStoreV2ValidationError(f"block-entity version {row['version_id']} dimension disagrees with its canonical payload")
+        embedded_position = payload.get("position")
+        if embedded_position is not None:
+            if (
+                not isinstance(embedded_position, list)
+                or len(embedded_position) != 3
+                or any(isinstance(coordinate, bool) or not isinstance(coordinate, int) for coordinate in embedded_position)
+                or tuple(embedded_position) != (row["block_x"], row["block_y"], row["block_z"])
+            ):
+                raise SceneStoreV2ValidationError(f"block-entity version {row['version_id']} position disagrees with its canonical payload")
+        if type_id != row["type_id"]:
+            raise SceneStoreV2ValidationError(f"block-entity version {row['version_id']} type disagrees with its canonical payload")
 
 
 def _validate_player_state_row(connection: sqlite3.Connection, row: sqlite3.Row) -> None:
@@ -956,6 +1434,34 @@ def _validate_player_state_row(connection: sqlite3.Connection, row: sqlite3.Row)
             raise SceneStoreV2ValidationError(f"player_state typed column {name} disagrees with its canonical payload at tick {row['server_tick']}")
 
 
+def _segment_id_for_frame(
+    frame_id: str,
+    source_replays: Sequence[Mapping[str, Any]],
+) -> str | None:
+    if not source_replays:
+        return None
+    matches = [str(source["segment_id"]) for source in source_replays if frame_id.startswith(f"{source['segment_id']}:")]
+    if len(matches) != 1:
+        raise SceneStoreV2ValidationError(f"scene frame {frame_id!r} does not identify exactly one source replay segment")
+    return matches[0]
+
+
+def _iter_frame_alignments(
+    connection: sqlite3.Connection,
+    source_replays: Sequence[Mapping[str, Any]],
+) -> Iterator[SceneFrameAlignment]:
+    for row in _execute_core(connection, FRAME_ALIGNMENT_SELECT):
+        replay_tick = row["replay_tick"]
+        if source_replays and (isinstance(replay_tick, bool) or not isinstance(replay_tick, int) or replay_tick < 0):
+            raise SceneStoreV2ValidationError(f"scene frame {row['frame_id']!r} has no non-negative replay tick")
+        yield SceneFrameAlignment(
+            server_tick=row["server_tick"],
+            frame_id=row["frame_id"],
+            segment_id=_segment_id_for_frame(row["frame_id"], source_replays),
+            replay_tick=replay_tick,
+        )
+
+
 def _validate_connection(connection: sqlite3.Connection) -> None:
     user_version = connection.execute("PRAGMA user_version").fetchone()[0]
     if user_version != SCENE_STORE_V2_USER_VERSION:
@@ -967,81 +1473,175 @@ def _validate_connection(connection: sqlite3.Connection) -> None:
     if connection.execute("PRAGMA foreign_key_check").fetchone() is not None:
         raise SceneStoreV2ValidationError("Scene V2 contains a broken foreign key")
 
-    schema = connection.execute("SELECT * FROM schema_info WHERE singleton = 1").fetchone()
+    schema = _execute_core(
+        connection,
+        select(schema_info).where(schema_info.c.singleton == 1),
+    ).fetchone()
     if schema is None:
         raise SceneStoreV2ValidationError("Scene V2 schema_info is missing")
     if schema["schema_name"] != SCENE_STORE_V2_SCHEMA or schema["schema_version"] != SCENE_STORE_V2_SCHEMA_VERSION:
         raise SceneStoreV2ValidationError("Scene V2 schema identity is unsupported")
     meta = _meta_row(connection)
-    identity = (meta["session_id"], meta["player_uuid"], meta["connection_id"])
-    if any(not isinstance(value, str) or not value for value in identity):
+    identity_values = (meta["session_id"], meta["player_uuid"], meta["connection_id"])
+    if any(not isinstance(value, str) or not value for value in identity_values):
         raise SceneStoreV2ValidationError("Scene V2 identity is incomplete")
+    identity = SceneIdentity(*identity_values)
     if meta["start_tick"] > meta["end_tick"]:
         raise SceneStoreV2ValidationError("Scene V2 tick bounds are reversed")
-    _json_meta_value(meta["source_replays_json"], "Scene V2 source replays", list)
-    _json_meta_value(meta["provenance_json"], "Scene V2 provenance", dict)
+    source_replays_value = _json_meta_value(
+        meta["source_replays_json"],
+        "Scene V2 source replays",
+        list,
+    )
+    provenance = _json_meta_value(
+        meta["provenance_json"],
+        "Scene V2 provenance",
+        dict,
+    )
+    try:
+        source_replays = _validated_portable_source_replays(source_replays_value)
+    except SceneStoreV2Error as exc:
+        raise SceneStoreV2ValidationError(str(exc)) from exc
 
-    frame_count = connection.execute("SELECT COUNT(*) FROM frames").fetchone()[0]
-    state_count = connection.execute("SELECT COUNT(*) FROM player_states").fetchone()[0]
+    frame_count = _execute_core(
+        connection,
+        select(func.count()).select_from(frames),
+    ).fetchone()[0]
+    state_count = _execute_core(
+        connection,
+        select(func.count()).select_from(player_states),
+    ).fetchone()[0]
     if frame_count == 0:
         raise SceneStoreV2ValidationError("Scene V2 contains no frames")
+    try:
+        _validated_portable_provenance(
+            provenance,
+            source_replays,
+            identity=identity,
+            start_tick=meta["start_tick"],
+            end_tick=meta["end_tick"],
+            frame_count=frame_count,
+        )
+    except SceneStoreV2Error as exc:
+        raise SceneStoreV2ValidationError(str(exc)) from exc
     if state_count != frame_count:
         raise SceneStoreV2ValidationError("Scene V2 requires exactly one player_state per frame")
-    coverage_gap = connection.execute("SELECT server_tick FROM frames WHERE coverage_complete = 0 LIMIT 1").fetchone()
+    coverage_gap = _execute_core(
+        connection,
+        select(frames.c.server_tick).where(frames.c.coverage_complete.is_(False)).limit(1),
+    ).fetchone()
     if coverage_gap is not None:
         raise SceneStoreV2ValidationError("Scene V2 contains an incomplete scene frame")
-    missing_state = connection.execute("SELECT frames.server_tick FROM frames LEFT JOIN player_states ON player_states.server_tick = frames.server_tick WHERE player_states.server_tick IS NULL LIMIT 1").fetchone()
+    missing_state = _execute_core(
+        connection,
+        select(frames.c.server_tick)
+        .select_from(
+            frames.outerjoin(
+                player_states,
+                player_states.c.server_tick == frames.c.server_tick,
+            )
+        )
+        .where(player_states.c.server_tick.is_(None))
+        .limit(1),
+    ).fetchone()
     if missing_state is not None:
         raise SceneStoreV2ValidationError("Scene V2 frame/player_state coverage is not one-to-one")
-    invalid_frame = connection.execute(
-        "SELECT server_tick FROM frames WHERE server_tick < ? OR server_tick > ? OR frame_id = '' OR dimension = '' LIMIT 1",
-        (meta["start_tick"], meta["end_tick"]),
+    invalid_frame = _execute_core(
+        connection,
+        select(frames.c.server_tick)
+        .where(
+            or_(
+                frames.c.server_tick < bindparam("start_tick"),
+                frames.c.server_tick > bindparam("end_tick"),
+                frames.c.frame_id == "",
+                frames.c.dimension == "",
+            )
+        )
+        .limit(1),
+        {"start_tick": meta["start_tick"], "end_tick": meta["end_tick"]},
     ).fetchone()
     if invalid_frame is not None:
         raise SceneStoreV2ValidationError("Scene V2 contains an invalid frame")
+    for _alignment in _iter_frame_alignments(connection, source_replays):
+        pass
 
-    for table in ("section_versions", "entity_versions", "block_entity_versions"):
-        invalid = connection.execute(
-            f"SELECT version_id FROM {table} WHERE version_id <= 0 OR start_tick < ? OR end_tick > ? OR start_tick >= end_tick LIMIT 1",
-            (meta["start_tick"], meta["end_tick"] + 1),
+    for table in (section_versions, entity_versions, block_entity_versions):
+        invalid = _execute_core(
+            connection,
+            select(table.c.version_id)
+            .where(
+                or_(
+                    table.c.version_id <= 0,
+                    table.c.start_tick < bindparam("start_tick"),
+                    table.c.end_tick > bindparam("end_tick_exclusive"),
+                    table.c.start_tick >= table.c.end_tick,
+                )
+            )
+            .limit(1),
+            {
+                "start_tick": meta["start_tick"],
+                "end_tick_exclusive": meta["end_tick"] + 1,
+            },
         ).fetchone()
         if invalid is not None:
-            raise SceneStoreV2ValidationError(f"{table} contains an invalid explicit version interval")
+            raise SceneStoreV2ValidationError(f"{table.name} contains an invalid explicit version interval")
     _validate_no_overlap(
         connection,
-        "section_versions",
-        ("dimension", "section_x", "section_y", "section_z"),
+        section_versions,
+        (
+            section_versions.c.dimension,
+            section_versions.c.section_x,
+            section_versions.c.section_y,
+            section_versions.c.section_z,
+        ),
     )
-    _validate_no_overlap(connection, "entity_versions", ("instance_id",))
     _validate_no_overlap(
         connection,
-        "entity_versions",
-        ("network_id",),
-        where="network_id IS NOT NULL",
+        entity_versions,
+        (entity_versions.c.instance_id,),
+    )
+    _validate_no_overlap(
+        connection,
+        entity_versions,
+        (entity_versions.c.network_id,),
+        where=entity_versions.c.network_id.is_not(None),
         description="Scene V2 contains overlapping entity network-id lifetimes",
     )
     _validate_no_overlap(
         connection,
-        "block_entity_versions",
-        ("dimension", "block_x", "block_y", "block_z"),
+        block_entity_versions,
+        (
+            block_entity_versions.c.dimension,
+            block_entity_versions.c.block_x,
+            block_entity_versions.c.block_y,
+            block_entity_versions.c.block_z,
+        ),
     )
     _validate_rtrees(connection)
 
     references = (
-        ("frames", "payload_sha256", "frame"),
-        ("player_states", "payload_sha256", "player_state"),
-        ("section_versions", "blob_sha256", "section"),
-        ("entity_versions", "blob_sha256", "entity"),
-        ("block_entity_versions", "blob_sha256", "block_entity"),
+        (frames, frames.c.payload_sha256, "frame"),
+        (player_states, player_states.c.payload_sha256, "player_state"),
+        (section_versions, section_versions.c.blob_sha256, "section"),
+        (entity_versions, entity_versions.c.blob_sha256, "entity"),
+        (
+            block_entity_versions,
+            block_entity_versions.c.blob_sha256,
+            "block_entity",
+        ),
     )
     for table, column, kind in references:
-        wrong = connection.execute(
-            f"SELECT 1 FROM {table} AS source JOIN blobs ON blobs.sha256 = source.{column} WHERE blobs.kind != ? LIMIT 1",
-            (kind,),
+        wrong = _execute_core(
+            connection,
+            select(column).select_from(table.join(blobs, blobs.c.sha256 == column)).where(blobs.c.kind != bindparam("expected_kind")).limit(1),
+            {"expected_kind": kind},
         ).fetchone()
         if wrong is not None:
-            raise SceneStoreV2ValidationError(f"{table} references a blob with the wrong kind")
-    for blob in connection.execute("SELECT sha256, kind FROM blobs ORDER BY sha256"):
+            raise SceneStoreV2ValidationError(f"{table.name} references a blob with the wrong kind")
+    for blob in _execute_core(
+        connection,
+        select(blobs.c.sha256, blobs.c.kind).order_by(blobs.c.sha256),
+    ):
         value = _blob_value(connection, blob["sha256"], blob["kind"])
         if blob["kind"] == "section":
             _decode_section_blob(value)
@@ -1050,18 +1650,33 @@ def _validate_connection(connection: sqlite3.Connection) -> None:
             if not isinstance(payload, dict):
                 raise SceneStoreV2ValidationError(f"{blob['kind']} blob {blob['sha256']} must contain an object")
 
-    state_rows = connection.execute(
-        "SELECT player_states.*, "
-        "frames.dimension AS frame_dimension, frames.subject_x, frames.subject_y, frames.subject_z, "
-        "entity_versions.instance_id AS linked_instance_id, "
-        "entity_versions.network_id AS linked_network_id, "
-        "entity_versions.dimension AS linked_dimension, "
-        "entity_versions.start_tick AS linked_start_tick, "
-        "entity_versions.end_tick AS linked_end_tick "
-        "FROM player_states "
-        "JOIN frames ON frames.server_tick = player_states.server_tick "
-        "JOIN entity_versions ON entity_versions.version_id = player_states.entity_version_id "
-        "ORDER BY player_states.server_tick"
+    linked_entity_identities = _validate_entity_version_rows(connection)
+    _validate_block_entity_version_rows(connection)
+
+    state_rows = _execute_core(
+        connection,
+        select(
+            player_states,
+            frames.c.dimension.label("frame_dimension"),
+            frames.c.subject_x,
+            frames.c.subject_y,
+            frames.c.subject_z,
+            entity_versions.c.instance_id.label("linked_instance_id"),
+            entity_versions.c.network_id.label("linked_network_id"),
+            entity_versions.c.dimension.label("linked_dimension"),
+            entity_versions.c.start_tick.label("linked_start_tick"),
+            entity_versions.c.end_tick.label("linked_end_tick"),
+        )
+        .select_from(
+            player_states.join(
+                frames,
+                frames.c.server_tick == player_states.c.server_tick,
+            ).join(
+                entity_versions,
+                entity_versions.c.version_id == player_states.c.entity_version_id,
+            )
+        )
+        .order_by(player_states.c.server_tick),
     )
     for row in state_rows:
         _validate_player_state_row(connection, row)
@@ -1073,12 +1688,16 @@ def _validate_connection(connection: sqlite3.Connection) -> None:
             payload.get("session_id"),
             payload.get("player_uuid"),
             payload.get("connection_id"),
-        ) != identity:
+        ) != identity_values:
             raise SceneStoreV2ValidationError("player_state identity does not match Scene V2 metadata")
         if row["dimension"] != row["frame_dimension"] or (row["position_x"], row["position_y"], row["position_z"]) != (row["subject_x"], row["subject_y"], row["subject_z"]):
             raise SceneStoreV2ValidationError(f"player_state pose does not match its scene frame at tick {row['server_tick']}")
         if row["entity_instance_id"] != row["linked_instance_id"] or row["entity_id"] != row["linked_network_id"] or row["dimension"] != row["linked_dimension"] or not row["linked_start_tick"] <= row["server_tick"] < row["linked_end_tick"]:
             raise SceneStoreV2ValidationError(f"player_state entity link is invalid at tick {row['server_tick']}")
+        linked_type_id, linked_uuid = linked_entity_identities[row["entity_version_id"]]
+        problem = _subject_entity_problem(linked_type_id, linked_uuid, identity)
+        if problem is not None:
+            raise SceneStoreV2ValidationError(f"player_state at tick {row['server_tick']} {problem}")
 
 
 def _validated_ticks(values: Iterable[int]) -> tuple[int, ...]:
@@ -1094,7 +1713,13 @@ def _validated_ticks(values: Iterable[int]) -> tuple[int, ...]:
 
 def _info(connection: sqlite3.Connection, path: Path, include_hash: bool) -> SceneStoreV2Info:
     meta = _meta_row(connection)
-    ticks = tuple(row[0] for row in connection.execute("SELECT server_tick FROM frames ORDER BY server_tick"))
+    ticks = tuple(
+        row[0]
+        for row in _execute_core(
+            connection,
+            select(frames.c.server_tick).order_by(frames.c.server_tick),
+        )
+    )
     source_replays = _json_meta_value(meta["source_replays_json"], "Scene V2 source replays", list)
     provenance = _json_meta_value(meta["provenance_json"], "Scene V2 provenance", dict)
     return SceneStoreV2Info(
@@ -1330,14 +1955,16 @@ class SceneStoreV2:
         if isinstance(tick_or_frame_id, bool):
             raise SceneStoreV2Error("scene frame key must be an integer tick or frame id")
         if isinstance(tick_or_frame_id, int):
-            row = self._connection.execute(
-                "SELECT * FROM frames WHERE server_tick = ?",
-                (tick_or_frame_id,),
+            row = _execute_core(
+                self._connection,
+                select(frames).where(frames.c.server_tick == bindparam("server_tick")),
+                {"server_tick": tick_or_frame_id},
             ).fetchone()
         elif isinstance(tick_or_frame_id, str) and tick_or_frame_id:
-            row = self._connection.execute(
-                "SELECT * FROM frames WHERE frame_id = ?",
-                (tick_or_frame_id,),
+            row = _execute_core(
+                self._connection,
+                select(frames).where(frames.c.frame_id == bindparam("frame_id")),
+                {"frame_id": tick_or_frame_id},
             ).fetchone()
         else:
             raise SceneStoreV2Error("scene frame key must be an integer tick or frame id")
@@ -1349,12 +1976,23 @@ class SceneStoreV2:
         assert self._connection is not None
         return _frame_from_row(self._connection, self._frame_row(tick_or_frame_id))
 
+    def iter_frame_alignments(self) -> Iterator[SceneFrameAlignment]:
+        """Yield the validated server/replay identity for every scene frame."""
+
+        self._ensure_open()
+        assert self._connection is not None
+        return _iter_frame_alignments(
+            self._connection,
+            self.info.source_replays,
+        )
+
     def player_state(self, tick_or_frame_id: int | str) -> PlayerStateV2:
         assert self._connection is not None
         tick = self._frame_row(tick_or_frame_id)["server_tick"]
-        row = self._connection.execute(
-            "SELECT * FROM player_states WHERE server_tick = ?",
-            (tick,),
+        row = _execute_core(
+            self._connection,
+            select(player_states).where(player_states.c.server_tick == bindparam("server_tick")),
+            {"server_tick": tick},
         ).fetchone()
         if row is None:
             raise SceneStoreV2Error(f"player state not found: {tick_or_frame_id}")
@@ -1375,9 +2013,22 @@ class SceneStoreV2:
         upper = self.info.end_tick if end_tick is None else _required_int(end_tick, "end_tick")
         if lower > upper:
             raise SceneStoreV2Error("start_tick cannot follow end_tick")
-        rows = self._connection.execute(
-            "SELECT * FROM player_states WHERE server_tick BETWEEN ? AND ? ORDER BY server_tick LIMIT ?",
-            (lower, upper, limit + 1),
+        rows = _execute_core(
+            self._connection,
+            select(player_states)
+            .where(
+                player_states.c.server_tick.between(
+                    bindparam("lower_tick"),
+                    bindparam("upper_tick"),
+                )
+            )
+            .order_by(player_states.c.server_tick)
+            .limit(bindparam("row_limit")),
+            {
+                "lower_tick": lower,
+                "upper_tick": upper,
+                "row_limit": limit + 1,
+            },
         ).fetchall()
         if len(rows) > limit:
             raise SceneStoreV2Error(f"player-state query exceeds the limit of {limit}")
@@ -1421,9 +2072,10 @@ class SceneStoreV2:
             raise SceneStoreV2Error(f"scene crop {label} count exceeds the limit of {max_count}")
         total = 0
         for row in rows:
-            blob = self._connection.execute(
-                "SELECT kind, uncompressed_size FROM blobs WHERE sha256 = ?",
-                (row["blob_sha256"],),
+            blob = _execute_core(
+                self._connection,
+                select(blobs.c.kind, blobs.c.uncompressed_size).where(blobs.c.sha256 == bindparam("digest")),
+                {"digest": row["blob_sha256"]},
             ).fetchone()
             if blob is None or blob["kind"] != expected_kind:
                 raise SceneStoreV2ValidationError(f"scene crop {label} references an invalid blob")
@@ -1545,19 +2197,43 @@ class SceneStoreV2:
         min_section = tuple(value // SECTION_EDGE for value in origin)
         maximum = tuple(origin[index] + shape[index] - 1 for index in range(3))
         max_section = tuple(value // SECTION_EDGE for value in maximum)
-        rows = self._connection.execute(
-            "SELECT * FROM section_versions WHERE dimension = ? AND start_tick <= ? AND end_tick > ? AND section_x BETWEEN ? AND ? AND section_y BETWEEN ? AND ? AND section_z BETWEEN ? AND ? ORDER BY section_y, section_z, section_x",
-            (
-                frame.dimension,
-                frame.tick,
-                frame.tick,
-                min_section[0],
-                max_section[0],
-                min_section[1],
-                max_section[1],
-                min_section[2],
-                max_section[2],
+        rows = _execute_core(
+            self._connection,
+            select(section_versions)
+            .where(
+                and_(
+                    section_versions.c.dimension == bindparam("dimension"),
+                    section_versions.c.start_tick <= bindparam("tick"),
+                    section_versions.c.end_tick > bindparam("tick"),
+                    section_versions.c.section_x.between(
+                        bindparam("min_section_x"),
+                        bindparam("max_section_x"),
+                    ),
+                    section_versions.c.section_y.between(
+                        bindparam("min_section_y"),
+                        bindparam("max_section_y"),
+                    ),
+                    section_versions.c.section_z.between(
+                        bindparam("min_section_z"),
+                        bindparam("max_section_z"),
+                    ),
+                )
+            )
+            .order_by(
+                section_versions.c.section_y,
+                section_versions.c.section_z,
+                section_versions.c.section_x,
             ),
+            {
+                "dimension": frame.dimension,
+                "tick": frame.tick,
+                "min_section_x": min_section[0],
+                "max_section_x": max_section[0],
+                "min_section_y": min_section[1],
+                "max_section_y": max_section[1],
+                "min_section_z": min_section[2],
+                "max_section_z": max_section[2],
+            },
         )
         for row in rows:
             section_palette, section_indices = _decode_section_blob(_blob_value(self._connection, row["blob_sha256"], "section"))
@@ -1688,6 +2364,7 @@ def _thaw_json(value: Any) -> Any:  # noqa: ANN401
 
 __all__ = [
     "PlayerStateV2",
+    "SceneFrameAlignment",
     "SceneStoreV2",
     "SceneStoreV2Error",
     "SceneStoreV2Info",
