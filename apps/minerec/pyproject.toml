@@ -19,4 +19,4 @@ minerec = "minerec.cli:main"
 where = [ "src" ]
 
 [tool.setuptools.package-data]
-minerec = [ "dashboard_dist/**" ]
+minerec = [ "dashboard_dist/**", "viewer_dist/**" ]

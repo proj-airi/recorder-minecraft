@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+import secrets
 import sqlite3
 import tempfile
 import threading
 from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import fields, is_dataclass
 from pathlib import Path
 from typing import Any
@@ -223,6 +225,10 @@ class ViewerBundle:
     def __init__(self, opened: OpenedBundle) -> None:
         self.opened = opened
         self._temporary = tempfile.TemporaryDirectory(prefix="minerec-viewer-index-")
+        self._lease_lock = threading.Lock()
+        self._lease_count = 0
+        self._close_pending = False
+        self._closed = False
         try:
             self.index = _RecordIndex(
                 Path(self._temporary.name),
@@ -234,9 +240,41 @@ class ViewerBundle:
             opened.close()
             raise
 
-    def close(self) -> None:
+    def _close_resources(self) -> None:
         self.opened.close()
         self._temporary.cleanup()
+
+    def close(self) -> None:
+        close_now = False
+        with self._lease_lock:
+            if self._closed or self._close_pending:
+                return
+            if self._lease_count:
+                self._close_pending = True
+            else:
+                self._closed = True
+                close_now = True
+        if close_now:
+            self._close_resources()
+
+    def acquire_lease(self) -> None:
+        with self._lease_lock:
+            if self._closed or self._close_pending:
+                raise RecorderError("play bundle is closing")
+            self._lease_count += 1
+
+    def release_lease(self) -> None:
+        close_now = False
+        with self._lease_lock:
+            if self._lease_count <= 0:
+                raise RuntimeError("play bundle lease underflow")
+            self._lease_count -= 1
+            if self._lease_count == 0 and self._close_pending:
+                self._close_pending = False
+                self._closed = True
+                close_now = True
+        if close_now:
+            self._close_resources()
 
     def summary(self) -> dict[str, Any]:
         metadata = _json_value(self.opened.metadata)
@@ -368,66 +406,136 @@ class ViewerBundle:
 
 
 class ViewerService:
-    """Atomic single-bundle holder. Failed replacements preserve current value."""
+    """Atomic active/staged bundle holder with leased render-media access."""
 
     def __init__(self) -> None:
         self._lock = threading.RLock()
         self._bundle: ViewerBundle | None = None
+        self._staged: tuple[str, ViewerBundle] | None = None
 
     def close(self) -> None:
         with self._lock:
             current, self._bundle = self._bundle, None
-        if current is not None:
-            current.close()
+            staged, self._staged = self._staged, None
+        for bundle in (current, staged[1] if staged is not None else None):
+            if bundle is not None:
+                bundle.close()
 
     def import_bundle(self, path: Path) -> dict[str, Any]:
+        staged = self.stage_bundle(path)
+        return self.commit_staged(str(staged["staged_import_id"]))
+
+    def stage_bundle(self, path: Path) -> dict[str, Any]:
         opened = open_bundle(
             path,
             scene_validator=validate_scene_store_v2,
             render_validator=validate_fpv_render,
         )
         candidate = ViewerBundle(opened)
+        staged_import_id = secrets.token_urlsafe(24)
         with self._lock:
+            previous, self._staged = self._staged, (staged_import_id, candidate)
+        if previous is not None:
+            previous[1].close()
+        return {
+            "staged_import_id": staged_import_id,
+            "bundle": candidate.summary(),
+        }
+
+    def commit_staged(self, staged_import_id: str) -> dict[str, Any]:
+        with self._lock:
+            if self._staged is None or self._staged[0] != staged_import_id:
+                raise RecorderError("staged play-bundle import was not found")
+            candidate = self._staged[1]
+            self._staged = None
             previous, self._bundle = self._bundle, candidate
         if previous is not None:
             previous.close()
         return candidate.summary()
 
-    def with_bundle(self, operation: Callable[[ViewerBundle], Any]) -> Any:  # noqa: ANN401
+    def discard_staged(self, staged_import_id: str) -> None:
         with self._lock:
+            if self._staged is None or self._staged[0] != staged_import_id:
+                raise RecorderError("staged play-bundle import was not found")
+            candidate = self._staged[1]
+            self._staged = None
+        candidate.close()
+
+    def with_bundle(
+        self,
+        operation: Callable[[ViewerBundle], Any],
+        *,
+        staged_import_id: str | None = None,
+    ) -> Any:  # noqa: ANN401
+        with self._lock:
+            if staged_import_id is not None:
+                if self._staged is None or self._staged[0] != staged_import_id:
+                    raise RecorderError("staged play-bundle import was not found")
+                return operation(self._staged[1])
             if self._bundle is None:
                 raise RecorderError("no play bundle is open")
             return operation(self._bundle)
 
-    def summary(self) -> dict[str, Any]:
-        return self.with_bundle(lambda bundle: bundle.summary())
+    def summary(self, *, staged_import_id: str | None = None) -> dict[str, Any]:
+        return self.with_bundle(lambda bundle: bundle.summary(), staged_import_id=staged_import_id)
 
-    def actions(self, **filters: Any) -> dict[str, Any]:
-        return self.with_bundle(lambda bundle: bundle.index.actions(**filters))
+    def actions(self, *, staged_import_id: str | None = None, **filters: Any) -> dict[str, Any]:
+        return self.with_bundle(
+            lambda bundle: bundle.index.actions(**filters),
+            staged_import_id=staged_import_id,
+        )
 
-    def tick(self, tick: int) -> dict[str, Any]:
-        return self.with_bundle(lambda bundle: bundle.tick(tick))
+    def tick(self, tick: int, *, staged_import_id: str | None = None) -> dict[str, Any]:
+        return self.with_bundle(lambda bundle: bundle.tick(tick), staged_import_id=staged_import_id)
 
-    def trajectory(self, *, max_points: int | None) -> dict[str, Any]:
-        return self.with_bundle(lambda bundle: bundle.trajectory(max_points=max_points))
+    def trajectory(
+        self,
+        *,
+        max_points: int | None,
+        staged_import_id: str | None = None,
+    ) -> dict[str, Any]:
+        return self.with_bundle(
+            lambda bundle: bundle.trajectory(max_points=max_points),
+            staged_import_id=staged_import_id,
+        )
 
-    def scene_slice(self, **query: Any) -> Any:  # noqa: ANN401
-        return self.with_bundle(lambda bundle: bundle.scene_slice(**query))
+    def scene_slice(self, *, staged_import_id: str | None = None, **query: Any) -> Any:  # noqa: ANN401
+        return self.with_bundle(
+            lambda bundle: bundle.scene_slice(**query),
+            staged_import_id=staged_import_id,
+        )
 
-    def replays(self) -> dict[str, Any]:
+    def replays(self, *, staged_import_id: str | None = None) -> dict[str, Any]:
         return self.with_bundle(
             lambda bundle: {"replays": _json_value(bundle.opened.metadata["replays"])},
+            staged_import_id=staged_import_id,
         )
 
-    def timeline(self, *, from_frame: int | None, limit: int | None) -> dict[str, Any]:
+    def timeline(
+        self,
+        *,
+        from_frame: int | None,
+        limit: int | None,
+        staged_import_id: str | None = None,
+    ) -> dict[str, Any]:
         return self.with_bundle(
             lambda bundle: bundle.index.timeline(from_frame=from_frame, limit=limit),
+            staged_import_id=staged_import_id,
         )
 
-    def render_path(self) -> Path:
-        def resolve(bundle: ViewerBundle) -> Path:
+    @contextmanager
+    def render_lease(self, bundle_id: str) -> Iterator[Path]:
+        with self._lock:
+            bundle = self._bundle
+            if bundle is None:
+                raise RecorderError("no play bundle is open")
+            if bundle.opened.bundle_id != bundle_id:
+                raise RecorderError("requested render does not belong to the active bundle")
             if bundle.opened.fpv_path is None:
                 raise RecorderError("bundle has no FPV render")
-            return bundle.opened.fpv_path
-
-        return self.with_bundle(resolve)
+            bundle.acquire_lease()
+            path = bundle.opened.fpv_path
+        try:
+            yield path
+        finally:
+            bundle.release_lease()

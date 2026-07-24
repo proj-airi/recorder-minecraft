@@ -44,19 +44,14 @@ export interface BundleSummary {
   version: 1
 }
 
-export type ImportPhase = 'error' | 'idle' | 'loading' | 'ready' | 'uploading' | 'validating'
+export type ImportPhase = 'committing' | 'error' | 'idle' | 'loading' | 'ready' | 'uploading' | 'validating'
 
 export interface ImportProgress {
   file_name: null | string
   file_size: null | number
   message: string
   phase: ImportPhase
-}
-
-export interface ImportResult {
-  bundle: BundleSummary
-  initial_tick: number
-  replaced_bundle_id: null | string
+  uploaded_bytes: null | number
 }
 
 export interface IntegritySummary {
@@ -124,7 +119,7 @@ export interface RenderTimelineFrame {
   frame: number
   pts: number
   replay_tick: number
-  scene_frame: number
+  scene_frame: number | string
   server_tick: number
 }
 
@@ -171,6 +166,12 @@ export interface SceneSliceResponse {
   tick: number
   width: number
   y: number
+}
+
+export interface StagedImportResult {
+  archive_sha256: string
+  bundle: BundleSummary
+  staged_import_id: string
 }
 
 export interface TickRange {

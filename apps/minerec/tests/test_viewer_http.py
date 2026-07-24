@@ -6,13 +6,23 @@ import sys
 import tempfile
 import threading
 import unittest
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
-from minerec.serve.viewer.server import ViewerApplication, ViewerHTTPServer, _byte_ranges
+from minerec.errors import RecorderError
+from minerec.serve.viewer.server import (
+    MAX_JSON_RESPONSE_BYTES,
+    MAX_TICK_JSON_RESPONSE_BYTES,
+    ViewerApplication,
+    ViewerHTTPServer,
+    _byte_ranges,
+    _json_body,
+)
 from minerec.serve.viewer.service import ViewerBundle
 
 
@@ -59,21 +69,42 @@ class ByteRangeTest(unittest.TestCase):
             self.assertIn(200, returned_ticks)
             self.assertTrue(result["truncated"])
 
+    def test_tick_response_bound_exceeds_the_scene_player_blob_limit(self) -> None:
+        maximum_scene_blob_bytes = 64 * 1024 * 1024
+        canonical_wrapper_bytes = len(b'{"value":""}')
+        payload = {
+            "state": {
+                "payload": {
+                    "value": "x" * (maximum_scene_blob_bytes - canonical_wrapper_bytes),
+                }
+            }
+        }
+        with self.assertRaisesRegex(RecorderError, "safe size"):
+            _json_body(payload)
+        body = _json_body(payload, maximum_bytes=MAX_TICK_JSON_RESPONSE_BYTES)
+        self.assertGreater(MAX_TICK_JSON_RESPONSE_BYTES, maximum_scene_blob_bytes)
+        self.assertGreater(len(body), maximum_scene_blob_bytes)
+
 
 class _StubService:
     def __init__(self, media: Path) -> None:
         self.media = media
+        self.committed: list[str] = []
+        self.discarded: list[str] = []
 
     def close(self) -> None:
         return
 
-    def summary(self) -> dict[str, object]:
-        return {"bundle_id": "bundle-test"}
+    def summary(self, *, staged_import_id: str | None = None) -> dict[str, object]:
+        return {"bundle_id": "bundle-test", "staged_import_id": staged_import_id}
 
-    def render_path(self) -> Path:
-        return self.media
+    @contextmanager
+    def render_lease(self, bundle_id: str) -> Iterator[Path]:
+        if bundle_id != "bundle-test":
+            raise RecorderError("requested render does not belong to the active bundle")
+        yield self.media
 
-    def tick(self, tick: int) -> dict[str, object]:
+    def tick(self, tick: int, **_query: Any) -> dict[str, object]:
         return {"tick": tick}
 
     def actions(self, **_query: Any) -> dict[str, object]:
@@ -90,6 +121,13 @@ class _StubService:
 
     def timeline(self, **_query: Any) -> dict[str, object]:
         return {"frames": [], "next_frame": None}
+
+    def commit_staged(self, staged_import_id: str) -> dict[str, object]:
+        self.committed.append(staged_import_id)
+        return {"bundle_id": "bundle-test"}
+
+    def discard_staged(self, staged_import_id: str) -> None:
+        self.discarded.append(staged_import_id)
 
 
 class ViewerHTTPTest(unittest.TestCase):
@@ -170,8 +208,48 @@ class ViewerHTTPTest(unittest.TestCase):
         )
         self.assertEqual(403, status)
 
+    def test_routes_staged_reads_commit_and_discard(self) -> None:
+        status, _headers, body = self._request(
+            "GET",
+            "/api/v1/viewer/bundle",
+            headers={
+                "X-Minerec-Viewer-Token": "secret-token",
+                "X-Minerec-Viewer-Staged-Import": "staged-import-id-123",
+            },
+        )
+        self.assertEqual(200, status)
+        self.assertIn(b"staged-import-id-123", body)
+
+        mutation_headers = {
+            "X-Minerec-Viewer-Token": "secret-token",
+            "Origin": f"http://{self.host}:{self.port}",
+            "Content-Length": "0",
+        }
+        status, _headers, _body = self._request(
+            "POST",
+            "/api/v1/viewer/imports/staged-import-id-123/commit",
+            headers=mutation_headers,
+            body=b"",
+        )
+        self.assertEqual(200, status)
+        status, _headers, _body = self._request(
+            "POST",
+            "/api/v1/viewer/imports/staged-import-id-456/discard",
+            headers=mutation_headers,
+            body=b"",
+        )
+        self.assertEqual(200, status)
+        self.assertEqual(["staged-import-id-123"], self.application.service.committed)
+        self.assertEqual(["staged-import-id-456"], self.application.service.discarded)
+
     def test_serves_single_suffix_and_multipart_media_ranges(self) -> None:
-        base = "/api/v1/viewer/render/fpv?token=secret-token"
+        base = "/api/v1/viewer/render/fpv?token=secret-token&bundle_id=bundle-test"
+        status, _headers, _body = self._request(
+            "GET",
+            "/api/v1/viewer/render/fpv?token=secret-token&bundle_id=stale-bundle",
+        )
+        self.assertEqual(400, status)
+
         status, headers, body = self._request("GET", base, headers={"Range": "bytes=10-19"})
         self.assertEqual(206, status)
         self.assertEqual("bytes 10-19/100", headers["Content-Range"])

@@ -25,8 +25,11 @@ from .service import ViewerService
 
 MAX_IMPORT_BYTES = 64 * 1024**3
 MAX_JSON_RESPONSE_BYTES = 16 * 1024 * 1024
+MAX_TICK_JSON_RESPONSE_BYTES = 65 * 1024 * 1024
 MAX_RANGE_PARTS = 8
 TICK_PATH = re.compile(r"^/api/v1/viewer/ticks/(-?[0-9]+)$")
+STAGED_IMPORT_PATH = re.compile(r"^/api/v1/viewer/imports/([A-Za-z0-9_-]{16,128})/(commit|discard)$")
+STAGED_IMPORT_HEADER = "X-Minerec-Viewer-Staged-Import"
 
 
 def _viewer_static_root() -> Path:
@@ -101,6 +104,22 @@ def _byte_ranges(header: str, size: int) -> list[tuple[int, int]]:
     return ranges
 
 
+def _json_body(value: object, *, maximum_bytes: int = MAX_JSON_RESPONSE_BYTES) -> bytes:
+    body = (
+        json.dumps(
+            value,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+            ensure_ascii=False,
+        ).encode("utf-8")
+        + b"\n"
+    )
+    if len(body) > maximum_bytes:
+        raise RecorderError("viewer response exceeds safe size limit")
+    return body
+
+
 class ViewerApplication:
     def __init__(self, token: str, *, static_root: Path | None = None) -> None:
         self.token = token
@@ -139,8 +158,8 @@ class ViewerApplication:
                     remaining -= len(chunk)
                 output.flush()
                 os.fsync(output.fileno())
-            summary = self.service.import_bundle(destination)
-            return {**summary, "archive_sha256": digest.hexdigest()}
+            staged = self.service.stage_bundle(destination)
+            return {**staged, "archive_sha256": digest.hexdigest()}
         finally:
             destination.unlink(missing_ok=True)
             self._import_lock.release()
@@ -202,22 +221,32 @@ class ViewerHandler(BaseHTTPRequestHandler):
         if not self._request_allowed(api=True, mutation=True):
             return
         route = urlsplit(self.path)
-        if route.path != "/api/v1/viewer/import":
-            self._error(HTTPStatus.NOT_FOUND, "not found")
-            return
-        transfer_encoding = self.headers.get("Transfer-Encoding")
-        if transfer_encoding:
-            self._error(HTTPStatus.BAD_REQUEST, "chunked bundle uploads are not supported")
-            return
         try:
-            raw_length = self.headers.get("Content-Length")
-            if raw_length is None:
-                raise RecorderError("Content-Length is required")
-            content_length = int(raw_length)
-            if not 1 <= content_length <= MAX_IMPORT_BYTES:
-                raise RecorderError(f"bundle upload must be between 1 and {MAX_IMPORT_BYTES} bytes")
-            result = self.application.import_stream(self.rfile, content_length=content_length)
-            self._json(HTTPStatus.CREATED, result)
+            if route.path == "/api/v1/viewer/import":
+                transfer_encoding = self.headers.get("Transfer-Encoding")
+                if transfer_encoding:
+                    raise RecorderError("chunked bundle uploads are not supported")
+                raw_length = self.headers.get("Content-Length")
+                if raw_length is None:
+                    raise RecorderError("Content-Length is required")
+                content_length = int(raw_length)
+                if not 1 <= content_length <= MAX_IMPORT_BYTES:
+                    raise RecorderError(f"bundle upload must be between 1 and {MAX_IMPORT_BYTES} bytes")
+                result = self.application.import_stream(self.rfile, content_length=content_length)
+                self._json(HTTPStatus.CREATED, result)
+                return
+            if match := STAGED_IMPORT_PATH.fullmatch(route.path):
+                content_length = int(self.headers.get("Content-Length", "0"))
+                if content_length != 0 or self.headers.get("Transfer-Encoding"):
+                    raise RecorderError("staged import control requests must have an empty body")
+                staged_import_id, action = match.groups()
+                if action == "commit":
+                    self._json(HTTPStatus.OK, self.application.service.commit_staged(staged_import_id))
+                else:
+                    self.application.service.discard_staged(staged_import_id)
+                    self._json(HTTPStatus.OK, {"discarded": True})
+                return
+            self._error(HTTPStatus.NOT_FOUND, "not found")
         except (OSError, ValueError, RecorderError) as exc:
             self._error(HTTPStatus.BAD_REQUEST, str(exc))
 
@@ -239,15 +268,24 @@ class ViewerHandler(BaseHTTPRequestHandler):
         media = path == "/api/v1/viewer/render/fpv"
         if not self._request_allowed(api=is_api, mutation=False, query_token=media, query=query):
             return
+        staged_import_id = self.headers.get(STAGED_IMPORT_HEADER) or None
         try:
             if path == "/api/v1/viewer/bundle":
-                self._json(HTTPStatus.OK, self.application.service.summary(), send_body=send_body)
+                self._json(
+                    HTTPStatus.OK,
+                    self.application.service.summary(staged_import_id=staged_import_id),
+                    send_body=send_body,
+                )
                 return
             if match := TICK_PATH.fullmatch(path):
                 self._json(
                     HTTPStatus.OK,
-                    self.application.service.tick(int(match.group(1))),
+                    self.application.service.tick(
+                        int(match.group(1)),
+                        staged_import_id=staged_import_id,
+                    ),
                     send_body=send_body,
+                    maximum_bytes=MAX_TICK_JSON_RESPONSE_BYTES,
                 )
                 return
             if path == "/api/v1/viewer/actions":
@@ -257,6 +295,7 @@ class ViewerHandler(BaseHTTPRequestHandler):
                         from_tick=_single_int(query, "from_tick"),
                         to_tick=_single_int(query, "to_tick"),
                         limit=_single_int(query, "limit"),
+                        staged_import_id=staged_import_id,
                     ),
                     send_body=send_body,
                 )
@@ -264,7 +303,10 @@ class ViewerHandler(BaseHTTPRequestHandler):
             if path == "/api/v1/viewer/trajectory":
                 self._json(
                     HTTPStatus.OK,
-                    self.application.service.trajectory(max_points=_single_int(query, "max_points")),
+                    self.application.service.trajectory(
+                        max_points=_single_int(query, "max_points"),
+                        staged_import_id=staged_import_id,
+                    ),
                     send_body=send_body,
                 )
                 return
@@ -276,12 +318,17 @@ class ViewerHandler(BaseHTTPRequestHandler):
                         dimension=_single_text(query, "dimension"),
                         y=_single_int(query, "y"),
                         radius=_single_int(query, "radius"),
+                        staged_import_id=staged_import_id,
                     ),
                     send_body=send_body,
                 )
                 return
             if path == "/api/v1/viewer/replays":
-                self._json(HTTPStatus.OK, self.application.service.replays(), send_body=send_body)
+                self._json(
+                    HTTPStatus.OK,
+                    self.application.service.replays(staged_import_id=staged_import_id),
+                    send_body=send_body,
+                )
                 return
             if path == "/api/v1/viewer/render/fpv/timeline":
                 self._json(
@@ -289,12 +336,17 @@ class ViewerHandler(BaseHTTPRequestHandler):
                     self.application.service.timeline(
                         from_frame=_single_int(query, "from_frame"),
                         limit=_single_int(query, "limit"),
+                        staged_import_id=staged_import_id,
                     ),
                     send_body=send_body,
                 )
                 return
             if media:
-                self._media(self.application.service.render_path(), send_body=send_body)
+                bundle_id = _single_text(query, "bundle_id")
+                if bundle_id is None:
+                    raise RecorderError("query parameter bundle_id is required")
+                with self.application.service.render_lease(bundle_id) as render_path:
+                    self._media(render_path, send_body=send_body)
                 return
             if is_api:
                 self._error(HTTPStatus.NOT_FOUND, "not found")
@@ -419,10 +471,15 @@ class ViewerHandler(BaseHTTPRequestHandler):
             self.wfile.write(chunk)
             remaining -= len(chunk)
 
-    def _json(self, status: HTTPStatus, value: Any, *, send_body: bool = True) -> None:  # noqa: ANN401
-        body = json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8") + b"\n"
-        if len(body) > MAX_JSON_RESPONSE_BYTES:
-            raise RecorderError("viewer response exceeds safe size limit")
+    def _json(
+        self,
+        status: HTTPStatus,
+        value: object,
+        *,
+        send_body: bool = True,
+        maximum_bytes: int = MAX_JSON_RESPONSE_BYTES,
+    ) -> None:
+        body = _json_body(value, maximum_bytes=maximum_bytes)
         self.send_response(status)
         self._common_headers("application/json; charset=utf-8", len(body), cache="no-store")
         self.end_headers()

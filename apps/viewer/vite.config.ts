@@ -9,7 +9,7 @@ export default defineConfig({
   build: {
     emptyOutDir: true,
     manifest: true,
-    outDir: 'dist',
+    outDir: '../minerec/src/minerec/viewer_dist',
     sourcemap: true,
   },
   plugins: [Vue()],

@@ -6,6 +6,7 @@ import { formatBytes } from '../utils/viewer'
 
 const props = defineProps<{
   busy: boolean
+  cancellable: boolean
   progress: ImportProgress
 }>()
 
@@ -18,13 +19,22 @@ const emit = defineEmits<{
 const fileInput = useTemplateRef<HTMLInputElement>('fileInput')
 const isDragging = shallowRef(false)
 
-const phaseStep = computed(() => {
+const progressPercent = computed(() => {
+  if (props.progress.phase !== 'uploading') {
+    return props.busy || props.progress.phase === 'ready' ? 100 : 0
+  }
+  const total = props.progress.file_size ?? 0
+  const loaded = props.progress.uploaded_bytes ?? 0
+  return total > 0 ? Math.min(100, Math.max(0, loaded / total * 100)) : 0
+})
+
+const progressTitle = computed(() => {
   switch (props.progress.phase) {
-    case 'uploading': return 1
-    case 'validating': return 2
-    case 'loading': return 3
-    case 'ready': return 4
-    default: return 0
+    case 'uploading': return `Uploading ${Math.round(progressPercent.value)}%`
+    case 'validating': return 'Validating bundle'
+    case 'loading': return 'Loading bounded views'
+    case 'committing': return 'Activating bundle'
+    default: return 'Drop a .mcplay.zip here'
   }
 })
 
@@ -108,7 +118,7 @@ function acceptFiles(files: FileList | null): void {
         ↓
       </div>
       <div>
-        <strong>{{ busy ? 'Validating bundle…' : 'Drop a .mcplay.zip here' }}</strong>
+        <strong>{{ busy ? `${progressTitle}…` : progressTitle }}</strong>
         <p>{{ progress.message }}</p>
         <small v-if="progress.file_name">
           {{ progress.file_name }} · {{ formatBytes(progress.file_size ?? 0) }}
@@ -116,10 +126,20 @@ function acceptFiles(files: FileList | null): void {
       </div>
     </div>
 
-    <div v-if="busy" class="validation-progress" role="progressbar" aria-label="Bundle import progress">
-      <span v-for="step in 4" :key="step" :class="{ active: step <= phaseStep }" />
+    <div
+      v-if="busy"
+      class="validation-progress"
+      role="progressbar"
+      aria-label="Bundle import progress"
+      aria-valuemin="0"
+      aria-valuemax="100"
+      :aria-valuenow="Math.round(progressPercent)"
+      :aria-valuetext="progressTitle"
+    >
+      <span><i :style="{ width: `${progressPercent}%` }" /></span>
+      <small>{{ progressTitle }}</small>
     </div>
-    <button v-if="busy" class="button secondary cancel-button" type="button" @click="emit('cancel')">
+    <button v-if="busy && cancellable" class="button secondary cancel-button" type="button" @click="emit('cancel')">
       Cancel import
     </button>
   </section>
@@ -136,8 +156,9 @@ function acceptFiles(files: FileList | null): void {
 .drop-target p { margin: .35rem 0 .25rem; color: var(--muted); font-size: .82rem; }
 .drop-target small { color: #bfd0c3; font: 650 .7rem/1.3 var(--mono); overflow-wrap: anywhere; }
 .drop-glyph { width: 3.1rem; height: 3.1rem; display: grid; place-items: center; border: 1px solid #34503e; border-radius: .7rem; color: var(--accent); background: #122019; font: 750 1.4rem/1 var(--mono); }
-.validation-progress { display: grid; grid-template-columns: repeat(4, 1fr); gap: .35rem; margin-top: .75rem; }
-.validation-progress span { height: .2rem; border-radius: 99px; background: #26332b; }
-.validation-progress span.active { background: var(--accent); box-shadow: 0 0 .7rem #75dd9344; }
+.validation-progress { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: .65rem; margin-top: .75rem; }
+.validation-progress span { height: .25rem; overflow: hidden; border-radius: 99px; background: #26332b; }
+.validation-progress i { display: block; height: 100%; border-radius: inherit; background: var(--accent); box-shadow: 0 0 .7rem #75dd9344; transition: width .12s ease-out; }
+.validation-progress small { color: var(--muted); font: 650 .62rem/1 var(--mono); }
 .cancel-button { width: 100%; margin-top: .65rem; }
 </style>

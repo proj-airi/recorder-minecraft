@@ -67,6 +67,7 @@ function clearError(): void {
 
       <BundleDropZone
         :busy="viewer.isImporting.value"
+        :cancellable="viewer.canCancelImport.value"
         :progress="viewer.importProgress.value"
         @cancel="viewer.cancelImport"
         @import="importBundle"

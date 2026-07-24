@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, useTemplateRef, watch } from 'vue'
+import { computed, onBeforeUnmount, useTemplateRef, watch } from 'vue'
 
 import type { RenderDescriptor, RenderTimelineFrame, TickRange } from '../types/viewer'
 import { clamp } from '../utils/viewer'
+import { startVideoFrameLoop, supportsVideoFrameCallbacks } from '../utils/videoFrames'
 
 const props = defineProps<{
   currentFrame: number | null
@@ -20,6 +21,7 @@ const emit = defineEmits<{
 }>()
 
 const video = useTemplateRef<HTMLVideoElement>('video')
+let stopVideoFrames: (() => void) | null = null
 
 const tickPercent = computed(() => {
   const span = Math.max(1, props.tickRange.end - props.tickRange.start)
@@ -33,6 +35,9 @@ watch(
     if (frame === null || !props.render || !media) {
       return
     }
+    if (!media.paused && !media.ended) {
+      return
+    }
     const exactTime = frame / props.render.fps
     if (Math.abs(media.currentTime - exactTime) > 0.075) {
       media.currentTime = exactTime
@@ -40,18 +45,74 @@ watch(
   },
 )
 
+watch(() => props.mediaUrl, stopFrameLoop)
+onBeforeUnmount(stopFrameLoop)
+
 function onTickInput(event: Event): void {
   const input = event.currentTarget as HTMLInputElement
-  emit('tickChange', Number.parseInt(input.value, 10))
+  const tick = Number.parseInt(input.value, 10)
+  if (props.render && video.value) {
+    video.value.currentTime = clamp(
+      tick - props.render.start_tick,
+      0,
+      Math.max(0, props.render.frame_count - 1),
+    ) / props.render.fps
+  }
+  emit('tickChange', tick)
 }
 
 function onVideoTimeUpdate(event: Event): void {
+  const media = event.currentTarget as HTMLVideoElement
+  if (!supportsVideoFrameCallbacks(media)) {
+    emitVideoFrame(media.currentTime)
+  }
+}
+
+function onVideoLoaded(event: Event): void {
+  const media = event.currentTarget as HTMLVideoElement
+  seekToSelectedFrame(media)
+  if (!media.paused) {
+    startFrameLoop(media)
+  }
+}
+
+function onVideoPlay(event: Event): void {
+  startFrameLoop(event.currentTarget as HTMLVideoElement)
+}
+
+function onVideoPause(event: Event): void {
+  stopFrameLoop()
+  emitVideoFrame((event.currentTarget as HTMLVideoElement).currentTime)
+}
+
+function onVideoSeeked(event: Event): void {
+  emitVideoFrame((event.currentTarget as HTMLVideoElement).currentTime)
+}
+
+function startFrameLoop(media: HTMLVideoElement): void {
+  stopFrameLoop()
+  if (supportsVideoFrameCallbacks(media)) {
+    stopVideoFrames = startVideoFrameLoop(media, emitVideoFrame)
+  }
+}
+
+function stopFrameLoop(): void {
+  stopVideoFrames?.()
+  stopVideoFrames = null
+}
+
+function seekToSelectedFrame(media: HTMLVideoElement): void {
+  if (props.currentFrame !== null && props.render) {
+    media.currentTime = props.currentFrame / props.render.fps
+  }
+}
+
+function emitVideoFrame(mediaTime: number): void {
   if (!props.render) {
     return
   }
-  const media = event.currentTarget as HTMLVideoElement
   const frame = Math.round(clamp(
-    Math.floor(media.currentTime * props.render.fps + 1e-6),
+    Math.floor(mediaTime * props.render.fps + 1e-6),
     0,
     Math.max(0, props.render.frame_count - 1),
   ))
@@ -79,12 +140,17 @@ function onVideoTimeUpdate(event: Event): void {
 
     <div v-if="render" class="video-shell">
       <video
+        :key="mediaUrl"
         ref="video"
         class="video"
         :src="mediaUrl"
         controls
         playsinline
         preload="metadata"
+        @loadeddata="onVideoLoaded"
+        @pause="onVideoPause"
+        @play="onVideoPlay"
+        @seeked="onVideoSeeked"
         @timeupdate="onVideoTimeUpdate"
       >
         This browser cannot play the attached H.264 video.

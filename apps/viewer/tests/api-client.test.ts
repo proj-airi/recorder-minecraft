@@ -64,17 +64,94 @@ describe('viewer API URL construction', () => {
 })
 
 describe('viewer API token and upload behavior', () => {
-  it('streams the File itself as the request body and sends the launch token header', async () => {
+  it('streams the File itself with real upload/validation progress and stages without committing', async () => {
     const file = new File(['portable bundle bytes'], 'test bundle.mcplay.zip', { type: 'application/zip' })
-    let requestInput: RequestInfo | undefined | URL
+    let sentBody: Document | null | XMLHttpRequestBodyInit = null
+    const headers = new Map<string, string>()
+    const progress: string[] = []
+    const uploadHandlers: {
+      onload: ((event: ProgressEvent) => void) | null
+      onprogress: ((event: ProgressEvent) => void) | null
+    } = { onload: null, onprogress: null }
+    const fakeXhr = {
+      abort: vi.fn(),
+      onabort: null,
+      onerror: null,
+      onload: null,
+      open: vi.fn(),
+      responseText: '',
+      responseType: '',
+      send(body: Document | null | XMLHttpRequestBodyInit) {
+        sentBody = body
+        uploadHandlers.onprogress?.({ loaded: file.size } as ProgressEvent)
+        uploadHandlers.onload?.({} as ProgressEvent)
+        fakeXhr.status = 201
+        fakeXhr.responseText = JSON.stringify({
+          archive_sha256: 'f'.repeat(64),
+          bundle: bundleSummaryResponse(),
+          staged_import_id: 'staged-import-id-123',
+        })
+        ;(fakeXhr.onload as ((event: ProgressEvent) => void) | null)?.({} as ProgressEvent)
+      },
+      setRequestHeader: vi.fn((name: string, value: string) => headers.set(name, value)),
+      status: 0,
+      upload: uploadHandlers as unknown as XMLHttpRequestUpload,
+      withCredentials: false,
+    }
+    const xhr = fakeXhr as unknown as XMLHttpRequest
+    const client = createViewerApiClient({
+      origin: 'http://127.0.0.1:40123',
+      token: 'launch-secret',
+      xhrFactory: () => xhr,
+    })
+
+    const staged = await client.stageBundle(file, {
+      onProgress: (loaded, total) => progress.push(`${loaded}/${total}`),
+      onValidationStart: () => progress.push('validating'),
+    })
+
+    expect(xhr.open).toHaveBeenCalledWith('POST', 'http://127.0.0.1:40123/api/v1/viewer/import', true)
+    expect(sentBody).toBe(file)
+    expect(headers.get('X-Minerec-Viewer-Token')).toBe('launch-secret')
+    expect(headers.get('X-Minerec-Bundle-Name')).toBe('test%20bundle.mcplay.zip')
+    expect(headers.get('X-Minerec-Bundle-Size')).toBe(String(file.size))
+    expect(progress).toEqual([`${file.size}/${file.size}`, `${file.size}/${file.size}`, 'validating'])
+    expect(staged.staged_import_id).toBe('staged-import-id-123')
+  })
+
+  it('uses the token only in the media URL where a video element cannot set headers', () => {
+    const client = createViewerApiClient({ origin: 'http://127.0.0.1:40123', token: 'launch secret' })
+    expect(client.getRenderMediaUrl('bundle-revision')).toBe(
+      'http://127.0.0.1:40123/api/v1/viewer/render/fpv?bundle_id=bundle-revision&token=launch+secret',
+    )
+  })
+
+  it('scopes staged reads with an opaque header', async () => {
     let requestInit: RequestInit | undefined
-    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      requestInput = input
+    const fetchImpl = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
       requestInit = init
-      return new Response(JSON.stringify(bundleSummaryResponse()), {
-        headers: { 'Content-Type': 'application/json' },
-        status: 200,
-      })
+      return new Response(JSON.stringify({
+        frame: { frame_id: 'frame-10', replay_tick: 20 },
+        state: {
+          air: 300,
+          dimension: 'minecraft:overworld',
+          entity_id: 7,
+          experience_level: 0,
+          experience_progress: 0,
+          food_level: 20,
+          game_mode: 'survival',
+          health: 20,
+          payload: {},
+          pose: 'standing',
+          position: [0, 64, 0],
+          selected_slot: 0,
+          sneaking: false,
+          sprinting: false,
+          state_barrier_apply_sequence: 1,
+          tick: 10,
+          velocity: [0, 0, 0],
+        },
+      }), { status: 200 })
     }) as typeof fetch
     const client = createViewerApiClient({
       fetchImpl,
@@ -82,21 +159,9 @@ describe('viewer API token and upload behavior', () => {
       token: 'launch-secret',
     })
 
-    await client.importBundle(file)
+    await client.getTickState(10, { stagedImportId: 'staged-import-id-123' })
 
-    expect(requestInput).toBe('http://127.0.0.1:40123/api/v1/viewer/import')
-    expect(requestInit?.body).toBe(file)
-    const headers = new Headers(requestInit?.headers)
-    expect(headers.get('X-Minerec-Viewer-Token')).toBe('launch-secret')
-    expect(headers.get('X-Minerec-Bundle-Name')).toBe('test%20bundle.mcplay.zip')
-    expect(headers.get('X-Minerec-Bundle-Size')).toBe(String(file.size))
-  })
-
-  it('uses the token only in the media URL where a video element cannot set headers', () => {
-    const client = createViewerApiClient({ origin: 'http://127.0.0.1:40123', token: 'launch secret' })
-    expect(client.getRenderMediaUrl()).toBe(
-      'http://127.0.0.1:40123/api/v1/viewer/render/fpv?token=launch+secret',
-    )
+    expect(new Headers(requestInit?.headers).get('X-Minerec-Viewer-Staged-Import')).toBe('staged-import-id-123')
   })
 
   it('normalizes the bridge metadata wrapper into the typed bundle view model', async () => {
@@ -181,6 +246,28 @@ describe('viewer API token and upload behavior', () => {
     expect(state.controls).toMatchObject({ sneak: false, sprint: true })
     expect(state.payload.inventory).toEqual([{ slot: 0 }])
     expect(slice.cells.map(cell => cell.kind)).toEqual(['air', 'block', 'unknown'])
+  })
+
+  it('preserves opaque Scene V2 frame ids in render timeline pages', async () => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({
+      frames: [{
+        frame_index: 0,
+        pts: 0,
+        replay_tick: 20,
+        scene_frame: 'segment-id:10',
+        server_tick: 10,
+      }],
+      next_frame: null,
+    }), { status: 200 })) as typeof fetch
+    const client = createViewerApiClient({
+      fetchImpl,
+      origin: 'http://127.0.0.1:40123',
+      token: 'launch-secret',
+    })
+
+    const timeline = await client.getRenderTimeline(0, 400)
+
+    expect(timeline.frames[0]?.scene_frame).toBe('segment-id:10')
   })
 
   it('keeps decimated trajectory samples connected while preserving true source breaks', async () => {

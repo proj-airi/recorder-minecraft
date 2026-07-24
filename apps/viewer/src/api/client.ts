@@ -1,46 +1,73 @@
 import type {
   ActionsResponse,
   BundleSummary,
-  ImportResult,
   PlayerTickState,
   RenderTimelineResponse,
   ReplayDescriptor,
   ReplaysResponse,
   SceneSliceResponse,
+  StagedImportResult,
   TrajectoryResponse,
 } from '../types/viewer'
 
 const API_PREFIX = '/api/v1/viewer'
 const TOKEN_HEADER = 'X-Minerec-Viewer-Token'
+const STAGED_IMPORT_HEADER = 'X-Minerec-Viewer-Staged-Import'
 
 export interface ViewerApiClient {
-  getActions: (fromTick: number, toTick: number, limit: number, signal?: AbortSignal) => Promise<ActionsResponse>
-  getBundle: (signal?: AbortSignal) => Promise<BundleSummary>
-  getRenderMediaUrl: () => string
-  getRenderTimeline: (fromFrame: number, limit: number, signal?: AbortSignal) => Promise<RenderTimelineResponse>
-  getReplays: (signal?: AbortSignal) => Promise<ReplaysResponse>
+  commitStagedImport: (stagedImportId: string) => Promise<BundleSummary>
+  discardStagedImport: (stagedImportId: string) => Promise<void>
+  getActions: (fromTick: number, toTick: number, limit: number, context?: ViewerReadContext) => Promise<ActionsResponse>
+  getBundle: (context?: ViewerReadContext) => Promise<BundleSummary>
+  getRenderMediaUrl: (bundleId: string) => string
+  getRenderTimeline: (fromFrame: number, limit: number, context?: ViewerReadContext) => Promise<RenderTimelineResponse>
+  getReplays: (context?: ViewerReadContext) => Promise<ReplaysResponse>
   getSceneSlice: (
     tick: number,
     dimension: string,
     y: number,
     radius: number,
-    signal?: AbortSignal,
+    context?: ViewerReadContext,
   ) => Promise<SceneSliceResponse>
-  getTickState: (tick: number, signal?: AbortSignal) => Promise<PlayerTickState>
-  getTrajectory: (maxPoints: number, signal?: AbortSignal) => Promise<TrajectoryResponse>
+  getTickState: (tick: number, context?: ViewerReadContext) => Promise<PlayerTickState>
+  getTrajectory: (maxPoints: number, context?: ViewerReadContext) => Promise<TrajectoryResponse>
   readonly hasToken: boolean
-  importBundle: (file: File, signal?: AbortSignal) => Promise<ImportResult>
+  stageBundle: (
+    file: File,
+    callbacks?: ViewerUploadCallbacks,
+    signal?: AbortSignal,
+  ) => Promise<StagedImportResult>
 }
 
 export interface ViewerApiClientOptions {
   fetchImpl?: typeof fetch
   origin?: string
   token: null | string
+  xhrFactory?: () => XMLHttpRequest
 }
 
 export interface ViewerLaunchContext {
   sanitizedPath: string
   token: null | string
+}
+
+export interface ViewerReadContext {
+  signal?: AbortSignal
+  stagedImportId?: string
+}
+
+export interface ViewerUploadCallbacks {
+  onProgress?: (loadedBytes: number, totalBytes: number) => void
+  onValidationStart?: () => void
+}
+
+interface XhrBundleUploadOptions {
+  callbacks: ViewerUploadCallbacks
+  file: File
+  signal?: AbortSignal
+  token: string
+  url: string
+  xhrFactory: () => XMLHttpRequest
 }
 
 export class ViewerApiError extends Error {
@@ -75,7 +102,7 @@ export function createViewerApiClient(options: ViewerApiClientOptions): ViewerAp
   const token = normalizeToken(options.token)
   const origin = options.origin ?? globalThis.location?.origin ?? 'http://127.0.0.1'
   const fetchImpl = options.fetchImpl ?? globalThis.fetch
-  let metadataReplays: ReplayDescriptor[] = []
+  const xhrFactory = options.xhrFactory ?? (() => new XMLHttpRequest())
 
   async function requestJson<T>(endpoint: string, init: RequestInit = {}): Promise<T> {
     if (!token) {
@@ -101,85 +128,96 @@ export function createViewerApiClient(options: ViewerApiClientOptions): ViewerAp
     return response.json() as Promise<T>
   }
 
+  function readRequest(context?: ViewerReadContext): RequestInit {
+    const headers = new Headers()
+    if (context?.stagedImportId) {
+      headers.set(STAGED_IMPORT_HEADER, context.stagedImportId)
+    }
+    return { headers, signal: context?.signal }
+  }
+
   return {
-    async getActions(fromTick, toTick, limit, signal) {
+    async commitStagedImport(stagedImportId) {
+      const response = await requestJson<unknown>(`/imports/${safeStagedImportId(stagedImportId)}/commit`, {
+        method: 'POST',
+      })
+      return normalizeBundle(response)
+    },
+    async discardStagedImport(stagedImportId) {
+      await requestJson<unknown>(`/imports/${safeStagedImportId(stagedImportId)}/discard`, {
+        method: 'POST',
+      })
+    },
+    async getActions(fromTick, toTick, limit, context) {
       const endpoint = withQuery('/actions', {
         from_tick: toInteger(fromTick, 'from tick'),
         limit: clampInteger(limit, 1, 500, 'action limit'),
         to_tick: toInteger(toTick, 'to tick'),
       })
-      const response = await requestJson<unknown>(endpoint, { signal })
+      const response = await requestJson<unknown>(endpoint, readRequest(context))
       return normalizeActions(response, fromTick, toTick)
     },
-    async getBundle(signal) {
-      const response = await requestJson<unknown>('/bundle', { signal })
-      const bundle = normalizeBundle(response)
-      metadataReplays = normalizeSummaryReplays(response)
-      return bundle
+    async getBundle(context) {
+      const response = await requestJson<unknown>('/bundle', readRequest(context))
+      return normalizeBundle(response)
     },
-    getRenderMediaUrl() {
+    getRenderMediaUrl(bundleId) {
       if (!token) {
         return ''
       }
-      return buildViewerApiUrl('/render/fpv', { token }, origin)
+      return buildViewerApiUrl('/render/fpv', { bundle_id: bundleId, token }, origin)
     },
-    async getRenderTimeline(fromFrame, limit, signal) {
+    async getRenderTimeline(fromFrame, limit, context) {
       const endpoint = withQuery('/render/fpv/timeline', {
         from_frame: clampInteger(fromFrame, 0, Number.MAX_SAFE_INTEGER, 'timeline frame'),
         limit: clampInteger(limit, 1, 1000, 'timeline limit'),
       })
-      const response = await requestJson<unknown>(endpoint, { signal })
+      const response = await requestJson<unknown>(endpoint, readRequest(context))
       return normalizeTimeline(response)
     },
-    async getReplays(signal) {
-      const response = await requestJson<unknown>('/replays', { signal })
-      const normalized = normalizeReplaysResponse(response)
-      return {
-        replays: normalized.replays.map((replay) => {
-          const metadata = metadataReplays.find(candidate => candidate.segment_id === replay.segment_id)
-          return metadata ? { ...replay, path: metadata.path } : replay
-        }),
-      }
+    async getReplays(context) {
+      const response = await requestJson<unknown>('/replays', readRequest(context))
+      return normalizeReplaysResponse(response)
     },
-    async getSceneSlice(tick, dimension, y, radius, signal) {
+    async getSceneSlice(tick, dimension, y, radius, context) {
       const endpoint = withQuery('/scene/slice', {
         dimension,
         radius: clampInteger(radius, 1, 32, 'scene radius'),
         tick: toInteger(tick, 'tick'),
         y: toInteger(y, 'scene y'),
       })
-      const response = await requestJson<unknown>(endpoint, { signal })
+      const response = await requestJson<unknown>(endpoint, readRequest(context))
       return normalizeSceneSlice(response, radius)
     },
-    async getTickState(tick, signal) {
-      const response = await requestJson<unknown>(`/ticks/${toInteger(tick, 'tick')}`, { signal })
+    async getTickState(tick, context) {
+      const response = await requestJson<unknown>(`/ticks/${toInteger(tick, 'tick')}`, readRequest(context))
       return normalizeTickState(response)
     },
-    async getTrajectory(maxPoints, signal) {
+    async getTrajectory(maxPoints, context) {
       const endpoint = withQuery('/trajectory', {
         max_points: clampInteger(maxPoints, 2, 5000, 'trajectory point limit'),
       })
-      const response = await requestJson<unknown>(endpoint, { signal })
+      const response = await requestJson<unknown>(endpoint, readRequest(context))
       return normalizeTrajectory(response)
     },
     hasToken: token !== null,
-    async importBundle(file, signal) {
-      const response = await requestJson<unknown>('/import', {
-        body: file,
-        headers: {
-          'Content-Type': 'application/zip',
-          'X-Minerec-Bundle-Name': encodeURIComponent(file.name),
-          'X-Minerec-Bundle-Size': String(file.size),
-        },
-        method: 'POST',
+    async stageBundle(file, callbacks = {}, signal) {
+      if (!token) {
+        throw new ViewerApiError('This viewer was not launched with an API token.')
+      }
+      const response = await uploadBundleWithXhr({
+        callbacks,
+        file,
         signal,
+        token,
+        url: buildViewerApiUrl('/import', {}, origin),
+        xhrFactory,
       })
-      const bundle = normalizeBundle(response)
-      metadataReplays = normalizeSummaryReplays(response)
+      const result = objectValue(response, 'staged import response')
       return {
-        bundle,
-        initial_tick: bundle.tick_range.start,
-        replaced_bundle_id: null,
+        archive_sha256: textValue(result.archive_sha256, 'uploaded archive hash'),
+        bundle: normalizeBundle(result.bundle),
+        staged_import_id: safeStagedImportId(textValue(result.staged_import_id, 'staged import id')),
       }
     },
   }
@@ -441,12 +479,6 @@ function normalizeSceneSlice(value: unknown, radius: number): SceneSliceResponse
   }
 }
 
-function normalizeSummaryReplays(value: unknown): ReplayDescriptor[] {
-  const summary = objectValue(value, 'bundle summary')
-  const metadata = objectValue(summary.metadata, 'bundle metadata')
-  return normalizeReplayArray(metadata.replays)
-}
-
 function normalizeTickState(value: unknown): PlayerTickState {
   const response = objectValue(value, 'tick response')
   const frame = objectValue(response.frame, 'scene frame')
@@ -495,7 +527,7 @@ function normalizeTimeline(value: unknown): RenderTimelineResponse {
         frame: integerValue(frame.frame_index, 'render frame index'),
         pts: numberValue(frame.pts, 'render frame PTS'),
         replay_tick: integerValue(frame.replay_tick, 'render replay tick'),
-        scene_frame: integerValue(frame.scene_frame, 'render scene frame'),
+        scene_frame: stringOrInteger(frame.scene_frame, 'render scene frame'),
         server_tick: integerValue(frame.server_tick, 'render server tick'),
       }
     }),
@@ -606,6 +638,13 @@ async function readApiError(response: Response): Promise<string> {
   return fallback
 }
 
+function safeStagedImportId(value: string): string {
+  if (!/^[\w-]{16,128}$/.test(value)) {
+    throw new ViewerApiError('The bridge returned an invalid staged import id.')
+  }
+  return value
+}
+
 function stringArray(value: unknown, label: string): string[] {
   const values = arrayValue(value, label)
   if (!values.every(item => typeof item === 'string')) {
@@ -642,6 +681,74 @@ function toInteger(value: number, label: string): number {
     throw new TypeError(`${label} must be a safe integer`)
   }
   return value
+}
+
+function uploadBundleWithXhr(options: XhrBundleUploadOptions): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    if (options.signal?.aborted) {
+      reject(new DOMException('Bundle import was cancelled.', 'AbortError'))
+      return
+    }
+
+    const xhr = options.xhrFactory()
+    let settled = false
+    const abort = () => xhr.abort()
+    const cleanup = () => options.signal?.removeEventListener('abort', abort)
+    const fail = (error: unknown) => {
+      if (settled) {
+        return
+      }
+      settled = true
+      cleanup()
+      reject(error)
+    }
+    const succeed = (value: unknown) => {
+      if (settled) {
+        return
+      }
+      settled = true
+      cleanup()
+      resolve(value)
+    }
+    xhr.open('POST', options.url, true)
+    xhr.responseType = 'text'
+    xhr.withCredentials = true
+    xhr.setRequestHeader('Accept', 'application/json')
+    xhr.setRequestHeader('Content-Type', 'application/zip')
+    xhr.setRequestHeader(TOKEN_HEADER, options.token)
+    xhr.setRequestHeader('X-Minerec-Bundle-Name', encodeURIComponent(options.file.name))
+    xhr.setRequestHeader('X-Minerec-Bundle-Size', String(options.file.size))
+    xhr.upload.onprogress = (event) => {
+      options.callbacks.onProgress?.(
+        Math.min(options.file.size, event.loaded),
+        options.file.size,
+      )
+    }
+    xhr.upload.onload = () => {
+      options.callbacks.onProgress?.(options.file.size, options.file.size)
+      options.callbacks.onValidationStart?.()
+    }
+    xhr.onload = () => {
+      let value: unknown
+      try {
+        value = JSON.parse(xhr.responseText)
+      }
+      catch {
+        fail(new ViewerApiError('The viewer bridge returned invalid JSON.', xhr.status))
+        return
+      }
+      if (xhr.status < 200 || xhr.status >= 300) {
+        const error = optionalObject(value).error
+        fail(new ViewerApiError(typeof error === 'string' ? error : `Viewer request failed (${xhr.status}).`, xhr.status))
+        return
+      }
+      succeed(value)
+    }
+    xhr.onerror = () => fail(new ViewerApiError('The local viewer bridge could not be reached.'))
+    xhr.onabort = () => fail(new DOMException('Bundle import was cancelled.', 'AbortError'))
+    options.signal?.addEventListener('abort', abort, { once: true })
+    xhr.send(options.file)
+  })
 }
 
 function vectorValue(value: unknown, label: string): { x: number, y: number, z: number } {
