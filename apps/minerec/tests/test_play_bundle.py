@@ -364,6 +364,29 @@ class PlayBundleRoundTripTest(unittest.TestCase):
                 self.assertIsNone(metadata["render"])
                 self.assertFalse(any(name.startswith("renders/") for name in archive.namelist()))
 
+    def test_binds_validator_frame_pts_but_keeps_generic_reader_optional(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            request = _request(root, with_render=True)
+            published = publish_bundle(
+                request,
+                root / "artifacts",
+                scene_validator=_validate_scene,
+            )
+
+            with open_bundle(published.path, scene_validator=_validate_scene):
+                pass
+
+            def mismatched_pts(_path: Path, _descriptor: object) -> dict[str, object]:
+                return {"frame_pts": (0, 2)}
+
+            with self.assertRaisesRegex(BundleError, "exactly match its MP4 frame"):
+                open_bundle(
+                    published.path,
+                    scene_validator=_validate_scene,
+                    render_validator=mismatched_pts,
+                )
+
     def test_preserves_multiple_independently_rotated_replay_segments(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

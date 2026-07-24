@@ -12,7 +12,7 @@ import zipfile
 from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path, PurePosixPath
-from typing import Any, BinaryIO, Iterator, Mapping
+from typing import Any, BinaryIO, Iterator, Mapping, cast
 
 from minerec.processing.bundle.contract import (
     OPTIONAL_RENDER_ENTRY_NAMES,
@@ -689,6 +689,7 @@ def _validate_timeline(
     *,
     scene_path: Path,
     scene_result: object | None,
+    validated_frame_pts: tuple[int, ...] | None,
 ) -> None:
     if metadata.render is None:
         raise BundleError("render timeline is present without a render descriptor")
@@ -751,6 +752,8 @@ def _validate_timeline(
                     raise BundleError("render timeline replay tick is outside its replay descriptor")
             if previous_pts is not None and value["pts"] <= previous_pts:
                 raise BundleError("render timeline PTS values must be strictly increasing")
+            if validated_frame_pts is not None and value["pts"] != validated_frame_pts[frame_index]:
+                raise BundleError("render timeline PTS does not exactly match its MP4 frame")
             previous_pts = value["pts"]
             observed_frames += 1
     except BundleError:
@@ -863,9 +866,9 @@ def _call_render_validator(
     validator: RenderValidator | None,
     path: Path,
     descriptor: Mapping[str, Any],
-) -> None:
+) -> object | None:
     if validator is None:
-        return
+        return None
     try:
         result = validator(path, descriptor)
     except BundleError:
@@ -874,6 +877,26 @@ def _call_render_validator(
         raise BundleError("render validator rejected the bundle") from exc
     if result is False:
         raise BundleError("render validator rejected the bundle")
+    return result
+
+
+def _validated_frame_pts(
+    validator_result: object | None,
+    *,
+    expected_frames: int,
+) -> tuple[int, ...] | None:
+    if not isinstance(validator_result, Mapping) or "frame_pts" not in validator_result:
+        return None
+    result_mapping = cast(Mapping[str, object], validator_result)
+    raw_pts = result_mapping["frame_pts"]
+    if not isinstance(raw_pts, (list, tuple)):
+        raise BundleError("render validator returned an invalid frame PTS sequence")
+    if any(not isinstance(value, int) or isinstance(value, bool) for value in raw_pts):
+        raise BundleError("render validator returned an invalid frame PTS sequence")
+    values = cast(tuple[int, ...], tuple(raw_pts))
+    if len(values) != expected_frames:
+        raise BundleError("render validator frame PTS count does not match the video")
+    return values
 
 
 def _fsync_directory(path: Path) -> None:
@@ -989,15 +1012,24 @@ def open_bundle(
         if metadata.render is not None:
             fpv_path = extracted[OPTIONAL_RENDER_ENTRY_NAMES[0]]
             timeline_path = extracted[OPTIONAL_RENDER_ENTRY_NAMES[1]]
+            _validate_mp4_shape(fpv_path)
+            validator_result = _call_render_validator(
+                render_validator,
+                fpv_path,
+                metadata.render["video"],
+            )
+            frame_pts = _validated_frame_pts(
+                validator_result,
+                expected_frames=metadata.render["video"]["frame_count"],
+            )
             _validate_timeline(
                 timeline_path,
                 metadata,
                 limits.max_json_line_bytes,
                 scene_path=scene_path,
                 scene_result=scene_result,
+                validated_frame_pts=frame_pts,
             )
-            _validate_mp4_shape(fpv_path)
-            _call_render_validator(render_validator, fpv_path, metadata.render["video"])
 
         _fsync_directory(extraction_root)
         return OpenedBundle(

@@ -8,6 +8,7 @@ import sqlite3
 import stat
 import subprocess
 import tempfile
+import time
 import uuid
 from collections import Counter
 from dataclasses import dataclass
@@ -46,6 +47,10 @@ MAX_DATASET_FILES = 64
 MAX_STATE_LINE_BYTES = 64 * 1024 * 1024
 MAX_SOURCE_EVENT_LINE_BYTES = 16 * 1024 * 1024
 MAX_STATES = 20 * 60 * 60 * 24
+_FFPROBE_TIMEOUT_SECONDS = 60.0
+_FFPROBE_METADATA_OUTPUT_BYTES = 64 * 1024
+_FFPROBE_FRAME_OUTPUT_BYTES = 64 * 1024 * 1024
+_FFPROBE_ERROR_OUTPUT_BYTES = 64 * 1024
 KNOWN_MODALITY_GAPS = (
     "audio_not_captured",
     "particle_lifecycle_not_captured",
@@ -769,32 +774,70 @@ def _replay_segments(
     return tuple(result)
 
 
-def _probe_render(path: Path) -> dict[str, Any]:
+def _stop_probe(process: subprocess.Popen[bytes]) -> None:
+    process.terminate()
+    try:
+        process.wait(timeout=2)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()
+
+
+def _run_ffprobe(
+    executable: str,
+    arguments: tuple[str, ...],
+    *,
+    maximum_output_bytes: int,
+) -> bytes:
+    with tempfile.TemporaryFile() as output, tempfile.TemporaryFile() as errors:
+        try:
+            process = subprocess.Popen(
+                (executable, *arguments),
+                stdout=output,
+                stderr=errors,
+            )
+        except OSError as exc:
+            raise RecorderError("ffprobe could not inspect the FPV attachment") from exc
+
+        deadline = time.monotonic() + _FFPROBE_TIMEOUT_SECONDS
+        while process.poll() is None:
+            if os.fstat(output.fileno()).st_size > maximum_output_bytes or os.fstat(errors.fileno()).st_size > _FFPROBE_ERROR_OUTPUT_BYTES:
+                _stop_probe(process)
+                raise RecorderError("ffprobe exceeded its bounded output limit")
+            if time.monotonic() >= deadline:
+                _stop_probe(process)
+                raise RecorderError("ffprobe timed out while inspecting the FPV attachment")
+            time.sleep(0.02)
+
+        if os.fstat(output.fileno()).st_size > maximum_output_bytes or os.fstat(errors.fileno()).st_size > _FFPROBE_ERROR_OUTPUT_BYTES:
+            raise RecorderError("ffprobe exceeded its bounded output limit")
+        if process.returncode != 0:
+            raise RecorderError("ffprobe rejected the FPV attachment")
+        output.seek(0)
+        return output.read(maximum_output_bytes + 1)
+
+
+def _probe_render(path: Path, *, expected_frames: int) -> dict[str, Any]:
     executable = shutil.which("ffprobe")
     if executable is None:
         raise RecorderError("ffprobe is required to validate an FPV attachment; run through Pixi")
-    try:
-        process = subprocess.run(
-            (
-                executable,
-                "-v",
-                "error",
-                "-count_frames",
-                "-show_entries",
-                "stream=codec_type,codec_name,pix_fmt,width,height,avg_frame_rate,r_frame_rate,nb_read_frames",
-                "-of",
-                "json",
-                str(path),
-            ),
-            check=False,
-            capture_output=True,
-            timeout=60,
-        )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        raise RecorderError("ffprobe could not inspect the FPV attachment") from exc
-    if process.returncode != 0:
-        raise RecorderError("ffprobe rejected the FPV attachment")
-    value = _strict_json(process.stdout, "ffprobe output")
+    if expected_frames <= 0:
+        raise RecorderError("FPV attachment requires a positive expected frame count")
+    stream_output = _run_ffprobe(
+        executable,
+        (
+            "-v",
+            "error",
+            "-count_frames",
+            "-show_entries",
+            "stream=codec_type,codec_name,pix_fmt,width,height,avg_frame_rate,r_frame_rate,time_base,nb_read_frames",
+            "-of",
+            "json",
+            str(path),
+        ),
+        maximum_output_bytes=_FFPROBE_METADATA_OUTPUT_BYTES,
+    )
+    value = _strict_json(stream_output, "ffprobe output")
     streams = value.get("streams") if isinstance(value, dict) else None
     if not isinstance(streams, list) or len(streams) != 1 or not isinstance(streams[0], dict):
         raise RecorderError("FPV attachment must contain exactly one video stream and no audio")
@@ -802,26 +845,77 @@ def _probe_render(path: Path) -> dict[str, Any]:
     if stream.get("codec_type") != "video" or stream.get("codec_name") != "h264" or stream.get("pix_fmt") != "yuv420p":
         raise RecorderError("FPV attachment must be H.264 with yuv420p pixels")
     try:
-        fps = Fraction(str(stream.get("avg_frame_rate")))
+        average_fps = Fraction(str(stream.get("avg_frame_rate")))
+        nominal_fps = Fraction(str(stream.get("r_frame_rate")))
+        time_base = Fraction(str(stream.get("time_base")))
         frame_count = int(stream.get("nb_read_frames"))
         width = int(stream.get("width"))
         height = int(stream.get("height"))
     except (ValueError, TypeError, ZeroDivisionError) as exc:
-        raise RecorderError("FPV attachment lacks usable frame-rate, count, or dimensions") from exc
-    if fps != 20 or width <= 0 or height <= 0 or frame_count <= 0:
+        raise RecorderError("FPV attachment lacks usable rate, time base, count, or dimensions") from exc
+    if average_fps != 20 or nominal_fps != 20 or time_base <= 0 or width <= 0 or height <= 0 or frame_count <= 0:
         raise RecorderError("FPV attachment must be constant 20 FPS with positive dimensions and frames")
-    return {"frame_count": frame_count, "width": width, "height": height}
+    if frame_count != expected_frames:
+        raise RecorderError("FPV frame count does not match its expected timeline")
+
+    pts_step = Fraction(1, 20) / time_base
+    if pts_step.denominator != 1 or pts_step <= 0:
+        raise RecorderError("FPV time base cannot represent exact 20 FPS timestamps")
+    frame_output_limit = min(
+        _FFPROBE_FRAME_OUTPUT_BYTES,
+        max(_FFPROBE_METADATA_OUTPUT_BYTES, (expected_frames + 1) * 32),
+    )
+    frame_output = _run_ffprobe(
+        executable,
+        (
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-read_intervals",
+            f"%+#{expected_frames + 1}",
+            "-show_entries",
+            "frame=pts",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            str(path),
+        ),
+        maximum_output_bytes=frame_output_limit,
+    )
+    try:
+        frame_pts = tuple(int(line) for line in frame_output.splitlines())
+    except ValueError as exc:
+        raise RecorderError("FPV attachment contains a frame without an integer PTS") from exc
+    if len(frame_pts) != frame_count:
+        raise RecorderError("FPV attachment does not expose exactly one PTS per frame")
+    expected_step = pts_step.numerator
+    if any(current - previous != expected_step for previous, current in zip(frame_pts, frame_pts[1:], strict=False)):
+        raise RecorderError("FPV attachment frame PTS values are not constant 20 FPS")
+    return {
+        "frame_count": frame_count,
+        "width": width,
+        "height": height,
+        "avg_frame_rate": average_fps,
+        "r_frame_rate": nominal_fps,
+        "time_base": time_base,
+        "pts_step": expected_step,
+        "frame_pts": frame_pts,
+    }
 
 
-def validate_fpv_render(path: Path, descriptor: Mapping[str, Any]) -> None:
-    observed = _probe_render(path)
+def validate_fpv_render(path: Path, descriptor: Mapping[str, Any]) -> Mapping[str, Any]:
+    expected_frame_count = descriptor.get("frame_count")
+    if not isinstance(expected_frame_count, int) or isinstance(expected_frame_count, bool):
+        raise RecorderError("FPV bundle descriptor has an invalid frame count")
+    observed = _probe_render(path, expected_frames=expected_frame_count)
     expected = {
         "frame_count": descriptor.get("frame_count"),
         "width": descriptor.get("width"),
         "height": descriptor.get("height"),
     }
-    if observed != expected:
+    if {key: observed[key] for key in expected} != expected:
         raise RecorderError("FPV attachment does not match its bundle descriptor")
+    return observed
 
 
 def _render_attachment(
@@ -832,7 +926,7 @@ def _render_attachment(
 ) -> RenderAttachment:
     video = _stable_artifact(video_path.expanduser().resolve(), "FPV render")
     timeline = _stable_artifact(timeline_path.expanduser().resolve(), "FPV render timeline")
-    observed = _probe_render(video.path)
+    observed = _probe_render(video.path, expected_frames=expected_frames)
     if observed["frame_count"] != expected_frames:
         raise RecorderError("FPV frame count must equal the connection tick count")
     return RenderAttachment(

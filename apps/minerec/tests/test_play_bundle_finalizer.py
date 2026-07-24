@@ -11,13 +11,14 @@ import uuid
 import zipfile
 from pathlib import Path
 from typing import cast
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
 from minerec.config import initialize, load_config
 from minerec.errors import RecorderError
 from minerec.processing.bundle import BundleError, open_bundle
-from minerec.processing.bundle.finalizer import finalize_dataset_bundle
+from minerec.processing.bundle.finalizer import finalize_dataset_bundle, validate_fpv_render
 from minerec.processing.capture.exporter import (
     canonical_action_jsonl_line,
     canonical_state_jsonl_line,
@@ -394,6 +395,40 @@ def _write_dataset(root: Path, replay: Path) -> Path:
 
 
 class PlayBundleFinalizerTest(unittest.TestCase):
+    @mock.patch("minerec.processing.bundle.finalizer.shutil.which", return_value="/usr/bin/ffprobe")
+    @mock.patch("minerec.processing.bundle.finalizer._run_ffprobe")
+    def test_rejects_variable_frame_pts_even_when_rates_claim_20_fps(
+        self,
+        run_probe: mock.Mock,
+        _which: mock.Mock,
+    ) -> None:
+        run_probe.side_effect = (
+            json.dumps(
+                {
+                    "streams": [
+                        {
+                            "codec_type": "video",
+                            "codec_name": "h264",
+                            "pix_fmt": "yuv420p",
+                            "width": 16,
+                            "height": 16,
+                            "avg_frame_rate": "20/1",
+                            "r_frame_rate": "20/1",
+                            "time_base": "1/1000",
+                            "nb_read_frames": "3",
+                        }
+                    ]
+                }
+            ).encode("utf-8"),
+            b"0\n50\n110\n",
+        )
+
+        with self.assertRaisesRegex(RecorderError, "frame PTS values are not constant 20 FPS"):
+            validate_fpv_render(
+                Path("unused.mp4"),
+                {"frame_count": 3, "width": 16, "height": 16},
+            )
+
     def test_finalizes_dataset_and_preserves_exact_replay_bytes(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -601,13 +636,20 @@ class PlayBundleFinalizerTest(unittest.TestCase):
                 capture_output=True,
                 timeout=30,
             )
+            probe = validate_fpv_render(
+                video,
+                {"frame_count": 2, "width": 16, "height": 16},
+            )
+            frame_pts = cast(tuple[int, ...], probe["frame_pts"])
+            self.assertEqual(2, len(frame_pts))
+            self.assertGreater(frame_pts[1], frame_pts[0])
             timeline = root / "fpv.timeline.jsonl"
             timeline.write_bytes(
                 b"".join(
                     json.dumps(
                         {
                             "frame_index": frame,
-                            "pts": frame,
+                            "pts": frame_pts[frame],
                             "server_tick": 10 + frame,
                             "replay_tick": 110 + frame,
                             "scene_frame": f"{SEGMENT}:{10 + frame}",
@@ -633,6 +675,21 @@ class PlayBundleFinalizerTest(unittest.TestCase):
                     dataset,
                     fpv_path=video,
                     fpv_timeline_path=mismatched_timeline,
+                )
+
+            mismatched_pts_timeline = root / "mismatched-pts-fpv.timeline.jsonl"
+            timeline_rows = [json.loads(line) for line in timeline.read_text(encoding="utf-8").splitlines()]
+            timeline_rows[1]["pts"] += 1
+            mismatched_pts_timeline.write_text(
+                "".join(json.dumps(row, sort_keys=True, separators=(",", ":")) + "\n" for row in timeline_rows),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(BundleError, "exactly match its MP4 frame"):
+                finalize_dataset_bundle(
+                    config,
+                    dataset,
+                    fpv_path=video,
+                    fpv_timeline_path=mismatched_pts_timeline,
                 )
 
             rendered = finalize_dataset_bundle(
