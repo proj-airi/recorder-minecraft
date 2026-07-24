@@ -13,7 +13,7 @@ import zlib
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 from minerec.errors import RecorderError
 from minerec.processing.capture.episodes import EpochInfo, iter_epochs, iter_events, sha256_file, validate_episode
@@ -268,6 +268,25 @@ def _selected(
     return not connections or connection in connections
 
 
+def source_record_selected(
+    record: dict[str, Any],
+    *,
+    player_uuid: str,
+    connection_id: str,
+    first_tick: int,
+    last_tick: int,
+) -> bool:
+    """Apply the canonical Dataset V2 single-connection record selection."""
+
+    return _selected(
+        record,
+        {player_uuid},
+        {connection_id},
+        first_tick,
+        last_tick,
+    )
+
+
 def _normalize_players(players: Iterable[str]) -> set[str]:
     normalized: set[str] = set()
     for player in players:
@@ -292,14 +311,27 @@ def _payload(record: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in record.items() if key not in _ENVELOPE_FIELDS}
 
 
-def _source_ref(record: dict[str, Any], epoch_hashes: dict[int, VerifiedEpoch]) -> dict[str, Any]:
+EpochHashSource = VerifiedEpoch | tuple[str, str]
+
+
+def _source_ref(
+    record: dict[str, Any],
+    epoch_hashes: Mapping[int, EpochHashSource],
+) -> dict[str, Any]:
     epoch_index = record.get("epoch_index")
     source = epoch_hashes.get(epoch_index) if isinstance(epoch_index, int) else None
+    if isinstance(source, VerifiedEpoch):
+        events_sha256 = source.events_sha256
+        manifest_sha256 = source.manifest_sha256
+    elif source is not None:
+        events_sha256, manifest_sha256 = source
+    else:
+        events_sha256 = manifest_sha256 = None
     return {
         "epoch_index": epoch_index,
         "event_sequence": record.get("sequence"),
-        "events_sha256": source.events_sha256 if source is not None else None,
-        "epoch_manifest_sha256": source.manifest_sha256 if source is not None else None,
+        "events_sha256": events_sha256,
+        "epoch_manifest_sha256": manifest_sha256,
     }
 
 
@@ -332,7 +364,10 @@ def _stable_packet_action_type(packet_type: str) -> str | None:
     return None
 
 
-def _action_row(record: dict[str, Any], epoch_hashes: dict[int, VerifiedEpoch]) -> dict[str, Any]:
+def _action_row(
+    record: dict[str, Any],
+    epoch_hashes: Mapping[int, EpochHashSource],
+) -> dict[str, Any]:
     nested_action = record.get("action")
     nested_packet = record.get("packet")
     if isinstance(nested_action, dict):
@@ -381,13 +416,34 @@ def _action_row(record: dict[str, Any], epoch_hashes: dict[int, VerifiedEpoch]) 
     }
 
 
-def _state_row(record: dict[str, Any], epoch_hashes: dict[int, VerifiedEpoch]) -> dict[str, Any]:
+def _state_row(
+    record: dict[str, Any],
+    epoch_hashes: Mapping[int, EpochHashSource],
+) -> dict[str, Any]:
     row = dict(record)
     row["source_schema_version"] = row.pop("schema_version", None)
     row["schema_version"] = EXPORT_SCHEMA_VERSION
     row.pop("record_type", None)
     row["source"] = _source_ref(record, epoch_hashes)
     return row
+
+
+def canonical_action_jsonl_line(
+    record: dict[str, Any],
+    epoch_hashes: Mapping[int, tuple[str, str]],
+) -> bytes:
+    """Return the exact Dataset V2 action bytes for one verified source record."""
+
+    return _json_line(_action_row(record, epoch_hashes)).encode("utf-8")
+
+
+def canonical_state_jsonl_line(
+    record: dict[str, Any],
+    epoch_hashes: Mapping[int, tuple[str, str]],
+) -> bytes:
+    """Return the exact Dataset V2 state bytes for one verified source record."""
+
+    return _json_line(_state_row(record, epoch_hashes)).encode("utf-8")
 
 
 def _frame_key(record: dict[str, Any]) -> FrameKey | None:

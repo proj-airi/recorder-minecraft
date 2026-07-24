@@ -49,10 +49,11 @@ class BundleIdentity:
 class ReplaySegment:
     segment_id: str
     source: ArtifactSource
-    start_server_tick: int
-    end_server_tick: int
-    start_replay_tick: int
-    end_replay_tick: int
+    source_segment_ordinal: int
+    start_server_tick: int | None
+    end_server_tick: int | None
+    start_replay_tick: int | None
+    end_replay_tick: int | None
 
 
 @dataclass(frozen=True)
@@ -105,13 +106,14 @@ BundleInput: TypeAlias = str | Path | BinaryIO
 class ReplayDescriptor:
     ordinal: int
     segment_id: str
+    source_segment_ordinal: int
     archive_path: Path
     sha256: str
     size_bytes: int
-    start_server_tick: int
-    end_server_tick: int
-    start_replay_tick: int
-    end_replay_tick: int
+    start_server_tick: int | None
+    end_server_tick: int | None
+    start_replay_tick: int | None
+    end_replay_tick: int | None
 
 
 @dataclass(frozen=True)

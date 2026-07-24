@@ -15,6 +15,7 @@ import zipfile
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any, cast
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
@@ -32,6 +33,8 @@ from minerec.processing.bundle import (
     open_bundle,
     publish_bundle,
 )
+from minerec.processing.bundle.contract import validate_metadata
+from minerec.processing.bundle.reader import _validate_flashback_replay
 
 PLAYER_UUID = "12345678-1234-5678-9234-567812345678"
 SERVER_INSTANCE_ID = "87654321-4321-4678-9234-567812345678"
@@ -62,23 +65,64 @@ def _write_actions(path: Path) -> None:
         {
             "schema_version": 2,
             "session_id": "session-a",
+            "epoch_index": 0,
             "server_tick": tick,
             "sequence": tick,
+            "apply_sequence": None,
             "player_uuid": PLAYER_UUID,
             "connection_id": CONNECTION_ID,
             "action_type": "control_state",
-            "payload": {"forward": tick == 10},
+            "applied": True,
+            "payload": {
+                "player_uuid": PLAYER_UUID,
+                "connection_id": CONNECTION_ID,
+                "forward": tick == 10,
+            },
+            "source": {
+                "epoch_index": 0,
+                "event_sequence": tick,
+                "events_sha256": "a" * 64,
+                "epoch_manifest_sha256": "b" * 64,
+                "record_type": "control_state",
+                "recorded_at_ns": tick * 1_000,
+                "arrival_sequence": None,
+            },
         }
         for tick in (10, 11)
     ]
     path.write_bytes(b"".join(json.dumps(row, sort_keys=True, separators=(",", ":")).encode("utf-8") + b"\n" for row in rows))
 
 
-def _write_replay(path: Path, payload: bytes) -> None:
+def _write_replay(
+    path: Path,
+    payload: bytes,
+    *,
+    segment_id: str,
+    segment_ordinal: int,
+    session_id: str = "session-a",
+    extra_entries: int = 0,
+    nested_uncompressed_bytes: int = 0,
+) -> None:
+    identity = {
+        "schema_version": 3,
+        "session_id": session_id,
+        "segment_id": segment_id,
+        "segment_ordinal": segment_ordinal,
+        "player_uuid": PLAYER_UUID,
+        "connection_id": CONNECTION_ID,
+        "hotbar_snapshot_contract": "item_stack_copy_v1",
+        "flashback_capture_contract": "client_visible_scene_v1",
+    }
     with zipfile.ZipFile(path, "w", allowZip64=True) as archive:
         archive.writestr("metadata.json", "{}")
-        archive.writestr("arcade_replay_meta.json", "{}")
+        archive.writestr("arcade_replay_meta.json", json.dumps({"mc_recorder": identity}))
         archive.writestr("chunks/c0.flashback", payload)
+        for index in range(extra_entries):
+            archive.writestr(f"extras/{index:06d}.bin", b"")
+        if nested_uncompressed_bytes:
+            info = zipfile.ZipInfo("extras/oversized.bin")
+            info.compress_type = zipfile.ZIP_DEFLATED
+            archive.writestr(info, b"0" * nested_uncompressed_bytes)
 
 
 def _mp4_box(kind: bytes, payload: bytes) -> bytes:
@@ -95,7 +139,7 @@ def _write_render(video: Path, timeline: Path) -> None:
                     "pts": frame,
                     "server_tick": 10 + frame,
                     "replay_tick": 20 + frame,
-                    "scene_frame": frame,
+                    "scene_frame": f"segment-0:{10 + frame}",
                 },
                 sort_keys=True,
                 separators=(",", ":"),
@@ -137,15 +181,21 @@ def _request(
     replays: list[ReplaySegment] = []
     for ordinal in range(replay_count):
         path = root / f"source-{ordinal}.zip"
-        _write_replay(path, f"segment-{ordinal}".encode())
+        _write_replay(
+            path,
+            f"segment-{ordinal}".encode(),
+            segment_id=f"segment-{ordinal}",
+            segment_ordinal=ordinal,
+        )
         replays.append(
             ReplaySegment(
                 segment_id=f"segment-{ordinal}",
                 source=_artifact(path),
+                source_segment_ordinal=ordinal,
                 start_server_tick=9 + ordinal,
                 end_server_tick=(12 if ordinal == replay_count - 1 else 10 + ordinal),
                 start_replay_tick=0,
-                end_replay_tick=3,
+                end_replay_tick=(3 if replay_count == 1 else (1 if ordinal == 0 else 2)),
             )
         )
     render: RenderAttachment | None = None
@@ -340,6 +390,45 @@ class PlayBundleRoundTripTest(unittest.TestCase):
                     tuple(item.segment_id for item in opened.replay_descriptors),
                 )
 
+    def test_preserves_a_contributing_replay_with_no_selected_frames(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            request = _request(root, replay_count=2)
+            first, second = request.replay_segments
+            request = replace(
+                request,
+                replay_segments=(
+                    replace(
+                        first,
+                        start_server_tick=9,
+                        end_server_tick=12,
+                        start_replay_tick=0,
+                        end_replay_tick=3,
+                    ),
+                    replace(
+                        second,
+                        start_server_tick=None,
+                        end_server_tick=None,
+                        start_replay_tick=None,
+                        end_replay_tick=None,
+                    ),
+                ),
+            )
+
+            published = publish_bundle(
+                request,
+                root / "artifacts",
+                scene_validator=_validate_scene,
+            )
+
+            with open_bundle(published.path, scene_validator=_validate_scene) as opened:
+                descriptor = opened.replay_descriptors[1]
+                self.assertEqual(1, descriptor.source_segment_ordinal)
+                self.assertIsNone(descriptor.start_server_tick)
+                self.assertIsNone(descriptor.end_server_tick)
+                self.assertIsNone(descriptor.start_replay_tick)
+                self.assertIsNone(descriptor.end_replay_tick)
+
     def test_failed_reader_revalidation_never_promotes_a_partial_bundle(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -373,6 +462,22 @@ class PlayBundleRoundTripTest(unittest.TestCase):
                     scene_validator=_validate_scene,
                 )
 
+    def test_rejects_actions_outside_the_exact_dataset_v2_schema(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            request = _request(root)
+            rows = [json.loads(line) for line in request.actions.path.read_bytes().splitlines()]
+            rows[0]["source"]["event_sequence"] += 1
+            request.actions.path.write_bytes(b"".join(json.dumps(row, sort_keys=True, separators=(",", ":")).encode("utf-8") + b"\n" for row in rows))
+            request = replace(request, actions=_artifact(request.actions.path))
+
+            with self.assertRaisesRegex(BundleError, "source provenance disagrees"):
+                publish_bundle(
+                    request,
+                    root / "artifacts",
+                    scene_validator=_validate_scene,
+                )
+
     def test_binds_scene_validator_result_to_bundle_identity_and_ticks(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -395,6 +500,66 @@ class PlayBundleRoundTripTest(unittest.TestCase):
                     root / "artifacts",
                     scene_validator=mismatched_scene,
                 )
+
+    def test_binds_scene_replay_provenance_to_bundle_descriptors(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            request = _request(root)
+            source = request.replay_segments[0]
+
+            def mismatched_scene(_path: Path) -> SimpleNamespace:
+                return SimpleNamespace(
+                    identity=SimpleNamespace(
+                        session_id=request.identity.session_id,
+                        player_uuid=request.identity.player_uuid,
+                        connection_id=request.identity.connection_id,
+                    ),
+                    start_tick=10,
+                    end_tick=11,
+                    ticks=(10, 11),
+                    source_replays=(
+                        {
+                            "segment_id": source.segment_id,
+                            "segment_ordinal": source.source_segment_ordinal,
+                            "path": "replays/000000--segment-0.zip",
+                            "sha256": "0" * 64,
+                            "size_bytes": source.source.size_bytes,
+                            "format": "flashback",
+                        },
+                    ),
+                )
+
+            with self.assertRaisesRegex(BundleError, "scene replay provenance"):
+                publish_bundle(
+                    request,
+                    root / "artifacts",
+                    scene_validator=mismatched_scene,
+                )
+
+    def test_rejects_nested_replay_identity_mismatch_before_publication(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            request = _request(root)
+            replay = request.replay_segments[0]
+            _write_replay(
+                replay.source.path,
+                b"segment-0",
+                segment_id=replay.segment_id,
+                segment_ordinal=replay.source_segment_ordinal,
+                session_id="another-session",
+            )
+            request = replace(
+                request,
+                replay_segments=(replace(replay, source=_artifact(replay.source.path)),),
+            )
+
+            with self.assertRaisesRegex(BundleError, "identity does not match"):
+                publish_bundle(
+                    request,
+                    root / "artifacts",
+                    scene_validator=_validate_scene,
+                )
+            self.assertEqual([], list((root / "artifacts").rglob("*.mcplay.zip")))
 
 
 class PlayBundleAdversarialTest(unittest.TestCase):
@@ -506,6 +671,69 @@ class PlayBundleAdversarialTest(unittest.TestCase):
         ):
             with self.assertRaisesRegex(BundleError, "entry count"):
                 open_bundle(self.valid, limits=limits)
+
+    def test_preflights_nested_replay_count_before_constructing_its_zipfile(self) -> None:
+        request = _request(self.root / "many-nested-entries")
+        replay = request.replay_segments[0]
+        _write_replay(
+            replay.source.path,
+            b"segment-0",
+            segment_id=replay.segment_id,
+            segment_ordinal=replay.source_segment_ordinal,
+            extra_entries=62,
+        )
+        request = replace(
+            request,
+            replay_segments=(replace(replay, source=_artifact(replay.source.path)),),
+        )
+        bundle = publish_bundle(
+            request,
+            self.root / "many-nested-artifacts",
+            scene_validator=_validate_scene,
+        ).path
+        limits = replace(BundleLimits(), max_entries=4)
+        real_zip_file = zipfile.ZipFile
+        constructed = 0
+
+        def reject_second_zipfile(*args: object, **kwargs: object) -> zipfile.ZipFile:
+            nonlocal constructed
+            constructed += 1
+            if constructed > 1:
+                raise AssertionError("oversized nested directory reached ZipFile")
+            return cast(Any, real_zip_file)(*args, **kwargs)
+
+        with mock.patch(
+            "minerec.processing.bundle.reader.zipfile.ZipFile",
+            side_effect=reject_second_zipfile,
+        ):
+            with self.assertRaisesRegex(BundleError, "entry count"):
+                open_bundle(bundle, limits=limits)
+        self.assertEqual(1, constructed)
+
+    def test_rejects_nested_replay_cumulative_uncompressed_size(self) -> None:
+        replay = self.root / "oversized-nested.zip"
+        _write_replay(
+            replay,
+            b"segment-0",
+            segment_id="segment-0",
+            segment_ordinal=0,
+            nested_uncompressed_bytes=4096,
+        )
+        with zipfile.ZipFile(self.valid) as archive:
+            metadata = validate_metadata(archive.read("metadata.json"))
+        limits = replace(
+            BundleLimits(),
+            max_total_uncompressed_bytes=1024,
+            max_compression_ratio=10_000,
+        )
+
+        with self.assertRaisesRegex(BundleError, "uncompressed byte total"):
+            _validate_flashback_replay(
+                replay,
+                limits,
+                metadata,
+                metadata.replays[0],
+            )
 
     def test_rejects_truncated_upload_without_disturbing_previous_handle(self) -> None:
         opened = open_bundle(self.valid, scene_validator=_validate_scene)

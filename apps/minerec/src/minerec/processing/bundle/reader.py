@@ -7,8 +7,10 @@ import stat
 import struct
 import tempfile
 import unicodedata
+import uuid
 import zipfile
 from contextlib import contextmanager
+from dataclasses import replace
 from pathlib import Path, PurePosixPath
 from typing import Any, BinaryIO, Iterator, Mapping
 
@@ -27,6 +29,7 @@ from minerec.processing.bundle.contract import (
 from minerec.processing.bundle.model import (
     DEFAULT_BUNDLE_LIMITS,
     BundleError,
+    BundleIdentity,
     BundleInput,
     BundleLimits,
     OpenedBundle,
@@ -44,6 +47,33 @@ _ZIP64_LOCATOR_SIGNATURE = b"PK\x06\x07"
 _EOCD_STRUCT = struct.Struct("<4s4H2LH")
 _ZIP64_EOCD_STRUCT = struct.Struct("<4sQ2H2L4Q")
 _ZIP64_LOCATOR_STRUCT = struct.Struct("<4sLQL")
+_ACTION_FIELDS = frozenset(
+    {
+        "schema_version",
+        "session_id",
+        "epoch_index",
+        "server_tick",
+        "sequence",
+        "apply_sequence",
+        "player_uuid",
+        "connection_id",
+        "action_type",
+        "applied",
+        "payload",
+        "source",
+    }
+)
+_ACTION_SOURCE_FIELDS = frozenset(
+    {
+        "epoch_index",
+        "event_sequence",
+        "events_sha256",
+        "epoch_manifest_sha256",
+        "record_type",
+        "recorded_at_ns",
+        "arrival_sequence",
+    }
+)
 
 
 def _canonical_archive_name(name: str) -> str:
@@ -385,10 +415,38 @@ def _iter_bounded_lines(path: Path, maximum_line_bytes: int) -> Iterator[tuple[i
             yield line_number, line
 
 
-def _validate_actions(path: Path, metadata: ValidatedMetadata, maximum_line_bytes: int) -> None:
-    identity = metadata.identity
+def _action_int(value: object, description: str, *, nullable: bool = False) -> int | None:
+    if value is None and nullable:
+        return None
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        raise BundleError(f"{description} must be a non-negative integer")
+    return value
+
+
+def _action_sha256(value: object, description: str) -> str:
+    if not isinstance(value, str) or len(value) != 64 or any(character not in "0123456789abcdef" for character in value):
+        raise BundleError(f"{description} must be a lowercase SHA-256 digest")
+    return value
+
+
+def _action_integer(value: object, description: str) -> int:
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise BundleError(f"{description} must be an integer")
+    return value
+
+
+def _validate_actions(
+    path: Path,
+    identity: BundleIdentity,
+    maximum_line_bytes: int,
+    *,
+    expected_source_epochs: Mapping[int, tuple[str, str]] | None = None,
+) -> int:
     previous_tick: int | None = None
+    previous_sequence: int | None = None
+    previous_apply_sequence: int | None = None
     expected_control_tick = identity.start_tick
+    observed_records = 0
     try:
         for line_number, line in _iter_bounded_lines(path, maximum_line_bytes):
             if not line.endswith(b"\n"):
@@ -396,23 +454,83 @@ def _validate_actions(path: Path, metadata: ValidatedMetadata, maximum_line_byte
             if not line.strip():
                 raise BundleError("actions.jsonl contains a blank record")
             try:
-                value = json.loads(line)
-            except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
+                value = json.loads(
+                    line,
+                    parse_constant=lambda token: (_ for _ in ()).throw(ValueError(token)),
+                )
+            except (ValueError, UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
                 raise BundleError(f"actions.jsonl line {line_number} is invalid JSON") from exc
             if not isinstance(value, dict):
                 raise BundleError(f"actions.jsonl line {line_number} is not an object")
-            tick = value.get("server_tick")
-            if not isinstance(tick, int) or isinstance(tick, bool):
-                raise BundleError(f"actions.jsonl line {line_number} has no integer server tick")
+            if set(value) != _ACTION_FIELDS or value.get("schema_version") != 2:
+                raise BundleError(f"actions.jsonl line {line_number} does not match the Dataset V2 action schema")
+            tick = _action_int(value.get("server_tick"), f"actions.jsonl line {line_number} server_tick")
+            assert tick is not None
             if not identity.start_tick <= tick <= identity.end_tick:
                 raise BundleError(f"actions.jsonl line {line_number} is outside the connection tick range")
             if previous_tick is not None and tick < previous_tick:
                 raise BundleError("actions.jsonl records are not ordered by server tick")
             previous_tick = tick
-            if value.get("action_type") == "control_state":
+
+            sequence = _action_int(value.get("sequence"), f"actions.jsonl line {line_number} sequence")
+            assert sequence is not None
+            if previous_sequence is not None and sequence <= previous_sequence:
+                raise BundleError("actions.jsonl source sequences must be strictly increasing")
+            previous_sequence = sequence
+            epoch_index = _action_int(value.get("epoch_index"), f"actions.jsonl line {line_number} epoch_index")
+            assert epoch_index is not None
+            apply_sequence = _action_int(
+                value.get("apply_sequence"),
+                f"actions.jsonl line {line_number} apply_sequence",
+                nullable=True,
+            )
+            if apply_sequence is not None:
+                if previous_apply_sequence is not None and apply_sequence <= previous_apply_sequence:
+                    raise BundleError("actions.jsonl apply sequences must be strictly increasing")
+                previous_apply_sequence = apply_sequence
+
+            action_type = value.get("action_type")
+            if not isinstance(action_type, str) or not action_type or len(action_type) > 255:
+                raise BundleError(f"actions.jsonl line {line_number} has invalid action_type")
+            if value.get("applied") is not True or not isinstance(value.get("payload"), dict):
+                raise BundleError(f"actions.jsonl line {line_number} must contain one applied object payload")
+            source = value.get("source")
+            if not isinstance(source, dict) or set(source) != _ACTION_SOURCE_FIELDS:
+                raise BundleError(f"actions.jsonl line {line_number} has invalid source provenance")
+            if source.get("epoch_index") != epoch_index or source.get("event_sequence") != sequence:
+                raise BundleError(f"actions.jsonl line {line_number} source provenance disagrees with its envelope")
+            events_sha256 = _action_sha256(source.get("events_sha256"), f"actions.jsonl line {line_number} events hash")
+            manifest_sha256 = _action_sha256(
+                source.get("epoch_manifest_sha256"),
+                f"actions.jsonl line {line_number} epoch manifest hash",
+            )
+            if expected_source_epochs is not None and expected_source_epochs.get(epoch_index) != (events_sha256, manifest_sha256):
+                raise BundleError(f"actions.jsonl line {line_number} does not match Dataset V2 sealed epoch provenance")
+            _action_integer(source.get("recorded_at_ns"), f"actions.jsonl line {line_number} recorded_at_ns")
+            _action_int(
+                source.get("arrival_sequence"),
+                f"actions.jsonl line {line_number} arrival_sequence",
+                nullable=True,
+            )
+            record_type = source.get("record_type")
+            if record_type not in {"control_state", "packet_apply", "action"}:
+                raise BundleError(f"actions.jsonl line {line_number} has unsupported source record_type")
+            if record_type == "packet_apply" and apply_sequence is None:
+                raise BundleError(f"actions.jsonl line {line_number} packet_apply lacks apply_sequence")
+            if record_type != "packet_apply" and apply_sequence is not None:
+                raise BundleError(f"actions.jsonl line {line_number} has an unexpected apply_sequence")
+
+            if action_type == "control_state":
+                if record_type != "control_state":
+                    raise BundleError("actions.jsonl control_state has mismatched source provenance")
                 if tick != expected_control_tick:
                     raise BundleError("actions.jsonl must contain exactly one ordered control_state for every tick")
+                payload = value["payload"]
+                if payload.get("player_uuid") != identity.player_uuid or payload.get("connection_id") != identity.connection_id:
+                    raise BundleError("actions.jsonl control_state payload identity does not match the bundle")
                 expected_control_tick += 1
+            elif record_type == "control_state":
+                raise BundleError("actions.jsonl control_state source has a mismatched action_type")
             for key, expected in (
                 ("session_id", identity.session_id),
                 ("player_uuid", identity.player_uuid),
@@ -420,12 +538,31 @@ def _validate_actions(path: Path, metadata: ValidatedMetadata, maximum_line_byte
             ):
                 if value.get(key) != expected:
                     raise BundleError(f"actions.jsonl line {line_number} has mismatched {key}")
+            observed_records += 1
         if expected_control_tick != identity.end_tick + 1:
             raise BundleError("actions.jsonl must contain exactly one ordered control_state for every tick")
     except BundleError:
         raise
     except OSError as exc:
         raise BundleError("actions.jsonl cannot be read after extraction") from exc
+    return observed_records
+
+
+def validate_reconstructed_actions(
+    path: Path,
+    identity: BundleIdentity,
+    *,
+    expected_source_epochs: Mapping[int, tuple[str, str]] | None = None,
+    maximum_line_bytes: int = DEFAULT_BUNDLE_LIMITS.max_json_line_bytes,
+) -> int:
+    """Validate the immutable Dataset V2 action contract and its provenance."""
+
+    return _validate_actions(
+        path,
+        identity,
+        maximum_line_bytes,
+        expected_source_epochs=expected_source_epochs,
+    )
 
 
 def _validate_scene_header(path: Path) -> None:
@@ -441,28 +578,104 @@ def _validate_scene_header(path: Path) -> None:
         raise BundleError("scene.sqlite3 cannot be read after extraction") from exc
 
 
-def _validate_flashback_replay(path: Path, limits: BundleLimits) -> None:
+def _replay_uuid(value: object, description: str) -> str:
+    if not isinstance(value, str):
+        raise BundleError(f"nested replay {description} is not a canonical UUID")
     try:
+        canonical = str(uuid.UUID(value))
+    except ValueError as exc:
+        raise BundleError(f"nested replay {description} is not a canonical UUID") from exc
+    if canonical != value:
+        raise BundleError(f"nested replay {description} is not a canonical UUID")
+    return value
+
+
+def _validate_flashback_replay(
+    path: Path,
+    limits: BundleLimits,
+    metadata: ValidatedMetadata,
+    descriptor: Mapping[str, Any],
+) -> None:
+    try:
+        with path.open("rb") as source:
+            replay_size = _archive_size(source)
+            replay_limits = replace(
+                limits,
+                max_entries=min(limits.max_entries * 16, 65536),
+            )
+            _preflight_zip_directory(source, replay_size, replay_limits)
         with zipfile.ZipFile(path, "r") as replay:
             entries = replay.infolist()
-            if not entries or len(entries) > limits.max_entries * 16:
+            if not entries or len(entries) > min(limits.max_entries * 16, 65536):
                 raise BundleError("nested replay ZIP entry count is outside the allowed range")
             names: set[str] = set()
+            collision_names: dict[str, str] = {}
             has_metadata = False
             has_flashback = False
+            recorder_info: zipfile.ZipInfo | None = None
+            total_uncompressed_bytes = 0
             for info in entries:
                 name = _canonical_archive_name(info.filename.rstrip("/"))
                 if name in names:
                     raise BundleError("nested replay ZIP contains a duplicate entry")
                 names.add(name)
+                collision_key = unicodedata.normalize("NFC", name).casefold()
+                collided = collision_names.get(collision_key)
+                if collided is not None and collided != name:
+                    raise BundleError("nested replay ZIP contains Unicode- or case-colliding entries")
+                collision_names[collision_key] = name
                 if info.flag_bits & 0x1 or not _entry_is_regular(info):
                     raise BundleError("nested replay ZIP contains an unsafe entry")
+                if info.compress_type not in {_JSON_COMPRESSION, _BINARY_COMPRESSION}:
+                    raise BundleError("nested replay ZIP contains an unsupported compression method")
+                if info.file_size < 0 or info.compress_size < 0:
+                    raise BundleError("nested replay ZIP contains an entry with an invalid size")
+                if _entry_ratio(info) > limits.max_compression_ratio:
+                    raise BundleError("nested replay ZIP contains an over-expanded entry")
+                total_uncompressed_bytes += info.file_size
+                if total_uncompressed_bytes > limits.max_total_uncompressed_bytes:
+                    raise BundleError("nested replay ZIP uncompressed byte total exceeds the limit")
                 if name == "metadata.json":
                     has_metadata = True
                 if name.endswith(".flashback"):
                     has_flashback = True
+                if name == "arcade_replay_meta.json":
+                    recorder_info = info
             if not has_metadata or not has_flashback:
                 raise BundleError("replay segment is not a complete Flashback ZIP")
+            if recorder_info is None:
+                raise BundleError("replay segment lacks arcade_replay_meta.json")
+            raw_metadata = _read_bounded_entry(replay, recorder_info, 1024 * 1024)
+            try:
+                recorder_metadata = json.loads(
+                    raw_metadata,
+                    parse_constant=lambda token: (_ for _ in ()).throw(ValueError(token)),
+                )
+            except (ValueError, UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
+                raise BundleError("replay arcade_replay_meta.json is invalid JSON") from exc
+            mc_recorder = recorder_metadata.get("mc_recorder") if isinstance(recorder_metadata, dict) else None
+            if not isinstance(mc_recorder, dict):
+                raise BundleError("replay lacks exact mc_recorder segment identity")
+            if mc_recorder.get("schema_version") != 3:
+                raise BundleError("replay mc_recorder schema_version is not scene-capable v3")
+            if mc_recorder.get("hotbar_snapshot_contract") != "item_stack_copy_v1" or mc_recorder.get("flashback_capture_contract") != "client_visible_scene_v1":
+                raise BundleError("replay capture contracts do not support the published scene")
+            expected_identity = {
+                "session_id": metadata.identity.session_id,
+                "player_uuid": metadata.identity.player_uuid,
+                "connection_id": metadata.identity.connection_id,
+                "segment_id": descriptor["segment_id"],
+                "segment_ordinal": descriptor["source_segment_ordinal"],
+            }
+            observed_identity = {
+                "session_id": mc_recorder.get("session_id"),
+                "player_uuid": _replay_uuid(mc_recorder.get("player_uuid"), "player_uuid"),
+                "connection_id": _replay_uuid(mc_recorder.get("connection_id"), "connection_id"),
+                "segment_id": mc_recorder.get("segment_id"),
+                "segment_ordinal": mc_recorder.get("segment_ordinal"),
+            }
+            if observed_identity != expected_identity:
+                raise BundleError("replay mc_recorder identity does not match its bundle descriptor")
     except BundleError:
         raise
     except (EOFError, NotImplementedError, OSError, RuntimeError, zipfile.BadZipFile) as exc:
@@ -473,6 +686,9 @@ def _validate_timeline(
     path: Path,
     metadata: ValidatedMetadata,
     maximum_line_bytes: int,
+    *,
+    scene_path: Path,
+    scene_result: object | None,
 ) -> None:
     if metadata.render is None:
         raise BundleError("render timeline is present without a render descriptor")
@@ -480,27 +696,59 @@ def _validate_timeline(
     expected_frames = video["frame_count"]
     previous_pts: int | None = None
     observed_frames = 0
+    alignments: dict[int, object] | None = None
+    if scene_result is not None:
+        try:
+            from minerec.processing.scene.store_v2 import SceneStoreV2
+
+            with SceneStoreV2(scene_path) as store:
+                alignments = {alignment.server_tick: alignment for alignment in store.iter_frame_alignments()}
+        except BundleError:
+            raise
+        except Exception as exc:
+            raise BundleError("render timeline cannot read validated Scene V2 frame alignment") from exc
+    replay_by_segment = {descriptor["segment_id"]: descriptor for descriptor in metadata.replays}
     try:
         for line_number, line in _iter_bounded_lines(path, maximum_line_bytes):
             frame_index = line_number - 1
             if not line.endswith(b"\n") or not line.strip():
                 raise BundleError("render timeline contains a blank or unterminated record")
             try:
-                value = json.loads(line)
-            except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
+                value = json.loads(
+                    line,
+                    parse_constant=lambda token: (_ for _ in ()).throw(ValueError(token)),
+                )
+            except (ValueError, UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
                 raise BundleError(f"render timeline line {line_number} is invalid JSON") from exc
             if not isinstance(value, dict):
                 raise BundleError(f"render timeline line {line_number} is not an object")
-            for key in ("frame_index", "pts", "server_tick", "replay_tick", "scene_frame"):
+            for key in ("frame_index", "pts", "server_tick", "replay_tick"):
                 item = value.get(key)
                 if not isinstance(item, int) or isinstance(item, bool):
                     raise BundleError(f"render timeline line {line_number} has invalid {key}")
+            scene_frame = value.get("scene_frame")
+            if not isinstance(scene_frame, str) or not scene_frame or len(scene_frame) > 255:
+                raise BundleError(f"render timeline line {line_number} has invalid scene_frame")
             if value["frame_index"] != frame_index:
                 raise BundleError("render timeline frame indexes must be contiguous from zero")
             if value["server_tick"] != metadata.identity.start_tick + frame_index:
                 raise BundleError("render timeline must map one frame to every connection tick")
-            if value["replay_tick"] < 0 or value["scene_frame"] < 0:
-                raise BundleError("render timeline contains a negative replay tick or scene frame")
+            if value["replay_tick"] < 0:
+                raise BundleError("render timeline contains a negative replay tick")
+            if alignments is not None:
+                alignment = alignments.get(value["server_tick"])
+                if alignment is None:
+                    raise BundleError("render timeline server tick has no Scene V2 frame")
+                if scene_frame != getattr(alignment, "frame_id", None) or value["replay_tick"] != getattr(alignment, "replay_tick", None):
+                    raise BundleError("render timeline does not exactly match its Scene V2 frame alignment")
+                segment_id = getattr(alignment, "segment_id", None)
+                descriptor = replay_by_segment.get(segment_id)
+                if descriptor is None or descriptor["server_ticks"] is None or descriptor["replay_ticks"] is None:
+                    raise BundleError("render timeline frame is not covered by a replay descriptor")
+                if not descriptor["server_ticks"]["start"] <= value["server_tick"] <= descriptor["server_ticks"]["end"]:
+                    raise BundleError("render timeline server tick is outside its replay descriptor")
+                if not descriptor["replay_ticks"]["start"] <= value["replay_tick"] <= descriptor["replay_ticks"]["end"]:
+                    raise BundleError("render timeline replay tick is outside its replay descriptor")
             if previous_pts is not None and value["pts"] <= previous_pts:
                 raise BundleError("render timeline PTS values must be strictly increasing")
             previous_pts = value["pts"]
@@ -589,6 +837,26 @@ def _validate_scene_binding(result: object | None, metadata: ValidatedMetadata) 
                 raise BundleError("scene validator frame ticks are not complete and contiguous")
         except TypeError as exc:
             raise BundleError("scene validator returned an invalid tick sequence") from exc
+    source_replays = getattr(result, "source_replays", None)
+    if source_replays is None:
+        raise BundleError("scene validator did not return replay provenance")
+    expected_sources = tuple(
+        {
+            "segment_id": descriptor["segment_id"],
+            "segment_ordinal": descriptor["source_segment_ordinal"],
+            "path": descriptor["path"],
+            "sha256": descriptor["sha256"],
+            "size_bytes": descriptor["size_bytes"],
+            "format": "flashback",
+        }
+        for descriptor in metadata.replays
+    )
+    try:
+        observed_sources = tuple(dict(source) for source in source_replays)
+    except (TypeError, ValueError) as exc:
+        raise BundleError("scene validator returned invalid replay provenance") from exc
+    if observed_sources != expected_sources:
+        raise BundleError("scene replay provenance does not match bundle replay descriptors")
 
 
 def _call_render_validator(
@@ -691,7 +959,7 @@ def open_bundle(
 
         actions_path = extracted["actions.jsonl"]
         scene_path = extracted["scene.sqlite3"]
-        _validate_actions(actions_path, metadata, limits.max_json_line_bytes)
+        _validate_actions(actions_path, metadata.identity, limits.max_json_line_bytes)
         _call_path_validator(actions_validator, actions_path, "actions")
         _validate_scene_header(scene_path)
         scene_result = _call_path_validator(scene_validator, scene_path, "scene")
@@ -700,18 +968,19 @@ def open_bundle(
         replay_descriptors: list[ReplayDescriptor] = []
         for descriptor in metadata.replays:
             path = extracted[descriptor["path"]]
-            _validate_flashback_replay(path, limits)
+            _validate_flashback_replay(path, limits, metadata, descriptor)
             replay_descriptors.append(
                 ReplayDescriptor(
                     ordinal=descriptor["ordinal"],
                     segment_id=descriptor["segment_id"],
+                    source_segment_ordinal=descriptor["source_segment_ordinal"],
                     archive_path=path,
                     sha256=descriptor["sha256"],
                     size_bytes=descriptor["size_bytes"],
-                    start_server_tick=descriptor["server_ticks"]["start"],
-                    end_server_tick=descriptor["server_ticks"]["end"],
-                    start_replay_tick=descriptor["replay_ticks"]["start"],
-                    end_replay_tick=descriptor["replay_ticks"]["end"],
+                    start_server_tick=(None if descriptor["server_ticks"] is None else descriptor["server_ticks"]["start"]),
+                    end_server_tick=(None if descriptor["server_ticks"] is None else descriptor["server_ticks"]["end"]),
+                    start_replay_tick=(None if descriptor["replay_ticks"] is None else descriptor["replay_ticks"]["start"]),
+                    end_replay_tick=(None if descriptor["replay_ticks"] is None else descriptor["replay_ticks"]["end"]),
                 )
             )
 
@@ -720,7 +989,13 @@ def open_bundle(
         if metadata.render is not None:
             fpv_path = extracted[OPTIONAL_RENDER_ENTRY_NAMES[0]]
             timeline_path = extracted[OPTIONAL_RENDER_ENTRY_NAMES[1]]
-            _validate_timeline(timeline_path, metadata, limits.max_json_line_bytes)
+            _validate_timeline(
+                timeline_path,
+                metadata,
+                limits.max_json_line_bytes,
+                scene_path=scene_path,
+                scene_result=scene_result,
+            )
             _validate_mp4_shape(fpv_path)
             _call_render_validator(render_validator, fpv_path, metadata.render["video"])
 

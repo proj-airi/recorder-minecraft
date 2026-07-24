@@ -23,7 +23,7 @@ from minerec.processing.bundle.model import (
     ReplaySegment,
 )
 from minerec.processing.bundle.publisher import publish_bundle
-from minerec.processing.bundle.reader import open_bundle
+from minerec.processing.bundle.reader import open_bundle, validate_reconstructed_actions
 
 __all__ = [
     "BUNDLE_EXTENSION",
@@ -46,4 +46,5 @@ __all__ = [
     "deterministic_bundle_id",
     "open_bundle",
     "publish_bundle",
+    "validate_reconstructed_actions",
 ]

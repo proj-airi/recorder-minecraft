@@ -188,9 +188,9 @@ def _validate_request(request: BundleRequest) -> None:
     if not request.replay_segments:
         raise BundleError("a play bundle requires at least one replay segment")
     seen_segment_ids: set[str] = set()
-    previous_end: int | None = None
-    previous_start: int | None = None
-    first_start: int | None = None
+    previous_source_ordinal: int | None = None
+    previous_covered_start: int | None = None
+    coverage: list[tuple[int, int]] = []
     for ordinal, segment in enumerate(request.replay_segments):
         if SAFE_SEGMENT_ID_RE.fullmatch(segment.segment_id) is None:
             raise BundleError("replay segment id is not safe for a bundle entry")
@@ -198,6 +198,28 @@ def _validate_request(request: BundleRequest) -> None:
             raise BundleError("replay segment ids must be unique")
         seen_segment_ids.add(segment.segment_id)
         _artifact(segment.source, f"replay segment {ordinal}")
+        source_ordinal = _required_int(
+            segment.source_segment_ordinal,
+            f"replay segment {ordinal} source ordinal",
+            minimum=0,
+        )
+        if previous_source_ordinal is not None and source_ordinal <= previous_source_ordinal:
+            raise BundleError("replay source segment ordinals must be strictly increasing")
+        previous_source_ordinal = source_ordinal
+
+        range_values = (
+            segment.start_server_tick,
+            segment.end_server_tick,
+            segment.start_replay_tick,
+            segment.end_replay_tick,
+        )
+        if all(value is None for value in range_values):
+            # A source archive can contribute state needed for reconstruction
+            # without owning a selected output frame. Preserve it, but do not
+            # invent a tick range for it.
+            continue
+        if any(value is None for value in range_values):
+            raise BundleError("a replay segment must declare both tick ranges or neither")
         segment_start = _required_int(
             segment.start_server_tick,
             f"replay segment {ordinal} start server tick",
@@ -213,19 +235,25 @@ def _validate_request(request: BundleRequest) -> None:
             f"replay segment {ordinal} start replay tick",
             minimum=0,
         )
-        _required_int(
+        replay_end = _required_int(
             segment.end_replay_tick,
             f"replay segment {ordinal} end replay tick",
             minimum=replay_start,
         )
-        if previous_end is not None and segment_start > previous_end + 1:
+        if segment_end - segment_start != replay_end - replay_start:
+            raise BundleError("replay segment server and replay tick ranges have different lengths")
+        if previous_covered_start is not None and segment_start < previous_covered_start:
+            raise BundleError("replay segments with selected frames are not ordered by server tick")
+        previous_covered_start = segment_start
+        coverage.append((segment_start, segment_end))
+    if not coverage:
+        raise BundleError("replay segments do not cover the connection tick range")
+    covered_start, covered_end = coverage[0]
+    for segment_start, segment_end in coverage[1:]:
+        if segment_start > covered_end + 1:
             raise BundleError("replay segment server-tick coverage has a gap")
-        if previous_start is not None and segment_start < previous_start:
-            raise BundleError("replay segments are not ordered by server tick")
-        first_start = segment_start if first_start is None else first_start
-        previous_start = segment_start
-        previous_end = max(previous_end or segment_end, segment_end)
-    if first_start is None or first_start > start_tick or previous_end is None or previous_end < end_tick:
+        covered_end = max(covered_end, segment_end)
+    if covered_start > start_tick or covered_end < end_tick:
         raise BundleError("replay segments do not cover the connection tick range")
 
     render = request.render
@@ -269,17 +297,26 @@ def build_metadata(request: BundleRequest) -> dict[str, Any]:
         descriptor = {
             "ordinal": ordinal,
             "segment_id": segment.segment_id,
+            "source_segment_ordinal": segment.source_segment_ordinal,
             "path": path,
             "sha256": segment.source.sha256,
             "size_bytes": segment.source.size_bytes,
-            "server_ticks": {
-                "start": segment.start_server_tick,
-                "end": segment.end_server_tick,
-            },
-            "replay_ticks": {
-                "start": segment.start_replay_tick,
-                "end": segment.end_replay_tick,
-            },
+            "server_ticks": (
+                None
+                if segment.start_server_tick is None
+                else {
+                    "start": segment.start_server_tick,
+                    "end": segment.end_server_tick,
+                }
+            ),
+            "replay_ticks": (
+                None
+                if segment.start_replay_tick is None
+                else {
+                    "start": segment.start_replay_tick,
+                    "end": segment.end_replay_tick,
+                }
+            ),
         }
         replay_values.append(descriptor)
         inventory.append(
@@ -494,9 +531,9 @@ def _replays(
         raise BundleError("bundle must describe at least one replay segment")
     values: list[dict[str, Any]] = []
     seen_ids: set[str] = set()
-    first_start: int | None = None
-    previous_end: int | None = None
-    previous_start: int | None = None
+    previous_source_ordinal: int | None = None
+    previous_covered_start: int | None = None
+    coverage: list[tuple[int, int]] = []
     for ordinal, raw in enumerate(raw_replays):
         value = _object(raw, f"replay descriptor {ordinal}")
         _exact_keys(
@@ -504,6 +541,7 @@ def _replays(
             {
                 "ordinal",
                 "segment_id",
+                "source_segment_ordinal",
                 "path",
                 "sha256",
                 "size_bytes",
@@ -514,6 +552,14 @@ def _replays(
         )
         if _required_int(value.get("ordinal"), "replay ordinal", minimum=0) != ordinal:
             raise BundleError("replay ordinals must be contiguous and ordered")
+        source_ordinal = _required_int(
+            value.get("source_segment_ordinal"),
+            "replay source segment ordinal",
+            minimum=0,
+        )
+        if previous_source_ordinal is not None and source_ordinal <= previous_source_ordinal:
+            raise BundleError("replay source segment ordinals must be strictly increasing")
+        previous_source_ordinal = source_ordinal
         segment_id = _required_text(value.get("segment_id"), "replay segment id")
         if SAFE_SEGMENT_ID_RE.fullmatch(segment_id) is None or segment_id in seen_ids:
             raise BundleError("replay segment ids must be safe and unique")
@@ -527,8 +573,15 @@ def _replays(
         )
         if entry.path != expected_path:
             raise BundleError("replay descriptor path does not match its ordinal and segment id")
-        server_ticks = _object(value.get("server_ticks"), "replay server ticks")
-        replay_ticks = _object(value.get("replay_ticks"), "replay-local ticks")
+        raw_server_ticks = value.get("server_ticks")
+        raw_replay_ticks = value.get("replay_ticks")
+        if raw_server_ticks is None or raw_replay_ticks is None:
+            if raw_server_ticks is not None or raw_replay_ticks is not None:
+                raise BundleError("a replay descriptor must declare both tick ranges or neither")
+            values.append(value)
+            continue
+        server_ticks = _object(raw_server_ticks, "replay server ticks")
+        replay_ticks = _object(raw_replay_ticks, "replay-local ticks")
         _exact_keys(server_ticks, {"start", "end"}, "replay server ticks")
         _exact_keys(replay_ticks, {"start", "end"}, "replay-local ticks")
         segment_start = _required_int(server_ticks.get("start"), "replay start server tick", minimum=0)
@@ -538,16 +591,22 @@ def _replays(
             minimum=segment_start,
         )
         replay_start = _required_int(replay_ticks.get("start"), "replay start tick", minimum=0)
-        _required_int(replay_ticks.get("end"), "replay end tick", minimum=replay_start)
-        if previous_end is not None and segment_start > previous_end + 1:
-            raise BundleError("replay segment server-tick coverage has a gap")
-        if previous_start is not None and segment_start < previous_start:
+        replay_end = _required_int(replay_ticks.get("end"), "replay end tick", minimum=replay_start)
+        if segment_end - segment_start != replay_end - replay_start:
+            raise BundleError("replay segment server and replay tick ranges have different lengths")
+        if previous_covered_start is not None and segment_start < previous_covered_start:
             raise BundleError("replay descriptors are not ordered by server tick")
-        first_start = segment_start if first_start is None else first_start
-        previous_start = segment_start
-        previous_end = max(previous_end or segment_end, segment_end)
+        previous_covered_start = segment_start
+        coverage.append((segment_start, segment_end))
         values.append(value)
-    if first_start is None or first_start > identity.start_tick or previous_end is None or previous_end < identity.end_tick:
+    if not coverage:
+        raise BundleError("replay descriptors do not cover the connection tick range")
+    covered_start, covered_end = coverage[0]
+    for segment_start, segment_end in coverage[1:]:
+        if segment_start > covered_end + 1:
+            raise BundleError("replay segment server-tick coverage has a gap")
+        covered_end = max(covered_end, segment_end)
+    if covered_start > identity.start_tick or covered_end < identity.end_tick:
         raise BundleError("replay descriptors do not cover the connection tick range")
     return tuple(values)
 
