@@ -11,6 +11,8 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -137,6 +139,23 @@ final class SceneReducerTest {
         assertEquals("minecraft:stone", section.palette().get(section.indices()[offset]).name());
         assertEquals(value, snapshot.entities().getFirst().metadata().get(4));
         assertEquals("minecraft:overworld", snapshot.entities().getFirst().dimension());
+    }
+
+    @Test
+    void reusesImmutableSectionSnapshotsUntilTheirBlocksChange() {
+        SceneReducer reducer = reducerWithSection(2, 5, emptySection());
+
+        SceneEvent.SectionSnapshot first = reducer.snapshot().sections().getFirst().snapshot();
+        SceneEvent.SectionSnapshot unchanged = reducer.snapshot().sections().getFirst().snapshot();
+        assertSame(first, unchanged);
+
+        reducer.apply(new SceneEvent.BlockChanged(
+            "minecraft:overworld", 33, 2, 83,
+            new SceneEvent.BlockState("minecraft:stone", Map.of())
+        ));
+        SceneEvent.SectionSnapshot changed = reducer.snapshot().sections().getFirst().snapshot();
+        assertNotSame(first, changed);
+        assertSame(changed, reducer.snapshot().sections().getFirst().snapshot());
     }
 
     @Test

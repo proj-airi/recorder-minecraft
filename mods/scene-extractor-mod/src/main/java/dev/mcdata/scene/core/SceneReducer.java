@@ -470,26 +470,35 @@ public final class SceneReducer {
     private static final class MutableSection {
         private final List<SceneEvent.BlockState> palette;
         private final int[] indices;
+        private SceneEvent.SectionSnapshot cachedSnapshot;
 
         private MutableSection(SceneEvent.SectionSnapshot snapshot) {
             this.palette = new ArrayList<>(snapshot.palette());
             this.indices = snapshot.indices();
+            this.cachedSnapshot = snapshot;
         }
 
         private SceneEvent.BlockState set(int x, int y, int z, SceneEvent.BlockState state) {
             int offset = y * 256 + z * 16 + x;
             SceneEvent.BlockState previous = palette.get(indices[offset]);
+            if (previous.equals(state)) {
+                return previous;
+            }
             int paletteIndex = palette.indexOf(state);
             if (paletteIndex < 0) {
                 paletteIndex = palette.size();
                 palette.add(state);
             }
             indices[offset] = paletteIndex;
+            cachedSnapshot = null;
             return previous;
         }
 
         private SceneEvent.SectionSnapshot snapshot() {
-            return new SceneEvent.SectionSnapshot(palette, indices);
+            if (cachedSnapshot == null) {
+                cachedSnapshot = new SceneEvent.SectionSnapshot(palette, indices);
+            }
+            return cachedSnapshot;
         }
     }
 
