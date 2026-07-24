@@ -32,6 +32,11 @@ val flashbackJar = layout.file(providers.provider {
     if (localFlashbackJar.isNullOrBlank()) flashbackDownload.singleFile else file(localFlashbackJar)
 })
 val nestedJarDirectory = layout.buildDirectory.dir("flashback-nested")
+val requiredFlashbackNestedJars = listOf(
+    "lattice-1.3.1.jar",
+    "mixinconstraints-1.0.8.jar",
+    "mixinsquared-fabric-0.3.7-beta.1.jar",
+)
 val extractFlashbackNested = tasks.register<Sync>("extractFlashbackNested") {
     from(flashbackJar.map { zipTree(it.asFile) })
     include("META-INF/jars/*.jar")
@@ -39,13 +44,17 @@ val extractFlashbackNested = tasks.register<Sync>("extractFlashbackNested") {
     includeEmptyDirs = false
     into(nestedJarDirectory)
     doLast {
-        check(fileTree(nestedJarDirectory).matching { include("*.jar") }.files.isNotEmpty()) {
-            "Flashback artifact has no nested runtime libraries"
+        val extractedNames = fileTree(nestedJarDirectory).matching { include("*.jar") }.files.map { it.name }.sorted()
+        check(extractedNames == requiredFlashbackNestedJars.sorted()) {
+            "Flashback nested runtime libraries changed: $extractedNames"
         }
     }
 }
-val nestedFlashbackJars = fileTree(nestedJarDirectory) { include("*.jar") }.apply {
-    builtBy(extractFlashbackNested)
+// Loom resolves local-runtime dependencies before Sync executes. A fileTree is
+// empty at that point on a clean checkout, so declare the pinned nested outputs
+// individually and attach their producing task.
+val nestedFlashbackJars = requiredFlashbackNestedJars.map { name ->
+    files(nestedJarDirectory.map { it.file(name) }).builtBy(extractFlashbackNested)
 }
 
 // Resolve every prerequisite of runClient without launching Minecraft. Remote
@@ -64,7 +73,7 @@ dependencies {
     modImplementation("net.fabricmc.fabric-api:fabric-api:${property("fabric_version")}")
     modCompileOnly(files(flashbackJar))
     modLocalRuntime(files(flashbackJar))
-    modLocalRuntime(nestedFlashbackJars)
+    nestedFlashbackJars.forEach { modLocalRuntime(it) }
 
     testImplementation("org.junit.jupiter:junit-jupiter:6.1.2")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
