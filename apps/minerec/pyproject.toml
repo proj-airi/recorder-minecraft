@@ -9,6 +9,7 @@ description = "Provision and export Minecraft server-side gameplay recordings"
 requires-python = ">=3.11"
 dependencies = [
   "pika>=1.3.2",
+  "sqlalchemy>=2.0,<3",
 ]
 
 [project.scripts]
