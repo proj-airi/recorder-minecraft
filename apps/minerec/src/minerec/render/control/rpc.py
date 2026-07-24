@@ -5,6 +5,7 @@ import hmac
 import json
 import os
 import re
+import stat
 import tempfile
 import threading
 import uuid
@@ -13,7 +14,7 @@ from os import stat_result
 from pathlib import Path
 from typing import Any, Mapping
 
-from minerec.config import RecorderConfig
+from minerec.config import RecorderConfig, render_queue_database
 from minerec.errors import RecorderError
 from minerec.processing.dataset.viewer import DatasetViewer
 from minerec.processing.render.hud import (
@@ -137,6 +138,51 @@ def _sha256_file(path: Path, label: str) -> tuple[str, int]:
     if identity(before) != identity(after):
         raise RecorderError(f"{label} changed during verification: {path}")
     return digest.hexdigest(), after.st_size
+
+
+def _copy_verified_snapshot(source: Path, destination: Path, expected_sha256: str, expected_size: int) -> None:
+    source_flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    destination_flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+    source_descriptor = -1
+    destination_descriptor = -1
+    digest = hashlib.sha256()
+    copied = 0
+    try:
+        source_descriptor = os.open(source, source_flags)
+        before = os.fstat(source_descriptor)
+        if not stat.S_ISREG(before.st_mode) or before.st_size != expected_size:
+            raise RecorderError("resolved replay source no longer matches its integrity envelope")
+        destination_descriptor = os.open(destination, destination_flags, 0o600)
+        with os.fdopen(source_descriptor, "rb", closefd=True) as source_handle:
+            source_descriptor = -1
+            with os.fdopen(destination_descriptor, "wb", closefd=True) as destination_handle:
+                destination_descriptor = -1
+                while chunk := source_handle.read(1024 * 1024):
+                    copied += len(chunk)
+                    if copied > expected_size:
+                        raise RecorderError("resolved replay source changed while its snapshot was created")
+                    digest.update(chunk)
+                    destination_handle.write(chunk)
+                destination_handle.flush()
+                os.fsync(destination_handle.fileno())
+            after = os.fstat(source_handle.fileno())
+    except OSError as exc:
+        raise RecorderError("cannot create the pinned replay snapshot") from exc
+    finally:
+        if source_descriptor >= 0:
+            os.close(source_descriptor)
+        if destination_descriptor >= 0:
+            os.close(destination_descriptor)
+        if copied != expected_size or digest.hexdigest() != expected_sha256:
+            destination.unlink(missing_ok=True)
+
+    def identity(value: stat_result) -> tuple[int, int, int, int]:
+        return value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns
+
+    if identity(before) != identity(after) or copied != expected_size or digest.hexdigest() != expected_sha256:
+        destination.unlink(missing_ok=True)
+        raise RecorderError("resolved replay source changed while its snapshot was created")
+    _fsync_directory(destination.parent)
 
 
 def _ensure_directory(path: Path, label: str, *, create: bool = False) -> Path:
@@ -489,7 +535,7 @@ def _validate_plan(value: object) -> dict[str, Any]:
 
 
 class RenderRpcService:
-    """Path-free SSH RPC boundary for persistent and one-shot GUI workers."""
+    """Execute validated GUI-worker actions inside the render control plane."""
 
     def __init__(self, config: RecorderConfig) -> None:
         self.config = config
@@ -498,7 +544,7 @@ class RenderRpcService:
         self.attempts_root = _ensure_directory(self.rpc_root / "attempts", "render RPC attempts root", create=True)
         self.exports_root = _ensure_directory(config.paths.exports, "export root", create=True)
         self.imports_root = _ensure_directory(self.exports_root / "render-jobs", "durable render import root", create=True)
-        self.queue = RenderQueueStore(self.runtime / "render-queue.sqlite3")
+        self.queue = RenderQueueStore(render_queue_database(config))
         self.dataset_viewer = DatasetViewer(config.paths.exports, config.paths.runtime)
 
     def dispatch(self, action: str, body: Mapping[str, Any]) -> dict[str, Any]:
@@ -713,7 +759,7 @@ class RenderRpcService:
             _validate_plan(plan)
             _publish_json(plan_root / "plan.json", plan, MAX_PLAN_BYTES, "remote render plan")
         except Exception as exc:
-            # The hardlinks deliberately remain only when a durable plan exists.
+            # Pinned snapshots deliberately remain only when a durable plan exists.
             for child in (plan_root / "sources").glob("*"):
                 if not child.is_symlink() and child.is_file():
                     child.unlink(missing_ok=True)
@@ -744,14 +790,10 @@ class RenderRpcService:
         stem = f"{ordinal:010d}-{segment_id}"
         replay_file = f"sources/{stem}.zip"
         pinned = plan_root / replay_file
-        try:
-            os.link(source.path, pinned, follow_symlinks=False)
-        except OSError as exc:
-            raise RecorderError("cannot pin replay for rendering; replay and runtime paths must share a filesystem") from exc
-        digest, size = _sha256_file(pinned, "pinned replay source")
-        if digest != source.sha256 or size != source.size_bytes:
-            pinned.unlink(missing_ok=True)
-            raise RecorderError("pinned replay changed after exact source resolution")
+        # NOTICE: Docker exposes the replay and RPC directories as separate mounts, so
+        # hardlinks fail with EXDEV even when both bind mounts originate on one host.
+        # A verified copy also prevents later source replacement from changing a claim.
+        _copy_verified_snapshot(source.path, pinned, source.sha256, source.size_bytes)
         return {
             "segment_id": segment_id,
             "segment_ordinal": ordinal,
@@ -920,6 +962,12 @@ class RenderRpcService:
                 f"{segment_id}:{'none' if cutoff is None else cutoff}",
             )
         )
+
+        # NOTICE: start_tick and end_tick were selected from the pinned dataset
+        # plan and checked against its player/connection binding above. Passing
+        # that authoritative range prevents the transfer layer from rescanning
+        # the live episode, whose current connection may still be in an
+        # in-progress epoch and therefore absent from the sealed-epoch index.
         portable_value = create_portable_render_request(
             episode,
             replay,
@@ -938,6 +986,7 @@ class RenderRpcService:
             no_gui=payload["render"].get("no_gui", True),
             presentation_contract=payload["render"].get("presentation_contract"),
             structured_hud=({key: value for key, value in plan["structured_hud"].items() if key != "file"} if isinstance(plan.get("structured_hud"), dict) else None),
+            observed_connection_range=(start_tick, end_tick),
         )
         portable = write_portable_render_request(request_path, portable_value)
         return {
@@ -1258,6 +1307,49 @@ class RenderRpcService:
 
 
 def dispatch_render_rpc(config: RecorderConfig, action: str, body: Mapping[str, Any]) -> dict[str, Any]:
-    """Dispatch one bounded JSON request from the SSH-only CLI boundary."""
+    """Dispatch one bounded JSON render-control request."""
 
     return RenderRpcService(config).dispatch(action, body)
+
+
+def dispatch_worker_action(config: RecorderConfig, action: str, body: Mapping[str, Any]) -> dict[str, Any]:
+    """Dispatch a worker action and finish server-owned attachment work."""
+
+    service = RenderRpcService(config)
+    result = service.dispatch(action, body)
+    if action != "finalize":
+        return result
+
+    from minerec.processing.render.attach import attach_imported_renders
+
+    job = result.get("job")
+    imports = result.get("imports")
+    if not isinstance(job, dict) or not isinstance(imports, list):
+        raise RecorderError("render finalization lacks its queue job or canonical imports")
+    state = job.get("state")
+    if state in {"complete", "partial"}:
+        return result
+    if state not in {"verifying", "attaching"}:
+        raise RecorderError(f"render finalization cannot attach while job is {state!r}")
+    job_id = job.get("id")
+    if not isinstance(job_id, str):
+        raise RecorderError("render finalization lacks its queue job ID")
+    if state == "verifying":
+        job = service.queue.set_server_phase(
+            job_id,
+            "attaching",
+            progress={"message": "Attaching verified RGB to the dataset"},
+        )
+    try:
+        attachment = attach_imported_renders(config, job, imports)
+        attachment_json = attachment.as_json()
+        completed = service.queue.complete(job_id, attachment_json, partial=attachment.partial)
+    except Exception as exc:
+        try:
+            service.queue.fail(job_id, str(exc))
+        except Exception:
+            pass
+        if isinstance(exc, RecorderError):
+            raise
+        raise RecorderError(f"could not attach the imported RGB dataset: {exc}") from exc
+    return {**result, "job": completed, "attachment": attachment_json}

@@ -16,7 +16,9 @@ from minerec.render.control.contract import (
     FULL_CLIENT_PRESENTATION_CONTRACT,
 )
 from minerec.workers.render import (
+    DashboardRecorder,
     LocalRecorder,
+    RenderConsumer,
     _ClaimedJobError,
     _IncompatibleServerError,
     _register_worker,
@@ -24,7 +26,6 @@ from minerec.workers.render import (
     download_hud_sidecar,
     download_replay,
     remove_job_workspace,
-    run_render_worker,
     upload_bundle,
 )
 
@@ -49,6 +50,22 @@ class LocalRecorderTest(unittest.TestCase):
                 endpoint.contains(root.parent / "secret.zip")
             with self.assertRaisesRegex(RecorderError, "must be absolute"):
                 endpoint.contains("artifacts/replays/segment.zip")
+
+    def test_dashboard_paths_map_to_the_host_checkout_without_escaping(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            endpoint = DashboardRecorder(
+                root,
+                "http://127.0.0.1:8765",
+                "a" * 64,
+            )
+
+            self.assertEqual(
+                (root / "artifacts" / "replays" / "segment.zip").resolve(),
+                endpoint.contains("/artifacts/replays/segment.zip"),
+            )
+            with self.assertRaisesRegex(RecorderError, "escapes"):
+                endpoint.contains("/../secret.zip")
 
 
 class ReplayTransferTest(unittest.TestCase):
@@ -193,7 +210,11 @@ class RenderWorkerTest(unittest.TestCase):
                     "required full-client presentation contract",
                 ),
             ):
-                _register_worker(endpoint, "00000000-0000-4000-8000-000000000012")
+                _register_worker(
+                    endpoint,
+                    "00000000-0000-4000-8000-000000000012",
+                    persistent=True,
+                )
 
     @mock.patch("minerec.workers.render._RemoteLease.stop")
     @mock.patch("minerec.workers.render._RemoteLease.start")
@@ -278,13 +299,13 @@ class RenderWorkerTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             recorder_root = Path(temporary).resolve()
             endpoint = LocalRecorder(recorder_root)
-            result = run_render_worker(
-                mock.Mock(),
-                endpoint,
-                job_id=job_id,
-                cache_root=Path(temporary) / "cache",
-                once=True,
-            )
+            with mock.patch("minerec.workers.render.threading.Thread.start"):
+                consumer = RenderConsumer(
+                    mock.Mock(),
+                    endpoint,
+                    cache_root=Path(temporary) / "cache",
+                )
+            result = consumer.process(job_id)
 
         self.assertEqual({"job": {"id": job_id, "state": "complete"}}, result)
         self.assertEqual(
@@ -295,15 +316,6 @@ class RenderWorkerTest(unittest.TestCase):
         self.assertEqual(job_id, claim_body["job_id"])
         upload.assert_called_once()
         self.prepare_runtime.assert_called_once()
-
-    def test_render_worker_is_one_shot_only(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            with self.assertRaisesRegex(RecorderError, "one-shot"):
-                run_render_worker(
-                    mock.Mock(),
-                    LocalRecorder(Path(temporary)),
-                    cache_root=Path(temporary) / "cache",
-                )
 
     def test_exact_job_without_a_claim_requeues_the_rabbitmq_message(self) -> None:
         job_id = "00000000-0000-4000-8000-000000000030"
@@ -331,13 +343,13 @@ class RenderWorkerTest(unittest.TestCase):
                 mock.patch("minerec.workers.render.call_recorder_json", side_effect=rpc),
                 self.assertRaisesRegex(RecorderError, "not claimable"),
             ):
-                run_render_worker(
-                    mock.Mock(),
-                    LocalRecorder(Path(temporary)),
-                    job_id=job_id,
-                    cache_root=Path(temporary) / "cache",
-                    once=True,
-                )
+                with mock.patch("minerec.workers.render.threading.Thread.start"):
+                    consumer = RenderConsumer(
+                        mock.Mock(),
+                        LocalRecorder(Path(temporary)),
+                        cache_root=Path(temporary) / "cache",
+                    )
+                consumer.process(job_id)
 
     def test_claimed_job_failure_stops_before_touching_later_jobs(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -349,12 +361,13 @@ class RenderWorkerTest(unittest.TestCase):
                 ),
                 self.assertRaisesRegex(_ClaimedJobError, "renderer is unavailable"),
             ):
-                run_render_worker(
-                    mock.Mock(),
-                    LocalRecorder(Path(temporary)),
-                    cache_root=Path(temporary) / "cache",
-                    once=True,
-                )
+                with mock.patch("minerec.workers.render.threading.Thread.start"):
+                    consumer = RenderConsumer(
+                        mock.Mock(),
+                        LocalRecorder(Path(temporary)),
+                        cache_root=Path(temporary) / "cache",
+                    )
+                consumer.process("00000000-0000-4000-8000-000000000030")
 
     def test_preflight_failure_never_registers_or_claims(self) -> None:
         self.prepare_runtime.side_effect = RecorderError("assets unavailable")
@@ -364,11 +377,10 @@ class RenderWorkerTest(unittest.TestCase):
                 mock.patch("minerec.workers.render._run_registered_worker_once") as process,
                 self.assertRaisesRegex(RecorderError, "assets unavailable"),
             ):
-                run_render_worker(
+                RenderConsumer(
                     mock.Mock(),
                     LocalRecorder(Path(temporary)),
                     cache_root=Path(temporary) / "cache",
-                    once=True,
                 )
 
         register.assert_not_called()

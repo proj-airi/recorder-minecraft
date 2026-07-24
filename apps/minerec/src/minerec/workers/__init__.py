@@ -1,1 +1,1 @@
-"""Long-running and one-shot worker entrypoints."""
+"""Long-running worker entrypoints."""

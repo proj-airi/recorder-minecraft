@@ -913,7 +913,7 @@ class EpisodeExportTest(unittest.TestCase):
                 sample["transition_invalid_reasons"],
             )
 
-    def test_cli_accepts_rgb_and_one_scene_attachment(self) -> None:
+    def test_export_cli_accepts_rgb_and_one_scene_attachment(self) -> None:
         args = _parser().parse_args(
             [
                 "export",
@@ -933,17 +933,6 @@ class EpisodeExportTest(unittest.TestCase):
         self.assertEqual([CONNECTION, PEER_CONNECTION], args.connection)
         self.assertEqual([Path("one"), Path("two")], args.frames)
         self.assertEqual([Path("three")], args.scene)
-        render = _parser().parse_args(
-            [
-                "render",
-                "session-a",
-                "--player",
-                PLAYER,
-            ]
-        )
-        self.assertFalse(render.no_gui)
-        no_gui_render = _parser().parse_args(["render", "session-a", "--player", PLAYER, "--no-gui"])
-        self.assertTrue(no_gui_render.no_gui)
 
     def test_marks_barrier_disagreement_invalid_without_losing_sample(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

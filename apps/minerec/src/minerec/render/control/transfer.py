@@ -18,7 +18,7 @@ from minerec.errors import RecorderError
 from minerec.processing.capture.episodes import sha256_file, validate_episode
 from minerec.processing.capture.exporter import (
     CANONICAL_RENDER_RESULT_TYPE,
-    _load_frame_attachments,
+    load_frame_attachments,
 )
 from minerec.processing.render.hud import (
     hud_result_envelope,
@@ -313,9 +313,17 @@ def create_portable_render_request(
     no_gui: bool = False,
     presentation_contract: str | None = None,
     structured_hud: Mapping[str, Any] | None = None,
+    observed_connection_range: tuple[int, int] | None = None,
 ) -> dict[str, Any]:
     validation = validate_episode(episode)
-    if not validation.valid or validation.sealed_epochs == 0:
+
+    # NOTICE: The dispatcher can author a request while the recorder is still
+    # appending the selected connection to events.jsonl.inprogress. In that path,
+    # observed_connection_range comes from the already validated, hash-bound
+    # dataset plan; rescanning only sealed epochs here would falsely report that
+    # the connection does not belong to the player. Direct callers do not have
+    # that upstream proof, so they must retain the sealed-epoch scan below.
+    if not validation.valid or (observed_connection_range is None and validation.sealed_epochs == 0):
         raise RecorderError("episode must have at least one valid sealed epoch before rendering")
     try:
         normalized_player = str(uuid.UUID(player_uuid))
@@ -323,7 +331,21 @@ def create_portable_render_request(
         raise RecorderError(f"invalid player UUID: {player_uuid!r}") from exc
     if not isinstance(no_gui, bool):
         raise RecorderError("no_gui must be a boolean")
-    connection, observed_first, observed_last = _select_connection(episode, normalized_player, connection_id)
+    if observed_connection_range is None:
+        connection, observed_first, observed_last = _select_connection(episode, normalized_player, connection_id)
+    else:
+        # NOTICE: This branch trusts only the connection range, not unchecked
+        # identity input. Its caller must have bound player_uuid, connection_id,
+        # and these ticks to the same prepared dataset before reaching here.
+        if connection_id is None:
+            raise RecorderError("an observed connection range requires a connection ID")
+        try:
+            connection = str(uuid.UUID(connection_id))
+        except (ValueError, TypeError, AttributeError) as exc:
+            raise RecorderError(f"invalid connection ID: {connection_id!r}") from exc
+        observed_first, observed_last = observed_connection_range
+        if not isinstance(observed_first, int) or isinstance(observed_first, bool) or not isinstance(observed_last, int) or isinstance(observed_last, bool) or observed_first < 0 or observed_first > observed_last:
+            raise RecorderError("observed connection range must be a valid non-negative tick range")
     selected_first = observed_first if first_tick is None else first_tick
     selected_last = observed_last if last_tick is None else last_tick
     if (
@@ -1215,7 +1237,7 @@ def _validate_imported(
         payload.append(_PayloadFile(relative, int(metadata["size_bytes"]), str(metadata["sha256"])))
     _assert_payload_inventory(root, payload, request, status_value)
     if status_value == "complete":
-        _load_frame_attachments([root], request.data["episode"]["session_id"], exports_root=root, dataset_directory=root)
+        load_frame_attachments([root], request.data["episode"]["session_id"], exports_root=root, dataset_directory=root)
     return ImportedRenderResult(
         directory=root,
         result=result_path,
@@ -1276,7 +1298,7 @@ def import_render_bundle(
         result_path = staging / "result.json"
         result_path.write_bytes(_json_bytes(canonical))
         if status_value == "complete":
-            _load_frame_attachments([staging], portable.data["episode"]["session_id"], exports_root=staging, dataset_directory=staging)
+            load_frame_attachments([staging], portable.data["episode"]["session_id"], exports_root=staging, dataset_directory=staging)
         if _stable_file_digest(replay, "authoritative replay") != (
             portable.data["source_replay"]["sha256"],
             portable.data["source_replay"]["size_bytes"],

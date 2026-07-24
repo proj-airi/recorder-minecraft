@@ -20,6 +20,8 @@ ENV_DASHBOARD_STATIC_ROOT = "MC_RECORDER_DASHBOARD_STATIC_ROOT"
 ENV_DASHBOARD_USERNAME = "MC_RECORDER_DASHBOARD_USERNAME"
 ENV_GRADLE_EXECUTABLE = "MC_RECORDER_GRADLE"
 ENV_RENDER_JOB = "MC_RECORDER_RENDER_JOB"
+ENV_RENDER_CONTROL_URL = "MC_RECORDER_RENDER_CONTROL_URL"
+ENV_RENDER_QUEUE_DATABASE = "MC_RECORDER_RENDER_QUEUE_DATABASE"
 ENV_RENDER_TASK_QUEUE = "MC_RECORDER_RENDER_TASK_QUEUE"
 ENV_REPLAY_ROOT = "MC_RECORDER_REPLAY_ROOT"
 ENV_RABBITMQ_URL = "MC_RECORDER_RABBITMQ_URL"
@@ -134,6 +136,14 @@ class RuntimeEnvConfig:
     replay_root: Path | None
     gradle_executable: str | None
     worker_cache_root: Path
+
+
+def render_queue_database(config: RecorderConfig, environ: Mapping[str, str] | None = None) -> Path:
+    """Resolve the control-plane-owned render queue database."""
+
+    source = os.environ if environ is None else environ
+    override = _env(source, ENV_RENDER_QUEUE_DATABASE).strip()
+    return Path(override).expanduser().resolve() if override else config.paths.runtime / "render-queue.sqlite3"
 
 
 def _env(environ: Mapping[str, str], name: str, default: str = "") -> str:

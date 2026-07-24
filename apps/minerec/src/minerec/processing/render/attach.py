@@ -13,8 +13,8 @@ from typing import Any
 from minerec.config import RecorderConfig
 from minerec.errors import RecorderError
 from minerec.operations import operation_lock
-from minerec.processing.capture.episodes import resolve_episode
-from minerec.processing.capture.exporter import CANONICAL_RENDER_RESULT_TYPE, export_episode
+from minerec.processing.capture.exporter import CANONICAL_RENDER_RESULT_TYPE
+from minerec.processing.dataset.attachments import publish_rgb_attachments
 from minerec.processing.dataset.viewer import DatasetMetadata, DatasetViewer, DatasetViewerError, opaque_dataset_id
 from minerec.processing.render.hud import validate_hud_result_envelope
 from minerec.render.control.contract import FULL_CLIENT_PRESENTATION_CONTRACT
@@ -422,17 +422,11 @@ def attach_imported_renders(
     job: Mapping[str, Any],
     imports: Iterable[ImportedRenderResult | Mapping[str, Any]],
 ) -> RenderAttachmentResult:
-    """Attach verified server-side render imports to one deterministic dataset.
-
-    The queue job supplies identity only. Paths are accepted solely when they are
-    canonical direct children of the server-owned import directory for that job.
-    The existing structured dataset is verified before a force replacement is
-    permitted, so a missing, conflicting, or tampered output is never promoted.
-    """
+    """Publish verified RGB references without replacing the Dataset core."""
 
     identity = _job_identity(config, job)
     imported_values = list(imports)
-    with operation_lock(config.paths.runtime, f"attach_render:{identity.job_id}"):
+    with operation_lock(config.paths.runtime, f"attach_rgb:{identity.dataset_id}"):
         with tempfile.TemporaryDirectory(
             prefix=f"render-attach-{identity.job_id}-",
             dir=config.paths.runtime,
@@ -460,18 +454,15 @@ def attach_imported_renders(
             current = _verify_dataset(config, identity, index_runtime)
             if current.manifest_sha256 != existing.manifest_sha256 or current.samples_sha256 != existing.samples_sha256:
                 raise RecorderError("refusing to attach RGB because the structured dataset changed during verification")
-            episode = resolve_episode(config.paths.captures, identity.session_id)
-            scene_store = identity.output / "scene" / "scene-v1.sqlite3"
-            export_episode(
-                episode,
+            publish_rgb_attachments(
+                config.paths.exports,
                 identity.output,
-                players=[identity.player_uuid],
-                connections=[identity.connection_id],
-                first_tick=identity.selection_start_tick,
-                last_tick=identity.selection_end_tick,
-                frames=[item.directory for item in complete],
-                scenes=[scene_store] if scene_store.is_file() and not scene_store.is_symlink() else [],
-                force=True,
+                identity.dataset_id,
+                dataset_manifest_sha256=current.manifest_sha256,
+                samples_sha256=current.samples_sha256,
+                session_id=identity.session_id,
+                job_id=identity.job_id,
+                frame_inputs=[item.directory for item in complete],
             )
             verified = _verify_dataset(config, identity, index_runtime)
             return _result(identity, verified.metadata, complete, no_coverage_count)

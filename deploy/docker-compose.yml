@@ -88,6 +88,11 @@ services:
       MC_RECORDER_DASHBOARD_PASSWORD: '${MC_RECORDER_DASHBOARD_PASSWORD}'
       MC_RECORDER_RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/%2F
       MC_RECORDER_RENDER_TASK_QUEUE: minerec.render.jobs
+      # NOTICE: SQLite locking is not reliable when macOS and Linux containers
+      # concurrently write a bind-mounted database. Keep queue state on Docker's
+      # native filesystem and expose mutations to the GUI worker through the
+      # authenticated dashboard render-control endpoint.
+      MC_RECORDER_RENDER_QUEUE_DATABASE: /render-control/render-queue.sqlite3
       MC_RECORDER_DASHBOARD_STATIC_ROOT: /opt/mc-recorder-dashboard
     ports:
       - '${MC_DASHBOARD_PORT}:${MC_DASHBOARD_PORT}'
@@ -97,6 +102,7 @@ services:
       - '${MC_REPLAY_DIR}:/artifacts/replays'
       - '${MC_EXPORT_DIR}:/artifacts/exports'
       - '${MC_RUNTIME_DIR}:/.mc-recorder'
+      - 'render-control:/render-control'
       - '${MC_DASHBOARD_STATIC_ROOT}:/opt/mc-recorder-dashboard:ro'
     depends_on:
       rabbitmq:
@@ -115,9 +121,11 @@ services:
       PYTHONUNBUFFERED: '1'
       MC_RECORDER_RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/%2F
       MC_RECORDER_RENDER_TASK_QUEUE: minerec.render.jobs
+      MC_RECORDER_RENDER_QUEUE_DATABASE: /render-control/render-queue.sqlite3
     volumes:
       - '${MC_CONFIG_FILE}:/recorder.toml:ro'
       - '${MC_RUNTIME_DIR}:/.mc-recorder'
+      - 'render-control:/render-control'
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -133,9 +141,14 @@ services:
     command: ['minerec', '--config', '/recorder.toml', 'render-preparer']
     environment:
       PYTHONUNBUFFERED: '1'
+      MC_RECORDER_RENDER_QUEUE_DATABASE: /render-control/render-queue.sqlite3
     volumes:
       - '${MC_CONFIG_FILE}:/recorder.toml:ro'
       - '${MC_CAPTURE_DIR}:/artifacts/captures:ro'
       - '${MC_REPLAY_DIR}:/artifacts/replays:ro'
       - '${MC_EXPORT_DIR}:/artifacts/exports'
       - '${MC_RUNTIME_DIR}:/.mc-recorder'
+      - 'render-control:/render-control'
+
+volumes:
+  render-control:

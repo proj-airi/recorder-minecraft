@@ -248,6 +248,46 @@ def _complete_job(
 
 
 class PortableRenderTransferTest(unittest.TestCase):
+    def test_verified_dataset_range_can_author_request_before_epoch_rotation(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            episode = _episode(root)
+            epoch = episode / "epochs" / "epoch-000000"
+            (epoch / "events.jsonl").rename(epoch / "events.jsonl.inprogress")
+            (epoch / "manifest.json").unlink()
+            replay = _replay(root)
+
+            with self.assertRaisesRegex(RecorderError, "sealed epoch"):
+                create_portable_render_request(
+                    episode,
+                    replay,
+                    segment_id="segment-0001",
+                    segment_ordinal=1,
+                    player_uuid=PLAYER,
+                    connection_id=CONNECTION,
+                    width=64,
+                    height=64,
+                )
+
+            request = create_portable_render_request(
+                episode,
+                replay,
+                segment_id="segment-0001",
+                segment_ordinal=1,
+                player_uuid=PLAYER,
+                connection_id=CONNECTION,
+                width=64,
+                height=64,
+                first_tick=10,
+                last_tick=11,
+                observed_connection_range=(10, 11),
+            )
+
+            self.assertEqual(
+                [10, 11],
+                request["timeline"]["observed_connection_range"],
+            )
+
     def test_request_is_path_free_hash_bound_and_materializes_locally(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

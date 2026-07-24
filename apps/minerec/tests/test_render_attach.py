@@ -290,6 +290,7 @@ class RenderAttachmentTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             config, episode, replay, output, job = self._fixture(Path(temporary))
             imported = _import(config, episode, replay)
+            core_before = {path.relative_to(output): path.read_bytes() for path in output.rglob("*") if path.is_file()}
 
             with mock.patch(
                 "minerec.processing.render.attach.DatasetViewer",
@@ -305,6 +306,11 @@ class RenderAttachmentTest(unittest.TestCase):
             self.assertEqual((10, 12), (result.coverage_start_tick, result.coverage_end_tick))
             self.assertEqual(output, result.output)
             self.assertEqual(result.dataset_id, result.as_json()["dataset_id"])
+            self.assertEqual(
+                core_before,
+                {path.relative_to(output): path.read_bytes() for path in output.rglob("*") if path.is_file()},
+            )
+            self.assertTrue((config.paths.exports / ".dataset-attachments" / result.dataset_id / "rgb.json").is_file())
             self.assertTrue(viewer_type.call_args_list)
             self.assertTrue(all(Path(call.args[1]).resolve() != config.paths.runtime for call in viewer_type.call_args_list))
             mirror_exports = Path(temporary) / "mirror" / "exports"

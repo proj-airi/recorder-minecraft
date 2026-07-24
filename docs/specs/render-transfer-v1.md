@@ -5,7 +5,7 @@ worker and moves verified derivative artifacts back to the recorder host. The
 server-authored request is immutable and path-free. A worker's filesystem paths
 are provenance only and are never authoritative after import.
 
-## Dashboard queue and RabbitMQ one-shot worker
+## Dashboard queue and persistent RabbitMQ consumer
 
 The dashboard may create a durable RGB request from either a verified dataset
 connection or a completed Flashback replay artifact. An artifact request starts
@@ -22,9 +22,17 @@ sample tick. A worker receives none of those values from browser-controlled
 paths or command strings.
 
 `minerec render-dispatcher` publishes pending dataset jobs from the render
-queue's durable SQLite outbox to RabbitMQ. By default,
-`minerec render-worker` consumes one RabbitMQ message, claims that exact job,
-runs one Java client in one ephemeral workspace, finalizes the result, and exits.
+queue's durable SQLite outbox to RabbitMQ. `minerec render-worker` keeps one
+consumer connection with prefetch 1. For each message it claims the exact job,
+runs one Java client in one ephemeral workspace, finalizes the result, and then
+continues with the next message.
+
+The GUI worker does not open the queue SQLite database. It sends bounded JSON
+actions to the Dashboard render-control endpoint using the runtime-generated
+`render-worker.token`. Compose stores queue SQLite in the `render-control`
+named volume so macOS host processes and Linux containers never concurrently
+write a bind-mounted database. Replay, HUD, and bundle bytes remain subject to
+the existing containment, size, and SHA-256 checks.
 
 The worker heartbeats while downloading, rendering, and uploading. A reclaimed
 or canceled lease cannot publish a result, even if an older client later
@@ -32,27 +40,23 @@ resumes. If a replay input is not yet immutable, the server defers that job for
 a 30-second eligibility cooldown. Requeued jobs clear their publication marker
 and become eligible for dispatch again.
 
-A failure after a claim marks/fences that attempt and the process exits before
-another message is consumed. This fail-stop boundary prevents a broken Java
-runtime, Gradle installation, disk, or renderer build from failing remaining
-queue messages. If server-side plan preparation fails after leasing, `claim`
+A failure after a claim marks/fences that attempt and rejects that message.
+The consumer continues after a terminal job failure. An ambiguous claim outcome
+is requeued and stops the consumer because the controller may already have
+leased or failed the job. If server-side plan preparation fails after leasing, `claim`
 returns `reason: "claim_failed"`, the failed job identity, and a bounded error.
 A lost or invalid `claim` RPC response is fail-stop because the server may
 already have leased or failed a job even when the worker did not receive the
 response.
 
-Workers advertise `ephemeral: true`, `portable_request_no_gui: true`,
+Consumers advertise `persistent: true`, `portable_request_no_gui: true`,
 `full_client_presentation_contract: "flashback_server_spectate_structured_hud_v1"`, and
 `structured_claim_failure: true` before claiming. The server rejects workers
-without the portable-request capability or current presentation contract so a
-strict pre-extension V1 worker cannot claim a GUI request whose pixels require
-the replay-server spectate synchronization path. The `register` response
+without the portable-request capability or current presentation contract.
+The `register` response
 advertises both `server_capabilities.structured_claim_failure: true` and the
 same full-client presentation contract. All workers fail closed when the
-contract is absent or mismatched. For a worker that does not advertise
-structured claim failures, a server-side plan failure still fences the attempt
-but returns a nonzero RPC error so an older one-shot worker cannot misreport it
-as an empty queue.
+contract is absent or mismatched.
 
 The local recorder runtime is the worker's authority boundary. RPC actions are
 direct in-process calls with bounded, action-specific JSON schemas. Replay reads
@@ -224,10 +228,11 @@ existing deterministic structured dataset and its opaque viewer identity. A
 missing, tampered, or differently selected dataset is a hard failure rather
 than permission to replace it.
 
-Complete imports are attached through the normal exact-key exporter. The
-resulting dataset directory is promoted atomically, preserving the prior
-verified export if promotion fails. A job is `complete` only when every selected
-sample has an attached RGB frame; otherwise a successfully verified attachment
-is `partial`, and uncovered samples retain explicit unavailable RGB modality
-objects. The changed manifest and declared hashes invalidate the dashboard's
+Complete imports are published in
+`paths.exports/.dataset-attachments/<dataset-id>/rgb.json`. This manifest binds
+the immutable Dataset manifest and `samples.jsonl` SHA-256, exact frame
+identities, artifact hashes, and render provenance. Publication atomically
+replaces only the derived RGB index; Dataset core files are unchanged. A job is
+`complete` only when every selected sample has a verified RGB frame; otherwise
+it is `partial`. A changed attachment fingerprint invalidates the dashboard's
 SQLite byte-offset index on its next catalog refresh.

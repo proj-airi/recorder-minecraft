@@ -10,7 +10,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any, TextIO
 
-from minerec.config import RecorderConfig
+from minerec.config import RecorderConfig, render_queue_database
 from minerec.errors import RecorderError
 from minerec.processing.artifacts.catalog import ArtifactCatalog
 from minerec.processing.dataset.viewer import DatasetViewer
@@ -49,7 +49,7 @@ class DashboardService:
                 config.paths.runtime,
             )
             self.dataset_index = DatasetIndex(self.dataset_viewer)
-            self.render_queue = RenderQueueStore(config.paths.runtime / "render-queue.sqlite3")
+            self.render_queue = RenderQueueStore(render_queue_database(config))
         except Exception:
             index = getattr(self, "dataset_index", None)
             if index is not None:
@@ -166,6 +166,10 @@ class DashboardService:
             raise RecorderError("dataset connection has no matching saved Flashback replay")
         if metadata.rgb_samples >= metadata.sample_count and metadata.sample_count:
             raise RecorderError("dataset already has complete RGB coverage")
+        selection_start_tick = metadata.selected_from_tick
+        selection_end_tick = metadata.selected_to_tick
+        if not isinstance(selection_start_tick, int) or not isinstance(selection_end_tick, int):
+            raise RecorderError("dataset has no bounded tick selection")
         payload = self._render_job_payload(
             dataset_id=dataset_id,
             session_id=metadata.session_id,
@@ -173,6 +177,8 @@ class DashboardService:
             connection_id=connection.connection_id,
             start_tick=connection.first_tick,
             end_tick=connection.last_tick,
+            selection_start_tick=selection_start_tick,
+            selection_end_tick=selection_end_tick,
             width=width,
             height=height,
             fps=fps,
@@ -231,6 +237,8 @@ class DashboardService:
         connection_id: str,
         start_tick: int,
         end_tick: int,
+        selection_start_tick: int,
+        selection_end_tick: int,
         width: int,
         height: int,
         fps: int,
@@ -252,8 +260,10 @@ class DashboardService:
             "connection_id": _required_uuid(connection_id, "connection UUID"),
             "start_tick": start_tick,
             "end_tick": end_tick,
-            "selection_start_tick": start_tick,
-            "selection_end_tick": end_tick,
+            # NOTICE: The dataset selection may include a terminal state after
+            # the last renderable sample. Preserve both ranges independently.
+            "selection_start_tick": selection_start_tick,
+            "selection_end_tick": selection_end_tick,
             "render": render,
         }
 

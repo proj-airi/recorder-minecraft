@@ -64,7 +64,7 @@ Minecraft server, mounts a captured world, or binds the capture server's port.
 - proto for OpenJDK 21 and Gradle 9.6.1;
 - Docker with Docker Compose;
 - RabbitMQ from the included Compose stack for queued RGB dispatch;
-- a logged-in graphical desktop on any machine that runs one-shot render workers; and
+- a logged-in graphical desktop on any machine that runs a persistent render consumer; and
 - a normal Minecraft client account for joining the capture server.
 
 See [Development Environment](docs/environment.md) for tool ownership,
@@ -157,7 +157,7 @@ Non-owned or symlinked directories are never removed.
 
 The Compose `render-preparer` builds artifact-request datasets, and
 `render-dispatcher` publishes queued jobs from the durable SQLite outbox to
-RabbitMQ. The renderer itself is per task: start one or more worker processes
+RabbitMQ. Start one or more persistent consumer processes
 from a logged-in graphical desktop session on a machine with the same
 workspace, RabbitMQ access, OpenJDK 21, and Gradle:
 
@@ -166,19 +166,17 @@ MC_RECORDER_RABBITMQ_URL=amqp://guest:guest@localhost:5672/%2F \
   pixi run minerec render-worker
 ```
 
-The worker consumes one RabbitMQ message, claims that exact queued job through
-the local recorder runtime, verifies its replay segments and structured-HUD
-sidecar, launches one local Java GUI renderer, copies integrity-bound bundles
-back into the workspace, asks the server-side RPC to verify/import/re-export the
-dataset, acknowledges the message, and exits. There is no persistent render
-worker daemon; supervisors can start as many one-shot processes as needed.
+The consumer keeps one RabbitMQ connection with prefetch 1, claims each exact
+queued job through the Dashboard's token-authenticated render-control endpoint,
+verifies its replay segments and structured-HUD sidecar, launches one local
+Java GUI renderer, imports the integrity-bound bundles, acknowledges the
+message, and continues with the next job until interrupted. Compose keeps the
+authoritative queue SQLite database in its `render-control` named volume rather
+than a macOS bind mount.
 
-If a claimed job fails, the worker reports/fences that attempt and stops before
-another RabbitMQ message can be acknowledged. This avoids consuming the queue
-when Java, Gradle, disk, or another machine-wide renderer dependency is broken;
-fix the local problem and start another one-shot worker. A failed, timed-out, or
-invalid claim leaves the RabbitMQ message unacknowledged so it can be retried by
-a later process. Workers require server tooling that advertises the same
+If a claimed job fails, the consumer reports/fences that attempt and rejects
+that message before continuing. An ambiguous claim outcome is requeued and
+stops the consumer for operator inspection. Consumers require server tooling that advertises the same
 full-client presentation contract, preventing an upgraded worker from attaching
 pixels through a server that would discard their fidelity provenance.
 
@@ -189,8 +187,8 @@ SHA-256 verification. Per-attempt workspaces under the cache are removed after
 success or failure; `--keep-workspace` retains one for diagnosis, and
 `--cache PATH` moves both areas. If the worker disappears, its fenced lease
 expires and the RabbitMQ message can be retried later without trusting the
-abandoned attempt. Worker processes, job workspaces, and Minecraft clients are
-all one-shot.
+abandoned attempt. Job workspaces and Minecraft clients remain per-attempt;
+the consumer process is persistent.
 
 If ServerReplay is still finalizing the disconnected player's archive, the
 attempt is deferred without failing the job and becomes eligible again after a
@@ -202,10 +200,11 @@ segments newest-to-oldest. Newer coverage owns overlapping ticks; older segments
 are cut off before that coverage. A segment with no matching timeline is
 accepted as no coverage, and genuine gaps remain explicit missing RGB rather
 than being synthesized. The dashboard reports such a valid but incomplete
-attachment as **partial**. Imported files use server-owned relative paths, are
-rehash-verified, and replace only the matching verified structured export. The
-dataset catalog detects the new manifest and hashes and rebuilds its local index
-automatically.
+attachment as **partial**. Imported files use server-owned relative paths and
+are rehash-verified. RGB references are atomically published under
+`artifacts/exports/.dataset-attachments/<dataset-id>/rgb.json`; Dataset core
+files and their manifest are not replaced. The dataset catalog detects the
+attachment fingerprint and rebuilds its local index automatically.
 
 The viewer pages through a SQLite byte-offset index rather than loading a large
 `samples.jsonl` into the browser. It provides a 20 Hz synchronized timeline and
@@ -239,36 +238,6 @@ filters are intersected, so a reconnect can be exported without mixing its
 states or actions with another connection. Selected samples still include
 other recorded players as peer context.
 
-For a standalone manual render outside the dashboard queue, render one recorded
-connection from a completed Flashback archive:
-
-```sh
-pixi run minerec render SESSION_ID \
-  --player PLAYER_UUID \
-  --connection CONNECTION_ID \
-  --replay artifacts/replays/players/PLAYER_UUID/REPLAY.zip
-```
-
-`--connection` may be omitted when the selected player has exactly one recorded
-connection. `--replay` may be omitted only when exactly one completed archive is
-available for that player. The command launches the local client renderer by
-default; `--prepare-only` writes the validated render job without launching it.
-
-Standalone RGB jobs render the first-person hand/item and Minecraft HUD by
-default, including the hotbar, crosshair, health, hunger, titles, boss bars,
-action bar, and scoreboard. An episode-only standalone job has no exported
-dataset from which to author the verified per-tick HUD sidecar, so it remains a
-legacy/unverified GUI result; use the dashboard dataset workflow for faithful
-inventory pixels. ServerReplay is configured to omit chat packets, and
-client-only screens such as inventory or crafting menus cannot be
-reconstructed. Pass `--no-gui` to a standalone manual render when a HUD-free
-first-person image is explicitly required.
-
-Render preparation records a stable replay byte size and SHA-256. The client
-verifies both before opening the archive and again after RGB generation;
-after the client exits, the CLI rehashes the archive and accepts the atomic
-complete result only when all three checks match the prepared envelope.
-
 Extract a random-access scene store directly from the immutable replay, without
 a GUI client:
 
@@ -291,9 +260,8 @@ records and is applied before snapshot hashing. Scene extraction requires new
 schema-v3 replay metadata with the `client_visible_scene_v1` capture contract;
 older replay archives are not accepted as scene sources.
 
-Attach manually completed RGB and scene results while exporting. Dashboard
-generation performs scene extraction and attachment automatically; dashboard
-RGB jobs perform the verified RGB re-export automatically:
+Attach manually completed RGB and scene results while exporting. Dashboard RGB
+jobs instead publish a separate verified attachment index:
 
 ```sh
 pixi run minerec export SESSION_ID \

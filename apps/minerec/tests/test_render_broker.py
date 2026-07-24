@@ -1,16 +1,18 @@
 from __future__ import annotations
 
 import json
+import queue
 import sys
 import tempfile
 import unittest
+from collections.abc import Callable
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
 from minerec.render.control.broker import (
     build_render_task_message,
-    consume_one_render_task_message,
+    consume_render_task_messages,
     dispatch_pending_render_jobs,
     publish_render_task_message,
 )
@@ -25,7 +27,7 @@ class RenderBrokerTest(unittest.TestCase):
             "player_uuid": "00000000-0000-4000-8000-000000000021",
         }
 
-    def test_render_task_message_is_path_free_and_process_scoped(self) -> None:
+    def test_render_task_message_is_path_free_and_process_agnostic(self) -> None:
         job = {
             "id": "00000000-0000-4000-8000-000000000020",
             "dataset_id": "c" * 32,
@@ -38,7 +40,7 @@ class RenderBrokerTest(unittest.TestCase):
 
         self.assertEqual(1, message["schema_version"])
         self.assertEqual("render_job", message["kind"])
-        self.assertEqual("per_process_worker", message["execution"])
+        self.assertNotIn("execution", message)
         self.assertEqual(job["id"], message["job_id"])
         self.assertEqual(job["payload"], message["payload"])
         self.assertNotIn("/srv/", encoded)
@@ -111,7 +113,6 @@ class RenderBrokerTest(unittest.TestCase):
         message = {
             "schema_version": 1,
             "kind": "render_job",
-            "execution": "per_process_worker",
             "job_id": "00000000-0000-4000-8000-000000000020",
             "dataset_id": "c" * 32,
             "payload": self._job_payload(),
@@ -140,27 +141,56 @@ class RenderBrokerTest(unittest.TestCase):
             publish["properties"].kwargs,  # ty:ignore[unresolved-attribute]
         )
 
-    def test_rabbitmq_consumer_acks_successful_task(self) -> None:
+    def test_rabbitmq_consumer_processes_multiple_tasks_with_one_connection(self) -> None:
         calls: list[tuple[str, dict[str, object]]] = []
-        message = {
-            "schema_version": 1,
-            "kind": "render_job",
-            "execution": "per_process_worker",
-            "job_id": "00000000-0000-4000-8000-000000000020",
-            "dataset_id": "c" * 32,
-            "payload": self._job_payload(),
-        }
+        messages = [
+            {
+                "schema_version": 1,
+                "kind": "render_job",
+                "job_id": job_id,
+                "dataset_id": "c" * 32,
+                "payload": self._job_payload(),
+            }
+            for job_id in (
+                "00000000-0000-4000-8000-000000000020",
+                "00000000-0000-4000-8000-000000000021",
+            )
+        ]
+        messages[0]["execution"] = "per_process_worker"
 
         class Method:
-            delivery_tag = "delivery-1"
+            def __init__(self, delivery_tag: str) -> None:
+                self.delivery_tag = delivery_tag
 
         class Channel:
+            callback: object = None
+
+            def __init__(self, connection: Connection) -> None:
+                self.connection = connection
+
             def queue_declare(self, **kwargs: object) -> None:
                 calls.append(("queue_declare", kwargs))
 
-            def basic_get(self, **kwargs: object) -> tuple[Method, object, bytes]:
-                calls.append(("basic_get", kwargs))
-                return Method(), object(), json.dumps(message).encode("utf-8")
+            def basic_qos(self, **kwargs: object) -> None:
+                calls.append(("basic_qos", kwargs))
+
+            def basic_consume(self, **kwargs: object) -> None:
+                calls.append(("basic_consume", kwargs))
+                self.callback = kwargs["on_message_callback"]
+
+            def start_consuming(self) -> None:
+                assert callable(self.callback)
+                for index, message in enumerate(messages, 1):
+                    self.callback(  # ty:ignore[call-top-callable]
+                        self,
+                        Method(f"delivery-{index}"),
+                        object(),
+                        json.dumps(message).encode(),
+                    )
+                    self.connection.callbacks.get(timeout=2)()
+
+            def stop_consuming(self) -> None:
+                calls.append(("stop_consuming", {}))
 
             def basic_ack(self, **kwargs: object) -> None:
                 calls.append(("basic_ack", kwargs))
@@ -169,71 +199,34 @@ class RenderBrokerTest(unittest.TestCase):
                 calls.append(("basic_nack", kwargs))
 
         class Connection:
+            def __init__(self) -> None:
+                self.callbacks: queue.Queue[Callable[[], None]] = queue.Queue()
+                self.is_open = True
+
             def channel(self) -> Channel:
-                return Channel()
+                return Channel(self)
+
+            def add_callback_threadsafe(self, callback: Callable[[], None]) -> None:
+                self.callbacks.put(callback)
 
             def close(self) -> None:
+                self.is_open = False
                 calls.append(("close", {}))
 
         handled: list[dict[str, object]] = []
 
-        result = consume_one_render_task_message(
+        consume_render_task_messages(
             "amqp://guest:guest@rabbitmq:5672/%2F",
             "render.jobs",
             handle=handled.append,
             connection_factory=lambda _url: Connection(),
         )
 
-        self.assertTrue(result)
-        self.assertEqual([message], handled)
+        self.assertEqual(
+            [{key: value for key, value in message.items() if key != "execution"} for message in messages],
+            handled,
+        )
+        self.assertIn(("basic_qos", {"prefetch_count": 1}), calls)
         self.assertIn(("basic_ack", {"delivery_tag": "delivery-1"}), calls)
-        self.assertNotIn("basic_nack", [name for name, _kwargs in calls])
-
-    def test_rabbitmq_consumer_acks_a_terminal_handler_failure(self) -> None:
-        calls: list[tuple[str, dict[str, object]]] = []
-        message = {
-            "schema_version": 1,
-            "kind": "render_job",
-            "execution": "per_process_worker",
-            "job_id": "00000000-0000-4000-8000-000000000020",
-            "dataset_id": "c" * 32,
-            "payload": self._job_payload(),
-        }
-
-        class Method:
-            delivery_tag = "delivery-1"
-
-        class Channel:
-            def queue_declare(self, **_kwargs: object) -> None:
-                pass
-
-            def basic_get(self, **_kwargs: object) -> tuple[Method, object, bytes]:
-                return Method(), object(), json.dumps(message).encode("utf-8")
-
-            def basic_ack(self, **kwargs: object) -> None:
-                calls.append(("basic_ack", kwargs))
-
-            def basic_nack(self, **kwargs: object) -> None:
-                calls.append(("basic_nack", kwargs))
-
-        class Connection:
-            def channel(self) -> Channel:
-                return Channel()
-
-            def close(self) -> None:
-                pass
-
-        def fail(_message: dict[str, object]) -> None:
-            raise RuntimeError("job is terminal")
-
-        with self.assertRaisesRegex(RuntimeError, "terminal"):
-            consume_one_render_task_message(
-                "amqp://guest:guest@rabbitmq:5672/%2F",
-                "render.jobs",
-                handle=fail,
-                requeue_on_error=lambda _error: False,
-                connection_factory=lambda _url: Connection(),
-            )
-
-        self.assertIn(("basic_ack", {"delivery_tag": "delivery-1"}), calls)
+        self.assertIn(("basic_ack", {"delivery_tag": "delivery-2"}), calls)
         self.assertNotIn("basic_nack", [name for name, _kwargs in calls])

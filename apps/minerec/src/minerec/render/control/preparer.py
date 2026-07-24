@@ -5,7 +5,7 @@ import uuid
 from collections.abc import Callable
 from typing import Any, ContextManager
 
-from minerec.config import RecorderConfig
+from minerec.config import RecorderConfig, render_queue_database
 from minerec.errors import RecorderError
 from minerec.processing.artifacts.catalog import (
     ArtifactCatalog,
@@ -40,7 +40,7 @@ class RenderPreparer:
     ) -> None:
         self.config = config
         self.preparer_id = preparer_id or f"{socket.gethostname()}-{uuid.uuid4()}"
-        self.queue = queue or RenderQueueStore(config.paths.runtime / "render-queue.sqlite3")
+        self.queue = queue or RenderQueueStore(render_queue_database(config))
         self.artifact_catalog = artifact_catalog or ArtifactCatalog(
             config.paths.captures,
             config.paths.replays,

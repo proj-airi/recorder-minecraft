@@ -6,7 +6,9 @@ import hmac
 import json
 import math
 import mimetypes
+import os
 import re
+import secrets
 import socket
 import sys
 import threading
@@ -28,6 +30,7 @@ from minerec.processing.dataset.viewer import (
     SampleNotFoundError,
     VerifiedArtifact,
 )
+from minerec.render.control.rpc import dispatch_worker_action
 from minerec.serve.dashboard.service import DashboardService
 
 MAX_REQUEST_BYTES = 64 * 1024
@@ -37,8 +40,34 @@ ARTIFACT_RENDER_PATH = re.compile(r"^/api/v1/replay-artifacts/([0-9a-f]{32})/ren
 ROUTE_UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 RENDER_JOB_PATH = re.compile(rf"^/api/v1/render-jobs/({ROUTE_UUID})$")
 RENDER_JOB_ACTION_PATH = re.compile(rf"^/api/v1/render-jobs/({ROUTE_UUID})/(cancel|retry)$")
+RENDER_RPC_PATH = re.compile(r"^/api/v1/internal/render-rpc/([a-z][a-z-]{0,63})$")
 OPAQUE_DATASET_ID = re.compile(r"^[0-9a-f]{32}$")
 OPAQUE_SAMPLE_ID = re.compile(r"^[0-9a-f]{32}$")
+
+
+def _load_or_create_worker_token(runtime: Path) -> str:
+    runtime.mkdir(parents=True, exist_ok=True)
+    path = runtime / "render-worker.token"
+    if path.is_symlink():
+        raise RecorderError("render worker token may not be a symlink")
+    try:
+        token = path.read_text(encoding="ascii").strip()
+    except FileNotFoundError:
+        token = secrets.token_hex(32)
+        try:
+            descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        except FileExistsError:
+            token = path.read_text(encoding="ascii").strip()
+        else:
+            with os.fdopen(descriptor, "w", encoding="ascii") as handle:
+                handle.write(token + "\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+    except OSError as exc:
+        raise RecorderError(f"cannot read render worker token: {exc}") from exc
+    if len(token) != 64 or any(character not in "0123456789abcdef" for character in token):
+        raise RecorderError("render worker token is invalid")
+    return token
 
 
 def _dashboard_static_root() -> Path:
@@ -57,6 +86,7 @@ class DashboardApplication:
         self.password = password
         self.static_root = _dashboard_static_root()
         self.service = DashboardService(config)
+        self.worker_token = _load_or_create_worker_token(config.paths.runtime)
         self.dataset_viewer = self.service.dataset_viewer
         self.dataset_index = self.service.dataset_index
 
@@ -168,11 +198,29 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._error(HTTPStatus.BAD_REQUEST, str(exc))
 
     def do_POST(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler contract
+        path = urlsplit(self.path).path
+        if match := RENDER_RPC_PATH.fullmatch(path):
+            if not self._authenticate_worker():
+                return
+            try:
+                body = self._read_json_body()
+                result = dispatch_worker_action(
+                    self.application.config,
+                    match.group(1),
+                    body,
+                )
+                self._json(HTTPStatus.OK, result)
+            except RecorderError as exc:
+                self._error(HTTPStatus.CONFLICT, str(exc))
+            except KeyError:
+                self._error(HTTPStatus.NOT_FOUND, "render job not found")
+            except (ValueError, json.JSONDecodeError, RecursionError) as exc:
+                self._error(HTTPStatus.BAD_REQUEST, str(exc))
+            return
         if not self._authenticate():
             return
         if not self._authorize_mutation():
             return
-        path = urlsplit(self.path).path
         try:
             body = self._read_json_body()
             dataset_match = DATASET_RENDER_PATH.fullmatch(path)
@@ -282,6 +330,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self._common_headers("application/json; charset=utf-8", len(body))
         self.end_headers()
         self.wfile.write(body)
+        return False
+
+    def _authenticate_worker(self) -> bool:
+        supplied = self.headers.get("Authorization", "")
+        expected = f"Bearer {self.application.worker_token}"
+        if hmac.compare_digest(supplied, expected):
+            return True
+        self._error(HTTPStatus.UNAUTHORIZED, "render worker authentication required")
         return False
 
     def _authorize_mutation(self) -> bool:

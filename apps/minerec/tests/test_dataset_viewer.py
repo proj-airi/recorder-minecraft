@@ -21,6 +21,7 @@ from minerec.processing.dataset.viewer import (
     DatasetViewer,
     DatasetViewerError,
     SampleNotFoundError,
+    _rgb_presentation,
     opaque_dataset_id,
 )
 from minerec.processing.scene.store import (
@@ -778,6 +779,17 @@ class DatasetIndexTest(unittest.TestCase):
                         expected,
                         viewer.get_dataset_metadata(dataset_id).rgb_presentation,
                     )
+
+    def test_reports_presentation_from_derived_attachment_tuple(self) -> None:
+        self.assertEqual(
+            "full_client",
+            _rgb_presentation(
+                (_full_client_attachment(),),
+                1,
+                dataset_id="b" * 32,
+                session_id="session-test",
+            ),
+        )
 
     def test_rebuilds_offsets_when_valid_export_fingerprint_changes(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

@@ -22,11 +22,27 @@ from minerec.config import (
     load_config,
     load_runtime_env,
     load_storage_monitor_env,
+    render_queue_database,
 )
 from minerec.errors import RecorderError
 
 
 class ConfigTest(unittest.TestCase):
+    def test_render_queue_database_can_live_outside_the_bind_mounted_runtime(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            config = load_config(initialize(workspace / "recorder.toml", accept_eula=True))
+            native = workspace / "docker-volume" / "render-queue.sqlite3"
+
+            self.assertEqual(config.paths.runtime / "render-queue.sqlite3", render_queue_database(config, {}))
+            self.assertEqual(
+                native.resolve(),
+                render_queue_database(
+                    config,
+                    {"MC_RECORDER_RENDER_QUEUE_DATABASE": str(native)},
+                ),
+            )
+
     def test_init_keeps_every_default_path_in_workspace(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             workspace = Path(temporary)

@@ -12,6 +12,8 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Sequence
+from urllib import error as urllib_error
+from urllib import request as urllib_request
 
 from minerec.config import RecorderConfig, load_runtime_env
 from minerec.errors import RecorderError
@@ -59,6 +61,83 @@ class LocalRecorder:
 
 
 @dataclass(frozen=True)
+class DashboardRecorder:
+    """Render-control endpoint owned by the dashboard process."""
+
+    root: Path
+    base_url: str
+    token: str
+
+    def __post_init__(self) -> None:
+        local = LocalRecorder(self.root)
+        object.__setattr__(self, "root", local.root)
+        object.__setattr__(self, "base_url", self.base_url.rstrip("/"))
+        if not self.base_url.startswith(("http://", "https://")):
+            raise RecorderError("render control URL must use http or https")
+        if len(self.token) != 64 or any(character not in "0123456789abcdef" for character in self.token):
+            raise RecorderError("render worker token is invalid; restart the dashboard")
+
+    def contains(self, path: str | Path) -> Path:
+        remote = Path(path)
+        if not remote.is_absolute():
+            raise RecorderError("dashboard transfer path must be absolute")
+
+        # NOTICE: Compose resolves recorder.toml from /, while the GUI worker
+        # resolves the same repository-relative artifacts from the host checkout.
+        # Map only absolute paths below the remote root and run the result through
+        # LocalRecorder containment before any file is read or written.
+        try:
+            relative = remote.relative_to("/")
+        except ValueError as exc:
+            raise RecorderError("dashboard transfer path is invalid") from exc
+        return LocalRecorder(self.root).contains(self.root / relative)
+
+    def call(self, action: str, body: dict[str, Any], timeout_seconds: int) -> dict[str, Any]:
+        encoded = json.dumps(body, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+        request = urllib_request.Request(
+            f"{self.base_url}/api/v1/internal/render-rpc/{action}",
+            data=encoded,
+            method="POST",
+            headers={
+                "Authorization": f"Bearer {self.token}",
+                "Content-Type": "application/json",
+            },
+        )
+        try:
+            with urllib_request.urlopen(request, timeout=timeout_seconds) as response:
+                value = json.loads(response.read())
+        except urllib_error.HTTPError as exc:
+            try:
+                detail = json.loads(exc.read()).get("error")
+            except json.JSONDecodeError, AttributeError:
+                detail = None
+            raise RecorderError(f"render control rejected {action}: {detail or exc.reason}") from exc
+        except (urllib_error.URLError, TimeoutError, OSError) as exc:
+            raise RecorderError(f"render control request {action} failed: {exc}") from exc
+        except json.JSONDecodeError as exc:
+            raise RecorderError(f"render control returned invalid JSON for {action}") from exc
+        if not isinstance(value, dict):
+            raise RecorderError(f"render control returned a non-object response for {action}")
+        return value
+
+
+RecorderEndpoint = LocalRecorder | DashboardRecorder
+
+
+def dashboard_recorder(config: RecorderConfig) -> DashboardRecorder:
+    token_path = config.paths.runtime / "render-worker.token"
+    try:
+        token = token_path.read_text(encoding="ascii").strip()
+    except OSError as exc:
+        raise RecorderError(f"render worker token is unavailable at {token_path}; start the dashboard first") from exc
+    url = os.environ.get(
+        "MC_RECORDER_RENDER_CONTROL_URL",
+        f"http://127.0.0.1:{config.dashboard.port}",
+    )
+    return DashboardRecorder(config.paths.base, url, token)
+
+
+@dataclass(frozen=True)
 class _WorkerPoll:
     result: dict[str, Any] | None
     reason: str | None = None
@@ -82,56 +161,25 @@ def requeue_render_task_error(error: Exception) -> bool:
 
 
 def call_recorder_json(
-    endpoint: LocalRecorder,
+    endpoint: RecorderEndpoint,
     arguments: Sequence[str],
     *,
     body: dict[str, Any] | None = None,
     timeout_seconds: int = 60,
 ) -> dict[str, Any]:
-    del timeout_seconds
+    if len(arguments) != 2 or arguments[0] != "render-rpc":
+        raise RecorderError("render RPC only supports render-rpc actions")
+    if isinstance(endpoint, DashboardRecorder):
+        # NOTICE: The GUI worker runs on macOS while the queue owner runs in a
+        # Linux container. Calling the Dashboard is mandatory here; falling back
+        # to dispatch_worker_action locally would reopen the bind-mounted SQLite
+        # database and reproduce the cross-filesystem disk I/O failure.
+        return endpoint.call(arguments[1], body or {}, timeout_seconds)
     if endpoint.config is None:
         raise RecorderError("local render RPC requires a recorder config")
-    if len(arguments) != 2 or arguments[0] != "render-rpc":
-        raise RecorderError("local render RPC only supports render-rpc actions")
-    from minerec.processing.render.attach import attach_imported_renders
-    from minerec.render.control.queue import RenderQueueStore
-    from minerec.render.control.rpc import dispatch_render_rpc
+    from minerec.render.control.rpc import dispatch_worker_action
 
-    result = dispatch_render_rpc(endpoint.config, arguments[1], body or {})
-    if arguments[1] != "finalize":
-        return result
-    job = result.get("job")
-    imports = result.get("imports")
-    if not isinstance(job, dict) or not isinstance(imports, list):
-        raise RecorderError("render finalization lacks its queue job or canonical imports")
-    state = job.get("state")
-    if state in {"complete", "partial"}:
-        return result
-    if state not in {"verifying", "attaching"}:
-        raise RecorderError(f"render finalization cannot attach while job is {state!r}")
-    job_id = job.get("id")
-    if not isinstance(job_id, str):
-        raise RecorderError("render finalization lacks its queue job ID")
-    queue = RenderQueueStore(endpoint.config.paths.runtime / "render-queue.sqlite3")
-    if state == "verifying":
-        job = queue.set_server_phase(
-            job_id,
-            "attaching",
-            progress={"message": "Attaching verified RGB to the dataset"},
-        )
-    try:
-        attachment = attach_imported_renders(endpoint.config, job, imports)
-        attachment_json = attachment.as_json()
-        completed = queue.complete(job_id, attachment_json, partial=attachment.partial)
-    except Exception as exc:
-        try:
-            queue.fail(job_id, str(exc))
-        except Exception:
-            pass
-        if isinstance(exc, RecorderError):
-            raise
-        raise RecorderError(f"could not attach the imported RGB dataset: {exc}") from exc
-    return {**result, "job": completed, "attachment": attachment_json}
+    return dispatch_worker_action(endpoint.config, arguments[1], body or {})
 
 
 def _sha256(path: Path) -> str:
@@ -197,7 +245,7 @@ def _cache_verified_local_file(
 
 
 def download_replay(
-    remote: LocalRecorder,
+    remote: RecorderEndpoint,
     *,
     remote_path: str,
     expected_sha256: str,
@@ -220,7 +268,7 @@ def download_replay(
 
 
 def download_hud_sidecar(
-    remote: LocalRecorder,
+    remote: RecorderEndpoint,
     *,
     remote_path: str,
     expected_sha256: str,
@@ -243,7 +291,7 @@ def download_hud_sidecar(
 
 
 def upload_bundle(
-    remote: LocalRecorder,
+    remote: RecorderEndpoint,
     *,
     local_directory: Path,
     remote_directory: str,
@@ -265,7 +313,7 @@ def upload_bundle(
             raise RecorderError(f"render bundle contains an unsafe entry: {child}")
 
 
-def ephemeral_worker_id() -> str:
+def consumer_id() -> str:
     return str(uuid.uuid4())
 
 
@@ -324,7 +372,7 @@ def _bounded_string(value: object, label: str, maximum: int = 2048) -> str:
 class _RemoteLease:
     def __init__(
         self,
-        remote: LocalRecorder,
+        remote: RecorderEndpoint,
         *,
         worker_id: str,
         attempt_id: str,
@@ -404,8 +452,10 @@ def _worker_name() -> str:
 
 
 def _register_worker(
-    remote: LocalRecorder,
+    remote: RecorderEndpoint,
     worker_id: str,
+    *,
+    persistent: bool,
 ) -> None:
     registration = call_recorder_json(
         remote,
@@ -414,8 +464,8 @@ def _register_worker(
             "worker_id": worker_id,
             "name": _worker_name(),
             "capabilities": {
-                "ephemeral": True,
-                "persistent": False,
+                "ephemeral": not persistent,
+                "persistent": persistent,
                 "fps": [20],
                 "renderer": "minecraft-java-gui",
                 "portable_request_no_gui": True,
@@ -512,7 +562,7 @@ def _structured_hud_response(response: dict[str, Any], job: dict[str, Any]) -> d
 
 def _run_registered_worker_once(
     config: RecorderConfig,
-    remote: LocalRecorder,
+    remote: RecorderEndpoint,
     *,
     worker_id: str,
     job_id: str | None = None,
@@ -537,7 +587,7 @@ def _run_registered_worker_once(
             timeout_seconds=300,
         )
     except RecorderError as exc:
-        raise _ClaimOutcomeUnknownError("render worker stopped because the claim outcome is unknown; inspect the queue before restarting") from exc
+        raise _ClaimOutcomeUnknownError(f"render worker stopped because the claim outcome is unknown ({exc}); inspect the queue before restarting") from exc
     if claimed.get("claim") is None:
         reason = claimed.get("reason")
         if reason == "claim_failed":
@@ -763,63 +813,59 @@ def _run_registered_worker_once(
                     raise _ClaimedJobError(f"render worker stopped after job {claimed_job_id} cleanup failed: {detail}") from cleanup_exc
 
 
-def run_ephemeral_worker(
-    config: RecorderConfig,
-    remote: LocalRecorder,
-    *,
-    job_id: str | None = None,
-    cache_root: Path | None = None,
-    keep_workspace: bool = False,
-) -> dict[str, Any] | None:
-    """Register, process at most one queued job, and exit.
+class RenderConsumer:
+    """Long-lived GUI renderer that processes RabbitMQ-selected jobs serially."""
 
-    This compatibility wrapper preserves the original one-shot API. The CLI's
-    default worker uses :func:`run_render_worker` so one process identity is
-    reused while polling and processing multiple jobs.
-    """
+    def __init__(
+        self,
+        config: RecorderConfig,
+        recorder: RecorderEndpoint,
+        *,
+        cache_root: Path | None = None,
+        keep_workspace: bool = False,
+        on_result: Callable[[dict[str, Any]], None] | None = None,
+    ) -> None:
+        self.config = config
+        self.recorder = recorder
+        self.worker_id = consumer_id()
+        self.cache_root = default_worker_cache() if cache_root is None else cache_root
+        self.keep_workspace = keep_workspace
+        self.on_result = on_result
+        self._stop = threading.Event()
+        self._heartbeat_thread = threading.Thread(
+            target=self._heartbeat_loop,
+            name="mc-recorder-render-consumer-heartbeat",
+            daemon=True,
+        )
+        prepare_renderer_runtime(config)
+        _register_worker(recorder, self.worker_id, persistent=True)
+        self._heartbeat_thread.start()
 
-    selected_job = _canonical_uuid(job_id, "render job ID") if job_id is not None else None
-    worker_id = ephemeral_worker_id()
-    cache = default_worker_cache() if cache_root is None else cache_root
-    prepare_renderer_runtime(config)
-    _register_worker(remote, worker_id)
-    return _run_registered_worker_once(
-        config,
-        remote,
-        worker_id=worker_id,
-        job_id=selected_job,
-        cache_root=cache,
-        keep_workspace=keep_workspace,
-    ).result
+    def process(self, job_id: str) -> dict[str, Any] | None:
+        poll = _run_registered_worker_once(
+            self.config,
+            self.recorder,
+            worker_id=self.worker_id,
+            job_id=job_id,
+            cache_root=self.cache_root,
+            keep_workspace=self.keep_workspace,
+        )
+        if poll.result is not None and self.on_result is not None:
+            self.on_result(poll.result)
+        return poll.result
 
+    def close(self) -> None:
+        self._stop.set()
+        self._heartbeat_thread.join(timeout=30)
 
-def run_render_worker(
-    config: RecorderConfig,
-    remote: LocalRecorder,
-    *,
-    job_id: str | None = None,
-    cache_root: Path | None = None,
-    keep_workspace: bool = False,
-    once: bool = False,
-    on_result: Callable[[dict[str, Any]], None] | None = None,
-) -> dict[str, Any] | None:
-    """Register, process at most one RabbitMQ-selected render job, and exit."""
-
-    if once is not True:
-        raise RecorderError("render worker is one-shot; pass once=True")
-    selected_job = _canonical_uuid(job_id, "render job ID") if job_id is not None else None
-    worker_id = ephemeral_worker_id()
-    cache = default_worker_cache() if cache_root is None else cache_root
-    prepare_renderer_runtime(config)
-    _register_worker(remote, worker_id)
-    poll = _run_registered_worker_once(
-        config,
-        remote,
-        worker_id=worker_id,
-        job_id=selected_job,
-        cache_root=cache,
-        keep_workspace=keep_workspace,
-    )
-    if poll.result is not None and on_result is not None:
-        on_result(poll.result)
-    return poll.result
+    def _heartbeat_loop(self) -> None:
+        while not self._stop.wait(_WORKER_HEARTBEAT_SECONDS):
+            try:
+                call_recorder_json(
+                    self.recorder,
+                    ["render-rpc", "worker-heartbeat"],
+                    body={"worker_id": self.worker_id},
+                    timeout_seconds=30,
+                )
+            except RecorderError:
+                continue

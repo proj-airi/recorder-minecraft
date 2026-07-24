@@ -362,7 +362,7 @@ class RenderRpcServiceTest(unittest.TestCase):
             pinned = Path(response_source["path"])
             self.assertTrue(pinned.is_relative_to(plan_root))
             self.assertNotEqual(authoritative.path, pinned)
-            self.assertEqual(authoritative.path.stat().st_ino, pinned.stat().st_ino)
+            self.assertNotEqual(authoritative.path.stat().st_ino, pinned.stat().st_ino)
             self.assertEqual(authoritative.sha256, _digest(pinned)[0])
         self.assertEqual(0o600, (plan_root / "plan.json").stat().st_mode & 0o777)
 
@@ -382,7 +382,9 @@ class RenderRpcServiceTest(unittest.TestCase):
 
         self.assertEqual([NEW_SEGMENT], [source["segment_id"] for source in result["sources"]])
         self.assertNotEqual(replay, Path(result["sources"][0]["path"]))
-        self.assertEqual(replay.stat().st_ino, Path(result["sources"][0]["path"]).stat().st_ino)
+        pinned = Path(result["sources"][0]["path"])
+        self.assertNotEqual(replay.stat().st_ino, pinned.stat().st_ino)
+        self.assertEqual(replay.read_bytes(), pinned.read_bytes())
 
     def test_claim_does_not_choose_a_saved_archive_for_another_connection(self) -> None:
         _write_archive(
@@ -618,6 +620,7 @@ class RenderRpcServiceTest(unittest.TestCase):
         self.assertEqual("intersection", newest_calls[0]["range_policy"])
         self.assertTrue(newest_calls[0]["no_gui"])
         self.assertEqual((10, 40), (newest_calls[0]["first_tick"], newest_calls[0]["last_tick"]))
+        self.assertEqual((10, 40), newest_calls[0]["observed_connection_range"])
 
         older, older_calls = self._request(claimed, OLD_SEGMENT, newer_cutoff=25)
         self.assertTrue(older["done"])

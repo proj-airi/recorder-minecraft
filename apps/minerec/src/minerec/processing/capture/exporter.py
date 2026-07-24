@@ -1052,7 +1052,7 @@ def _resolve_frame_artifacts(path: Path) -> tuple[Path, Path]:
     raise RecorderError(f"--frames expects a render job directory, result.json, or frames.jsonl: {source}")
 
 
-def _load_frame_attachments(
+def load_frame_attachments(
     paths: Iterable[Path],
     expected_session: str,
     *,
@@ -1408,7 +1408,7 @@ def _export_episode_pinned(
         raise RecorderError(f"refusing symlinked export output: {requested_output}")
     output = requested_output.resolve()
     exports_root = output.parent.resolve()
-    frame_attachments, frame_sources = _load_frame_attachments(
+    frame_attachments, frame_sources = load_frame_attachments(
         frames,
         validation.session_id,
         exports_root=exports_root,

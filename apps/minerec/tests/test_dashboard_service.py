@@ -89,6 +89,8 @@ class DashboardServiceTest(unittest.TestCase):
             session_id=SESSION,
             sample_count=11,
             rgb_samples=0,
+            selected_from_tick=9,
+            selected_to_tick=21,
         )
         with (
             mock.patch.object(
@@ -113,6 +115,8 @@ class DashboardServiceTest(unittest.TestCase):
         self.assertNotIn("recording_id", job)
         self.assertEqual(10, job["payload"]["start_tick"])
         self.assertEqual(20, job["payload"]["end_tick"])
+        self.assertEqual(9, job["payload"]["selection_start_tick"])
+        self.assertEqual(21, job["payload"]["selection_end_tick"])
         self.assertEqual(
             FULL_CLIENT_PRESENTATION_CONTRACT,
             job["payload"]["render"]["presentation_contract"],
@@ -123,6 +127,8 @@ class DashboardServiceTest(unittest.TestCase):
             session_id=SESSION,
             sample_count=11,
             rgb_samples=0,
+            selected_from_tick=10,
+            selected_to_tick=20,
         )
         with (
             mock.patch.object(

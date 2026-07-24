@@ -360,6 +360,42 @@ class DashboardHTTPTest(unittest.TestCase):
         self.assertIn(b"requires JavaScript.", body)
         self.assertEqual("no-store", response.headers["Cache-Control"])
 
+    @mock.patch("minerec.serve.dashboard.server.dispatch_worker_action")
+    def test_render_rpc_requires_worker_token_without_browser_csrf(
+        self,
+        dispatch: mock.Mock,
+    ) -> None:
+        dispatch.return_value = {"worker": {"id": "worker-http"}}
+        url = self.base + "/api/v1/internal/render-rpc/register"
+        body = json.dumps({"worker_id": "worker-http"}).encode("utf-8")
+
+        for authorization in (None, "Basic invalid", "Bearer " + "0" * 64):
+            headers = {"Content-Type": "application/json"}
+            if authorization is not None:
+                headers["Authorization"] = authorization
+            request = urllib.request.Request(url, data=body, method="POST", headers=headers)
+            with self.subTest(authorization=authorization), self.assertRaises(urllib.error.HTTPError) as raised:
+                urllib.request.urlopen(request)
+            self.assertEqual(401, raised.exception.code)
+            raised.exception.close()
+
+        request = urllib.request.Request(
+            url,
+            data=body,
+            method="POST",
+            headers={
+                "Authorization": f"Bearer {self.application.worker_token}",
+                "Content-Type": "application/json",
+            },
+        )
+        with urllib.request.urlopen(request) as response:
+            self.assertEqual({"worker": {"id": "worker-http"}}, json.load(response))
+        dispatch.assert_called_once_with(
+            self.config,
+            "register",
+            {"worker_id": "worker-http"},
+        )
+
     def test_status_returns_csrf_and_mutations_enforce_it(self) -> None:
         status = json.load(self._request("/api/v1/status"))
         self.assertTrue(status["csrf_token"])

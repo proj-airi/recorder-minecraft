@@ -1,8 +1,9 @@
 # Dataset V2
 
-Dataset V2 is the only supported exported dataset contract. It combines the
-authoritative recorder state/action timeline with an optional immutable,
-random-access client-visible scene store and optional first-person RGB frames.
+Dataset V2 is the only supported exported dataset contract. Its core combines
+the authoritative recorder state/action timeline with an optional immutable,
+random-access client-visible scene store. First-person RGB is a separately
+published derived attachment.
 Dataset V1 and the replay-client voxel-crop format are not accepted.
 
 ## Directory contract
@@ -16,6 +17,10 @@ DATASET.dataset/
   modalities.jsonl
   scene/
     scene-v1.sqlite3       # present only when a scene is attached
+
+.dataset-attachments/
+  DATASET_ID/
+    rgb.json               # present only after a verified RGB render
 ```
 
 `manifest.json` has `schema_version: 2`, `owner: "mc-recorder"`, and
@@ -23,6 +28,13 @@ DATASET.dataset/
 byte size of every file other than the manifest, including the scene store.
 Readers must reject missing, extra, symlinked, escaping, or hash-mismatched
 files. Publication and replacement are atomic directory operations.
+
+The RGB attachment manifest binds the Dataset `manifest.json` and
+`samples.jsonl` SHA-256 values, exact session/player/connection/tick identities,
+render provenance, and every PNG size/hash/reference. Publishing RGB atomically
+replaces only this derived manifest. It never rewrites the Dataset directory.
+Viewer indexes include the attachment fingerprint and merge RGB availability
+at read/index time.
 
 ## Capture source snapshots
 

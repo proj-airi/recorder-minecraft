@@ -3,7 +3,7 @@
 The Python 3.14 CLI inspects verified sidecar epochs, exports state/action
 JSONL, enforces combined capture/replay retention, extracts headless
 random-access scene stores, serves the LAN dashboard, and launches local
-Flashback RGB/voxel rendering through RabbitMQ-dispatched one-shot worker
+Flashback RGB/voxel rendering through a RabbitMQ-dispatched persistent GUI consumer
 processes. Pixi owns the Python environment. proto owns OpenJDK 21 and Gradle.
 Docker Compose is required on the recorder host.
 
@@ -143,11 +143,12 @@ Select a verified dataset connection and click **Render RGB**.
 `minerec render-dispatcher` publishes pending jobs from the durable render
 queue outbox to RabbitMQ.
 
-This dashboard contract intentionally does not migrate the former
-recording-scoped queue schema. Remove `.mc-recorder/render-queue.sqlite3` once
-when upgrading.
+In the Compose deployment, the queue database lives in the `render-control`
+named volume. It must not be moved into the macOS bind-mounted runtime because
+the host GUI worker and Linux control services do not share reliable SQLite
+locking semantics there.
 
-Run one GUI render worker process on a machine that has the same workspace,
+Run one GUI render consumer process on a machine that has the same workspace,
 RabbitMQ access, OpenJDK 21, Gradle, and a graphical desktop:
 
 ```sh
@@ -157,11 +158,11 @@ MC_RECORDER_RABBITMQ_URL=amqp://guest:guest@localhost:5672/%2F \
   pixi run minerec render-worker
 ```
 
-The worker consumes one RabbitMQ message, claims that exact queued job through
-the local recorder runtime, renders it with the GUI client, finalizes the
-result, acknowledges the message, and exits. Supervisors can start as many
-one-shot worker processes as needed. Dashboard
-Basic-auth credentials are not sent to the worker.
+The consumer keeps one RabbitMQ connection with prefetch 1. It claims each
+queued job through the Dashboard's bounded render-control endpoint, renders it
+with one GUI client, finalizes the result, acknowledges the message, and then
+consumes the next job. The Dashboard creates `.mc-recorder/render-worker.token`
+for this endpoint; browser Basic-auth credentials are not sent to the worker.
 
 The normal build resolves Flashback through immutable Modrinth version ID
 `9YgAwnpm`, which is the 0.39.5 artifact for Minecraft 1.21.8. No environment
@@ -169,7 +170,8 @@ override is required. `MC_RECORDER_FLASHBACK_JAR` remains available only for
 offline builds and must point to that same Minecraft 1.21.8 artifact.
 
 Each claimed job has an ephemeral workspace and launches exactly one Java
-client; that client exits and the workspace is removed before the process exits.
+client; that client exits and the workspace is removed before the consumer
+accepts another job.
 Useful options are:
 
 ```sh
@@ -179,11 +181,9 @@ MC_RECORDER_RABBITMQ_URL=amqp://guest:guest@localhost:5672/%2F \
   --keep-workspace               # retain this attempt for diagnosis
 ```
 
-A claimed-job failure fences/fails that attempt and stops the worker before it
-can touch later queued jobs. After correcting the local Java, Gradle, disk, or
-renderer problem, start another worker process. A failed, timed-out, or invalid
-claim leaves the RabbitMQ message unacknowledged so it can be retried by a later
-process.
+A claimed-job failure fences/fails that attempt and rejects its RabbitMQ
+message. The consumer continues after a terminal job failure. An ambiguous
+claim outcome is requeued and stops the consumer for operator inspection.
 
 The default cache is `$XDG_CACHE_HOME/minerec` when that variable is set,
 or `~/.cache/minerec` otherwise. Replay archives live under
@@ -205,16 +205,16 @@ them, renders segments newest-to-oldest, and uploads hash-indexed portable
 bundles. Newer coverage owns overlaps, so each older request stops before the
 first tick supplied by a newer segment. An archive with no matching timeline
 returns `no_coverage`; holes between all valid segment ranges remain missing.
-The server never follows a worker-provided path: it verifies and canonicalizes
-each bundle beneath `paths.exports/render-jobs/`, then re-exports only the
-already verified deterministic dataset for that exact session, player,
-connection, and tick range.
+The server verifies and canonicalizes each bundle beneath
+`paths.exports/render-jobs/`, then atomically publishes RGB references beneath
+`paths.exports/.dataset-attachments/<dataset-id>/rgb.json`. It does not replace
+the Dataset core.
 
 Complete RGB coverage ends in `complete`; a valid import with missing sample
-frames ends in `partial`. Missing RGB stays explicit and non-fatal in
-`modalities.jsonl`. A conflicting or tampered dataset is not overwritten. Once
-the dataset manifest and declared hashes change, the viewer invalidates and
-rebuilds its background SQLite byte-offset index under `.mc-recorder`.
+frames ends in `partial`. Missing RGB stays explicit and non-fatal. A
+conflicting or tampered Dataset core is rejected. Once the attachment
+fingerprint changes, the viewer invalidates and rebuilds its background SQLite
+byte-offset index under `.mc-recorder`.
 
 The viewer never sends the full `samples.jsonl` to the browser. It offers
 paginated sample summaries, player/connection and validity/modality filters,
@@ -295,62 +295,6 @@ identity-bound scene store. Unmatched modalities remain explicitly invalid.
 Path traversal, missing files, symlinks, and size/hash mismatches are rejected;
 PNG structure, CRC, and dimensions are checked, and the scene store is copied
 into the published dataset with a manifest integrity envelope.
-
-## Render RGB
-
-This lower-level command remains useful for a manual local render. Dashboard RGB
-jobs use `render-worker` instead and attach their
-verified results automatically.
-
-```sh
-pixi run minerec render SESSION_ID \
-  --player UUID \
-  [--connection ID] \
-  [--replay PATH] \
-  [--from-tick N] [--to-tick N] \
-  [--width 640] [--height 360] [--fps 20] \
-  [--no-gui] [--output PATH] [--prepare-only] [--force]
-```
-
-The renderer accepts completed Flashback replay ZIPs and exactly 20 FPS. The command
-validates/hashes the source episode and replay, selects one recorded connection,
-and writes `render-job.json`. Unless `--prepare-only` is used, the command
-launches `mods/renderer-mod` through Gradle.
-New jobs include the recorded first-person hand/item and full recorded in-game
-HUD by default. `--no-gui` is the explicit HUD-free opt-out; it does not
-remove the requirement for a graphical Java client.
-
-The job stores a replay byte-size/SHA-256 integrity envelope produced while the
-archive is stable. The renderer checks that envelope before opening the replay
-and after producing all requested RGB artifacts. The launching CLI then
-rehashes the replay and requires `result.json` to report the same size and hash
-before it accepts the job as complete.
-
-The local client finds a matching `mc_recorder:timeline/v1` marker inside the
-archive, aligns replay ticks to global server ticks, tracks the selected
-player's head in first person, renders the player's hand/item and HUD, and
-writes:
-
-```text
-<render-job>/
-  render-job.json
-  result.json
-  frames/
-    frame_000001.png
-    ...
-    frames.jsonl
-```
-
-`frames.jsonl` identifies every PNG by session, connection, player, global
-server tick, and replay tick. These are reconstructed server-visible views, not
-original client pixels.
-
-Attach the completed artifacts during export:
-
-```sh
-pixi run minerec export SESSION_ID \
-  --frames artifacts/exports/render-jobs/JOB
-```
 
 ## Extract random-access scenes
 

@@ -16,6 +16,10 @@ from pathlib import Path
 from typing import Any, Iterator, Mapping, cast
 
 from minerec.errors import RecorderError
+from minerec.processing.dataset.attachments import (
+    load_rgb_attachments,
+    rgb_attachment_path,
+)
 from minerec.processing.render.hud import validate_hud_result_envelope
 from minerec.render.control.contract import FULL_CLIENT_PRESENTATION_CONTRACT
 
@@ -287,6 +291,9 @@ class _Dataset:
     scene_scope: str | None
     scene_metadata_policy: str | None
     scene_sensitive: bool | None
+    rgb_frames: dict[tuple[str, str, str, int], dict[str, Any]]
+    rgb_sources: tuple[dict[str, Any], ...]
+    rgb_attachment_signature: tuple[int, int, int, int, int] | None
     fingerprint: str
     quick_signature: tuple[tuple[str, int, int, int, int, int], ...]
 
@@ -368,7 +375,7 @@ class DatasetViewer:
             except DatasetViewerError:
                 return False
             cached = self._cache.get(candidate.name)
-            if cached is None or cached.quick_signature != quick_signature:
+            if cached is None or cached.quick_signature != quick_signature or cached.rgb_attachment_signature != self._rgb_attachment_signature(dataset_id):
                 return False
             database: sqlite3.Connection | None = None
             try:
@@ -427,7 +434,7 @@ class DatasetViewer:
             selected_to_tick=_mapping_int(selection, "to_tick"),
             rgb_samples=int(row[4]),
             rgb_presentation=_rgb_presentation(
-                selection,
+                dataset.rgb_sources if dataset.rgb_sources else selection,
                 int(row[4]),
                 dataset_id=dataset.dataset_id,
                 session_id=_required_string(manifest, "session_id", "dataset manifest"),
@@ -921,7 +928,8 @@ class DatasetViewer:
                 raise DatasetValidationError(f"dataset is not a contained directory: {candidate.name}")
             entries, quick_signature = self._inspect_dataset_entries(candidate)
             cached = self._cache.get(candidate.name)
-            if cached is not None and cached.quick_signature == quick_signature:
+            attachment_signature = self._rgb_attachment_signature(self._dataset_id(candidate.name))
+            if cached is not None and cached.quick_signature == quick_signature and cached.rgb_attachment_signature == attachment_signature:
                 return cached
 
             manifest_path = entries["manifest.json"]
@@ -1035,14 +1043,27 @@ class DatasetViewer:
                 scene_sensitive = scene_info.sensitive
 
             manifest_sha = hashlib.sha256(manifest_bytes).hexdigest()
+            dataset_id = self._dataset_id(candidate.name)
+            samples_sha = verified["samples.jsonl"].sha256
+            try:
+                rgb_attachments = load_rgb_attachments(
+                    self.exports_root,
+                    dataset_id,
+                    dataset_manifest_sha256=manifest_sha,
+                    samples_sha256=samples_sha,
+                )
+            except RecorderError as exc:
+                raise DatasetValidationError(f"dataset RGB attachments are invalid: {exc}") from exc
             fingerprint_hash = hashlib.sha256()
             fingerprint_hash.update(f"viewer-index-v{_INDEX_SCHEMA_VERSION}\0".encode())
             fingerprint_hash.update(manifest_sha.encode())
             for name in sorted(declared_files):
                 item = verified[name]
                 fingerprint_hash.update(f"\0{name}\0{item.size_bytes}\0{item.sha256}".encode())
+            if rgb_attachments is not None:
+                fingerprint_hash.update(f"\0rgb-attachment\0{rgb_attachments.sha256}".encode())
             dataset = _Dataset(
-                dataset_id=self._dataset_id(candidate.name),
+                dataset_id=dataset_id,
                 directory=candidate,
                 manifest=manifest,
                 manifest_sha256=manifest_sha,
@@ -1051,11 +1072,29 @@ class DatasetViewer:
                 scene_scope=scene_scope,
                 scene_metadata_policy=scene_metadata_policy,
                 scene_sensitive=scene_sensitive,
+                rgb_frames=(dict(rgb_attachments.frames) if rgb_attachments is not None else {}),
+                rgb_sources=(rgb_attachments.sources if rgb_attachments is not None else ()),
+                rgb_attachment_signature=(rgb_attachments.signature if rgb_attachments is not None else None),
                 fingerprint=fingerprint_hash.hexdigest(),
                 quick_signature=quick_signature,
             )
             self._cache[candidate.name] = dataset
             return dataset
+
+    def _rgb_attachment_signature(self, dataset_id: str) -> tuple[int, int, int, int, int] | None:
+        path = rgb_attachment_path(self.exports_root, dataset_id)
+        if not path.exists():
+            return None
+        if path.is_symlink() or not path.is_file():
+            raise DatasetValidationError(f"RGB attachment manifest is not a regular file: {path}")
+        stat = path.stat()
+        return (
+            stat.st_dev,
+            stat.st_ino,
+            stat.st_size,
+            stat.st_mtime_ns,
+            stat.st_ctime_ns,
+        )
 
     def _inspect_dataset_entries(self, candidate: Path) -> tuple[dict[str, Path], tuple[tuple[str, int, int, int, int, int], ...]]:
         try:
@@ -1353,7 +1392,8 @@ class DatasetViewer:
                     )
                 except sqlite3.IntegrityError as exc:
                     raise DatasetValidationError(f"{context}: duplicate sample identity") from exc
-                rgb_count += int(values[17])  # ty:ignore[invalid-argument-type]
+                rgb_key = (str(values[3]), str(values[6]), str(values[8]), cast(int, values[4]))
+                rgb_count += int(rgb_key in dataset.rgb_frames or bool(values[17]))
                 scene_count += int(values[18])  # ty:ignore[invalid-argument-type]
                 sample_count += 1
 
@@ -1380,6 +1420,7 @@ class DatasetViewer:
         last_tick: int | None = None
         linked_transitions = 0
         scene_subject: tuple[str, str] | None = None
+        unmatched_rgb = set(dataset.rgb_frames)
         try:
             states = state_file.path.open("rb")
             modalities = modality_file.path.open("rb")
@@ -1438,6 +1479,7 @@ class DatasetViewer:
                 if state_values[:4] != modality_values[:4]:
                     raise DatasetValidationError(f"modalities.jsonl byte {modality_offset}: identity does not match states.jsonl byte {state_offset}")
                 session_id, tick, player_uuid, connection_id = state_values[:4]
+                rgb_key = (session_id, player_uuid, connection_id, tick)
                 transition = database.execute(
                     """
                     SELECT byte_offset, byte_length, next_server_tick,
@@ -1522,7 +1564,7 @@ class DatasetViewer:
                             str(transition[4]) if transition is not None else "[]",
                             int(transition[5]) if transition is not None else 0,
                             int(transition[6]) if transition is not None else 0,
-                            int(modality_values[4]),  # ty:ignore[invalid-argument-type]
+                            int(rgb_key in dataset.rgb_frames or bool(modality_values[4])),
                             scene_available,
                         ),
                     )
@@ -1530,7 +1572,8 @@ class DatasetViewer:
                     raise DatasetValidationError(f"states.jsonl byte {state_offset}: duplicate state identity") from exc
                 first_tick = tick if first_tick is None else min(first_tick, tick)  # ty:ignore[invalid-argument-type, invalid-assignment]
                 last_tick = tick if last_tick is None else max(last_tick, tick)  # ty:ignore[invalid-argument-type, invalid-assignment]
-                rgb_count += int(modality_values[4])  # ty:ignore[invalid-argument-type]
+                rgb_count += int(rgb_key in dataset.rgb_frames or bool(modality_values[4]))
+                unmatched_rgb.discard(rgb_key)
                 scene_count += scene_available
                 state_count += 1
 
@@ -1545,6 +1588,8 @@ class DatasetViewer:
             raise DatasetValidationError(f"dataset manifest declares {declared} states but states.jsonl contains {state_count}")
         if linked_transitions != transition_count:
             raise DatasetValidationError("every transition sample must have a matching canonical state and modality row")
+        if unmatched_rgb:
+            raise DatasetValidationError(f"RGB attachment contains a frame with no matching state: {next(iter(sorted(unmatched_rgb)))}")
         if scene_count and SCENE_STORE_REFERENCE not in dataset.files:
             raise DatasetValidationError("modalities reference scenes but the scene store is absent from the manifest")
         return state_count, first_tick, last_tick, rgb_count, scene_count
@@ -1638,10 +1683,18 @@ class DatasetViewer:
                 raise DatasetValidationError("transition link identity no longer matches its state row")
             if record.get("state") != state_payload or record.get("modalities") != modalities:
                 raise DatasetValidationError("transition sample no longer matches canonical state modalities")
+            modalities["rgb"] = dataset.rgb_frames.get(
+                (identity[0], identity[2], identity[3], identity[1]),
+                modalities["rgb"],
+            )
             record["state"] = state_payload
             record["modalities"] = modalities
             record["transition_available"] = True
             return record
+        modalities["rgb"] = dataset.rgb_frames.get(
+            (identity[0], identity[2], identity[3], identity[1]),
+            modalities["rgb"],
+        )
         return _terminal_state_record(dataset, state_record, state_payload, modalities)
 
     @staticmethod
@@ -1853,7 +1906,7 @@ def _manifest_modality_records(manifest: dict[str, Any], name: str) -> int | Non
 
 
 def _rgb_presentation(
-    selection: object,
+    attachment_source: object,
     rgb_samples: int,
     *,
     dataset_id: str,
@@ -1861,8 +1914,11 @@ def _rgb_presentation(
 ) -> str | None:
     if rgb_samples <= 0:
         return None
-    attachments = selection.get("frame_attachments") if isinstance(selection, dict) else None
-    if not isinstance(attachments, list) or not attachments:
+    if isinstance(attachment_source, (list, tuple)):
+        attachments = attachment_source
+    else:
+        attachments = attachment_source.get("frame_attachments") if isinstance(attachment_source, dict) else None
+    if not isinstance(attachments, (list, tuple)) or not attachments:
         # V1 results predating presentation provenance were always HUD-free.
         return "hud_free"
     presentations: set[str] = set()

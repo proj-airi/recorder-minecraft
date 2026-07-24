@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from collections.abc import Callable
 from typing import Any
 
@@ -39,7 +40,6 @@ def build_render_task_message(job: dict[str, Any]) -> dict[str, Any]:
     message = {
         "schema_version": RENDER_TASK_SCHEMA_VERSION,
         "kind": "render_job",
-        "execution": "per_process_worker",
         "job_id": job_id,
         "dataset_id": dataset_id,
         "payload": payload,
@@ -94,8 +94,6 @@ def _validate_render_task_message(value: object) -> dict[str, Any]:
         raise RecorderError("RabbitMQ render task has an unsupported schema version")
     if value.get("kind") != "render_job":
         raise RecorderError("RabbitMQ render task has an unsupported kind")
-    if value.get("execution") != "per_process_worker":
-        raise RecorderError("RabbitMQ render task has an unsupported execution mode")
     return build_render_task_message(
         {
             "id": value.get("job_id"),
@@ -105,14 +103,17 @@ def _validate_render_task_message(value: object) -> dict[str, Any]:
     )
 
 
-def consume_one_render_task_message(
+def consume_render_task_messages(
     url: str,
     queue_name: str,
     *,
     handle: Callable[[dict[str, Any]], None],
     requeue_on_error: Callable[[Exception], bool] | None = None,
+    on_error: Callable[[Exception], None] | None = None,
     connection_factory: Callable[[str], Any] = _pika_connection_factory,
-) -> bool:
+) -> None:
+    """Consume render jobs serially until the process is interrupted."""
+
     if not isinstance(url, str) or not url:
         raise RecorderError("RabbitMQ URL must be a non-empty string")
     if not isinstance(queue_name, str) or not queue_name:
@@ -121,22 +122,70 @@ def consume_one_render_task_message(
     try:
         channel = connection.channel()
         channel.queue_declare(queue=queue_name, durable=True)
-        method, _properties, body = channel.basic_get(queue=queue_name, auto_ack=False)
-        if method is None:
-            return False
+        channel.basic_qos(prefetch_count=1)
+        fatal_error: Exception | None = None
+        active_thread: threading.Thread | None = None
+
+        def callback(
+            callback_channel: Any,  # noqa: ANN401 - pika is optional at import time.
+            method: Any,  # noqa: ANN401 - pika is optional at import time.
+            _properties: Any,  # noqa: ANN401 - pika is optional at import time.
+            body: bytes,
+        ) -> None:
+            nonlocal active_thread
+
+            def execute() -> None:
+                error: Exception | None = None
+                try:
+                    message = _validate_render_task_message(json.loads(body.decode("utf-8")))
+                    handle(message)
+                except Exception as exc:
+                    error = exc
+
+                def settle() -> None:
+                    nonlocal fatal_error
+                    if error is None:
+                        callback_channel.basic_ack(delivery_tag=method.delivery_tag)
+                        return
+                    requeue = requeue_on_error is None or requeue_on_error(error)
+                    callback_channel.basic_nack(
+                        delivery_tag=method.delivery_tag,
+                        requeue=requeue,
+                    )
+                    if on_error is not None:
+                        on_error(error)
+                    if requeue:
+                        fatal_error = error
+                        callback_channel.stop_consuming()
+
+                # Pika channel operations are not thread-safe. Settling on its
+                # I/O thread also keeps broker heartbeats flowing while the GUI
+                # renderer blocks this worker thread.
+                connection.add_callback_threadsafe(settle)
+
+            active_thread = threading.Thread(
+                target=execute,
+                name="mc-recorder-render-task",
+                daemon=False,
+            )
+            active_thread.start()
+
+        channel.basic_consume(
+            queue=queue_name,
+            on_message_callback=callback,
+            auto_ack=False,
+        )
         try:
-            message = _validate_render_task_message(json.loads(body.decode("utf-8")))
-            handle(message)
-        except Exception as exc:
-            if requeue_on_error is None or requeue_on_error(exc):
-                channel.basic_nack(delivery_tag=method.delivery_tag, requeue=True)
-            else:
-                channel.basic_ack(delivery_tag=method.delivery_tag)
-            raise
-        channel.basic_ack(delivery_tag=method.delivery_tag)
-        return True
+            channel.start_consuming()
+        except KeyboardInterrupt:
+            channel.stop_consuming()
+        if fatal_error is not None:
+            raise fatal_error
     finally:
-        connection.close()
+        if active_thread is not None and active_thread.is_alive():
+            active_thread.join()
+        if getattr(connection, "is_open", True):
+            connection.close()
 
 
 def dispatch_pending_render_jobs(
