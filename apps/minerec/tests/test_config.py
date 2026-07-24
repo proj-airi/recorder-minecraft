@@ -52,7 +52,7 @@ class ConfigTest(unittest.TestCase):
             self.assertTrue(config.server.eula)
             self.assertEqual("minecraft", config.server.name)
             self.assertIsNotNone(config.server.instance_id)
-            self.assertEqual((workspace / "artifacts" / "v1").resolve(), config.paths.bundles)
+            self.assertEqual((workspace / "artifacts").resolve(), config.paths.bundles)
             self.assertEqual((workspace / "artifacts" / "captures").resolve(), config.paths.captures)
             self.assertTrue(config.paths.runtime.is_dir())
             self.assertEqual(
@@ -79,9 +79,7 @@ class ConfigTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             source = initialize(Path(temporary) / "recorder.toml")
             text = source.read_text(encoding="utf-8")
-            text = "\n".join(
-                line for line in text.splitlines() if not line.startswith(("name =", "instance_id ="))
-            ) + "\n"
+            text = "\n".join(line for line in text.splitlines() if not line.startswith(("name =", "instance_id ="))) + "\n"
             source.write_text(text, encoding="utf-8")
 
             config = load_config(source)

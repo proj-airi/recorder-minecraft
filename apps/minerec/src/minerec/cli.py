@@ -7,19 +7,20 @@ import sys
 import time
 from dataclasses import asdict
 from pathlib import Path
-from typing import Sequence
+from typing import Any, Sequence
 
 from .config import (
     DEFAULT_CONFIG_NAME,
     DEFAULT_RENDER_TASK_QUEUE,
     ENV_RABBITMQ_URL,
+    RecorderConfig,
     initialize,
     load_config,
     load_runtime_env,
-    render_queue_database,
 )
 from .errors import RecorderError
 from .operations import operation_lock
+from .processing.bundle.finalizer import finalize_dataset_bundle
 from .processing.capture.episodes import (
     EpisodeInfo,
     directory_size,
@@ -29,6 +30,8 @@ from .processing.capture.episodes import (
 )
 from .processing.capture.exporter import export_episode
 from .processing.capture.storage import StorageReport, enforce_quota, human_bytes, pin_sealed_epochs
+from .processing.render.attach import attach_imported_renders
+from .processing.render.job import launch_render_job, prepare_render_job, resolve_replay
 from .processing.scene.job import (
     cleanup_scene_job,
     cleanup_stale_scene_jobs,
@@ -37,14 +40,16 @@ from .processing.scene.job import (
 )
 from .processing.scene.store import compact_scene_stream, validate_scene_store
 from .render.control.broker import (
-    consume_render_task_messages,
+    consume_one_render_task_message,
     dispatch_pending_render_jobs,
     publish_render_task_message,
 )
 from .render.control.preparer import RenderPreparer
 from .render.control.queue import RenderQueueStore
+from .render.control.rpc import dispatch_render_rpc
 from .serve.dashboard.server import serve_dashboard
-from .workers.render import RenderConsumer, dashboard_recorder, requeue_render_task_error
+from .serve.viewer import serve_viewer
+from .workers.render import LocalRecorder, requeue_render_task_error, run_render_worker
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -93,6 +98,36 @@ def _parser() -> argparse.ArgumentParser:
     )
     export.add_argument("--force", action="store_true", help="replace an existing output directory")
 
+    bundle = commands.add_parser("bundle", help="publish immutable portable play bundles")
+    bundle_commands = bundle.add_subparsers(dest="bundle_command", required=True)
+    bundle_create = bundle_commands.add_parser("create", help="finalize one connection-scoped Dataset V2")
+    bundle_create.add_argument("dataset", type=Path, help="verified connection-scoped *.dataset directory")
+    bundle_create.add_argument("--fpv", type=Path, help="optional completed H.264/yuv420p 20 FPS MP4")
+    bundle_create.add_argument(
+        "--fpv-timeline",
+        type=Path,
+        help="required frame-to-tick JSONL when --fpv is present",
+    )
+
+    render = commands.add_parser("render", help="prepare a deterministic first-person client render job")
+    render.add_argument("episode", help="session id")
+    render.add_argument("--player", required=True, help="recorded player UUID")
+    render.add_argument("--connection", help="player connection ID; required when the player reconnected")
+    render.add_argument("--replay", type=Path, help="completed ServerReplay ZIP/MCPR; inferred only when unique")
+    render.add_argument("--output", "-o", type=Path)
+    render.add_argument("--width", type=int, default=640)
+    render.add_argument("--height", type=int, default=360)
+    render.add_argument("--fps", type=int, default=20)
+    render.add_argument("--from-tick", type=int)
+    render.add_argument("--to-tick", type=int)
+    render.add_argument(
+        "--no-gui",
+        action="store_true",
+        help="render without the client HUD; a graphical desktop is still required",
+    )
+    render.add_argument("--force", action="store_true")
+    render.add_argument("--prepare-only", action="store_true", help="write render-job.json without launching the local client")
+
     scene = commands.add_parser("scene", help="extract random-access world scenes without a GUI client")
     scene_commands = scene.add_subparsers(dest="scene_command", required=True)
     scene_extract = scene_commands.add_parser("extract", help="replay one connection headlessly and compact a scene store")
@@ -118,9 +153,13 @@ def _parser() -> argparse.ArgumentParser:
     dashboard_commands = dashboard.add_subparsers(dest="dashboard_command", required=True)
     dashboard_commands.add_parser("serve", help="run the host dashboard until interrupted")
 
+    viewer = commands.add_parser("viewer", help="open the standalone local play-bundle viewer")
+    viewer.add_argument("bundle", nargs="?", type=Path, help="optional .mcplay.zip bundle to open")
+    viewer.add_argument("--no-open", action="store_true", help=argparse.SUPPRESS)
+
     worker = commands.add_parser(
         "render-worker",
-        help="consume RabbitMQ render tasks on this GUI host until interrupted",
+        help="consume one RabbitMQ render task and run the local GUI renderer",
     )
     worker.add_argument(
         "--rabbitmq-url",
@@ -135,9 +174,23 @@ def _parser() -> argparse.ArgumentParser:
     worker.add_argument("--cache", type=Path, help="local replay cache and temporary workspace")
     worker.add_argument("--keep-workspace", action="store_true")
 
+    rpc = commands.add_parser("render-rpc", help=argparse.SUPPRESS)
+    rpc.add_argument(
+        "render_rpc_action",
+        choices=(
+            "register",
+            "worker-heartbeat",
+            "claim",
+            "request",
+            "heartbeat",
+            "finalize",
+            "fail",
+        ),
+    )
+
     dispatcher = commands.add_parser(
         "render-dispatcher",
-        help="publish queued RGB render jobs to RabbitMQ for GUI consumers",
+        help="publish queued RGB render jobs to RabbitMQ for per-task workers",
     )
     dispatcher.add_argument(
         "--rabbitmq-url",
@@ -341,6 +394,47 @@ def run(argv: Sequence[str] | None = None) -> int:
         print(f"Attached RGB for {result.rgb_count} state(s) and scene frames for {result.scene_count} state(s); modalities.jsonl marks all missing references explicitly.")
         return 0
 
+    if args.command == "bundle":
+        config = load_config(args.config)
+        with operation_lock(config.paths.runtime, "bundle_finalize"):
+            result = finalize_dataset_bundle(
+                config,
+                args.dataset,
+                fpv_path=args.fpv,
+                fpv_timeline_path=args.fpv_timeline,
+            )
+        verb = "Reused" if result.reused else "Published"
+        print(f"{verb} play bundle {result.bundle_id} at {result.path}")
+        return 0
+
+    if args.command == "render":
+        config = load_config(args.config)
+        with operation_lock(config.paths.runtime, "render_prepare"):
+            episode = resolve_episode(config.paths.captures, args.episode)
+            replay = resolve_replay(config.paths.replays, args.player, args.replay)
+            output = args.output or (config.paths.exports / "render-jobs" / f"{args.episode}-{args.player}")
+            result = prepare_render_job(
+                episode,
+                replay,
+                output,
+                player_uuid=args.player,
+                connection_id=args.connection,
+                width=args.width,
+                height=args.height,
+                fps=args.fps,
+                first_tick=args.from_tick,
+                last_tick=args.to_tick,
+                force=args.force,
+                no_gui=args.no_gui,
+            )
+        print(f"Prepared render job {result.manifest}")
+        if args.prepare_only:
+            print(f"Launch the 1.21.8 renderer client with -Dmc.recorder.renderJob={result.manifest}")
+            return 0
+        completed = launch_render_job(config, result)
+        print(f"Rendered global ticks {completed['global_start_tick']}..{completed['global_end_tick']} to {completed['output']}")
+        return 0
+
     if args.command == "scene":
         config = load_config(args.config)
         episode = resolve_episode(config.paths.captures, args.episode)
@@ -389,37 +483,45 @@ def run(argv: Sequence[str] | None = None) -> int:
         serve_dashboard(config)
         return 0
 
+    if args.command == "viewer":
+        serve_viewer(args.bundle, open_browser=not args.no_open)
+        return 0
+
+    if args.command == "render-rpc":
+        config = load_config(args.config)
+        body = _read_render_rpc_body()
+        result = dispatch_render_rpc(config, args.render_rpc_action, body)
+        if args.render_rpc_action == "finalize":
+            result = _attach_finalized_render(config, result)
+        print(json.dumps(result, sort_keys=True, separators=(",", ":"), allow_nan=False))
+        return 0
+
     if args.command == "render-worker":
         config = load_config(args.config)
         if not args.rabbitmq_url:
             raise RecorderError(f"--rabbitmq-url or {ENV_RABBITMQ_URL} is required")
-        remote = dashboard_recorder(config)
-        consumer = RenderConsumer(
-            config,
-            remote,
-            cache_root=args.cache,
-            keep_workspace=args.keep_workspace,
-        )
+        local = LocalRecorder(config.paths.base, config)
 
         def handle(message: dict[str, object]) -> None:
             job_id = message.get("job_id")
             if not isinstance(job_id, str):
                 raise RecorderError("RabbitMQ render task lacks a job id")
-            consumer.process(job_id)
-
-        def report_error(error: Exception) -> None:
-            print(f"Render task failed: {error}", file=sys.stderr, flush=True)
-
-        try:
-            consume_render_task_messages(
-                args.rabbitmq_url,
-                args.queue,
-                handle=handle,
-                requeue_on_error=requeue_render_task_error,
-                on_error=report_error,
+            run_render_worker(
+                config,
+                local,
+                job_id=job_id,
+                cache_root=args.cache,
+                keep_workspace=args.keep_workspace,
+                once=True,
             )
-        finally:
-            consumer.close()
+
+        consumed = consume_one_render_task_message(
+            args.rabbitmq_url,
+            args.queue,
+            handle=handle,
+            requeue_on_error=requeue_render_task_error,
+        )
+        print(f"Consumed {1 if consumed else 0} render task(s).", flush=True)
         return 0
 
     if args.command == "render-dispatcher":
@@ -428,7 +530,7 @@ def run(argv: Sequence[str] | None = None) -> int:
             raise RecorderError(f"--rabbitmq-url or {ENV_RABBITMQ_URL} is required")
         if not 1.0 <= args.interval <= 300.0:
             raise RecorderError("--interval must be between 1 and 300 seconds")
-        queue = RenderQueueStore(render_queue_database(config))
+        queue = RenderQueueStore(config.paths.runtime / "render-queue.sqlite3")
 
         def publish(message: dict[str, object]) -> None:
             publish_render_task_message(args.rabbitmq_url, args.queue, message)
@@ -458,6 +560,59 @@ def run(argv: Sequence[str] | None = None) -> int:
             time.sleep(args.interval)
 
     raise RecorderError(f"unknown command: {args.command}")
+
+
+def _read_render_rpc_body() -> dict[str, object]:
+    maximum = 64 * 1024
+    raw = sys.stdin.buffer.read(maximum + 1)
+    if len(raw) > maximum:
+        raise RecorderError("render RPC request exceeds the size limit")
+    try:
+        value = json.loads(
+            raw or b"{}",
+            parse_constant=lambda token: (_ for _ in ()).throw(ValueError(f"non-finite JSON constant {token}")),
+        )
+    except (ValueError, UnicodeDecodeError, RecursionError) as exc:
+        raise RecorderError("render RPC request is invalid JSON") from exc
+    if not isinstance(value, dict):
+        raise RecorderError("render RPC request must be a JSON object")
+    return value
+
+
+def _attach_finalized_render(config: RecorderConfig, finalized: dict[str, Any]) -> dict[str, Any]:
+    job = finalized.get("job")
+    imports = finalized.get("imports")
+    if not isinstance(job, dict) or not isinstance(imports, list):
+        raise RecorderError("render finalization lacks its queue job or canonical imports")
+    state = job.get("state")
+    if state in {"complete", "partial"}:
+        return finalized
+    if state not in {"verifying", "attaching"}:
+        raise RecorderError(f"render finalization cannot attach while job is {state!r}")
+    job_id = job.get("id")
+    if not isinstance(job_id, str):
+        raise RecorderError("render finalization lacks its queue job ID")
+
+    queue = RenderQueueStore(config.paths.runtime / "render-queue.sqlite3")
+    if state == "verifying":
+        job = queue.set_server_phase(
+            job_id,
+            "attaching",
+            progress={"message": "Attaching verified RGB to the dataset"},
+        )
+    try:
+        attachment = attach_imported_renders(config, job, imports)
+        attachment_json = attachment.as_json()
+        completed = queue.complete(job_id, attachment_json, partial=attachment.partial)
+    except Exception as exc:
+        try:
+            queue.fail(job_id, str(exc))
+        except Exception:
+            pass
+        if isinstance(exc, RecorderError):
+            raise
+        raise RecorderError(f"could not attach the imported RGB dataset: {exc}") from exc
+    return {**finalized, "job": completed, "attachment": attachment_json}
 
 
 def main(argv: Sequence[str] | None = None) -> int:

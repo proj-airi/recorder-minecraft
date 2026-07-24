@@ -253,7 +253,7 @@ def load_config(path: str | Path = DEFAULT_CONFIG_NAME) -> RecorderConfig:
 
     paths = PathConfig(
         base=base,
-        bundles=_resolve(base, _value(paths_raw, "bundles", "artifacts/v1", str)),
+        bundles=_resolve(base, _value(paths_raw, "bundles", "artifacts", str)),
         captures=_resolve(base, _value(paths_raw, "captures", "artifacts/captures", str)),
         replays=_resolve(base, _value(paths_raw, "replays", "artifacts/replays", str)),
         exports=_resolve(base, _value(paths_raw, "exports", "artifacts/exports", str)),
@@ -319,7 +319,6 @@ def _validate(
     if not 1 <= dashboard.port <= 65535:
         raise RecorderError("dashboard.port must be between 1 and 65535")
     managed_paths = (
-        ("bundle", paths.bundles),
         ("capture", paths.captures),
         ("replay", paths.replays),
         ("export", paths.exports),
@@ -350,7 +349,8 @@ eula = {eula}
 
 [paths]
 # Relative paths are resolved from this file. All defaults stay in this workspace.
-bundles = "artifacts/v1"
+# Publisher adds the versioned v1/ subtree beneath this artifact root.
+bundles = "artifacts"
 captures = "artifacts/captures"
 replays = "artifacts/replays"
 exports = "artifacts/exports"
