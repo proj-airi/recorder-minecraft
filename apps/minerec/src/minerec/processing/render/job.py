@@ -135,7 +135,7 @@ def _owned_render_directory(path: Path) -> bool:
     manifest = path / "render-job.json"
     try:
         value = json.loads(manifest.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except OSError, json.JSONDecodeError:
         return False
     if not isinstance(value, dict) or value.get("owner") != OWNER or value.get("job_type") != RENDER_JOB_TYPE:
         return False
@@ -165,7 +165,7 @@ def _owned_render_directory(path: Path) -> bool:
         expected_frames = (path / "frames").resolve()
         expected_result = (path / "result.json").resolve()
         return Path(str(value.get("output", ""))).expanduser().resolve() == expected_frames and Path(str(value.get("result", ""))).expanduser().resolve() == expected_result
-    except (OSError, RuntimeError):
+    except OSError, RuntimeError:
         return False
 
 
@@ -406,7 +406,7 @@ def launch_render_job(
         loaded = json.loads(result_path.read_text(encoding="utf-8"))
         if isinstance(loaded, dict):
             result = loaded
-    except (OSError, json.JSONDecodeError):
+    except OSError, json.JSONDecodeError:
         pass
     if process.returncode != 0:
         detail = f": {result.get('error')}" if result and result.get("error") else ""

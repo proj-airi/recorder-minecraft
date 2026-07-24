@@ -319,7 +319,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             try:
                 decoded = base64.b64decode(authorization[6:], validate=True).decode("utf-8")
                 supplied_user, supplied_password = decoded.split(":", 1)
-            except (ValueError, UnicodeDecodeError):
+            except ValueError, UnicodeDecodeError:
                 pass
         allowed = hmac.compare_digest(supplied_user, self.application.username) & hmac.compare_digest(supplied_password, self.application.password)
         if allowed:
@@ -655,7 +655,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
         try:
             data = resource.read_bytes()
-        except (FileNotFoundError, OSError):
+        except FileNotFoundError, OSError:
             self._error(
                 HTTPStatus.NOT_FOUND,
                 "dashboard static asset not found; run `hack/dashboard build` first",

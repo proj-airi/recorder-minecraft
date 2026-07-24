@@ -91,7 +91,7 @@ def directory_size(path: Path) -> int:
 def _read_json(path: Path) -> dict[str, Any] | None:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except OSError, json.JSONDecodeError:
         return None
     return value if isinstance(value, dict) else None
 
