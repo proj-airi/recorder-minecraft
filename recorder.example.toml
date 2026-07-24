@@ -1,12 +1,17 @@
 version = 1
 
 [server]
+name = "minecraft"
+# `minerec init` generates a unique stable UUID. Replace this example value if
+# copying the file; never share one instance ID between recorder installations.
+instance_id = "00000000-0000-4000-8000-000000000000"
 # Scene extraction launches a local dedicated server; set true only after
 # accepting https://aka.ms/MinecraftEULA.
 eula = false
 
 [paths]
 # Relative paths resolve from this file. Defaults stay inside the workspace.
+bundles = "artifacts"
 captures = "artifacts/captures"
 replays = "artifacts/replays"
 exports = "artifacts/exports"

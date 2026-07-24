@@ -15,8 +15,9 @@ It combines three pieces:
    all-player state, decoded semantic actions, connection identity, apply
    barriers, and replay timeline markers.
 3. **`minerec`** provisions Docker, validates immutable slices,
-   enforces capture/replay retention, exports trainable samples, and launches
-   headless scene extraction plus deterministic RGB jobs through `mods/renderer-mod`.
+   enforces capture/replay retention, exports trainable samples, finalizes
+   portable per-connection play bundles, and launches headless scene extraction
+   plus deterministic RGB jobs through `mods/renderer-mod`.
 
 ## Current capabilities
 
@@ -42,6 +43,10 @@ It combines three pieces:
   exact-key modality attachment.
 - Dataset V2 exports with a contained SQLite scene store that supports direct
   lookup of block, entity, and block-entity state at every selected tick.
+- Immutable `.mcplay.zip` bundles containing reconstructed actions, Scene Store
+  V2 player/world state, and the exact contributing Flashback replay archives.
+- A dashboard-independent local Vue viewer for drag/drop bundle inspection;
+  first-person MP4 playback is optional.
 - Server-only scene extraction from client-visible replay packets; no Minecraft
   window, graphics stack, source world mount, or forward replay is needed by
   the dataset viewer.
@@ -233,6 +238,23 @@ The dataset viewer indexes every canonical state/modality tick. Transition
 controls are joined when present, while a connection's final tick remains
 viewable with its scene and an explicitly unavailable transition.
 
+Finalize one complete connection-scoped Dataset V2 directory as a portable
+bundle, then inspect it with the standalone local viewer:
+
+```sh
+pixi run minerec bundle create \
+  artifacts/exports/CONNECTION.dataset
+pixi run build-viewer
+pixi run minerec viewer \
+  artifacts/v1/SERVER--INSTANCE/players/PLAYER--UUID/plays/PLAY/BUNDLE.mcplay.zip
+```
+
+`bundle create` fails unless the selected connection is closed and its actions,
+authoritative state, Scene Store V1 provenance, and exact replay segments are
+complete and valid. It builds Scene Store V2 and publishes atomically. Add
+`--fpv FPV.mp4 --fpv-timeline FPV.timeline.jsonl` to create a rendered revision;
+rendering is optional.
+
 Both subject filters are repeatable. Player, connection, and tick-range
 filters are intersected, so a reconnect can be exported without mixing its
 states or actions with another connection. Selected samples still include
@@ -331,6 +353,8 @@ Language Kotlin in `.mc-recorder/mods/`, then set `MC_MODRINTH_PROJECTS=` in
   combined capture stream, barriers, identity, replay alignment, and coverage.
 - [`docs/specs/dataset-v2.md`](docs/specs/dataset-v2.md) defines canonical samples,
   exact modality envelopes, and the random-access scene store.
+- [`docs/specs/play-bundle-v1.md`](docs/specs/play-bundle-v1.md) defines the
+  portable connection bundle, Scene Store V2, integrity rules, and local viewer.
 - [`apps/minerec/README.md`](apps/minerec/README.md) documents all CLI commands.
 
 ## Workspace layout
@@ -341,7 +365,8 @@ mods/recorder-mod/   server-side Fabric capture sidecar
 mods/scene-extractor-mod/ headless replay-to-scene extractor CLI
 mods/renderer-mod/   local Flashback first-person RGB renderer
 docs/specs/     source and Dataset V2 contracts
-apps/minerec/   Python provisioning/export CLI
+apps/minerec/   Python provisioning/export/bundle/viewer CLI
+apps/viewer/    standalone Vue play-bundle viewer
 ServerReplay/   upstream server replay mod source
 docs/           development environment notes
 ```

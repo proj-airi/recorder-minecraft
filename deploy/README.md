@@ -9,6 +9,14 @@ docker compose --env-file deploy/.env --file deploy/docker-compose.yml up --deta
 docker compose --env-file deploy/.env --file deploy/docker-compose.yml stop
 ```
 
+If Compose must build `minerec:local` from a clean checkout, install the locked
+JavaScript workspace and compile the standalone viewer first:
+
+```sh
+pnpm install --frozen-lockfile
+pixi run build-viewer
+```
+
 Use `hack/minecraft-server prepare` to build and stage the local capture mod and
 write the mod configuration files before the first direct Compose start.
 `hack/minecraft-server start` runs that preparation step and then invokes the
@@ -22,11 +30,13 @@ built from `apps/minerec/Dockerfile`; that image installs the locked Pixi
 environment from `pixi.toml` and `pixi.lock`, including the editable
 `apps/minerec` package, OpenJDK 21, and the headless scene extractor
 distribution produced by `pixi run build-scene-extractor-mod`. Use
-`pixi run build-minerec-image` after extractor changes so the Docker build
-context contains the installed CLI. The local capture mod is bind-mounted
-through the Minecraft image's documented `/mods` synchronization point. Compose
-uses the image's `mc-health` probe, so `hack/minecraft-server start` waits for a
-playable server rather than only a running container.
+`pixi run build-minerec-image` after extractor or viewer changes so the Docker
+build context contains the installed CLI and compiled standalone viewer. A
+direct Docker build fails if those viewer assets are absent. The local capture
+mod is bind-mounted through the Minecraft image's documented `/mods`
+synchronization point. Compose uses the image's `mc-health` probe, so
+`hack/minecraft-server start` waits for a playable server rather than only a
+running container.
 
 The storage monitor sees `/captures` and `/replays`, but cannot access the world
 or server data. After the configured quota is reached it may remove oldest
