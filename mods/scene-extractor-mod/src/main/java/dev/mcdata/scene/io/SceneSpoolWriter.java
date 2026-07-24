@@ -510,7 +510,8 @@ public final class SceneSpoolWriter implements AutoCloseable {
         Path target = blobs.resolve(digest + ".zlib");
         Path temporary = blobs.resolve("." + digest + ".tmp-" + UUID.randomUUID());
         Files.write(temporary, compressed, StandardOpenOption.CREATE_NEW);
-        forceFile(temporary);
+        // The entire spool remains private until commit(), which fsyncs every blob before the
+        // directory is published. Syncing each temporary blob here only duplicates that barrier.
         moveAtomically(temporary, target);
         blobSizes.put(digest, (long) compressed.length);
         return digest;

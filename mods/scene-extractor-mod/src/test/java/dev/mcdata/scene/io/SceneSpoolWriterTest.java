@@ -15,6 +15,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class SceneSpoolWriterTest {
@@ -96,6 +97,33 @@ final class SceneSpoolWriterTest {
         assertEquals(2, changes.size());
         assertTrue(changes.get(0).contains(first.segmentId().toString()));
         assertTrue(changes.get(1).contains(second.segmentId().toString()));
+    }
+
+    @Test
+    void discardsPrivateBlobStagingWhenTheSpoolIsNotCommitted() throws IOException {
+        Path output = temporary.resolve("uncommitted-spool");
+        SceneJob.SourceReplay source = new SceneJob.SourceReplay(
+            UUID.fromString("33333333-3333-3333-3333-333333333333"), 0,
+            temporary.resolve("source.zip"), "0".repeat(64), 1
+        );
+        SceneEvent.SectionSnapshot section = new SceneEvent.SectionSnapshot(
+            List.of(new SceneEvent.BlockState("minecraft:air", Map.of())), new int[4096]
+        );
+
+        try (SceneSpoolWriter writer = new SceneSpoolWriter(output)) {
+            writer.beginSegment(source);
+            writer.writeFrame(frame(source, 1, 1), new SceneSnapshot(
+                List.of(new SceneSnapshot.Section("minecraft:overworld", 0, 0, 0, section)),
+                List.of(),
+                List.of()
+            ));
+            assertFalse(Files.exists(output));
+        }
+
+        assertFalse(Files.exists(output));
+        try (var entries = Files.list(temporary)) {
+            assertFalse(entries.anyMatch(path -> path.getFileName().toString().startsWith(".uncommitted-spool.tmp-")));
+        }
     }
 
     private static SceneFrame frame(SceneJob.SourceReplay source, long tick, int replayTick) {
