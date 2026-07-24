@@ -12,6 +12,7 @@ requires-pixi = ">=0.73,<1"
 
 [dependencies]
 python = "3.14.*"
+ffmpeg = ">=7,<9"
 ruff = ">=0.15.22,<0.16"
 ty = ">=0.0.61,<0.0.62"
 
@@ -25,6 +26,14 @@ test-python = "python -m unittest discover -s apps/minerec/tests -v"
 build-recorder-mod = "gradle --project-dir mods/recorder-mod build"
 build-scene-extractor-mod = "gradle --project-dir mods/scene-extractor-mod build installDist"
 build-renderer-mod = "gradle --project-dir mods/renderer-mod build"
+build-viewer = "pnpm --filter @mc-recorder/viewer build"
+test-viewer = "pnpm --filter @mc-recorder/viewer test"
+typecheck-viewer = "pnpm --filter @mc-recorder/viewer typecheck"
+check-viewer = { depends-on = [
+  "test-viewer",
+  "typecheck-viewer",
+  "build-viewer",
+] }
 build-minerec-image = { cmd = "docker buildx build --platform linux/amd64 -f apps/minerec/Dockerfile . --tag minerec:local --load", depends-on = [
   "build-scene-extractor-mod",
 ] }
@@ -35,7 +44,8 @@ build-mods = { depends-on = [
 ] }
 check = { depends-on = [
   "test-python",
-  "build-mods"
+  "build-mods",
+  "check-viewer",
 ] }
 py-check = { depends-on = [
   "py-lint",

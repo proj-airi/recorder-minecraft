@@ -9,11 +9,14 @@
   "scripts": {
     "build": "pnpm -r -F=\"./apps/*\" build",
     "build:dashboard": "pnpm -r -F @mc-recorder/dashboard build",
+    "build:viewer": "pnpm --filter @mc-recorder/viewer build",
     "dev": "pnpm -r -F @mc-recorder/dashboard dev",
     "dev:dashboard": "pnpm -r -F @mc-recorder/dashboard dev",
     "lint": "moeru-lint .",
     "lint:fix": "moeru-lint --fix .",
     "preview:dashboard": "pnpm -r -F @mc-recorder/dashboard preview",
+    "test": "pnpm -r --if-present test",
+    "test:viewer": "pnpm --filter @mc-recorder/viewer test",
     "typecheck": "pnpm -r -F=\"./apps/*\" --parallel typecheck"
   },
   "devDependencies": {
