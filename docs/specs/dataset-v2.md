@@ -172,6 +172,29 @@ is mounted. Scene V1 includes block states, entities, block entities, and full
 captured packet metadata. It does not define meshes, textures, particles,
 audio, lighting renders, or original client pixels.
 
+### Known scene and modality gaps
+
+Scene Store V1 does not persist block-light or sky-light arrays. Block states
+may support an approximate lighting recomputation when additional dimension,
+time, weather, and light-engine assumptions are supplied, but exact lighting
+observed by the recorded client cannot be recovered from `scene-v1.sqlite3`
+alone.
+
+Particle and sound events are not materialized as Dataset V2 timelines, and
+the RGB renderer publishes image frames without an audio track. A source
+Flashback archive may retain relevant packets depending on its capture policy,
+but Dataset V2 does not currently guarantee their presence, coverage, or
+interpretation. Future particle or audio modalities must declare their own
+timeline, coverage, integrity, and replay-source provenance.
+
+Block-entity payloads contain only data exposed to the recorded client.
+Player-private container updates are not materialized by the current scene
+extractor, so an unopened chest or other container has unknown contents rather
+than an empty inventory. Consumers must not interpret absent inventory data as
+proof that a container was empty. A future authoritative-container modality
+would require explicit server-side capture or a clearly scoped record of
+player-observed container updates.
+
 ### Scene-slice viewer response
 
 The authenticated dataset viewer exposes a bounded two-dimensional projection
