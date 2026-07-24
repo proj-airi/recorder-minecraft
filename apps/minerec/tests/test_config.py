@@ -50,6 +50,9 @@ class ConfigTest(unittest.TestCase):
             config = load_config(source)
 
             self.assertTrue(config.server.eula)
+            self.assertEqual("minecraft", config.server.name)
+            self.assertIsNotNone(config.server.instance_id)
+            self.assertEqual((workspace / "artifacts" / "v1").resolve(), config.paths.bundles)
             self.assertEqual((workspace / "artifacts" / "captures").resolve(), config.paths.captures)
             self.assertTrue(config.paths.runtime.is_dir())
             self.assertEqual(
@@ -62,6 +65,28 @@ class ConfigTest(unittest.TestCase):
             )
             self.assertEqual("0.0.0.0", config.dashboard.bind)
             self.assertEqual(8765, config.dashboard.port)
+
+    def test_init_persists_a_stable_server_instance_id(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            source = initialize(Path(temporary) / "recorder.toml")
+            first = load_config(source).server.instance_id
+            second = load_config(source).server.instance_id
+
+            self.assertIsNotNone(first)
+            self.assertEqual(first, second)
+
+    def test_legacy_config_without_server_identity_remains_readable(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            source = initialize(Path(temporary) / "recorder.toml")
+            text = source.read_text(encoding="utf-8")
+            text = "\n".join(
+                line for line in text.splitlines() if not line.startswith(("name =", "instance_id ="))
+            ) + "\n"
+            source.write_text(text, encoding="utf-8")
+
+            config = load_config(source)
+            self.assertEqual("minecraft", config.server.name)
+            self.assertIsNone(config.server.instance_id)
 
     def test_init_does_not_silently_accept_eula_or_overwrite(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

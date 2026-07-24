@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import tomllib
+import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -59,12 +60,15 @@ def _resolve(base: Path, raw: str) -> Path:
 
 @dataclass(frozen=True)
 class ServerConfig:
+    name: str
+    instance_id: str | None
     eula: bool
 
 
 @dataclass(frozen=True)
 class PathConfig:
     base: Path
+    bundles: Path
     captures: Path
     replays: Path
     exports: Path
@@ -235,12 +239,21 @@ def load_config(path: str | Path = DEFAULT_CONFIG_NAME) -> RecorderConfig:
     storage_raw = _table(raw, "storage")
     dashboard_raw = _table(raw, "dashboard")
 
+    server_instance_id = _value(server_raw, "instance_id", "", str).strip() or None
+    if server_instance_id is not None:
+        try:
+            server_instance_id = str(uuid.UUID(server_instance_id))
+        except ValueError as exc:
+            raise RecorderError("configuration value 'server.instance_id' must be a UUID") from exc
     server = ServerConfig(
+        name=_value(server_raw, "name", "minecraft", str).strip(),
+        instance_id=server_instance_id,
         eula=_value(server_raw, "eula", False, bool),
     )
 
     paths = PathConfig(
         base=base,
+        bundles=_resolve(base, _value(paths_raw, "bundles", "artifacts/v1", str)),
         captures=_resolve(base, _value(paths_raw, "captures", "artifacts/captures", str)),
         replays=_resolve(base, _value(paths_raw, "replays", "artifacts/replays", str)),
         exports=_resolve(base, _value(paths_raw, "exports", "artifacts/exports", str)),
@@ -276,7 +289,7 @@ def load_config(path: str | Path = DEFAULT_CONFIG_NAME) -> RecorderConfig:
         port=_value(dashboard_raw, "port", 8765, int),
     )
 
-    _validate(paths, storage, dashboard)
+    _validate(server, paths, storage, dashboard)
     return RecorderConfig(
         source=source,
         server=server,
@@ -288,10 +301,13 @@ def load_config(path: str | Path = DEFAULT_CONFIG_NAME) -> RecorderConfig:
 
 
 def _validate(
+    server: ServerConfig,
     paths: PathConfig,
     storage: StorageConfig,
     dashboard: DashboardConfig,
 ) -> None:
+    if not server.name:
+        raise RecorderError("server.name must not be empty")
     if storage.quota_gib <= 0:
         raise RecorderError("storage.quota_gib must be positive")
     if not 1 <= storage.warn_percent <= 100:
@@ -303,6 +319,7 @@ def _validate(
     if not 1 <= dashboard.port <= 65535:
         raise RecorderError("dashboard.port must be between 1 and 65535")
     managed_paths = (
+        ("bundle", paths.bundles),
         ("capture", paths.captures),
         ("replay", paths.replays),
         ("export", paths.exports),
@@ -320,16 +337,20 @@ def _paths_overlap(left: Path, right: Path) -> bool:
     return left in right.parents or right in left.parents
 
 
-def default_config_text(*, accept_eula: bool = False) -> str:
+def default_config_text(*, accept_eula: bool = False, server_instance_id: str | None = None) -> str:
     eula = "true" if accept_eula else "false"
+    instance_id = str(uuid.UUID(server_instance_id)) if server_instance_id else str(uuid.uuid4())
     return f"""version = 1
 
 [server]
 # Accept https://aka.ms/MinecraftEULA before provisioning a recorder server.
+name = "minecraft"
+instance_id = "{instance_id}"
 eula = {eula}
 
 [paths]
 # Relative paths are resolved from this file. All defaults stay in this workspace.
+bundles = "artifacts/v1"
 captures = "artifacts/captures"
 replays = "artifacts/replays"
 exports = "artifacts/exports"
@@ -367,6 +388,7 @@ def initialize(path: str | Path, *, accept_eula: bool = False, force: bool = Fal
     target.write_text(default_config_text(accept_eula=accept_eula), encoding="utf-8")
     config = load_config(target)
     for directory in (
+        config.paths.bundles,
         config.paths.captures,
         config.paths.replays,
         config.paths.exports,
