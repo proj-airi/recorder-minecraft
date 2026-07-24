@@ -23,7 +23,10 @@ platformdirs = ">=4.11.0, <5"
 
 [tasks]
 setup-jvm = "proto install --config-mode local"
-test-python = "python -m unittest discover -s apps/minerec/tests -v"
+build-dashboard = "pnpm --filter @mc-recorder/dashboard build"
+test-python = { cmd = "python -m unittest discover -s apps/minerec/tests -v", depends-on = [
+  "build-dashboard",
+] }
 build-recorder-mod = "gradle --project-dir mods/recorder-mod build"
 build-scene-extractor-mod = "gradle --project-dir mods/scene-extractor-mod build installDist"
 build-renderer-mod = "gradle --project-dir mods/renderer-mod build"
