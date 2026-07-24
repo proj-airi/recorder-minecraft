@@ -639,7 +639,7 @@ def _owned_export_directory(path: Path) -> bool:
     manifest = path / "manifest.json"
     try:
         value = json.loads(manifest.read_text(encoding="utf-8"))
-    except OSError, json.JSONDecodeError:
+    except (OSError, json.JSONDecodeError):
         return False
     if not isinstance(value, dict) or value.get("owner") != OWNER or value.get("format") != EXPORT_FORMAT:
         return False

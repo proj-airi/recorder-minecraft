@@ -71,7 +71,7 @@ def _epoch_sort_timestamp(path: Path) -> int:
                 if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
                     timestamp = value
                     break
-    except OSError, json.JSONDecodeError:
+    except (OSError, json.JSONDecodeError):
         pass
     if timestamp:
         return timestamp
@@ -123,7 +123,7 @@ def _completed_replay(path: Path, root: Path, *, stable_before_ns: int) -> bool:
                 return False
         after = candidate.stat()
         return before.st_dev == after.st_dev and before.st_ino == after.st_ino and before.st_size == after.st_size and before.st_mtime_ns == after.st_mtime_ns
-    except OSError, ValueError, zipfile.BadZipFile:
+    except (OSError, ValueError, zipfile.BadZipFile):
         return False
 
 
@@ -175,7 +175,7 @@ def pin_sealed_epochs(episode: Path) -> Iterator[tuple[Path, ...]]:
                 continue
             try:
                 declared = json.loads(manifest.read_text(encoding="utf-8"))
-            except OSError, json.JSONDecodeError:
+            except (OSError, json.JSONDecodeError):
                 continue
             if not isinstance(declared, dict) or declared.get("sealed") is not True:
                 continue

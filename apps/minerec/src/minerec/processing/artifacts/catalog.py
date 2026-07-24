@@ -333,7 +333,7 @@ def _open_replay_candidate(root_descriptor: int, relative_path: str) -> int:
             raise RecorderError("replay candidate is a symlink or cannot be opened") from exc
         try:
             _regular_file_identity(file_descriptor)
-        except OSError, RecorderError:
+        except (OSError, RecorderError):
             os.close(file_descriptor)
             raise
         return file_descriptor
@@ -527,7 +527,7 @@ class ArtifactCatalog:
             )
         try:
             episodes = list_episodes(root)
-        except OSError, RecorderError:
+        except (OSError, RecorderError):
             return (
                 (),
                 (

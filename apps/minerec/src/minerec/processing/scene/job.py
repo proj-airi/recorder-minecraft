@@ -374,7 +374,7 @@ def _pinned_epoch_snapshot(
             continue
         try:
             value = json.loads(manifest.read_text(encoding="utf-8"))
-        except OSError, json.JSONDecodeError:
+        except (OSError, json.JSONDecodeError):
             continue
         if isinstance(value, dict) and value.get("sealed") is True:
             declared.add(candidate.resolve())
@@ -396,7 +396,7 @@ def _owned_scene_job(path: Path, *, expected_job_id: str | None = None) -> bool:
     try:
         value = json.loads(manifest.read_text(encoding="utf-8"))
         ownership = json.loads(marker.read_text(encoding="utf-8"))
-    except OSError, json.JSONDecodeError:
+    except (OSError, json.JSONDecodeError):
         return False
     job_id = value.get("job_id") if isinstance(value, dict) else None
     return (
@@ -459,7 +459,7 @@ def cleanup_stale_scene_jobs(runtime: Path, *, keep: int = 0) -> tuple[Path, ...
             manifest = json.loads((entry / "scene-job.json").read_text(encoding="utf-8"))
             job_id = manifest["job_id"]
             modified = entry.stat().st_mtime_ns
-        except OSError, json.JSONDecodeError, KeyError, TypeError:
+        except (OSError, json.JSONDecodeError, KeyError, TypeError):
             continue
         if isinstance(job_id, str):
             owned.append((modified, entry.name, entry, job_id))
