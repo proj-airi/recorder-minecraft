@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -313,6 +315,94 @@ class PlayBundleFinalizerTest(unittest.TestCase):
 
             with self.assertRaisesRegex(RecorderError, "recorded_at_unix_ms"):
                 finalize_dataset_bundle(config, dataset)
+
+    def test_attaches_verified_fpv_as_a_new_immutable_revision(self) -> None:
+        ffmpeg = shutil.which("ffmpeg")
+        ffprobe = shutil.which("ffprobe")
+        if ffmpeg is None or ffprobe is None:
+            self.skipTest("FFmpeg is unavailable outside the Pixi environment")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            config = load_config(initialize(root / "recorder.toml"))
+            replay = config.paths.replays / "players" / PLAYER / "segment.zip"
+            _write_replay(replay)
+            dataset = _write_dataset(root, replay)
+            without_render = finalize_dataset_bundle(config, dataset)
+
+            video = root / "fpv.mp4"
+            subprocess.run(
+                (
+                    ffmpeg,
+                    "-hide_banner",
+                    "-loglevel",
+                    "error",
+                    "-f",
+                    "lavfi",
+                    "-i",
+                    "color=c=black:s=16x16:r=20:d=0.1",
+                    "-frames:v",
+                    "2",
+                    "-c:v",
+                    "libx264",
+                    "-pix_fmt",
+                    "yuv420p",
+                    "-r",
+                    "20",
+                    "-movflags",
+                    "+faststart",
+                    "-an",
+                    "-y",
+                    str(video),
+                ),
+                check=True,
+                capture_output=True,
+                timeout=30,
+            )
+            timeline = root / "fpv.timeline.jsonl"
+            timeline.write_bytes(
+                b"".join(
+                    json.dumps(
+                        {
+                            "frame_index": frame,
+                            "pts": frame,
+                            "server_tick": 10 + frame,
+                            "replay_tick": 110 + frame,
+                            "scene_frame": frame,
+                        },
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ).encode("utf-8")
+                    + b"\n"
+                    for frame in range(2)
+                )
+            )
+
+            rendered = finalize_dataset_bundle(
+                config,
+                dataset,
+                fpv_path=video,
+                fpv_timeline_path=timeline,
+            )
+
+            self.assertNotEqual(without_render.bundle_id, rendered.bundle_id)
+            with open_bundle(
+                rendered.path,
+                scene_validator=validate_scene_store_v2,
+            ) as opened:
+                self.assertIsNotNone(opened.fpv_path)
+                assert opened.fpv_path is not None
+                self.assertEqual(video.read_bytes(), opened.fpv_path.read_bytes())
+                render_descriptor = opened.metadata["render"]
+                self.assertEqual(2, render_descriptor["video"]["frame_count"])
+
+            viewer = ViewerService()
+            try:
+                summary = viewer.import_bundle(rendered.path)
+                self.assertEqual(rendered.bundle_id, summary["bundle_id"])
+                self.assertEqual(render_descriptor, summary["metadata"]["render"])
+            finally:
+                viewer.close()
 
 
 if __name__ == "__main__":

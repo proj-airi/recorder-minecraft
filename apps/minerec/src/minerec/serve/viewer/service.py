@@ -12,6 +12,7 @@ from urllib.parse import quote
 
 from minerec.errors import RecorderError
 from minerec.processing.bundle import OpenedBundle, open_bundle
+from minerec.processing.bundle.finalizer import validate_fpv_render
 from minerec.processing.scene.store_v2 import SceneStoreV2, validate_scene_store_v2
 
 MAX_ACTION_LINE_BYTES = 32 * 1024 * 1024
@@ -380,7 +381,11 @@ class ViewerService:
             current.close()
 
     def import_bundle(self, path: Path) -> dict[str, Any]:
-        opened = open_bundle(path, scene_validator=validate_scene_store_v2)
+        opened = open_bundle(
+            path,
+            scene_validator=validate_scene_store_v2,
+            render_validator=validate_fpv_render,
+        )
         candidate = ViewerBundle(opened)
         with self._lock:
             previous, self._bundle = self._bundle, candidate
