@@ -8,6 +8,9 @@ COPY pixi.toml pixi.lock ./
 COPY apps/minerec/pyproject.toml ./apps/minerec/pyproject.toml
 COPY apps/minerec/src ./apps/minerec/src
 
+RUN test -f /app/apps/minerec/src/minerec/viewer_dist/index.html || \
+    (echo "viewer assets are missing; run 'pixi run build-viewer' before this Docker build" >&2; exit 1)
+
 ARG TARGETARCH
 RUN --mount=type=cache,id=pixi-${TARGETARCH},target=/var/cache/pixi,sharing=locked \
     PIXI_CACHE_DIR=/var/cache/pixi \

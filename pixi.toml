@@ -13,6 +13,7 @@ requires-pixi = ">=0.73,<1"
 [dependencies]
 python = "3.14.*"
 ffmpeg = ">=7,<9"
+setuptools = ">=68"
 ruff = ">=0.15.22,<0.16"
 ty = ">=0.0.61,<0.0.62"
 
@@ -34,8 +35,12 @@ check-viewer = { depends-on = [
   "typecheck-viewer",
   "build-viewer",
 ] }
+check-minerec-wheel = { cmd = "python apps/minerec/scripts/validate_wheel.py", depends-on = [
+  "build-viewer",
+] }
 build-minerec-image = { cmd = "docker buildx build --platform linux/amd64 -f apps/minerec/Dockerfile . --tag minerec:local --load", depends-on = [
   "build-scene-extractor-mod",
+  "build-viewer",
 ] }
 build-mods = { depends-on = [
   "build-recorder-mod",
@@ -46,6 +51,7 @@ check = { depends-on = [
   "test-python",
   "build-mods",
   "check-viewer",
+  "check-minerec-wheel",
 ] }
 py-check = { depends-on = [
   "py-lint",

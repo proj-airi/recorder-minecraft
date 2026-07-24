@@ -10,18 +10,19 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
 from minerec.errors import RecorderError
 from minerec.serve.viewer.server import (
-    MAX_JSON_RESPONSE_BYTES,
     MAX_TICK_JSON_RESPONSE_BYTES,
     ViewerApplication,
     ViewerHTTPServer,
     _byte_ranges,
     _json_body,
+    serve_viewer,
 )
 from minerec.serve.viewer.service import ViewerBundle
 
@@ -85,6 +86,39 @@ class ByteRangeTest(unittest.TestCase):
         self.assertGreater(MAX_TICK_JSON_RESPONSE_BYTES, maximum_scene_blob_bytes)
         self.assertGreater(len(body), maximum_scene_blob_bytes)
 
+    def test_no_open_prints_the_usable_tokenized_url(self) -> None:
+        application = SimpleNamespace(
+            origin="http://127.0.0.1:43123",
+            service=SimpleNamespace(import_bundle=mock.Mock()),
+            close=mock.Mock(),
+        )
+        server = SimpleNamespace(serve_forever=mock.Mock(), server_close=mock.Mock())
+        with (
+            mock.patch(
+                "minerec.serve.viewer.server.ViewerApplication",
+                return_value=application,
+            ),
+            mock.patch(
+                "minerec.serve.viewer.server.ViewerHTTPServer",
+                return_value=server,
+            ),
+            mock.patch(
+                "minerec.serve.viewer.server.secrets.token_urlsafe",
+                return_value="launch-token",
+            ),
+            mock.patch("minerec.serve.viewer.server.webbrowser.open") as browser_open,
+            mock.patch("builtins.print") as output,
+        ):
+            serve_viewer(open_browser=False)
+
+        output.assert_any_call(
+            "Open http://127.0.0.1:43123/?token=launch-token",
+        )
+        browser_open.assert_not_called()
+        server.serve_forever.assert_called_once_with()
+        server.server_close.assert_called_once_with()
+        application.close.assert_called_once_with()
+
 
 class _StubService:
     def __init__(self, media: Path) -> None:
@@ -141,7 +175,8 @@ class ViewerHTTPTest(unittest.TestCase):
         media.write_bytes(bytes(range(100)))
         self.application = ViewerApplication("secret-token", static_root=static)
         self.application.service.close()
-        self.application.service = _StubService(media)  # type: ignore[assignment]
+        self.stub_service = _StubService(media)
+        self.application.service = cast(Any, self.stub_service)
         try:
             self.server = ViewerHTTPServer(("127.0.0.1", 0), self.application)
         except PermissionError:
@@ -150,7 +185,9 @@ class ViewerHTTPTest(unittest.TestCase):
             self.skipTest("sandbox forbids loopback listeners")
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
-        self.host, self.port = self.server.server_address
+        address = self.server.server_address
+        self.host = str(address[0])
+        self.port = int(address[1])
 
     def tearDown(self) -> None:
         self.server.shutdown()
@@ -239,8 +276,8 @@ class ViewerHTTPTest(unittest.TestCase):
             body=b"",
         )
         self.assertEqual(200, status)
-        self.assertEqual(["staged-import-id-123"], self.application.service.committed)
-        self.assertEqual(["staged-import-id-456"], self.application.service.discarded)
+        self.assertEqual(["staged-import-id-123"], self.stub_service.committed)
+        self.assertEqual(["staged-import-id-456"], self.stub_service.discarded)
 
     def test_serves_single_suffix_and_multipart_media_ranges(self) -> None:
         base = "/api/v1/viewer/render/fpv?token=secret-token&bundle_id=bundle-test"

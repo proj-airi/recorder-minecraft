@@ -519,8 +519,9 @@ def serve_viewer(bundle: Path | None = None, *, open_browser: bool = True) -> No
             application.service.import_bundle(bundle.expanduser().resolve())
         url = f"{application.origin}/?{urlencode({'token': token})}"
         print(f"Play-bundle viewer listening at {application.origin}")
-        if open_browser and not webbrowser.open(url):
-            print(f"Open {url}", file=sys.stderr)
+        print(f"Open {url}")
+        if open_browser:
+            webbrowser.open(url)
         server.serve_forever()
     finally:
         server.server_close()
