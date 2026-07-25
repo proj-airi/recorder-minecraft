@@ -78,7 +78,8 @@ temporary jobs and locks live under `.mc-recorder/runtime`; durable results can
 be placed back in the play as shown above.
 
 See [Artifacts V1 Pipeline](docs/specs/artifacts-v1.md),
-[Primitive Capture V1](docs/specs/capture-v1.md), and
+[Primitive Capture V1](docs/specs/capture-v1.md),
+[Terms and Concepts](docs/TERMS_AND_CONCEPTS.md), and
 [the minerec CLI](apps/minerec/README.md).
 
 ## Modules
