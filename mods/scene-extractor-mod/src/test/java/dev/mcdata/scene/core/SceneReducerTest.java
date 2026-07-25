@@ -11,6 +11,8 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -93,6 +95,31 @@ final class SceneReducerTest {
     }
 
     @Test
+    void appliesOnlyClientVisiblePassengers() {
+        SceneReducer reducer = reducerWithSubjectAt(new SceneEvent.Vec3(1, 64, 2));
+        reducer.apply(entity(8));
+        reducer.apply(entity(9));
+
+        reducer.apply(new SceneEvent.EntityPassengersChanged(8, List.of(7, 83, 9)));
+
+        SceneSnapshot.Entity vehicle = reducer.snapshot().entities().stream()
+            .filter(entity -> entity.networkId() == 8)
+            .findFirst()
+            .orElseThrow();
+        assertEquals(List.of(7, 9), vehicle.passengers());
+    }
+
+    @Test
+    void ignoresPassengerPacketsForUnknownVehicles() {
+        SceneReducer reducer = reducerWithSubjectAt(new SceneEvent.Vec3(1, 64, 2));
+        SceneSnapshot before = reducer.snapshot();
+
+        reducer.apply(new SceneEvent.EntityPassengersChanged(83, List.of(7)));
+
+        assertEquals(before, reducer.snapshot());
+    }
+
+    @Test
     void distinguishesChunkZWhenValidatingBlockUpdates() {
         SceneReducer reducer = new SceneReducer(job());
         reducer.beginSegment();
@@ -137,6 +164,23 @@ final class SceneReducerTest {
         assertEquals("minecraft:stone", section.palette().get(section.indices()[offset]).name());
         assertEquals(value, snapshot.entities().getFirst().metadata().get(4));
         assertEquals("minecraft:overworld", snapshot.entities().getFirst().dimension());
+    }
+
+    @Test
+    void reusesImmutableSectionSnapshotsUntilTheirBlocksChange() {
+        SceneReducer reducer = reducerWithSection(2, 5, emptySection());
+
+        SceneEvent.SectionSnapshot first = reducer.snapshot().sections().getFirst().snapshot();
+        SceneEvent.SectionSnapshot unchanged = reducer.snapshot().sections().getFirst().snapshot();
+        assertSame(first, unchanged);
+
+        reducer.apply(new SceneEvent.BlockChanged(
+            "minecraft:overworld", 33, 2, 83,
+            new SceneEvent.BlockState("minecraft:stone", Map.of())
+        ));
+        SceneEvent.SectionSnapshot changed = reducer.snapshot().sections().getFirst().snapshot();
+        assertNotSame(first, changed);
+        assertSame(changed, reducer.snapshot().sections().getFirst().snapshot());
     }
 
     @Test
@@ -407,7 +451,7 @@ final class SceneReducerTest {
             count,
             100,
             101,
-            List.of(new SceneJob.SourceEpoch(0, "b".repeat(64), 1, 1)),
+            new SceneJob.SourceEvents("b".repeat(64), 1, 1),
             new SceneJob.SubjectPoseFileIdentity("test", 0),
             new SceneJob.SubjectPoseTimeline(
                 100, "session", PLAYER, CONNECTION,

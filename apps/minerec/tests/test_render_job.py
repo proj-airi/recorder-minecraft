@@ -7,402 +7,100 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from typing import cast
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
-from minerec.config import RecorderConfig
 from minerec.errors import RecorderError
-from minerec.processing.render.job import (
-    OWNER,
-    RENDER_JOB_TYPE,
-    RenderJobResult,
-    _owned_render_directory,
-    launch_render_job,
-    prepare_render_job,
-    prepare_renderer_runtime,
-    resolve_replay,
-)
-from minerec.render.control.contract import FULL_CLIENT_PRESENTATION_CONTRACT
-
-PLAYER_UUID = "12345678-1234-5678-1234-567812345678"
-CONNECTION_UUID = "87654321-4321-4678-9234-567812345678"
+from minerec.processing.render.job import OWNER, RENDER_JOB_TYPE, RenderJobResult, _owned_render_directory, launch_render_job, prepare_render_job
+from play_fixture import CONNECTION, PLAYER, completed_capture, event
 
 
-class ReplayResolutionTest(unittest.TestCase):
-    def test_runtime_preflight_uses_normal_gradle_cache_and_complete_client_task(self) -> None:
+class RenderJobTest(unittest.TestCase):
+    def test_processor_uses_only_explicit_inputs_and_creates_fpv_frames(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            project = root / "renderer-mod"
-            project.mkdir()
-            config = SimpleNamespace(
-                mods=SimpleNamespace(renderer_project=project),
-                paths=SimpleNamespace(base=root),
+            metadata, events = completed_capture(
+                root / "play",
+                [event("player_state", 10, 1), event("player_state", 11, 2)],
             )
-            runner = mock.Mock(return_value=SimpleNamespace(returncode=0))
-
-            with mock.patch(
-                "minerec.processing.render.job.current_process_environment",
-                return_value={"GRADLE_USER_HOME": "/operator/gradle-cache"},
-            ):
-                prepare_renderer_runtime(cast(RecorderConfig, config), runner=runner)
-
-            self.assertEqual(
-                [
-                    "gradle",
-                    "--project-dir",
-                    str(project),
-                    "prepareRendererRuntime",
-                    "--no-daemon",
-                    "--console=plain",
-                ],
-                runner.call_args.args[0],
-            )
-            self.assertEqual(
-                "/operator/gradle-cache",
-                runner.call_args.kwargs["env"]["GRADLE_USER_HOME"],
-            )
-
-    def test_runtime_preflight_respects_configured_gradle_executable(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            project = root / "renderer-mod"
-            project.mkdir()
-            config = SimpleNamespace(
-                mods=SimpleNamespace(renderer_project=project),
-                paths=SimpleNamespace(base=root),
-            )
-            runner = mock.Mock(return_value=SimpleNamespace(returncode=0))
-
-            with mock.patch(
-                "minerec.processing.render.job.current_process_environment",
-                return_value={"MC_RECORDER_GRADLE": "/opt/proto/shims/gradle"},
-            ):
-                prepare_renderer_runtime(cast(RecorderConfig, config), runner=runner)
-
-            self.assertEqual("/opt/proto/shims/gradle", runner.call_args.args[0][0])
-
-    def test_runtime_preflight_reports_gradle_failure(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            project = root / "renderer-mod"
-            project.mkdir()
-            config = SimpleNamespace(
-                mods=SimpleNamespace(renderer_project=project),
-                paths=SimpleNamespace(base=root),
-            )
-            runner = mock.Mock(return_value=SimpleNamespace(returncode=1))
-
-            with self.assertRaisesRegex(RecorderError, "runtime preparation failed with exit code 1"):
-                prepare_renderer_runtime(cast(RecorderConfig, config), runner=runner)
-
-    def test_direct_prepared_gui_job_does_not_claim_dataset_bound_contract(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            episode = root / "episode"
-            episode.mkdir()
-            (episode / "manifest.json").write_text("{}", encoding="utf-8")
             replay = root / "replay.zip"
             replay.write_bytes(b"replay")
-            validation = SimpleNamespace(valid=True, sealed_epochs=1, session_id="session")
-            connection = "22222222-2222-2222-2222-222222222222"
-            patches = (
-                mock.patch("minerec.processing.render.job.validate_episode", return_value=validation),
+            output = root / "renders"
+            with (
                 mock.patch(
-                    "minerec.processing.render.job._select_connection",
-                    return_value=(connection, 10, 20),
+                    "minerec.processing.render.job.verified_replay_source",
+                    return_value=SimpleNamespace(
+                        path=replay.resolve(),
+                        player_uuid=PLAYER,
+                        connection_id=CONNECTION,
+                        replay_id="00000000-0000-4000-8000-000000000003",
+                        replay_format="flashback",
+                        sha256="b" * 64,
+                        size_bytes=6,
+                    ),
                 ),
-                mock.patch("minerec.processing.render.job._detect_replay_format", return_value="flashback"),
-                mock.patch(
-                    "minerec.processing.render.job._stable_file_digest",
-                    return_value=(hashlib.sha256(b"replay").hexdigest(), 6),
-                ),
-                mock.patch("minerec.processing.render.job.sha256_file", return_value="a" * 64),
-            )
-            for patch in patches:
-                patch.start()
-                self.addCleanup(patch.stop)
+            ):
+                job = prepare_render_job(
+                    metadata,
+                    events,
+                    replay,
+                    output,
+                    width=640,
+                    height=360,
+                    fps=20,
+                    first_tick=10,
+                    last_tick=11,
+                    force=False,
+                )
+            manifest = json.loads(job.manifest.read_text(encoding="utf-8"))
+            self.assertEqual((output / "fpv_frames").resolve(), Path(manifest["output"]))
+            self.assertTrue((output / "fpv_frames").is_dir())
+            self.assertNotIn("dataset", json.dumps(manifest))
+            self.assertEqual("intersection", manifest["timeline"]["range_policy"])
+            self.assertEqual(str(metadata.resolve()), manifest["capture"]["metadata"])
 
-            gui = prepare_render_job(
-                episode,
-                replay,
-                root / "gui-job",
-                player_uuid=PLAYER_UUID,
-                connection_id=connection,
-                width=640,
-                height=360,
-                fps=20,
-                first_tick=10,
-                last_tick=20,
-                force=False,
-                no_gui=False,
-            )
-            no_gui = prepare_render_job(
-                episode,
-                replay,
-                root / "no-gui-job",
-                player_uuid=PLAYER_UUID,
-                connection_id=connection,
-                width=640,
-                height=360,
-                fps=20,
-                first_tick=10,
-                last_tick=20,
-                force=False,
-                no_gui=True,
-            )
-
-            gui_manifest = json.loads(gui.manifest.read_text(encoding="utf-8"))
-            no_gui_manifest = json.loads(no_gui.manifest.read_text(encoding="utf-8"))
-            self.assertNotIn("presentation_contract", gui_manifest)
-            self.assertNotIn("structured_hud", gui_manifest)
-            self.assertNotIn("presentation_contract", no_gui_manifest)
-
-    def test_rejects_invalid_player_before_building_a_replay_path(self) -> None:
+    def test_force_replaces_only_an_owned_render_directory(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            with self.assertRaisesRegex(RecorderError, "invalid player UUID"):
-                resolve_replay(Path(temporary), "../players", None)
-
-    def test_rejects_an_explicit_replay_symlink(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            target = root / "recording.zip"
-            target.write_bytes(b"not needed for path resolution")
-            link = root / "linked.zip"
-            link.symlink_to(target)
-
-            with self.assertRaisesRegex(RecorderError, "symlinked"):
-                resolve_replay(root, PLAYER_UUID, link)
-
-    def test_owned_render_directory_rejects_unrecognized_nested_files(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            job = Path(temporary) / "job"
-            frames = job / "frames"
+            output = Path(temporary) / "renders"
+            frames = output / "fpv_frames"
             frames.mkdir(parents=True)
-            (job / "render-job.json").write_text(
-                (f'{{"owner":"{OWNER}","job_type":"{RENDER_JOB_TYPE}","output":"{frames.resolve()}","result":"{(job / "result.json").resolve()}"}}'),
+            (output / "render-job.json").write_text(
+                json.dumps(
+                    {
+                        "owner": OWNER,
+                        "job_type": RENDER_JOB_TYPE,
+                        "output": str(frames.resolve()),
+                        "result": str((output / "result.json").resolve()),
+                    }
+                ),
                 encoding="utf-8",
             )
-            (frames / "frame_000001.png").write_bytes(b"owned")
-            self.assertTrue(_owned_render_directory(job))
-
-            (frames / "voxels").mkdir()
-            (frames / "voxels" / "voxel_000000000001.json.gz").write_bytes(b"owned")
-            self.assertFalse(_owned_render_directory(job))
-            (frames / "voxels" / "voxel_000000000001.json.gz").unlink()
-            (frames / "voxels").rmdir()
-
-            (frames / "personal-notes.txt").write_text("do not delete", encoding="utf-8")
-            self.assertFalse(_owned_render_directory(job))
+            self.assertTrue(_owned_render_directory(output))
+            (frames / "notes.txt").write_text("keep", encoding="utf-8")
+            self.assertFalse(_owned_render_directory(output))
 
     @mock.patch("minerec.processing.render.job.subprocess.run")
-    def test_launcher_accepts_atomic_no_coverage_only_for_intersection_jobs(self, run: mock.Mock) -> None:
+    def test_launcher_checks_explicit_replay_has_not_changed(self, run: mock.Mock) -> None:
         run.return_value = SimpleNamespace(returncode=0)
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            project = root / "mods" / "renderer-mod"
-            project.mkdir(parents=True)
+            project = root / "renderer"
+            project.mkdir()
             replay = root / "replay.zip"
             replay.write_bytes(b"replay")
             digest = hashlib.sha256(b"replay").hexdigest()
-            directory = root / "job"
-            directory.mkdir()
-            manifest = directory / "render-job.json"
-            manifest.write_text(
-                json.dumps(
-                    {
-                        "timeline": {"range_policy": "intersection"},
-                        "source_replay": {"sha256": digest, "size_bytes": 6},
-                    }
-                ),
-                encoding="utf-8",
-            )
-            (directory / "result.json").write_text(
-                json.dumps(
-                    {
-                        "status": "no_coverage",
-                        "replay_sha256": digest,
-                        "replay_bytes": 6,
-                    }
-                ),
-                encoding="utf-8",
-            )
-            config = SimpleNamespace(
-                mods=SimpleNamespace(renderer_project=project),
-                paths=SimpleNamespace(base=root, runtime=root / "runtime"),
-            )
-
-            with mock.patch(
-                "minerec.processing.render.job.current_process_environment",
-                return_value={"MC_RECORDER_GRADLE": "/opt/proto/shims/gradle"},
-            ):
-                result = launch_render_job(
-                    config,  # ty:ignore[invalid-argument-type]
-                    RenderJobResult(directory, manifest, replay, "connection"),
-                    offline=True,
-                )
-
-            self.assertEqual("no_coverage", result["status"])
-            self.assertEqual(
-                [
-                    "/opt/proto/shims/gradle",
-                    "--project-dir",
-                    str(project),
-                    "runClient",
-                    "--no-daemon",
-                    "--console=plain",
-                    "--offline",
-                ],
-                run.call_args.args[0],
-            )
-
-            manifest_value = json.loads(manifest.read_text())
-            manifest_value["no_gui"] = False
-            manifest.write_text(json.dumps(manifest_value), encoding="utf-8")
-            with self.assertRaisesRegex(RecorderError, "no_gui does not match"):
-                launch_render_job(
-                    config,  # ty:ignore[invalid-argument-type]
-                    RenderJobResult(directory, manifest, replay, "connection"),
-                )
-
-    @mock.patch("minerec.processing.render.job.subprocess.run")
-    def test_launcher_validates_gui_presentation_contract(self, run: mock.Mock) -> None:
-        run.return_value = SimpleNamespace(returncode=0)
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            project = root / "mods" / "renderer-mod"
-            project.mkdir(parents=True)
-            replay = root / "replay.zip"
-            replay.write_bytes(b"replay")
-            digest = hashlib.sha256(b"replay").hexdigest()
-            directory = root / "job"
-            directory.mkdir()
-            hud = directory / "hud-states.jsonl"
-            hud.write_bytes(b'{"server_tick":10}\n{"server_tick":11}\n')
-            hud_digest = hashlib.sha256(hud.read_bytes()).hexdigest()
-            hud_result = {
-                "schema_version": 1,
-                "type": "mc-recorder-structured-hud-v1",
-                "format": "jsonl",
-                "sha256": hud_digest,
-                "size_bytes": hud.stat().st_size,
-                "records": 2,
-                "start_server_tick": 10,
-                "end_server_tick": 11,
-                "dataset_id": "a" * 32,
-                "dataset_manifest_sha256": "b" * 64,
-                "samples_sha256": "c" * 64,
-                "session_id": "session-a",
-                "player_uuid": PLAYER_UUID,
-                "connection_id": CONNECTION_UUID,
-            }
-            manifest = directory / "render-job.json"
-            manifest_value = {
-                "no_gui": False,
-                "presentation_contract": FULL_CLIENT_PRESENTATION_CONTRACT,
-                "session_id": "session-a",
-                "player_uuid": PLAYER_UUID,
-                "connection_id": CONNECTION_UUID,
-                "global_start_tick": 10,
-                "global_end_tick": 11,
-                "structured_hud": {
-                    **hud_result,
-                    "path": str(hud.resolve()),
-                },
-                "source_replay": {"sha256": digest, "size_bytes": 6},
-            }
-            manifest.write_text(json.dumps(manifest_value), encoding="utf-8")
-            result_path = directory / "result.json"
-            result_value = {
-                "status": "complete",
-                "no_gui": False,
-                "presentation_contract": FULL_CLIENT_PRESENTATION_CONTRACT,
-                "structured_hud": dict(hud_result),
-                "replay_sha256": digest,
-                "replay_bytes": 6,
-            }
-            result_path.write_text(json.dumps(result_value), encoding="utf-8")
-            config = SimpleNamespace(
-                mods=SimpleNamespace(renderer_project=project),
-                paths=SimpleNamespace(base=root, runtime=root / "runtime"),
-            )
-            job = RenderJobResult(directory, manifest, replay, CONNECTION_UUID)
-
-            result = launch_render_job(config, job)  # ty:ignore[invalid-argument-type]
-            self.assertEqual(
-                FULL_CLIENT_PRESENTATION_CONTRACT,
-                result["presentation_contract"],
-            )
-
-            result_value["presentation_contract"] = "direct_camera_v0"
-            result_path.write_text(json.dumps(result_value), encoding="utf-8")
-            with self.assertRaisesRegex(RecorderError, "presentation_contract does not match"):
-                launch_render_job(config, job)  # ty:ignore[invalid-argument-type]
-
-            result_value["presentation_contract"] = FULL_CLIENT_PRESENTATION_CONTRACT
-            result_path.write_text(json.dumps(result_value), encoding="utf-8")
-            hud.write_bytes(b"tampered")
-            with self.assertRaisesRegex(RecorderError, "failed its integrity envelope"):
-                launch_render_job(config, job)  # ty:ignore[invalid-argument-type]
-            hud.write_bytes(b'{"server_tick":10}\n{"server_tick":11}\n')
-
-            result_value["structured_hud"]["sha256"] = "0" * 64
-            result_path.write_text(json.dumps(result_value), encoding="utf-8")
-            with self.assertRaisesRegex(RecorderError, "structured_hud does not match"):
-                launch_render_job(config, job)  # ty:ignore[invalid-argument-type]
-            result_value["structured_hud"]["sha256"] = hud_digest
-            result_path.write_text(json.dumps(result_value), encoding="utf-8")
-
-            manifest_value["presentation_contract"] = "direct_camera_v0"
-            manifest.write_text(json.dumps(manifest_value), encoding="utf-8")
-            with self.assertRaisesRegex(RecorderError, "presentation_contract is not supported"):
-                launch_render_job(config, job)  # ty:ignore[invalid-argument-type]
-
-    @mock.patch("minerec.processing.render.job.subprocess.run")
-    def test_launcher_preserves_legacy_unmarked_gui_results(self, run: mock.Mock) -> None:
-        run.return_value = SimpleNamespace(returncode=0)
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            project = root / "mods" / "renderer-mod"
-            project.mkdir(parents=True)
-            replay = root / "replay.zip"
-            replay.write_bytes(b"replay")
-            digest = hashlib.sha256(b"replay").hexdigest()
-            directory = root / "job"
-            directory.mkdir()
-            manifest = directory / "render-job.json"
-            manifest.write_text(
-                json.dumps(
-                    {
-                        "no_gui": False,
-                        "source_replay": {"sha256": digest, "size_bytes": 6},
-                    }
-                ),
-                encoding="utf-8",
-            )
-            (directory / "result.json").write_text(
-                json.dumps(
-                    {
-                        "status": "complete",
-                        "no_gui": False,
-                        "replay_sha256": digest,
-                        "replay_bytes": 6,
-                    }
-                ),
-                encoding="utf-8",
-            )
-            config = SimpleNamespace(
-                mods=SimpleNamespace(renderer_project=project),
-                paths=SimpleNamespace(base=root, runtime=root / "runtime"),
-            )
-
-            result = launch_render_job(
-                config,  # ty:ignore[invalid-argument-type]
-                RenderJobResult(directory, manifest, replay, "connection"),
-            )
-
+            output = root / "renders"
+            output.mkdir()
+            manifest = output / "render-job.json"
+            manifest.write_text(json.dumps({"no_gui": False, "source_replay": {"sha256": digest, "size_bytes": 6}}), encoding="utf-8")
+            (output / "result.json").write_text(json.dumps({"status": "complete", "no_gui": False, "replay_sha256": digest, "replay_bytes": 6}), encoding="utf-8")
+            config = SimpleNamespace(mods=SimpleNamespace(renderer_project=project), paths=SimpleNamespace(base=root))
+            result = launch_render_job(config, RenderJobResult(output, manifest, replay, CONNECTION))  # ty:ignore[invalid-argument-type]
             self.assertEqual("complete", result["status"])
+            replay.write_bytes(b"changed")
+            with self.assertRaisesRegex(RecorderError, "integrity"):
+                launch_render_job(config, RenderJobResult(output, manifest, replay, CONNECTION))  # ty:ignore[invalid-argument-type]
 
 
 if __name__ == "__main__":

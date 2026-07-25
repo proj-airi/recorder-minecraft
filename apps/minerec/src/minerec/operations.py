@@ -13,7 +13,7 @@ from minerec.errors import RecorderError
 
 @contextmanager
 def operation_lock(runtime: Path, operation: str) -> Iterator[None]:
-    """Serialize host-side mutations across CLI and dashboard processes."""
+    """Serialize host-side processor mutations."""
 
     runtime.mkdir(parents=True, exist_ok=True)
     path = runtime / "operation.lock"

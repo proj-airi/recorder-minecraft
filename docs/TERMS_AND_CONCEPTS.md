@@ -1,261 +1,249 @@
 # Terms and Concepts
 
-This document defines the domain boundaries, component responsibilities, and
-shared terminology used by the current mc-play-recorder implementation. It
-describes what exists in the repository today. Product directions that have not
-been implemented are not presented as existing capabilities.
+The normative persisted contracts are [Artifacts V1](specs/artifacts-v1.md)
+and [Primitive Capture V1](specs/capture-v1.md).
 
-The following conventions apply:
+## System model
 
-- A **preferred term** is the name new code, APIs, logs, and documentation should
-  use.
-- A **legacy term** is retained only to explain existing symbols or support
-  existing files. Do not extend its use.
-- A status must identify the object it describes. Use `render job: partial`
-  instead of an unqualified `partial`.
-- `player_uuid`, `connection_id`, `segment_id`, `dataset_id`, and `job_id`
-  belong to different identity spaces. They cannot be derived from or substituted
-  for one another.
+The system has two independent stages joined by ordinary files:
 
-## Domains
+1. The recorder creates one primitive capture for one player connection.
+2. Explicit file-to-file processors may later derive actions, scenes, and
+   renders from that completed capture.
 
-| Domain | Owns | Inputs | Outputs | Boundary |
-| --- | --- | --- | --- | --- |
-| Minecraft server runtime | Minecraft server process, server ticks, player entities, and network connection lifecycles | Player client connections, server configuration, and mods | Server callbacks, packets, world state, and player state | Does not own Datasets, the render queue, or the Dashboard |
-| Recorder | Server-side events observed by the Recorder mod, session identity, global sequence, and epoch publication | Minecraft server callbacks and applied serverbound packets | Capture sessions, epoch event streams, timeline markers, and replay identity metadata | Does not generate Flashback ZIPs, launch the renderer, or manage the Dashboard |
-| Replay | ServerReplay/Flashback archive creation, rotation, and final ZIP publication | Minecraft client-visible packets and replay identity metadata supplied by the Recorder | Flashback replay archives | Archive rotation is independent of Recorder epoch rotation; the Recorder cannot request publication of a final ZIP |
-| Capture processing | Capture session inspection, active-prefix snapshots, export, and retention | Recorder capture filesystem and completed replay filesystem | Verified capture views, Dataset V2, and storage reports | Reads or copies Recorder sources only; a consumer snapshot must never be written back as a Recorder source |
-| Dataset | Observation states, transition samples, actions, modality references, and provenance | Verified capture data and optional RGB/scene attachments | Atomically published Dataset V2 directory | Python verifies Dataset identity, selection, and file integrity |
-| Render control | Render job, attempt, lease, dispatch, and finalization state | Dashboard render requests and Dataset or replay artifact identity | Durable queue state, RabbitMQ job messages, renderer plans, and attachment results | Does not produce pixels directly; paths supplied by a browser or worker are never trusted |
-| Renderer runtime | GUI client playback and first-person RGB generation for one replay segment | Server-authored portable requests, verified replay ZIPs, and structured HUD sidecars | PNG frames, frame indexes, and worker results | Requires the Minecraft client and Fabric renderer mod; `no_gui` does not mean headless |
-| Scene extraction | Replay packet reduction and random-access scene store generation | Verified replay segments, authoritative subject poses, and scene jobs | Scene streams and `scene-v1.sqlite3` | Uses a dedicated-server executable and does not depend on a GUI client |
-| Viewer | Dataset catalog, indexed queries, and trajectory/sample/frame/scene inspection | Verified Dataset V2 publications and durable render imports | Bounded HTTP responses and interactive frontend views | Does not modify capture or replay sources and does not own render execution |
-| Storage and retention | Capture/replay quotas, pinning, and safe deletion | Verified sealed epochs and stable completed replay archives | Storage status and eviction decisions | Does not delete active or incomplete epochs, changing archives, world data, or Datasets |
-| Operator tooling | Local commands, Compose lifecycle, and GUI consumer startup | Repository checkout, configuration, and desktop environment | Running services and persistent GUI consumers | The Dashboard does not manage Docker Compose or the Minecraft server lifecycle |
+There is no publication service between the stages. Operators and external
+systems may copy a completed play with normal filesystem tools such as SSH or
+rsync.
 
-## Components
-
-| Component | Runtime | Domain | Responsibility | Does not own |
-| --- | --- | --- | --- | --- |
-| `mods/recorder-mod` | Minecraft server JVM | Recorder | Records server-visible events, manages capture sessions and epochs, and injects identity into replay metadata | Flashback ZIP finalization, Dataset export, or render jobs |
-| ServerReplay and Flashback integration | Minecraft server JVM | Replay | Records and publishes Flashback replay ZIPs by player and segment | Recorder event JSONL or the Dashboard queue |
-| `ArtifactCatalog` | Python | Capture processing | Scans and verifies capture sessions and completed replay archives | Dataset content or render execution |
-| `CaptureSnapshot` | Python | Capture processing | Creates a bounded, verified append-prefix snapshot for a connection that has ended | Recorder source publication |
-| `export_episode` | Python | Dataset | Atomically builds Dataset V2 from verified capture data and joins optional modalities | GUI rendering |
-| `DatasetViewer` | Python | Viewer | Verifies Dataset V2, maintains a SQLite byte-offset index, and queries by opaque ID | Dataset authoring or queue scheduling |
-| Dashboard HTTP server | Python | Viewer / Render control | Serves the static frontend and authenticated HTTP API from the same origin | GUI worker process management |
-| `apps/dashboard` | Browser / Vue | Viewer | Displays artifacts, Datasets, render jobs, and viewer interactions | Filesystem paths, lease tokens, or renderer commands |
-| `RenderQueueStore` | Python / SQLite | Render control | Stores render jobs, attempts, workers, leases, and terminal results in the Compose `render-control` volume | RabbitMQ delivery guarantees or PNG files |
-| `RenderPreparer` | Python service | Render control | Verifies a replay, snapshots a connection, and generates and binds a Dataset for a replay-artifact request | GUI client |
-| `render-dispatcher` | Python service | Render control | Sends publishable queued jobs to RabbitMQ and records a dispatch marker | Job authority or render execution |
-| RabbitMQ broker adapter | RabbitMQ / Python | Render control | Delivers a wake-up message for an existing durable render job | Job state, attempt state, or Dataset identity |
-| `render-worker` | Python on a GUI host | Renderer runtime | Continuously consumes RabbitMQ messages, calls the Dashboard render-control endpoint, runs segment invocations serially, and takes the next job after completion | Queue SQLite access or Minecraft server management |
-| `RenderRpcService` | Python | Render control | Validates token-authenticated worker actions, creates fenced plans, and provides source/request/finalize operations | Browser API or renderer execution |
-| `mods/renderer-mod` | Minecraft client JVM | Renderer runtime | Opens a Flashback replay, synchronizes first-person/HUD state, and writes PNG/index/result files | Queue state or Dataset replacement |
-| Scene extractor executable | Java dedicated-server process | Scene extraction | Executes a scene job and produces a verifiable scene stream | GUI RGB or the Dashboard |
-| `storage-monitor` | Python service | Storage and retention | Periodically checks capture/replay quotas and performs safe eviction | World, Dataset, or render import retention |
-| `hack/*` wrappers | Host shell | Operator tooling | Builds, starts, and inspects local Compose, RabbitMQ, Dashboard, and related services | Product domain state |
-
-## Identity Hierarchy
-
-| Identity | Scope | Meaning |
+| Domain | Owns | Does not own |
 | --- | --- | --- |
-| `session_id` | One Minecraft server-process capture run | Stable identity of a capture session |
-| `epoch_index` | One capture session | Consecutive index in the Recorder sidecar stream |
-| `player_uuid` | Minecraft account/player | Player identity that remains stable across reconnects |
-| `connection_id` | One join-to-leave interval | Independent identity for each connection made by the same player |
-| `segment_id` | One completed replay archive | UUID of a ServerReplay/Flashback replay segment |
-| `dataset_id` | One direct `*.dataset` directory name under an exports root | Opaque ID used by the Viewer; it is not currently a content hash |
-| `sample_id` | One Dataset observation/transition location | Opaque sample identity used by the Viewer |
-| `job_id` | One durable end-to-end render request | Identity of a SQLite render job |
-| `attempt_id` | One worker lease generation | One fenced execution of a job by a worker |
-| `request_id` | One replay-segment renderer request | Identity of a portable request |
+| Minecraft server | Server ticks, player entities, connection lifecycle, and authoritative game state | Post-processing outputs or worker coordination |
+| Recorder mod | Artifacts V1 hierarchy, play metadata, connection-local event stream, replay association, and completion marker | Action extraction, Scene Store V2, renders, downloads, or datasets |
+| ServerReplay | Live Flashback writer and final Flashback ZIP bytes | Recorder events, play layout, or derived outputs |
+| Action processor | Reconstruction of a semantic action stream from one completed capture | Capture discovery, hierarchy creation, or replay mutation |
+| Scene processor | Headless replay reduction, private Scene Store V1 staging, and durable Scene Store V2 output | GUI rendering or omniscient server-world recovery |
+| Renderer | Flashback playback and optional first-person PNG generation | Scene extraction, artifact discovery, or capture mutation |
+| Operator or external orchestrator | Copying plays, choosing inputs and outputs, scheduling processors, and assembling later datasets | Recorder-internal lifecycle state |
 
-## Capture Terms
-
-| Preferred term | Definition | Avoid or qualify |
-| --- | --- | --- |
-| Capture session | Complete session recorded by the Recorder during one Minecraft server process run | `episode` is an existing Python legacy alias and must not imply a different object |
-| Epoch | Append-only JSONL slice managed by the Recorder within a capture session | Do not use an unqualified `segment` for an epoch |
-| Active epoch | Epoch whose `events.jsonl.inprogress` is still being written | `inprogress` is a file publication state, not a separate domain object |
-| Sealed epoch | Epoch with published `events.jsonl` and manifest files that pass count/bytes/SHA-256 verification | `sealed` describes epoch integrity only; it does not mean the session has ended |
-| Capture prefix snapshot | Private, verified snapshot of a stable append-only prefix created by a consumer for a connection that has ended | Do not call it a Recorder seal; `rotation_reason=consumer_snapshot` does not alter the source |
-| Capture session end | Clean, incomplete, or failed shutdown result represented by `session_end.json` | Do not infer session end merely because no active epoch is visible |
-| Player connection | Interval from one `player_join` to its corresponding `player_leave` | A player UUID cannot replace a connection ID |
-
-The current export and retention contracts still depend on sealed epochs. A
-capture prefix snapshot is a consumer capability for reading the stable prefix
-of a connection that has ended. It does not remove the Recorder epoch
-publication protocol.
-
-## Replay Terms
-
-| Preferred term | Definition | Avoid or qualify |
-| --- | --- | --- |
-| Replay archive | Final, published, and verifiable Flashback ZIP/MCPR file produced by ServerReplay | Do not call an incomplete ZIP an archive |
-| Replay segment | One replay archive with a `segment_id` and `segment_ordinal` | Always include the `replay` qualifier |
-| Replay identity metadata | `mc_recorder` identity inside `arcade_replay_meta.json` in the ZIP | It is neither a Dataset manifest nor queue state |
-| Timeline marker | Recorder payload inside a replay that aligns replay ticks with global server ticks | Do not replace it with wall-clock time or file timestamps |
-| Replay coverage | Global tick intersection actually contained by one replay segment | Coverage gaps must remain missing; do not interpolate or fabricate them |
-
-Replay segment rotation and Recorder epoch rotation are independent. They may
-use similar durations, but there is no one-to-one relationship between them.
-
-## Dataset Terms
-
-| Preferred term | Definition | Avoid or qualify |
-| --- | --- | --- |
-| Observation state | Authoritative `player_state` for a selected player connection at the end of a tick | An unqualified `state` may also refer to queue, worker, or scene state |
-| Action record | Reconstructed `control_state` or applied serverbound packet | It is not a raw keyboard/mouse event or a Flashback archive `Action` |
-| Transition sample | `state[t] + reconstructed control/ordered packets -> state[t+1]` | A terminal observation has no transition sample |
-| Modality | Optional RGB or scene data joined exactly to an observation tick | A missing modality is a valid, explicit state |
-| RGB frame | Single-tick PNG and corresponding `frames.jsonl` row produced by the Renderer | It is not an original player-client pixel capture |
-| Scene frame | Logical client-visible scene snapshot at a timeline marker | It is not an RGB image |
-| Dataset selection | Export request fixed to session/player/connection/tick bounds | It is not the same as replay segment coverage |
-| Dataset manifest | File inventory, selection, and source provenance for the Dataset core | The Renderer must not modify it; derived attachment provenance belongs in the attachment manifest |
-| Dataset viewer index | Rebuildable SQLite byte-offset cache under `.mc-recorder` | It is not a source of truth |
-
-An RGB attachment does not modify the Dataset core. It is atomically published
-at `exports/.dataset-attachments/<dataset_id>/rgb.json` and binds the Dataset
-manifest and `samples.jsonl` SHA-256 values. The Viewer joins this derived index
-to core observations by exact identity and tick.
-
-## Render Terms
-
-| Preferred term | Definition | Avoid or qualify |
-| --- | --- | --- |
-| Render request | Product operation through which a user requests RGB generation in the Dashboard | Once persisted, call it a render job |
-| Render job | One end-to-end RGB request stored in SQLite | Do not use it for a single-segment Java invocation |
-| Render job message | RabbitMQ wake-up/delivery message for an existing render job | It is not another job or a source of truth |
-| Render attempt | Execution with a generation and lease token after a worker claims a job | An attempt failure does not create a new job |
-| Render plan | Sources, identity, paths, and integrity envelope fixed by Server/Python for an attempt | It is not authored by the browser or worker |
-| Portable render request | Machine-path-free renderer input for one replay segment | Distinguish it from the end-to-end render request |
-| Renderer invocation | Local `render-job.json` materialized and executed by a worker for one replay segment | Existing code may call this a local `render job` |
-| Render bundle | Hash-indexed portable output before worker upload | It is not the final Dataset |
-| Durable render import | Canonical files verified and published by Python under `exports/render-jobs/<job>/<segment>` | Distinguish it from the worker's ephemeral workspace |
-| RGB attachment | Association of durable RGB references with a Dataset through an exact identity/tick join | Does not rewrite the Dataset core or copy/synthesize missing frames |
-| Full coverage | Every selected sample has verified RGB | The queue terminal state is `complete` |
-| Partial coverage | At least one valid render import exists, but selected samples still contain RGB gaps | The queue terminal state is `partial`, which is a successful result |
-| No coverage | One replay segment has no intersection with the requested range | A segment may return `no_coverage` without failing the entire job |
-| GUI-hidden render | GUI renderer output with the Minecraft HUD hidden by `no_gui=true` | Do not call it headless; a graphical environment is still required |
-
-## Scene Terms
-
-| Preferred term | Definition | Avoid or qualify |
-| --- | --- | --- |
-| Scene extraction | Reconstruction of random-access scene data through Minecraft packet codecs and a reducer | Do not call it RGB rendering |
-| Scene extractor executable | Dedicated-server CLI distribution built from `mods/scene-extractor-mod` | The directory contains `mod` in its name, but Python invokes an executable |
-| Scene stream | Intermediate frame/change/blob spool written by the Extractor | It is not the final Dataset |
-| Scene store | Compacted random-access value stored in `scene-v1.sqlite3` | Does not require a GUI client |
-| Subject present | The scene reducer found the selected subject entity at a marker | Does not by itself establish complete world/scene coverage |
-| Coverage complete | Stronger guarantee that a Viewer or training consumer can safely use the selected scene region | Requires explicit completeness criteria; subject presence alone is insufficient |
-
-## Viewer and Timeline Terms
-
-This section includes both current query concepts and product terms reserved for
-future Viewer work. A reserved term does not imply that the repository already
-implements the corresponding editing, annotation, or persistence capability.
-
-| Preferred term | Definition | Avoid or qualify |
-| --- | --- | --- |
-| Dataset view | Rebuildable query result produced by applying filters, sorting, ranges, and field selection to a Dataset | Does not copy the underlying Dataset or create a new `dataset_id` |
-| Timeline | Interactive view that aligns multiple data tracks on the global server tick axis | Do not assume it is equivalent to video time in seconds or replay-local ticks |
-| Track | Timeline lane for data with the same type and time semantics, such as RGB coverage, actions, or validation issues | It is not a new physical file format inside a Dataset |
-| Playhead | Single global server tick currently selected in the Viewer | Does not imply that the Dataset has been modified or split |
-| Range selection | Temporary or persistent Viewer selection with an inclusive start tick and exclusive end tick | Do not call it a sealed Dataset |
-| Coverage interval | Continuous tick range in which a modality or replay segment is actually available | Distinguish it from a user range selection |
-| Timeline gap | Explicit interval on the expected timeline with no corresponding source or modality | Do not fill it to simulate continuous coverage |
-| Annotation | Operator-authored metadata attached to a sample, tick, or range | Must not be written back to Recorder source events |
-| Derived asset | Independent output computed from a Dataset or source, such as an RGB import, scene store, thumbnail, or validation report | Do not combine it with Dataset core files as though they were outputs of one pipeline |
-| Attachment | Record that associates a derived asset with a Dataset through identity, tick range, and provenance | Does not require rewriting the Dataset core |
-| Split | Creation of two adjacent, non-destructive selections inside one range | Does not mean Recorder rotation or replay ZIP finalization |
-| Trim | Adjustment of selection start/end bounds | Does not delete source ticks |
-| Concat | Logical sequence that references multiple selections in explicit order and permits source gaps | Does not fabricate continuous Minecraft ticks across a gap |
-| Merge | Domain operation that combines compatible metadata, annotations, or adjacent ranges | Do not use it as a synonym for `concat`; define a conflict policy |
-| Materialize | Publication of a Dataset view or logical sequence as a new, independently verified Dataset | Distinguish it from saving only a selection or reference |
-
-Viewer split, trim, and concat operations should use a non-destructive edit list.
-The list stores only source Dataset identity, tick bounds, order, and provenance.
-A new Dataset should be materialized only when the user explicitly exports it.
-This allows one source to support multiple views and edit versions without
-allowing GUI operations to change the training-data source of truth.
-
-## Status Vocabulary
-
-| Object | Allowed or preferred states | Meaning |
-| --- | --- | --- |
-| Capture session | `open`, `complete`, `incomplete`, `failed`, `empty` | Server-process capture lifecycle |
-| Epoch | `active`, `sealed`, `incomplete` | Recorder sidecar publication/integrity |
-| Replay archive | `saving`, `completed`, `invalid` | Physical ZIP lifecycle; the current catalog primarily displays completed archives |
-| Render job | `preparing_dataset`, `queued`, `downloading`, `rendering`, `uploading`, `verifying`, `attaching`, `complete`, `partial`, `failed`, `canceled` | End-to-end queue state |
-| Render attempt | `leased`, `uploaded`, `failed`, `deferred`, `expired`, `canceled` | One worker execution and lease |
-| Renderer invocation | `prepared`, `complete`, `no_coverage`, `failed` | One replay segment execution |
-
-`published` must identify its object:
-
-- `epoch published` means the Recorder atomically published the sealed epoch
-  files.
-- The existing queue field `published_at` means the job message was sent to
-  RabbitMQ. New APIs and documentation should call this `dispatched_at`.
-
-## Known Ambiguities and Migration Guidance
-
-| Existing wording | Problem | Preferred wording |
-| --- | --- | --- |
-| Episode | Refers to the same object as a capture session but implies another lifecycle | Capture session |
-| Segment | Refers to replay archives, snapshot sources, and writer internals | Replay segment, snapshot source epoch, or open epoch writer |
-| Render job | Refers to both a queue job and local Java input | Render job or renderer invocation |
-| Task | Can be mistaken for another durable work item | Render job message |
-| Worker | Refers to both the GUI render process and a Recorder-internal writer thread | Render worker or epoch writer thread |
-| Frame | Refers to both a PNG and a scene snapshot | RGB frame or scene frame |
-| Complete | Is reused across multiple lifecycles | Capture complete, render job complete, or renderer invocation complete |
-| Published | Refers to both filesystem publication and broker dispatch | Epoch published or job dispatched |
-| Immutable Dataset | The Dataset core publication does not change after RGB rendering | Derived attachment publication |
-| Headless render | `no_gui` still launches the Minecraft client | GUI-hidden render |
-| SSH RPC | The code no longer provides SSH or a hidden RPC CLI; the consumer calls an in-process control service directly | In-process render control action; do not imply remote transport |
-
-## Core Relationships
+## Canonical artifact hierarchy
 
 ```text
-Capture session
-  |- Epoch 0..N
-  |    `- Recorder events
-  `- Player
-       `- Connection 0..N
-            |- Replay segment 0..N
-            `- Dataset selection
-                 |- Observation states
-                 |- Transition samples
-                 |- Action records
-                 |- Optional scene frames
-                 `- Optional RGB frames
-
-Render request
-  `- Render job
-       `- Render attempt 0..N
-            `- Renderer invocation per replay segment
-                 `- Durable render import
-                      `- RGB attachment
+artifacts/v1/
+  <server-name>--<server-instance-uuid>/
+    world/                                      # reserved for future
+    players/
+      <player-name>--<player-uuid>/
+        plays/
+          <started-at-utc>--<connection-uuid>/
+            metadata.json
+            capture/
+              events.jsonl
+              replay.zip
+            actions.jsonl                       # optional
+            scene.sqlite3                       # optional
+            renders/                            # optional
+              render-job.json
+              result.json
+              fpv_frames/
+                frames.jsonl
+                frame_*.png
 ```
 
-## Invariants
+The hierarchy is part of the recorder contract. A processor receives exact
+input and output paths and does not discover, construct, or interpret this
+hierarchy on the caller's behalf.
 
-1. Cross-file joins use exact
-   `(session_id, player_uuid, connection_id, global server tick)` identity.
-2. Samples never cross a connection boundary.
-3. Replay segment and Recorder epoch boundaries are independent.
-4. Missing replay, RGB, or scene coverage remains explicit; consumers must not
-   interpolate it into apparently complete evidence.
-5. RabbitMQ delivery is not job authority. SQLite render queue state and fenced
-   attempt leases decide whether a worker may finalize.
-   In Compose, that SQLite value remains on Docker's native `render-control`
-   volume and GUI workers mutate it only through the Dashboard endpoint.
-6. Browser requests do not supply filesystem paths, commands, JVM flags, lease
-   tokens, or authoritative source identity.
-7. Worker-local paths and results are provenance only until Python imports and
-   verifies the bundle.
-8. Recorder source files are append-only while active and integrity-checked after
-   epoch publication. Consumer snapshots do not mutate Recorder source.
-9. Dataset viewer indexes are disposable caches and can always be rebuilt from
-   verified Dataset files.
-10. Scene and RGB are separate modalities produced by separate pipelines.
+### Layout terms
+
+| Term | Definition |
+| --- | --- |
+| Artifacts root | Durable root configured by `paths.artifacts`; Artifacts V1 lives under its `v1/` child |
+| Server instance | One stable recorder-server identity represented by an editable display name plus a generated UUID |
+| Player directory | Display name plus stable Minecraft player UUID; the name is descriptive, while the UUID is identity |
+| Play | One join-to-disconnect player connection and all primitive or derived files associated with it |
+| Capture directory | Recorder-owned primitive inputs inside one play |
+| Derived output | Optional processor-owned result placed at an explicit caller-selected path, conventionally inside the play |
+| Runtime root | Private scratch and lock root configured by `paths.runtime`; it is not part of Artifacts V1 |
+| World directory | Reserved server-instance-wide location for possible future world saves, seeds, or related inputs; absent and unused in V1 |
+
+## Identities and ordering
+
+| Identity or coordinate | Scope | Meaning |
+| --- | --- | --- |
+| `server.name` | Human-facing server label | Configurable display name; defaults to the machine hostname when omitted |
+| `server.instance_id` | Recorder server instance | UUID generated once by `minerec init` and reused across restarts |
+| `session_id` | One recorder process run | In-memory run identity embedded in metadata, events, and replay metadata; it does not create a session directory |
+| `player_uuid` | Minecraft player | Stable player identity across reconnects and display-name changes |
+| `connection_id` | One play | UUID generated for every join-to-disconnect interval |
+| `replay_id` | One replay archive | UUID embedded in `arcade_replay_meta.json` and bound to the player and connection |
+| `server_tick` | Server timeline | Logical tick used to align state, actions, and replay markers |
+| `sequence` | One `events.jsonl` stream | Strictly increasing total order for records belonging to the connection |
+| `apply_sequence` | Applied serverbound packets | Main-thread gameplay application order used by action reconstruction and state barriers |
+| Replay tick | Flashback timeline | Replay-local tick aligned to a server tick through `mc_recorder:timeline/v1` |
+
+Display names, directory modification times, replay filenames, and process
+timestamps are not substitutes for UUID identity.
+
+## Recorder lifecycle
+
+### Open play
+
+At player join, the recorder allocates a connection UUID, creates the canonical
+play directory, writes `metadata.json` with null end fields, opens
+`capture/events.jsonl`, and associates the player's ServerReplay writer with
+that play.
+
+ServerReplay writes to one timestamped working child under `capture/replay/`.
+That child is an implementation detail of the live writer, not a replay
+segment or durable artifact.
+
+### Completed play
+
+On disconnect, the recorder closes and flushes the event writer and asks
+ServerReplay to stop. After ServerReplay saves and closes its archive, the
+recorder moves those exact ZIP bytes to `capture/replay.zip`, removes the empty
+working directory, and atomically rewrites `metadata.json` with `ended_at`,
+`end_server_tick`, and `terminal_reason`.
+
+The non-null metadata end tick is the readiness marker and is written last.
+It means the recorder-owned inputs are closed and available to processors. It
+does not mean the directory is immutable, cryptographically sealed, published,
+downloaded, or fully post-processed.
+
+### Incomplete play
+
+If either primitive writer fails or the recorder cannot finish the handoff,
+the metadata end tick remains null. Processors reject that play. Recovery and
+download policies are outside the V1 recorder contract.
+
+## Primitive capture terms
+
+| Term | Definition |
+| --- | --- |
+| Primitive capture | `metadata.json`, `capture/events.jsonl`, and `capture/replay.zip` for one completed play |
+| Capture metadata | Facts occurring once: server, session, player, connection, tick range, terminal reason, canonical filenames, capture contract, and known gaps |
+| Event stream | Single connection-local, newline-delimited JSON stream written by the recorder |
+| Replay archive | One unrotated Flashback ZIP containing the client-visible packet timeline and embedded recorder identity |
+| Capture contract | Declared interpretation of the replay and event stream, currently `client_visible_scene_v1` for Flashback scene data |
+| Known gap | A modality or state the current capture cannot guarantee and must not silently fabricate |
+
+### Event record types
+
+| Record | Authority and use |
+| --- | --- |
+| `packet_arrival` | Diagnostic network-thread observation for latency and arrival/apply correlation; not authoritative gameplay order |
+| `packet_apply` | Main-thread observation immediately before a serverbound packet handler; authoritative ordering input for semantic action reconstruction |
+| `player_state` | Authoritative post-tick state for the recorded player, including transform, health, inventory, effects, abilities, and state barrier |
+| `control_state` | 20 Hz reconstruction of persistent movement flags, camera rotation and deltas, sprint/sneak state, and selected slot |
+| `replay_timeline` | Connection identity and server tick also sent into Flashback as `mc_recorder:timeline/v1` |
+
+An action record is normalized semantic data. It is not a raw network byte
+stream, physical keyboard event, or raw mouse sample. Chat, command, and custom
+payload contents are redacted where required by the capture contract.
+
+The state barrier means that `player_state[t]` includes all applied packets up
+to its `state_barrier_apply_sequence`. It lets a processor place ordered packet
+actions between adjacent authoritative states without relying on arrival time.
+
+## Processor terms
+
+| Term | Definition |
+| --- | --- |
+| Processor | Explicit command that validates named input files and writes one named output |
+| Actions extraction | Transformation from metadata plus events into `actions.jsonl` |
+| Scene extraction | Transformation from metadata, events, and replay into `scene.sqlite3` |
+| Rendering | Transformation from metadata, events, and replay into a `renders/` directory |
+| Tick selection | Optional inclusive `--from-tick` and `--to-tick` interval applied by a processor |
+| Prepared job | Private scene or render job created under the runtime root for validation or execution |
+| Owned output | Existing result that passes the processor's identity/format checks and may therefore be replaced with `--force` |
+
+Processors do not scan `artifacts/v1`, infer a replay from a player, create a
+play, download remote files, or mutate `metadata.json` and `capture/`.
+Independent workers can process copied plays because all required durable
+inputs are contained in the play itself.
+
+## Action terms
+
+| Term | Definition |
+| --- | --- |
+| Action stream | `actions.jsonl`, ordered by the selected server-tick interval |
+| Persistent control | Reconstructed held movement state such as forward, jump, sneak, or sprint |
+| Discrete action | Normalized applied packet action such as interaction, inventory selection, or other server-visible transition |
+| Protocol acknowledgement | Packet retained for protocol/accounting semantics but not presented as a physical player input |
+
+`actions.jsonl` is derived and replaceable. The recorder never writes it.
+
+## Scene terms
+
+| Term | Definition |
+| --- | --- |
+| Scene Store V2 | Durable `scene.sqlite3` output and the only public scene-store format produced by the processor |
+| Scene Store V1 | Private extractor spool/intermediate under the runtime root; not an Artifacts V1 output or compatibility format |
+| Scene frame | Random-access client-visible world snapshot aligned to one selected server tick |
+| Player state row | Exactly one typed subject-state row linked to every scene frame |
+| Section version | Time-bounded version of a client-visible chunk section |
+| Entity version | Time-bounded instance of a client-visible entity with an explicit application-assigned ID |
+| Block-entity version | Time-bounded client-visible block-entity payload at a world position |
+| Content-addressed blob | Canonical binary payload stored once and referenced by digest, including complete private player inventory/effects/abilities data |
+| Unknown cell | World location for which the replay provides no client-visible state at the requested tick |
+
+Scene Store V2 uses SQLite as the portable file format. Its logical base schema
+is defined with SQLAlchemy Core and avoids dependence on SQLite `rowid`, so a
+future PostgreSQL adapter can preserve the model. SQLite R-tree indexes,
+triggers, PRAGMAs, immutable reads, and atomic replacement remain adapter
+details.
+
+The scene is reconstructed from what the recorded client could see. An unknown
+cell is not air, and missing unopened-container contents are not an empty
+inventory.
+
+## Render terms
+
+| Term | Definition |
+| --- | --- |
+| Render output | Optional processor-owned `renders/` directory |
+| Render job | `render-job.json`, binding explicit capture inputs, identity, replay digest, selected ticks, resolution, FPS, and presentation options |
+| Render result | `result.json`, written only for a completed renderer invocation |
+| FPV frame | First-person PNG reconstructed by playing the Flashback archive in the client renderer |
+| Frame index | `fpv_frames/frames.jsonl`, mapping every PNG to server tick, replay tick, player, connection, and replay identity |
+| GUI presentation | First-person hand/item and Minecraft HUD presentation; enabled by default |
+| `no_gui` | Explicit request to omit the client HUD; it does not make the renderer headless |
+| Replay coverage | Tick interval for which matching timeline markers actually exist in the replay |
+
+Rendering is optional. A missing `renders/` directory means not rendered, not a
+failed or incomplete primitive capture. The current output is PNG frames, not
+MP4 and not pixels captured from the original player's computer.
+
+When requested ticks and replay coverage differ, the renderer reports and uses
+their explicit intersection. It does not interpolate absent ticks or compress
+gaps invisibly.
+
+## Coverage and modality gaps
+
+`client_visible_best_effort` describes replay world coverage. It is not a claim
+of complete server-world state. Unloaded chunks, entities outside tracking
+range, and information Minecraft never sent to the client remain unknown.
+
+Current Scene Store V2 does not persist exact lighting, particles, or audio.
+These limitations are declared in capture metadata and scene provenance. A
+future processor may add derived modalities without changing recorder
+ownership of the primitive capture.
+
+## Obsolete terms and components
+
+The following concepts belong to the removed architecture and must not be used
+to describe Artifacts V1:
+
+- Recorder epochs, epoch rotation, epoch manifests, and seal files.
+- Session directories as persisted artifact containers.
+- Independently rotated replay segments or segment ordinals.
+- Dataset V1/V2 exports, modality attachment manifests, and dataset viewers.
+- `.mcplay`, bundle ZIPs, bundle IDs, bundle publishers, importers, and
+  in-place bundle rendering.
+- Dashboard services, browser viewers, render queues, RabbitMQ dispatch, RPC
+  workers, leases, and render attachment publication.
+- Recorder-side download, post-processing, or dataset assembly.
+
+`session_id` remains a valid in-memory recorder-run identity. `Scene Store V1`
+also remains valid only as a private implementation intermediate. Neither term
+restores the removed persisted layout or compatibility paths.

@@ -178,12 +178,11 @@ final class SceneJobLoaderTest {
                 "record_count": 3,
                 "first_tick": 10,
                 "last_tick": 12,
-                "source_epochs": [{
-                  "epoch_index": 0,
+                "source_events": {
                   "events_sha256": "%s",
                   "events_size_bytes": 123,
                   "record_count": 9
-                }]
+                }
               },
               "output": "%s",
               "stop_when_done": true%s

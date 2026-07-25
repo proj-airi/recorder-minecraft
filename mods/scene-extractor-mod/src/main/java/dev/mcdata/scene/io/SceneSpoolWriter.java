@@ -48,6 +48,7 @@ public final class SceneSpoolWriter implements AutoCloseable {
     private final BufferedWriter frames;
     private final BufferedWriter changes;
     private final Map<String, Long> blobSizes = new LinkedHashMap<>();
+    private final Map<SectionIdentity, CachedSectionBlob> sectionBlobCache = new HashMap<>();
     private Map<SectionIdentity, String> previousSections = Map.of();
     private Map<String, String> previousEntities = Map.of();
     private Map<BlockEntityIdentity, String> previousBlockEntities = Map.of();
@@ -99,8 +100,18 @@ public final class SceneSpoolWriter implements AutoCloseable {
             SectionIdentity identity = new SectionIdentity(
                 section.dimension(), section.x(), section.y(), section.z()
             );
-            currentSections.put(identity, writeSectionBlob(section.snapshot()));
+            SceneEvent.SectionSnapshot sectionSnapshot = section.snapshot();
+            CachedSectionBlob cached = sectionBlobCache.get(identity);
+            String digest;
+            if (cached != null && cached.snapshot == sectionSnapshot) {
+                digest = cached.digest;
+            } else {
+                digest = writeSectionBlob(sectionSnapshot);
+                sectionBlobCache.put(identity, new CachedSectionBlob(sectionSnapshot, digest));
+            }
+            currentSections.put(identity, digest);
         }
+        sectionBlobCache.keySet().retainAll(currentSections.keySet());
 
         Map<String, String> currentEntities = new LinkedHashMap<>();
         for (SceneSnapshot.Entity entity : snapshot.entities()) {
@@ -499,7 +510,8 @@ public final class SceneSpoolWriter implements AutoCloseable {
         Path target = blobs.resolve(digest + ".zlib");
         Path temporary = blobs.resolve("." + digest + ".tmp-" + UUID.randomUUID());
         Files.write(temporary, compressed, StandardOpenOption.CREATE_NEW);
-        forceFile(temporary);
+        // The entire spool remains private until commit(), which fsyncs every blob before the
+        // directory is published. Syncing each temporary blob here only duplicates that barrier.
         moveAtomically(temporary, target);
         blobSizes.put(digest, (long) compressed.length);
         return digest;
@@ -694,6 +706,8 @@ public final class SceneSpoolWriter implements AutoCloseable {
             return compared != 0 ? compared : Integer.compare(z, other.z);
         }
     }
+
+    private record CachedSectionBlob(SceneEvent.SectionSnapshot snapshot, String digest) { }
 
     private record BlockEntityIdentity(String dimension, int x, int y, int z)
         implements Comparable<BlockEntityIdentity> {

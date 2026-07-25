@@ -46,7 +46,6 @@ repository.
 ./hack/minecraft-server restart
 ./hack/minecraft-server stop
 ./hack/minecraft-server logs --follow
-./hack/dashboard start
 pixi run test-python
 pixi run build-recorder-mod
 pixi run build-scene-extractor-mod
@@ -64,13 +63,6 @@ the local recorder mod or mod configuration inputs.
 builds normally resolve Flashback from the pinned Modrinth version ID in
 `mods/renderer-mod/gradle.properties`. If Modrinth is unavailable, set
 `MC_RECORDER_FLASHBACK_JAR` to the Flashback 0.39.5 JAR for Minecraft 1.21.8.
-
-`minerec render-worker` runs `prepareRendererRuntime` before registering
-with a remote queue. This resolves Flashback, Minecraft libraries, launch files,
-natives, and assets without consuming a render attempt; claimed renders then run
-with Gradle offline. The preparation uses Gradle's normal user cache, or the
-operator-provided `GRADLE_USER_HOME`, so direct builds and workers share verified
-downloads instead of maintaining a second recorder-private cache.
 
 Scene extraction launches the `mc-recorder-scene-extractor` CLI produced by
 `pixi run build-scene-extractor-mod`. By default the Python launcher uses
@@ -103,5 +95,4 @@ proto run gradle -- --version
 
 Development tooling does not replace runtime services. To capture or replay
 data, the machine still needs Docker with Docker Compose. GUI rendering also
-needs a logged-in graphical desktop session plus OpenSSH and `rsync` for remote
-worker mode.
+needs a logged-in graphical desktop session.

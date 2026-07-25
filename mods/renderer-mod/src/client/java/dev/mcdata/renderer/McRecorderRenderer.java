@@ -48,8 +48,6 @@ public final class McRecorderRenderer implements ClientModInitializer {
     private static final int LOAD_TIMEOUT_TICKS = 20 * 120;
     private static final int MAX_ANCHOR_SCAN_TICKS = 200;
     private static final int ANCHOR_SETTLE_CLIENT_TICKS = 3;
-    private static final int MAX_PRESENTATION_PROBE_TICKS = 20;
-    private static final long ANCHOR_QUIET_NANOS = 3_000_000_000L;
     private static final long EXPORT_SETTLE_NANOS = 1_000_000_000L;
 
     private RenderJobSpec job;
@@ -66,10 +64,6 @@ public final class McRecorderRenderer implements ClientModInitializer {
     private int anchorScanTick;
     private boolean anchorScanRequested;
     private int anchorSettleTicks;
-    private long anchorProgressNanos;
-    private long targetSeekReadyNanos;
-    private int presentationProbeTick;
-    private int presentationProbeSettleTicks;
     private volatile TimelineObservation timelineObservation;
     private TimelineObservation firstTimelineObservation;
     private TimelineObservation lastTimelineObservation;
@@ -82,7 +76,6 @@ public final class McRecorderRenderer implements ClientModInitializer {
     private CameraType previousCameraType;
     private boolean previousHideGui;
     private long exportSettleStartedNanos;
-    private StructuredHudTimeline structuredHud;
 
     @Override
     public void onInitializeClient() {
@@ -96,14 +89,7 @@ public final class McRecorderRenderer implements ClientModInitializer {
                         && payload.serverTick() >= this.resolvedGlobalStartTick
                         && payload.serverTick() <= this.resolvedGlobalEndTick;
                     if (countsTowardRender) {
-                        this.maintainClientPresentation(
-                            context.client(), payload.serverTick(), true
-                        );
-                    }
-                    if (this.structuredHud != null && this.structuredHud.isPrepared()) {
-                        this.structuredHud.apply(
-                            context.client(), payload.serverTick(), countsTowardRender
-                        );
+                        this.maintainClientPresentation(context.client(), true);
                     }
                 } catch (Throwable throwable) {
                     this.startupFailure = throwable;
@@ -125,7 +111,6 @@ public final class McRecorderRenderer implements ClientModInitializer {
         try {
             this.job = RenderJobSpec.read(Path.of(jobValue));
             this.validateInputs();
-            this.structuredHud = StructuredHudTimeline.load(this.job);
             ReplayPacketCompatibility.beginAutomatedRender();
             this.writeProgress("prepared", 0, 0);
             this.phase = Phase.OPEN_REPLAY;
@@ -205,9 +190,6 @@ public final class McRecorderRenderer implements ClientModInitializer {
         }
 
         replayServer.replayPaused = true;
-        if (this.structuredHud != null) {
-            this.structuredHud.prepare(minecraft.level.registryAccess());
-        }
         this.anchorScanTick = 0;
         this.anchorScanRequested = false;
         this.anchorSettleTicks = 0;
@@ -230,23 +212,13 @@ public final class McRecorderRenderer implements ClientModInitializer {
         if (observation != null && this.matchesJob(observation.payload())) {
             this.firstTimelineObservation = observation;
             this.lastTimelineObservation = observation;
-            if (this.job.rangePolicy() == RenderJobSpec.RangePolicy.LEGACY_STRICT) {
-                this.resolveTimelineRange(replayServer, observation, null);
-                return;
-            }
-            if (observation.payload().serverTick() >= this.job.effectiveGlobalEndTick()) {
+            if (observation.payload().serverTick() >= this.job.globalEndTick()) {
                 this.resolveTimelineRange(replayServer, observation, observation);
                 if (this.phase == Phase.NO_COVERAGE) {
                     this.completeNoCoverage(minecraft);
                 }
                 return;
             }
-            long offset = observation.payload().serverTick() - observation.replayTick();
-            long requestedEndReplayTick = this.job.effectiveGlobalEndTick() - offset;
-            this.anchorScanTick = (int) Math.max(
-                observation.replayTick(),
-                Math.min(replayServer.getTotalReplayTicks(), requestedEndReplayTick)
-            );
             this.anchorScanRequested = false;
             this.anchorSettleTicks = 0;
             this.timelineObservation = null;
@@ -269,39 +241,25 @@ public final class McRecorderRenderer implements ClientModInitializer {
             return;
         }
 
-        if (!this.anchorScanRequested) {
-            this.timelineObservation = null;
-            replayServer.goToReplayTick(this.anchorScanTick);
-            replayServer.replayPaused = true;
-            this.anchorScanRequested = true;
-            this.anchorProgressNanos = System.nanoTime();
-            this.waitTicks = 0;
-            LOGGER.info(
-                "Seeking to requested replay tick {} to establish final timeline coverage",
-                this.anchorScanTick
-            );
+        if (!this.seekAndSettleAtReplayTick(replayServer, replayServer.getTotalReplayTicks())) {
             return;
         }
 
-        replayServer.replayPaused = true;
         TimelineObservation observation = this.timelineObservation;
         if (observation != null && this.matchesJob(observation.payload())) {
             TimelineRangeResolver.Marker first = marker(this.firstTimelineObservation);
-            long replayTick = observation.payload().serverTick()
-                - (first.serverTick() - first.replayTick());
-            if (replayTick >= first.replayTick() && replayTick <= this.anchorScanTick
-                && replayTick <= Integer.MAX_VALUE) {
-                TimelineRangeResolver.Marker previous = marker(this.lastTimelineObservation);
-                if (observation.payload().serverTick() > previous.serverTick()) {
-                    this.lastTimelineObservation = new TimelineObservation(
-                        observation.payload(), (int) replayTick
-                    );
-                    this.anchorProgressNanos = System.nanoTime();
-                }
+            TimelineRangeResolver.Marker candidate = marker(observation);
+            if (!TimelineRangeResolver.hasSameOffset(first, candidate)) {
+                this.checkTimeout("aligned final timeline marker after replay tail seek");
+                return;
             }
-        }
-
-        if (System.nanoTime() - this.anchorProgressNanos >= ANCHOR_QUIET_NANOS) {
+            TimelineRangeResolver.Marker previous = marker(this.lastTimelineObservation);
+            TimelineRangeResolver.Marker accepted = TimelineRangeResolver.extendForwardCoverage(
+                first, previous, candidate
+            );
+            if (!accepted.equals(previous)) {
+                this.lastTimelineObservation = observation;
+            }
             this.resolveTimelineRange(
                 replayServer, this.firstTimelineObservation, this.lastTimelineObservation
             );
@@ -311,7 +269,24 @@ public final class McRecorderRenderer implements ClientModInitializer {
             return;
         }
 
-        this.checkTimeout("final mc_recorder:timeline marker after replay seek");
+        throw new IllegalStateException(
+            "No matching mc_recorder:timeline marker was applied at the replay tail"
+        );
+    }
+
+    private boolean seekAndSettleAtReplayTick(ReplayServer replayServer, int replayTick) {
+        if (!this.anchorScanRequested) {
+            this.timelineObservation = null;
+            replayServer.goToReplayTick(replayTick);
+            replayServer.replayPaused = true;
+            this.anchorScanRequested = true;
+            this.anchorSettleTicks = 0;
+            LOGGER.info("Seeking directly to replay tail tick {} to establish timeline coverage", replayTick);
+            return false;
+        }
+
+        replayServer.replayPaused = true;
+        return ++this.anchorSettleTicks >= ANCHOR_SETTLE_CLIENT_TICKS;
     }
 
     private boolean advanceAnchorScan(ReplayServer replayServer, int step, int inclusiveLimit) {
@@ -343,8 +318,7 @@ public final class McRecorderRenderer implements ClientModInitializer {
         TimelineObservation last
     ) {
         TimelineRangeResolver.Resolution resolution = TimelineRangeResolver.resolve(
-            this.job.rangePolicy(),
-            this.job.globalStartTick(), this.job.effectiveGlobalEndTick(), replayServer.getTotalReplayTicks(),
+            this.job.globalStartTick(), this.job.globalEndTick(), replayServer.getTotalReplayTicks(),
             marker(first), last == null ? null : marker(last)
         );
         this.globalTickOffset = resolution.globalTickOffset();
@@ -371,9 +345,6 @@ public final class McRecorderRenderer implements ClientModInitializer {
         replayServer.replayPaused = true;
         this.phase = Phase.WAIT_TARGET;
         this.waitTicks = 0;
-        this.targetSeekReadyNanos = 0L;
-        this.presentationProbeTick = this.resolvedStartTick;
-        this.presentationProbeSettleTicks = 0;
         LOGGER.info(
             "Aligned segment coverage {}..{} to requested {}..{}; rendering global ticks {}..{} for connection {}",
             this.segmentCoverageStartTick, this.segmentCoverageEndTick,
@@ -394,8 +365,8 @@ public final class McRecorderRenderer implements ClientModInitializer {
         ReplayPacketCompatibility.endAutomatedRender();
         this.phase = Phase.COMPLETE;
         LOGGER.info(
-            "Replay segment {} has no coverage for requested global ticks {}..{}",
-            this.job.segmentId(), this.job.globalStartTick(), this.job.globalEndTick()
+            "Replay {} has no coverage for requested global ticks {}..{}",
+            this.job.replayId(), this.job.globalStartTick(), this.job.globalEndTick()
         );
         if (this.job.stopWhenDone()) {
             minecraft.stop();
@@ -412,34 +383,24 @@ public final class McRecorderRenderer implements ClientModInitializer {
             this.checkTimeout("client level");
             return;
         }
-        ReplayServer replayServer = Flashback.getReplayServer();
-
-        // NOTICE: A presentation probe deliberately moves past resolvedStartTick
-        // while waiting for the replay player entity to materialize. Requiring
-        // resolvedStartTick after that move causes a false timeout; ExportJob
-        // still seeks back to the original resolved range before writing frames.
-        int expectedReplayTick = this.clientPresentationRequested
-            ? this.presentationProbeTick : this.resolvedStartTick;
-        if (replayServer == null || replayServer.getReplayTick() != expectedReplayTick) {
-            this.targetSeekReadyNanos = 0L;
-            this.checkTimeout("resolved start replay tick");
-            return;
-        }
-        if (this.targetSeekReadyNanos == 0L) {
-            this.targetSeekReadyNanos = System.nanoTime();
-            return;
-        }
-        if (System.nanoTime() - this.targetSeekReadyNanos < ANCHOR_QUIET_NANOS) {
+        TimelineObservation observation = this.timelineObservation;
+        if (!TimelineRangeResolver.matchesResolvedStart(
+            observation == null ? null : marker(observation),
+            this.resolvedStartTick,
+            this.resolvedGlobalStartTick
+        )) {
+            this.checkTimeout("resolved start timeline marker");
             return;
         }
         AbstractClientPlayer target = this.findPresentPresentationTarget(minecraft);
-        if (!this.activateClientPresentation(minecraft, target)) {
-            this.advancePresentationProbe(replayServer);
-            this.checkTimeout("Flashback replay-server spectate for player " + this.job.playerId());
+        if (target == null) {
+            this.checkTimeout("target player " + this.job.playerId());
             return;
         }
-        if (this.structuredHud != null) {
-            this.structuredHud.apply(minecraft, this.resolvedGlobalStartTick, false);
+
+        if (!this.activateClientPresentation(minecraft, target)) {
+            this.checkTimeout("Flashback replay-server spectate for player " + this.job.playerId());
+            return;
         }
         this.waitTicks = 0;
         if (this.exportSettleStartedNanos == 0L) {
@@ -463,9 +424,6 @@ public final class McRecorderRenderer implements ClientModInitializer {
 
         this.writeStatus("running", null);
         this.writeProgress("rendering", 0, this.resolvedEndTick - this.resolvedStartTick + 1);
-        if (this.structuredHud != null) {
-            this.structuredHud.apply(minecraft, this.resolvedGlobalStartTick, true);
-        }
         Flashback.EXPORT_JOB = new ExportJob(settings);
         this.phase = Phase.EXPORTING;
         LOGGER.info(
@@ -476,25 +434,16 @@ public final class McRecorderRenderer implements ClientModInitializer {
         );
     }
 
-    private void advancePresentationProbe(ReplayServer replayServer) {
-        int probeLimit = Math.min(
-            this.resolvedEndTick,
-            this.resolvedStartTick + MAX_PRESENTATION_PROBE_TICKS
-        );
-        if (this.presentationProbeTick >= probeLimit
-            || ++this.presentationProbeSettleTicks < ANCHOR_SETTLE_CLIENT_TICKS) {
-            return;
+    private Entity findTarget(Minecraft minecraft) {
+        if (minecraft.level == null) {
+            return null;
         }
-
-        // NOTICE: At a connection's join tick, Flashback may already accept the
-        // replay-server spectate command while the corresponding client player
-        // entity does not exist yet. Probe a small bounded range to materialize
-        // it; ExportJob seeks back to resolvedStartTick after camera binding, so
-        // these probe ticks never expand or shift the requested output range.
-        this.presentationProbeTick++;
-        replayServer.goToReplayTick(this.presentationProbeTick);
-        replayServer.replayPaused = true;
-        this.presentationProbeSettleTicks = 0;
+        for (Entity candidate : minecraft.level.entitiesForRendering()) {
+            if (candidate.getUUID().equals(this.job.playerId())) {
+                return candidate;
+            }
+        }
+        return null;
     }
 
     private EditorState firstPersonEditorState() {
@@ -529,11 +478,12 @@ public final class McRecorderRenderer implements ClientModInitializer {
         if (!ReplayPresentation.useSpectatedPlayerCamera(this.job.noGui())) {
             return true;
         }
-        if (target != null && (!(target instanceof AbstractClientPlayer) || target == minecraft.player)) {
+        if (!(target instanceof AbstractClientPlayer replayPlayer) || replayPlayer == minecraft.player) {
             throw new IllegalStateException(
                 "Recorded player cannot be used as the first-person replay camera: " + this.job.playerId()
             );
         }
+        this.clientPresentationTarget = replayPlayer;
         if (!this.clientPresentationRequested) {
             if (minecraft.getConnection() == null) {
                 throw new IllegalStateException("Flashback replay connection is unavailable");
@@ -542,11 +492,6 @@ public final class McRecorderRenderer implements ClientModInitializer {
             this.previousCameraType = minecraft.options.getCameraType();
             this.previousHideGui = minecraft.options.hideGui;
             this.clientPresentationRequested = true;
-
-            // NOTICE: This command establishes Flashback's replay-server
-            // spectating state, which is needed for player-scoped presentation
-            // such as HUD state. It does not reliably switch the Minecraft
-            // client's camera entity, even when the server logs "Now spectating".
             minecraft.getConnection().sendCommand(
                 ReplayPresentation.startSpectatingCommand(this.job.playerId())
             );
@@ -555,55 +500,19 @@ public final class McRecorderRenderer implements ClientModInitializer {
                 this.job.playerId()
             );
         }
-        AbstractClientPlayer replayPlayer = target instanceof AbstractClientPlayer player
-            ? player : this.findActivatedPresentationTarget(minecraft);
-        if (replayPlayer == null) {
-            return false;
-        }
-        this.clientPresentationTarget = replayPlayer;
         minecraft.options.setCameraType(CameraType.FIRST_PERSON);
         minecraft.options.hideGui = false;
-
-        // NOTICE: In Flashback 0.39.5, getSpectatingPlayer() is derived from
-        // Minecraft's current camera entity; it is not an independent ACK from
-        // the replay server. Set the camera explicitly before using both values
-        // as the local invariant for a counted first-person render frame.
-        minecraft.setCameraEntity(replayPlayer);
         if (minecraft.getCameraEntity() != replayPlayer || Flashback.getSpectatingPlayer() != replayPlayer) {
             return false;
         }
         if (!this.clientPresentationActive) {
             this.clientPresentationActive = true;
-            if (this.structuredHud != null) {
-                LOGGER.info(
-                    "Replay server activated player {}; verified structured HUD state will be applied per frame",
-                    this.job.playerId()
-                );
-            } else {
-                LOGGER.info(
-                    "Replay server activated player {} without a structured HUD fidelity contract",
-                    this.job.playerId()
-                );
-            }
+            LOGGER.info("Replay server activated player {} for first-person rendering", this.job.playerId());
         }
         return true;
     }
 
-    private AbstractClientPlayer findActivatedPresentationTarget(Minecraft minecraft) {
-        Entity camera = minecraft.getCameraEntity();
-        if (isRequestedPresentationTarget(minecraft, camera)) {
-            return (AbstractClientPlayer) camera;
-        }
-        Entity spectating = Flashback.getSpectatingPlayer();
-        if (isRequestedPresentationTarget(minecraft, spectating)) {
-            return (AbstractClientPlayer) spectating;
-        }
-        return null;
-    }
-
-    private void maintainClientPresentation(
-        Minecraft minecraft, long serverTick, boolean countsTowardRender
-    ) throws IOException {
+    private void maintainClientPresentation(Minecraft minecraft, boolean countsTowardRender) throws IOException {
         if (!ReplayPresentation.useSpectatedPlayerCamera(this.job.noGui())) {
             return;
         }
@@ -620,8 +529,8 @@ public final class McRecorderRenderer implements ClientModInitializer {
             currentRequestedPlayer = player;
         }
 
-        boolean authoritativelyDead = this.structuredHud != null
-            && this.structuredHud.isAuthoritativelyDead(serverTick);
+        boolean replayReportsDeath = (currentRequestedPlayer != null && currentRequestedPlayer.isDeadOrDying())
+            || (this.clientPresentationTarget != null && this.clientPresentationTarget.isDeadOrDying());
         boolean targetReplaced = presentTarget != null
             && this.clientPresentationTarget != null
             && presentTarget != this.clientPresentationTarget;
@@ -630,7 +539,7 @@ public final class McRecorderRenderer implements ClientModInitializer {
             currentRequestedPlayer != null,
             presentTarget != null,
             this.clientPresentationTarget != null,
-            authoritativelyDead,
+            replayReportsDeath,
             countsTowardRender
         );
         AbstractClientPlayer resolvedTarget;
@@ -671,7 +580,7 @@ public final class McRecorderRenderer implements ClientModInitializer {
             ReplayPresentation.planServerSpectateRecovery(
                 this.clientPresentationNeedsServerRebind,
                 cameraRecovered,
-                authoritativelyDead
+                replayReportsDeath
             );
         this.clientPresentationNeedsServerRebind = serverRecovery.pending();
         if (presentTarget != null && serverRecovery.requestNow()) {
@@ -700,36 +609,14 @@ public final class McRecorderRenderer implements ClientModInitializer {
     }
 
     private AbstractClientPlayer findPresentPresentationTarget(Minecraft minecraft) {
-        if (minecraft.level == null) {
-            return null;
-        }
-        Entity indexed = minecraft.level.getEntity(this.job.playerId());
-        if (isPresentPresentationTarget(minecraft, indexed)) {
-            return (AbstractClientPlayer) indexed;
-        }
-
-        // NOTICE: Immediately after a replay seek, Flashback can expose a player
-        // through entitiesForRendering() before ClientLevel's UUID index has
-        // registered it. Checking only getEntity(UUID) makes a valid target look
-        // absent and repeatedly drives the spectate wait into its timeout.
-        for (Entity candidate : minecraft.level.entitiesForRendering()) {
-            if (candidate.getUUID().equals(this.job.playerId())
-                && isPresentPresentationTarget(minecraft, candidate)) {
-                return (AbstractClientPlayer) candidate;
-            }
+        Entity target = minecraft.level == null
+            ? null : minecraft.level.getEntity(this.job.playerId());
+        if (target instanceof AbstractClientPlayer replayPlayer
+            && replayPlayer != minecraft.player
+            && !replayPlayer.isRemoved()) {
+            return replayPlayer;
         }
         return null;
-    }
-
-    private static boolean isPresentPresentationTarget(Minecraft minecraft, Entity target) {
-        return target instanceof AbstractClientPlayer
-            && target != minecraft.player
-            && !target.isRemoved();
-    }
-
-    private boolean isRequestedPresentationTarget(Minecraft minecraft, Entity target) {
-        return isPresentPresentationTarget(minecraft, target)
-            && target.getUUID().equals(this.job.playerId());
     }
 
     private void restoreClientPresentation(Minecraft minecraft) {
@@ -769,20 +656,12 @@ public final class McRecorderRenderer implements ClientModInitializer {
 
         int expectedFrames = this.resolvedEndTick - this.resolvedStartTick + 1;
         this.restoreClientPresentation(minecraft);
-        if (this.structuredHud != null) {
-            this.structuredHud.verifyApplied(
-                this.resolvedGlobalStartTick, this.resolvedGlobalEndTick
-            );
-        }
         int actualFrames = this.writeFrameIndex();
         if (actualFrames != expectedFrames) {
             throw new IOException("Expected " + expectedFrames + " frames, found " + actualFrames);
         }
 
         this.validateReplayIntegrity();
-        if (this.structuredHud != null) {
-            this.structuredHud.validateIntegrity();
-        }
 
         this.writeStatus("complete", null);
         this.writeProgress("complete", actualFrames, expectedFrames);
@@ -817,10 +696,7 @@ public final class McRecorderRenderer implements ClientModInitializer {
                 row.addProperty("session_id", this.job.sessionId());
                 row.addProperty("connection_id", this.job.connectionId());
                 row.addProperty("player_uuid", this.job.playerId().toString());
-                if (this.job.segmentId() != null) {
-                    row.addProperty("segment_id", this.job.segmentId());
-                    row.addProperty("segment_ordinal", this.job.segmentOrdinal());
-                }
+                row.addProperty("replay_id", this.job.replayId());
                 row.addProperty("path", image.getFileName().toString());
                 writer.write(row.toString());
                 writer.newLine();
@@ -842,16 +718,10 @@ public final class McRecorderRenderer implements ClientModInitializer {
         result.addProperty("session_id", this.job.sessionId());
         result.addProperty("connection_id", this.job.connectionId());
         result.addProperty("player_uuid", this.job.playerId().toString());
-        if (this.job.segmentId() != null) {
-            result.addProperty("segment_id", this.job.segmentId());
-            result.addProperty("segment_ordinal", this.job.segmentOrdinal());
-        }
+        result.addProperty("replay_id", this.job.replayId());
         result.addProperty("range_policy", this.job.rangePolicy().serialized());
         result.addProperty("requested_global_start_tick", this.job.globalStartTick());
         result.addProperty("requested_global_end_tick", this.job.globalEndTick());
-        if (this.job.newerCutoff() != null) {
-            result.addProperty("newer_cutoff", this.job.newerCutoff());
-        }
         result.addProperty(
             "global_start_tick",
             this.resolvedStartTick >= 0 ? this.resolvedGlobalStartTick : this.job.globalStartTick()
@@ -871,15 +741,6 @@ public final class McRecorderRenderer implements ClientModInitializer {
         result.addProperty("width", this.job.width());
         result.addProperty("height", this.job.height());
         result.addProperty("no_gui", this.job.noGui());
-        String presentationContract = ReplayPresentation.resultPresentationContract(
-            this.job.noGui(), this.job.presentationContract()
-        );
-        if (presentationContract != null) {
-            result.addProperty("presentation_contract", presentationContract);
-        }
-        if (this.structuredHud != null) {
-            result.add("structured_hud", this.structuredHud.resultEnvelope());
-        }
         result.add("unsupported_packets", unsupportedPacketEnvelope());
         if (failure != null) {
             result.addProperty("error", failure.getClass().getSimpleName() + ": " + failure.getMessage());
@@ -902,10 +763,7 @@ public final class McRecorderRenderer implements ClientModInitializer {
         progress.addProperty("session_id", this.job.sessionId());
         progress.addProperty("connection_id", this.job.connectionId());
         progress.addProperty("player_uuid", this.job.playerId().toString());
-        if (this.job.segmentId() != null) {
-            progress.addProperty("segment_id", this.job.segmentId());
-            progress.addProperty("segment_ordinal", this.job.segmentOrdinal());
-        }
+        progress.addProperty("replay_id", this.job.replayId());
         progress.addProperty("completed_units", completedUnits);
         progress.addProperty("total_units", totalUnits);
         progress.addProperty("updated_at", Instant.now().toString());

@@ -190,7 +190,7 @@ final class PacketTranslatorMovementTest {
         return new SceneJob.SubjectPoseInput(
             "mc-recorder-subject-poses-v1", Path.of("subject-poses.jsonl"), "a".repeat(64),
             11, count, 0, 10,
-            List.of(new SceneJob.SourceEpoch(0, "b".repeat(64), 1, 1)),
+            new SceneJob.SourceEvents("b".repeat(64), 1, 1),
             new SceneJob.SubjectPoseFileIdentity("test", 0),
             new SceneJob.SubjectPoseTimeline(
                 0, "session", new UUID(0, 7), new UUID(0, 8), entityIds, dimensions,

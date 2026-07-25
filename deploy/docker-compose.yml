@@ -22,7 +22,7 @@ services:
       LEVEL: '${MC_LEVEL_NAME}'
       MOTD: '${MC_MOTD}'
       ENABLE_RCON: 'false'
-      PAUSE_WHEN_EMPTY_SECONDS: "-1"
+      PAUSE_WHEN_EMPTY_SECONDS: '-1'
       MODRINTH_PROJECTS: '${MC_MODRINTH_PROJECTS}'
       MODRINTH_DOWNLOAD_DEPENDENCIES: required
       SYNC_SKIP_NEWER_IN_DESTINATION: 'false'
@@ -30,8 +30,7 @@ services:
       - '${MC_DATA_DIR}:/data'
       - '${MC_LOCAL_MODS_DIR}:/mods:ro'
       - '${MC_CONFIG_SOURCE_DIR}:/config:ro'
-      - '${MC_CAPTURE_DIR}:/captures'
-      - '${MC_REPLAY_DIR}:/replays'
+      - '${MC_ARTIFACTS_DIR}:/artifacts'
     healthcheck:
       test: ['CMD', 'mc-health']
       start_period: 1m
@@ -39,116 +38,3 @@ services:
       timeout: 5s
       retries: 18
     stop_grace_period: 2m
-
-  storage-monitor:
-    image: minerec:local
-    platform: linux/amd64
-    build:
-      context: ..
-      dockerfile: apps/minerec/Dockerfile
-    restart: unless-stopped
-    init: true
-    command: ['python', '-m', 'minerec.processing.capture.storage_monitor']
-    environment:
-      PYTHONUNBUFFERED: '1'
-      MC_RECORDER_CAPTURE_ROOT: /captures
-      MC_RECORDER_REPLAY_ROOT: /replays
-      MC_RECORDER_QUOTA_BYTES: '${MC_RECORDER_QUOTA_BYTES}'
-      MC_RECORDER_WARN_PERCENT: '${MC_RECORDER_WARN_PERCENT}'
-      MC_RECORDER_EVICT_OLDEST: '${MC_RECORDER_EVICT_OLDEST}'
-      MC_RECORDER_CHECK_INTERVAL: '${MC_RECORDER_CHECK_INTERVAL}'
-    volumes:
-      - '${MC_CAPTURE_DIR}:/captures'
-      - '${MC_REPLAY_DIR}:/replays'
-
-  rabbitmq:
-    image: rabbitmq:3.13-management
-    restart: unless-stopped
-    ports:
-      - '5672:5672'
-      - '15672:15672'
-    healthcheck:
-      test: ['CMD', 'rabbitmq-diagnostics', '-q', 'ping']
-      interval: 10s
-      timeout: 5s
-      retries: 18
-
-  dashboard:
-    image: minerec:local
-    platform: linux/amd64
-    build:
-      context: ..
-      dockerfile: apps/minerec/Dockerfile
-    restart: unless-stopped
-    init: true
-    command: ['minerec', '--config', '/recorder.toml', 'dashboard', 'serve']
-    environment:
-      PYTHONUNBUFFERED: '1'
-      MC_RECORDER_DASHBOARD_USERNAME: '${MC_RECORDER_DASHBOARD_USERNAME}'
-      MC_RECORDER_DASHBOARD_PASSWORD: '${MC_RECORDER_DASHBOARD_PASSWORD}'
-      MC_RECORDER_RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/%2F
-      MC_RECORDER_RENDER_TASK_QUEUE: minerec.render.jobs
-      # NOTICE: SQLite locking is not reliable when macOS and Linux containers
-      # concurrently write a bind-mounted database. Keep queue state on Docker's
-      # native filesystem and expose mutations to the GUI worker through the
-      # authenticated dashboard render-control endpoint.
-      MC_RECORDER_RENDER_QUEUE_DATABASE: /render-control/render-queue.sqlite3
-      MC_RECORDER_DASHBOARD_STATIC_ROOT: /opt/mc-recorder-dashboard
-    ports:
-      - '${MC_DASHBOARD_PORT}:${MC_DASHBOARD_PORT}'
-    volumes:
-      - '${MC_CONFIG_FILE}:/recorder.toml:ro'
-      - '${MC_CAPTURE_DIR}:/artifacts/captures'
-      - '${MC_REPLAY_DIR}:/artifacts/replays'
-      - '${MC_EXPORT_DIR}:/artifacts/exports'
-      - '${MC_RUNTIME_DIR}:/.mc-recorder'
-      - 'render-control:/render-control'
-      - '${MC_DASHBOARD_STATIC_ROOT}:/opt/mc-recorder-dashboard:ro'
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
-
-  render-dispatcher:
-    image: minerec:local
-    platform: linux/amd64
-    build:
-      context: ..
-      dockerfile: apps/minerec/Dockerfile
-    restart: unless-stopped
-    init: true
-    command: ['minerec', '--config', '/recorder.toml', 'render-dispatcher']
-    environment:
-      PYTHONUNBUFFERED: '1'
-      MC_RECORDER_RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/%2F
-      MC_RECORDER_RENDER_TASK_QUEUE: minerec.render.jobs
-      MC_RECORDER_RENDER_QUEUE_DATABASE: /render-control/render-queue.sqlite3
-    volumes:
-      - '${MC_CONFIG_FILE}:/recorder.toml:ro'
-      - '${MC_RUNTIME_DIR}:/.mc-recorder'
-      - 'render-control:/render-control'
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
-
-  render-preparer:
-    image: minerec:local
-    platform: linux/amd64
-    build:
-      context: ..
-      dockerfile: apps/minerec/Dockerfile
-    restart: unless-stopped
-    init: true
-    command: ['minerec', '--config', '/recorder.toml', 'render-preparer']
-    environment:
-      PYTHONUNBUFFERED: '1'
-      MC_RECORDER_RENDER_QUEUE_DATABASE: /render-control/render-queue.sqlite3
-    volumes:
-      - '${MC_CONFIG_FILE}:/recorder.toml:ro'
-      - '${MC_CAPTURE_DIR}:/artifacts/captures:ro'
-      - '${MC_REPLAY_DIR}:/artifacts/replays:ro'
-      - '${MC_EXPORT_DIR}:/artifacts/exports'
-      - '${MC_RUNTIME_DIR}:/.mc-recorder'
-      - 'render-control:/render-control'
-
-volumes:
-  render-control:

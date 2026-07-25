@@ -10,12 +10,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 final class TimelineRangeResolverTest {
     @Test
     void waitsForTheResolvedStartMarkerAfterSeekingBackFromTheCoverageScan() {
-        assertTrue(TimelineRangeResolver.requiresResolvedStartMarker(
-            RenderJobSpec.RangePolicy.INTERSECTION
-        ));
-        assertFalse(TimelineRangeResolver.requiresResolvedStartMarker(
-            RenderJobSpec.RangePolicy.LEGACY_STRICT
-        ));
         assertFalse(TimelineRangeResolver.matchesResolvedStart(null, 3, 1200));
         assertFalse(TimelineRangeResolver.matchesResolvedStart(
             new TimelineRangeResolver.Marker(1890, 693), 3, 1200
@@ -34,7 +28,6 @@ final class TimelineRangeResolverTest {
     @Test
     void intersectsRequestedRangeWithExactMarkerCoverage() {
         TimelineRangeResolver.Resolution resolution = TimelineRangeResolver.resolve(
-            RenderJobSpec.RangePolicy.INTERSECTION,
             90, 180, 100,
             new TimelineRangeResolver.Marker(100, 10),
             new TimelineRangeResolver.Marker(170, 80)
@@ -51,7 +44,6 @@ final class TimelineRangeResolverTest {
     @Test
     void alignsTheRecordedConnectionRangeWithoutSeekingToReplayEnd() {
         TimelineRangeResolver.Resolution resolution = TimelineRangeResolver.resolve(
-            RenderJobSpec.RangePolicy.INTERSECTION,
             1200, 1890, 1357,
             new TimelineRangeResolver.Marker(1200, 3),
             new TimelineRangeResolver.Marker(1890, 693)
@@ -133,7 +125,6 @@ final class TimelineRangeResolverTest {
     @Test
     void reportsNoCoverageWithoutInventingFrames() {
         TimelineRangeResolver.Resolution resolution = TimelineRangeResolver.resolve(
-            RenderJobSpec.RangePolicy.INTERSECTION,
             200, 220, 100,
             new TimelineRangeResolver.Marker(100, 10),
             new TimelineRangeResolver.Marker(170, 80)
@@ -146,36 +137,11 @@ final class TimelineRangeResolverTest {
     }
 
     @Test
-    void strictPolicyRejectsPartialSegmentCoverage() {
-        assertThrows(IllegalArgumentException.class, () -> TimelineRangeResolver.resolve(
-            RenderJobSpec.RangePolicy.STRICT,
-            90, 180, 100,
-            new TimelineRangeResolver.Marker(100, 10),
-            new TimelineRangeResolver.Marker(170, 80)
-        ));
-    }
-
-    @Test
     void rejectsOffsetDriftBetweenFirstAndLastMarkers() {
         assertThrows(IllegalArgumentException.class, () -> TimelineRangeResolver.resolve(
-            RenderJobSpec.RangePolicy.INTERSECTION,
             100, 170, 100,
             new TimelineRangeResolver.Marker(100, 10),
             new TimelineRangeResolver.Marker(171, 80)
         ));
-    }
-
-    @Test
-    void legacyJobsRetainWholeReplayBoundsBehavior() {
-        TimelineRangeResolver.Resolution resolution = TimelineRangeResolver.resolve(
-            RenderJobSpec.RangePolicy.LEGACY_STRICT,
-            95, 180, 100,
-            new TimelineRangeResolver.Marker(100, 10),
-            null
-        );
-
-        assertEquals(TimelineRangeResolver.Status.READY, resolution.status());
-        assertEquals(5, resolution.replayStartTick());
-        assertEquals(90, resolution.replayEndTick());
     }
 }

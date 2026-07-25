@@ -187,11 +187,14 @@ public final class SceneReducer {
             return;
         }
         if (event instanceof SceneEvent.EntityPassengersChanged changed) {
-            MutableEntity vehicle = requireEntity(changed.vehicleId());
-            for (int passenger : changed.passengers()) {
-                requireEntity(passenger);
+            // Match ClientPacketListener: ignore an absent vehicle and skip absent passengers.
+            MutableEntity vehicle = entities.get(changed.vehicleId());
+            if (vehicle == null) {
+                return;
             }
-            vehicle.passengers = List.copyOf(changed.passengers());
+            vehicle.passengers = changed.passengers().stream()
+                .filter(entities::containsKey)
+                .toList();
             return;
         }
         if (event instanceof SceneEvent.EntityLeashChanged changed) {
@@ -261,7 +264,7 @@ public final class SceneReducer {
         ));
     }
 
-    /** Replaces only authoritative subject pose fields at a selected dataset tick. */
+    /** Replaces only authoritative subject pose fields at a selected scene tick. */
     public void applyCanonicalSubjectPose(SceneJob.SubjectPose pose) {
         requireDimension();
         if (!pose.sessionId().equals(job.sessionId())
@@ -470,26 +473,35 @@ public final class SceneReducer {
     private static final class MutableSection {
         private final List<SceneEvent.BlockState> palette;
         private final int[] indices;
+        private SceneEvent.SectionSnapshot cachedSnapshot;
 
         private MutableSection(SceneEvent.SectionSnapshot snapshot) {
             this.palette = new ArrayList<>(snapshot.palette());
             this.indices = snapshot.indices();
+            this.cachedSnapshot = snapshot;
         }
 
         private SceneEvent.BlockState set(int x, int y, int z, SceneEvent.BlockState state) {
             int offset = y * 256 + z * 16 + x;
             SceneEvent.BlockState previous = palette.get(indices[offset]);
+            if (previous.equals(state)) {
+                return previous;
+            }
             int paletteIndex = palette.indexOf(state);
             if (paletteIndex < 0) {
                 paletteIndex = palette.size();
                 palette.add(state);
             }
             indices[offset] = paletteIndex;
+            cachedSnapshot = null;
             return previous;
         }
 
         private SceneEvent.SectionSnapshot snapshot() {
-            return new SceneEvent.SectionSnapshot(palette, indices);
+            if (cachedSnapshot == null) {
+                cachedSnapshot = new SceneEvent.SectionSnapshot(palette, indices);
+            }
+            return cachedSnapshot;
         }
     }
 

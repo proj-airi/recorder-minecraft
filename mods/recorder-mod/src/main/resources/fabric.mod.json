@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "mc-recorder",
   "version": "${version}",
-  "name": "Minecraft Dataset Recorder",
+  "name": "Minecraft Play Recorder",
   "description": "Synchronized server-side action and state capture companion for ServerReplay.",
   "authors": ["mc-play-recorder contributors"],
   "license": "MIT",
@@ -11,7 +11,7 @@
     "main": [
       {
         "adapter": "kotlin",
-        "value": "dev.mcdata.recorder.DatasetRecorderMod"
+        "value": "dev.mcdata.recorder.RecorderMod"
       }
     ]
   },

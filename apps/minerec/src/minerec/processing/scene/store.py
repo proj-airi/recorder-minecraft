@@ -17,12 +17,12 @@ from typing import Any, Iterable, Mapping, Sequence
 from urllib.parse import quote
 
 from minerec.errors import RecorderError
+from minerec.processing.replays import FLASHBACK_CAPTURE_CONTRACT
 from minerec.processing.scene.integrity import (
     SceneStreamIntegrityError,
     VerifiedSceneStream,
     verify_scene_stream,
 )
-from minerec.render.control.sources import FLASHBACK_CAPTURE_CONTRACT
 
 SCENE_STORE_SCHEMA = "mc-recorder-scene-store-v1"
 SCENE_STREAM_SCHEMA = "mc-recorder-scene-stream-v1"
@@ -79,10 +79,10 @@ _SUBJECT_POSE_FIELDS = frozenset(
         "record_count",
         "first_tick",
         "last_tick",
-        "source_epochs",
+        "source_events",
     }
 )
-_SUBJECT_POSE_EPOCH_FIELDS = frozenset({"epoch_index", "events_sha256", "events_size_bytes", "record_count"})
+_SUBJECT_POSE_EVENT_SOURCE_FIELDS = frozenset({"events_sha256", "events_size_bytes", "record_count"})
 _EXTRACTION_STREAM_FIELDS = frozenset(
     {
         "format",
@@ -797,32 +797,15 @@ def _validated_subject_poses(
     last_tick = _validated_nonnegative_int(value.get("last_tick"), "scene extraction subject_poses last_tick")
     if size_bytes == 0 or record_count != frame_count or first_tick != start_tick or last_tick != end_tick or end_tick - start_tick + 1 != frame_count:
         raise SceneStoreValidationError("scene extraction subject_poses coverage does not match the store")
-    raw_epochs = value.get("source_epochs")
-    if not isinstance(raw_epochs, (list, tuple)) or not raw_epochs:
-        raise SceneStoreValidationError("scene extraction subject_poses source_epochs must be a non-empty array")
-    epochs: list[dict[str, Any]] = []
-    previous_index = -1
-    for index, raw in enumerate(raw_epochs):
-        context = f"scene extraction subject_poses source_epochs[{index}]"
-        if not isinstance(raw, Mapping) or set(raw) != _SUBJECT_POSE_EPOCH_FIELDS:
-            raise SceneStoreValidationError(f"{context} fields do not match the contract")
-        epoch_index = _validated_nonnegative_int(raw.get("epoch_index"), f"{context} epoch_index")
-        if epoch_index <= previous_index:
-            raise SceneStoreValidationError("scene extraction subject_poses source epochs must be strictly increasing")
-        previous_index = epoch_index
-        events_sha256 = _required_sha256(raw.get("events_sha256"), f"{context} events_sha256")
-        events_size_bytes = _validated_nonnegative_int(raw.get("events_size_bytes"), f"{context} events_size_bytes")
-        source_record_count = _validated_nonnegative_int(raw.get("record_count"), f"{context} record_count")
-        if events_size_bytes == 0 or source_record_count == 0:
-            raise SceneStoreValidationError(f"{context} integrity counts must be positive")
-        epochs.append(
-            {
-                "epoch_index": epoch_index,
-                "events_sha256": events_sha256,
-                "events_size_bytes": events_size_bytes,
-                "record_count": source_record_count,
-            }
-        )
+    raw_source = value.get("source_events")
+    context = "scene extraction subject_poses source_events"
+    if not isinstance(raw_source, Mapping) or set(raw_source) != _SUBJECT_POSE_EVENT_SOURCE_FIELDS:
+        raise SceneStoreValidationError(f"{context} fields do not match the contract")
+    events_sha256 = _required_sha256(raw_source.get("events_sha256"), f"{context} events_sha256")
+    events_size_bytes = _validated_nonnegative_int(raw_source.get("events_size_bytes"), f"{context} events_size_bytes")
+    source_record_count = _validated_nonnegative_int(raw_source.get("record_count"), f"{context} record_count")
+    if events_size_bytes == 0 or source_record_count == 0:
+        raise SceneStoreValidationError(f"{context} integrity counts must be positive")
     return {
         "format": "mc-recorder-subject-poses-v1",
         "path": path_text,
@@ -831,7 +814,11 @@ def _validated_subject_poses(
         "record_count": record_count,
         "first_tick": first_tick,
         "last_tick": last_tick,
-        "source_epochs": epochs,
+        "source_events": {
+            "events_sha256": events_sha256,
+            "events_size_bytes": events_size_bytes,
+            "record_count": source_record_count,
+        },
     }
 
 
@@ -923,7 +910,7 @@ def _validated_extraction_provenance(
 def validate_scene_attachment_provenance(
     info: SceneStoreInfo,
 ) -> SceneExtractionProvenance:
-    """Require extraction-authenticated provenance before dataset attachment."""
+    """Require extraction-authenticated provenance before V2 finalization."""
 
     if info.extraction is None:
         raise SceneStoreValidationError("scene store lacks authenticated extraction provenance")
@@ -2290,10 +2277,17 @@ def _change_resource(event_type: str, body: Mapping[str, Any]) -> tuple[int, tup
         payload = {"type": event_type, "instance_id": body.get("instance_id")}
         if event_type == "entity_set":
             payload["blob_sha256"] = body.get("blob_sha256", body.get("blob"))
+        priority = 1
+        if event_type == "entity_remove":
+            instance_id = body.get("instance_id")
+            segment_id = body.get("segment_id")
+            parts = instance_id.rsplit(":", 2) if isinstance(instance_id, str) else ()
+            instance_segment = parts[0] if len(parts) == 3 else None
+            # Within one segment, retire an old generation before reusing its network ID.
+            # At a segment boundary, establish the new alias before retiring the old alias.
+            priority = 2 if isinstance(segment_id, str) and instance_segment != segment_id else 0
         return (
-            # Apply a new segment's aliases before retiring the preceding
-            # segment's aliases at the same global tick.
-            0 if event_type == "entity_set" else 1,
+            priority,
             ("entity", payload["instance_id"]),
             payload,
         )

@@ -5,8 +5,6 @@ import re
 import shutil
 import subprocess
 import tempfile
-import uuid
-import zipfile
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -14,14 +12,9 @@ from typing import TYPE_CHECKING, Any, Callable
 
 from minerec.config import ENV_GRADLE_EXECUTABLE, ENV_RENDER_JOB, current_process_environment
 from minerec.errors import RecorderError
-from minerec.processing.capture.episodes import iter_epochs, iter_events, sha256_file, validate_episode
-from minerec.processing.render.hud import (
-    HUD_SIDECAR_TYPE,
-    MAX_HUD_SIDECAR_BYTES,
-    hud_result_envelope,
-    validate_hud_result_envelope,
-)
-from minerec.render.control.contract import FULL_CLIENT_PRESENTATION_CONTRACT
+from minerec.processing.capture import CaptureMetadata, EventsSource, load_capture_metadata, scan_capture_events
+from minerec.processing.capture.play import sha256_file
+from minerec.processing.replays import verified_replay_source
 
 if TYPE_CHECKING:
     from minerec.config import RecorderConfig
@@ -45,19 +38,6 @@ def _gradle_executable(environment: dict[str, str]) -> str:
     return executable or "gradle"
 
 
-def _detect_replay_format(path: Path) -> str:
-    try:
-        with zipfile.ZipFile(path) as archive:
-            names = set(archive.namelist())
-    except (OSError, zipfile.BadZipFile) as exc:
-        raise RecorderError(f"replay is not a readable ZIP/MCPR archive: {path}") from exc
-    if "metadata.json" in names and any(name.endswith(".flashback") for name in names):
-        return "flashback"
-    if "metaData.json" in names and "recording.tmcpr" in names:
-        return "replay_mod"
-    raise RecorderError(f"unrecognized ServerReplay archive structure: {path}")
-
-
 def _stable_file_digest(path: Path, description: str) -> tuple[str, int]:
     try:
         before = path.stat()
@@ -72,63 +52,20 @@ def _stable_file_digest(path: Path, description: str) -> tuple[str, int]:
     return digest, after.st_size
 
 
-def resolve_replay(replays_root: Path, player_uuid: str, explicit: Path | None) -> Path:
-    try:
-        normalized_player_uuid = str(uuid.UUID(player_uuid))
-    except (ValueError, AttributeError) as exc:
-        raise RecorderError(f"invalid player UUID: {player_uuid!r}") from exc
-    if explicit is not None:
-        unresolved = explicit.expanduser()
-        if unresolved.is_symlink():
-            raise RecorderError(f"replay not found or is symlinked: {unresolved}")
-        path = unresolved.resolve()
-        if not path.is_file():
-            raise RecorderError(f"replay not found or is symlinked: {path}")
-        return path
-    player_dir = replays_root / "players" / normalized_player_uuid
-    if not player_dir.is_dir() or player_dir.is_symlink():
-        raise RecorderError(f"no replay directory found for player {normalized_player_uuid}; pass --replay PATH")
-    candidates = sorted(
-        (path for path in player_dir.iterdir() if path.is_file() and not path.is_symlink() and path.suffix.lower() in {".zip", ".mcpr"}),
-        key=lambda path: path.stat().st_mtime_ns,
-        reverse=True,
-    )
-    if not candidates:
-        raise RecorderError(f"no completed replay found for player {normalized_player_uuid}; pass --replay PATH")
-    if len(candidates) > 1:
-        raise RecorderError(f"multiple replay segments exist for player {normalized_player_uuid}; pass --replay PATH to select one")
-    return candidates[0]
+def _state_range(events: Path, metadata_path: Path) -> tuple[CaptureMetadata, int, int, EventsSource]:
+    metadata = load_capture_metadata(metadata_path)
+    ticks: list[int] = []
 
+    def visit(record: dict[str, Any]) -> None:
+        if record.get("record_type") == "player_state":
+            ticks.append(int(record["server_tick"]))
 
-def _player_connections(episode: Path, player_uuid: str) -> dict[str, tuple[int, int]]:
-    ticks: dict[str, list[int]] = {}
-    for epoch in iter_epochs(episode):
-        if epoch.status != "sealed":
-            continue
-        for _line, record in iter_events(epoch):
-            if record.get("record_type") != "player_state" or record.get("player_uuid") != player_uuid:
-                continue
-            connection = record.get("connection_id")
-            tick = record.get("server_tick")
-            if isinstance(connection, str) and isinstance(tick, int) and not isinstance(tick, bool):
-                ticks.setdefault(connection, []).append(tick)
-    return {connection: (min(values), max(values)) for connection, values in ticks.items() if values}
-
-
-def _select_connection(episode: Path, player_uuid: str, requested: str | None) -> tuple[str, int, int]:
-    connections = _player_connections(episode, player_uuid)
-    if not connections:
-        raise RecorderError(f"player {player_uuid} has no connection-tagged state records in sealed epochs")
-    if requested is not None:
-        if requested not in connections:
-            raise RecorderError(f"connection {requested!r} does not belong to player {player_uuid}")
-        first, last = connections[requested]
-        return requested, first, last
-    if len(connections) != 1:
-        choices = ", ".join(sorted(connections))
-        raise RecorderError(f"player has multiple connections ({choices}); pass --connection ID")
-    connection, (first, last) = next(iter(connections.items()))
-    return connection, first, last
+    source = scan_capture_events(events, metadata, visit)
+    if not ticks:
+        raise RecorderError("capture has no player_state records")
+    if ticks != sorted(set(ticks)) or ticks != list(range(ticks[0], ticks[-1] + 1)):
+        raise RecorderError("capture player_state timeline is duplicated, unordered, or incomplete")
+    return (metadata, ticks[0], ticks[-1], source)
 
 
 def _owned_render_directory(path: Path) -> bool:
@@ -143,13 +80,12 @@ def _owned_render_directory(path: Path) -> bool:
         entries = list(path.iterdir())
         if not {entry.name for entry in entries} <= {
             "render-job.json",
-            "frames",
-            "hud-states.jsonl",
+            "fpv_frames",
             "result.json",
             "result.json.inprogress",
         }:
             return False
-        if not (path / "frames").is_dir() or (path / "frames").is_symlink():
+        if not (path / "fpv_frames").is_dir() or (path / "fpv_frames").is_symlink():
             return False
         if manifest.is_symlink():
             return False
@@ -157,12 +93,9 @@ def _owned_render_directory(path: Path) -> bool:
             result_path = path / result_name
             if result_path.exists() and (result_path.is_symlink() or not result_path.is_file()):
                 return False
-        hud_path = path / "hud-states.jsonl"
-        if hud_path.exists() and (hud_path.is_symlink() or not hud_path.is_file()):
+        if not _owned_render_artifacts(path / "fpv_frames"):
             return False
-        if not _owned_render_artifacts(path / "frames"):
-            return False
-        expected_frames = (path / "frames").resolve()
+        expected_frames = (path / "fpv_frames").resolve()
         expected_result = (path / "result.json").resolve()
         return Path(str(value.get("output", ""))).expanduser().resolve() == expected_frames and Path(str(value.get("result", ""))).expanduser().resolve() == expected_result
     except OSError, RuntimeError:
@@ -189,12 +122,11 @@ def _owned_render_artifacts(frames: Path) -> bool:
 
 
 def prepare_render_job(
-    episode: Path,
+    metadata: Path,
+    events: Path,
     replay: Path,
     output: Path,
     *,
-    player_uuid: str,
-    connection_id: str | None,
     width: int,
     height: int,
     fps: int,
@@ -203,33 +135,26 @@ def prepare_render_job(
     force: bool,
     no_gui: bool = False,
 ) -> RenderJobResult:
-    try:
-        normalized_player_uuid = str(uuid.UUID(player_uuid))
-    except ValueError as exc:
-        raise RecorderError(f"invalid player UUID: {player_uuid!r}") from exc
     if not 64 <= width <= 16384 or not 64 <= height <= 16384:
         raise RecorderError("render dimensions must be between 64 and 16384 pixels")
     if fps != 20:
         raise RecorderError("renderer v1 supports exactly 20 FPS")
     if not isinstance(no_gui, bool):
         raise RecorderError("no_gui must be a boolean")
-    validation = validate_episode(episode)
-    if not validation.valid or validation.sealed_epochs == 0:
-        raise RecorderError("episode must have at least one valid sealed epoch before rendering")
-    connection, observed_first, observed_last = _select_connection(episode, normalized_player_uuid, connection_id)
+    capture, observed_first, observed_last, events_source = _state_range(events, metadata)
+    normalized_player_uuid = capture.player_uuid
+    connection = capture.connection_id
     selected_first = observed_first if first_tick is None else first_tick
     selected_last = observed_last if last_tick is None else last_tick
     if selected_first < observed_first or selected_last > observed_last or selected_first > selected_last:
         raise RecorderError(f"render tick range must be within connection range {observed_first}..{observed_last}")
 
-    unresolved_replay = replay.expanduser()
-    if unresolved_replay.is_symlink() or not unresolved_replay.is_file():
-        raise RecorderError(f"replay not found or is symlinked: {unresolved_replay}")
-    replay = unresolved_replay.resolve()
-    replay_format = _detect_replay_format(replay)
-    if replay_format != "flashback":
-        raise RecorderError("the current renderer supports Flashback replay ZIPs only")
-    replay_sha256, replay_bytes = _stable_file_digest(replay, "replay archive")
+    replay_source = verified_replay_source(
+        replay,
+        player_uuid=normalized_player_uuid,
+        connection_id=connection,
+    )
+    replay = replay_source.path
     requested_output = output.expanduser()
     if requested_output.is_symlink():
         raise RecorderError(f"render job output may not be a symlink: {requested_output}")
@@ -244,7 +169,7 @@ def prepare_render_job(
 
     staging = Path(tempfile.mkdtemp(prefix=f".{output.name}.tmp-", dir=output.parent))
     try:
-        frames = staging / "frames"
+        frames = staging / "fpv_frames"
         frames.mkdir()
         job: dict[str, Any] = {
             "schema_version": 1,
@@ -253,11 +178,12 @@ def prepare_render_job(
             "status": "prepared",
             "created_at": datetime.now(UTC).isoformat(),
             "replay": str(replay),
-            "output": str((output / "frames").resolve()),
+            "output": str((output / "fpv_frames").resolve()),
             "result": str((output / "result.json").resolve()),
-            "session_id": validation.session_id,
+            "session_id": capture.session_id,
             "connection_id": connection,
             "player_uuid": normalized_player_uuid,
+            "replay_id": replay_source.replay_id,
             "global_start_tick": selected_first,
             "global_end_tick": selected_last,
             "width": width,
@@ -265,16 +191,20 @@ def prepare_render_job(
             "fps": fps,
             "no_gui": no_gui,
             "stop_when_done": True,
-            "episode": {
-                "session_id": validation.session_id,
-                "path": str(episode.resolve()),
-                "manifest_sha256": sha256_file(episode / "manifest.json"),
+            "capture": {
+                "session_id": capture.session_id,
+                "metadata": str(capture.path),
+                "events": str(events_source.path),
+                "events_sha256": events_source.sha256,
+                "events_size_bytes": events_source.size_bytes,
+                "event_count": events_source.record_count,
             },
             "source_replay": {
                 "path": str(replay),
-                "format": replay_format,
-                "sha256": replay_sha256,
-                "size_bytes": replay_bytes,
+                "format": replay_source.replay_format,
+                "sha256": replay_source.sha256,
+                "size_bytes": replay_source.size_bytes,
+                "replay_id": replay_source.replay_id,
             },
             "subject": {
                 "player_uuid": normalized_player_uuid,
@@ -286,6 +216,7 @@ def prepare_render_job(
                 "observed_connection_range": [observed_first, observed_last],
                 "server_tick_rate_hz": 20,
                 "output_fps": fps,
+                "range_policy": "intersection",
                 "alignment": "exact mc_recorder:timeline payload recorded inside Flashback",
                 "frame_index_contract": ("frames.jsonl records global server_tick, replay_tick, connection_id, and player_uuid"),
             },
@@ -295,8 +226,8 @@ def prepare_render_job(
                 "height": height,
             },
             "output_metadata": {
-                "frames_directory": str((output / "frames").resolve()),
-                "frame_index": str((output / "frames" / "frames.jsonl").resolve()),
+                "frames_directory": str((output / "fpv_frames").resolve()),
+                "frame_index": str((output / "fpv_frames" / "frames.jsonl").resolve()),
                 "result_manifest": str((output / "result.json").resolve()),
             },
             "renderer_contract": {
@@ -309,7 +240,6 @@ def prepare_render_job(
             },
             "limitations": [
                 "The rendered view is reconstructed from server-visible packets, not original client pixels.",
-                "A five-minute ServerReplay segment may cover only part of a longer player connection.",
             ],
         }
         manifest = staging / "render-job.json"
@@ -373,11 +303,6 @@ def launch_render_job(
         raise RecorderError(f"renderer mod project not found: {project}")
 
     job_manifest = _read_job_manifest(job.manifest)
-    declared_presentation = job_manifest.get("presentation_contract")
-    if declared_presentation is not None and declared_presentation != FULL_CLIENT_PRESENTATION_CONTRACT:
-        raise RecorderError("render job presentation_contract is not supported")
-    _validate_structured_hud_job(job, job_manifest)
-
     environment = current_process_environment()
     environment[ENV_RENDER_JOB] = str(job.manifest)
     command = [
@@ -417,22 +342,6 @@ def launch_render_job(
     result_no_gui = result.get("no_gui", True)
     if not isinstance(expected_no_gui, bool) or not isinstance(result_no_gui, bool) or result_no_gui != expected_no_gui:
         raise RecorderError("renderer result no_gui does not match the render job")
-    expected_presentation = job_manifest.get("presentation_contract")
-    if expected_presentation is not None:
-        if expected_presentation != FULL_CLIENT_PRESENTATION_CONTRACT:
-            raise RecorderError("render job presentation_contract is not supported")
-        if expected_no_gui:
-            raise RecorderError("render job presentation_contract requires no_gui=false")
-        if result.get("presentation_contract") != FULL_CLIENT_PRESENTATION_CONTRACT:
-            raise RecorderError("renderer result presentation_contract does not match the render job")
-        expected_hud = hud_result_envelope(job_manifest["structured_hud"])
-        actual_hud = validate_hud_result_envelope(result.get("structured_hud"))
-        if actual_hud != expected_hud:
-            raise RecorderError("renderer result structured_hud does not match the render job")
-    elif result.get("presentation_contract") is not None:
-        raise RecorderError("renderer result presentation_contract was not requested by the render job")
-    elif result.get("structured_hud") is not None:
-        raise RecorderError("renderer result structured_hud was not requested by the render job")
     if result.get("status") == "no_coverage":
         timeline = job_manifest.get("timeline")
         if not isinstance(timeline, dict) or timeline.get("range_policy") != "intersection":
@@ -446,74 +355,6 @@ def launch_render_job(
     if result.get("replay_sha256") != expected_sha or result.get("replay_bytes") != expected_bytes or actual_sha != expected_sha or actual_bytes != expected_bytes:
         raise RecorderError("replay integrity does not match the completed renderer result")
     return result
-
-
-def _validate_structured_hud_job(job: RenderJobResult, manifest: dict[str, Any]) -> None:
-    presentation = manifest.get("presentation_contract")
-    value = manifest.get("structured_hud")
-    if presentation != FULL_CLIENT_PRESENTATION_CONTRACT:
-        if value is not None:
-            raise RecorderError("render job structured_hud requires the current presentation contract")
-        return
-    if not isinstance(value, dict) or set(value) != {
-        "schema_version",
-        "type",
-        "path",
-        "format",
-        "sha256",
-        "size_bytes",
-        "records",
-        "start_server_tick",
-        "end_server_tick",
-        "dataset_id",
-        "dataset_manifest_sha256",
-        "samples_sha256",
-        "session_id",
-        "player_uuid",
-        "connection_id",
-    }:
-        raise RecorderError("current full-client render job requires a complete structured_hud envelope")
-    if value.get("type") != HUD_SIDECAR_TYPE:
-        raise RecorderError("render job structured_hud type is unsupported")
-    envelope = hud_result_envelope(value)
-    if envelope["session_id"] != manifest.get("session_id") or envelope["player_uuid"] != manifest.get("player_uuid") or envelope["connection_id"] != manifest.get("connection_id"):
-        raise RecorderError("render job structured_hud identity does not match the job")
-    expected_path = (job.directory / "hud-states.jsonl").resolve()
-    supplied_path = value.get("path")
-    if not isinstance(supplied_path, str) or Path(supplied_path).expanduser().resolve() != expected_path:
-        raise RecorderError("render job structured_hud path is not canonical")
-    if expected_path.is_symlink() or not expected_path.is_file():
-        raise RecorderError("render job structured_hud file is missing or symlinked")
-    digest = value.get("sha256")
-    size = value.get("size_bytes")
-    records = value.get("records")
-    first = value.get("start_server_tick")
-    last = value.get("end_server_tick")
-    if (
-        not isinstance(digest, str)
-        or re.fullmatch(r"[0-9a-f]{64}", digest) is None
-        or not isinstance(size, int)
-        or isinstance(size, bool)
-        or not 1 <= size <= MAX_HUD_SIDECAR_BYTES
-        or not isinstance(records, int)
-        or isinstance(records, bool)
-        or records <= 0
-        or not isinstance(first, int)
-        or isinstance(first, bool)
-        or not isinstance(last, int)
-        or isinstance(last, bool)
-        or first < 0
-        or last < first
-        or records != last - first + 1
-    ):
-        raise RecorderError("render job structured_hud integrity envelope is invalid")
-    job_first = manifest.get("global_start_tick")
-    job_last = manifest.get("global_end_tick")
-    if not isinstance(job_first, int) or isinstance(job_first, bool) or not isinstance(job_last, int) or isinstance(job_last, bool) or first > job_first or last < job_last:
-        raise RecorderError("render job structured_hud tick range does not cover the job")
-    actual_digest, actual_size = _stable_file_digest(expected_path, "structured HUD sidecar")
-    if actual_digest != digest or actual_size != size:
-        raise RecorderError("render job structured_hud file failed its integrity envelope")
 
 
 def _read_job_manifest(path: Path) -> dict[str, Any]:

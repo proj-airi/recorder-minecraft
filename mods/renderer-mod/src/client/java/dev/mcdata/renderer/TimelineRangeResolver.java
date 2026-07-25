@@ -5,7 +5,6 @@ final class TimelineRangeResolver {
     }
 
     static Resolution resolve(
-        RenderJobSpec.RangePolicy policy,
         long requestedStart,
         long requestedEnd,
         int totalReplayTicks,
@@ -18,10 +17,6 @@ final class TimelineRangeResolver {
         validateMarker(first, totalReplayTicks, "first");
         long offset = first.serverTick() - first.replayTick();
 
-        if (policy == RenderJobSpec.RangePolicy.LEGACY_STRICT) {
-            return ready(requestedStart, requestedEnd, offset, totalReplayTicks,
-                first.serverTick(), offset + totalReplayTicks);
-        }
         if (last == null) {
             throw new IllegalArgumentException("A last matching timeline marker is required");
         }
@@ -38,15 +33,6 @@ final class TimelineRangeResolver {
 
         long coverageStart = first.serverTick();
         long coverageEnd = last.serverTick();
-        if (policy == RenderJobSpec.RangePolicy.STRICT) {
-            if (requestedStart < coverageStart || requestedEnd > coverageEnd) {
-                throw new IllegalArgumentException(
-                    "Requested global ticks are not fully covered by this replay segment"
-                );
-            }
-            return ready(requestedStart, requestedEnd, offset, totalReplayTicks, coverageStart, coverageEnd);
-        }
-
         long effectiveStart = Math.max(requestedStart, coverageStart);
         long effectiveEnd = Math.min(requestedEnd, coverageEnd);
         if (effectiveStart > effectiveEnd) {
@@ -102,10 +88,6 @@ final class TimelineRangeResolver {
         return observation != null
             && observation.replayTick() == expectedReplayTick
             && observation.serverTick() == expectedServerTick;
-    }
-
-    static boolean requiresResolvedStartMarker(RenderJobSpec.RangePolicy policy) {
-        return policy != RenderJobSpec.RangePolicy.LEGACY_STRICT;
     }
 
     private static Resolution ready(

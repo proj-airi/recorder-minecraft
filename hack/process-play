@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+CONFIG="${ROOT}/recorder.example.toml"
+
+if [[ "$#" -ne 1 ]]; then
+  echo "usage: hack/process-play PLAY" >&2
+  exit 2
+fi
+if [[ ! -d "$1" ]]; then
+  echo "play directory not found: $1" >&2
+  exit 2
+fi
+
+PLAY="$(cd "$1" && pwd -P)"
+METADATA="${PLAY}/metadata.json"
+EVENTS="${PLAY}/capture/events.jsonl"
+REPLAY="${PLAY}/capture/replay.zip"
+
+for input in "${METADATA}" "${EVENTS}" "${REPLAY}"; do
+  if [[ ! -f "${input}" ]]; then
+    echo "missing play input: ${input}" >&2
+    exit 2
+  fi
+done
+
+cd "${ROOT}"
+
+pixi run minerec --config "${CONFIG}" actions extract \
+  --metadata "${METADATA}" \
+  --events "${EVENTS}" \
+  --output "${PLAY}/actions.jsonl"
+
+pixi run minerec --config "${CONFIG}" scene extract \
+  --metadata "${METADATA}" \
+  --events "${EVENTS}" \
+  --replay "${REPLAY}" \
+  --output "${PLAY}/scene.sqlite3"
+
+pixi run minerec --config "${CONFIG}" render \
+  --metadata "${METADATA}" \
+  --events "${EVENTS}" \
+  --replay "${REPLAY}" \
+  --output "${PLAY}/renders"
+
+echo "Processed play: ${PLAY}"

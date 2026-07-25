@@ -1,6 +1,6 @@
 package dev.mcdata.scene;
 
-import dev.mcdata.scene.io.ResultPublisher;
+import dev.mcdata.scene.io.ResultWriter;
 import dev.mcdata.scene.io.SceneSpoolWriter;
 import dev.mcdata.scene.job.SceneJob;
 import dev.mcdata.scene.job.SceneJobLoader;
@@ -49,16 +49,16 @@ public final class SceneExtractionRunner {
                 SceneJobLoader.verifySubjectPosesUnchanged(job);
                 output = spool.commit();
             }
-            ResultPublisher.complete(job, output, extraction);
+            ResultWriter.complete(job, output, extraction);
             LOGGER.info("Scene extraction {} completed with {} frames", job.jobId(), output.frameCount());
             return job;
         } catch (Throwable failure) {
             LOGGER.error("Scene extraction {} failed", job.jobId(), failure);
             try {
-                ResultPublisher.failed(job, failure);
+                ResultWriter.failed(job, failure);
             } catch (IOException resultFailure) {
                 failure.addSuppressed(resultFailure);
-                LOGGER.error("Could not publish failed scene extraction result", resultFailure);
+                LOGGER.error("Could not write failed scene extraction result", resultFailure);
             }
             if (failure instanceof IOException exception) {
                 throw exception;

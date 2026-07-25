@@ -74,13 +74,17 @@ prepare() {
   require_command pixi
 
   cd "${ROOT}"
-  pixi run build-minerec-image
   pixi run build-recorder-mod
 
-  local mods_dir config_dir jar level_name epoch_ticks eula
+  local mods_dir config_dir config_file jar level_name eula server_name server_instance_id
   mods_dir="$(env_path MC_LOCAL_MODS_DIR)"
   config_dir="$(env_path MC_CONFIG_SOURCE_DIR)"
+  config_file="$(env_path MC_CONFIG_FILE)"
   mkdir -p "${mods_dir}" "${config_dir}/server-replay"
+  if [[ ! -f "${config_file}" ]]; then
+    echo "missing recorder config: ${config_file}; run 'pixi run minerec init' first" >&2
+    exit 2
+  fi
 
   eula="$(env_value MC_EULA)"
   eula="$(printf '%s' "${eula}" | tr '[:upper:]' '[:lower:]')"
@@ -102,21 +106,18 @@ prepare() {
   cp "${jar}" "${mods_dir}/mc-recorder-capture.jar"
 
   level_name="$(env_value MC_LEVEL_NAME)"
-  epoch_ticks="$(env_value MC_CAPTURE_EPOCH_TICKS)"
   : "${level_name:=world}"
-  : "${epoch_ticks:=6000}"
-  if [[ ! "${epoch_ticks}" =~ ^[1-9][0-9]*$ ]]; then
-    echo "MC_CAPTURE_EPOCH_TICKS must be a positive integer" >&2
-    exit 2
-  fi
   level_name="$(json_string_escape "${level_name}")"
+  server_name="$(pixi run python -c 'import sys; from minerec.config import load_config; print(load_config(sys.argv[1]).server.name)' "${config_file}")"
+  server_instance_id="$(pixi run python -c 'import sys; from minerec.config import load_config; print(load_config(sys.argv[1]).server.instance_id)' "${config_file}")"
+  server_name="$(json_string_escape "${server_name}")"
 
   cat > "${config_dir}/server-replay/config.json" <<EOF
 {
   "allow_downloading_replays": false,
   "automatically_record": true,
   "chunk_recorder_load_radius": -1,
-  "chunk_recording_path": "/replays/chunks",
+  "chunk_recording_path": "/data/mc-recorder/server-replay/chunks",
   "chunk_recording_strategy": "always",
   "chunks": [],
   "default_encoding": "flashback",
@@ -129,7 +130,7 @@ prepare() {
   "ignore_sound_packets": false,
   "include_resource_packs": true,
   "log_deleted_replays": true,
-  "max_duration": "5m",
+  "max_duration": "0s",
   "max_file_size": "0 B",
   "notify_admins_of_status": true,
   "optimize_entity_packets": false,
@@ -137,12 +138,12 @@ prepare() {
   "pause_notify_players": false,
   "player_predicate": {"type": "all"},
   "player_recording_name": "{uuid}",
-  "player_recording_path": "/replays/players",
+  "player_recording_path": "/data/mc-recorder/server-replay/players",
   "record_hotbar": true,
   "record_voice_chat": false,
   "recover_unsaved_replays": true,
   "replay_server_ip": null,
-  "restart_after_max_duration": true,
+  "restart_after_max_duration": false,
   "restart_after_max_file_size": false,
   "server_name": "mc-recorder",
   "world_name": "${level_name}"
@@ -151,8 +152,9 @@ EOF
 
   cat > "${config_dir}/mc-recorder.json" <<EOF
 {
-  "capture_root": "/captures",
-  "epoch_ticks": ${epoch_ticks},
+  "artifacts_root": "/artifacts",
+  "server_name": "${server_name}",
+  "server_instance_id": "${server_instance_id}",
   "include_inventory_components": true,
   "record_all_players": true,
   "writer_queue_capacity": 65536

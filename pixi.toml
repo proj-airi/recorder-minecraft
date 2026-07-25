@@ -1,7 +1,7 @@
 [workspace]
 name = "mc-play-recorder"
 version = "0.1.0"
-description = "Minecraft gameplay dataset recorder development workspace"
+description = "Minecraft gameplay recorder development workspace"
 authors = [ "Project AIRI" ]
 channels = [ "conda-forge" ]
 platforms = [
@@ -12,12 +12,12 @@ requires-pixi = ">=0.73,<1"
 
 [dependencies]
 python = "3.14.*"
+setuptools = ">=68"
 ruff = ">=0.15.22,<0.16"
 ty = ">=0.0.61,<0.0.62"
 
 [pypi-dependencies]
 minerec = { path = "apps/minerec", editable = true }
-platformdirs = ">=4.11.0, <5"
 
 [tasks]
 setup-jvm = "proto install --config-mode local"
@@ -35,7 +35,7 @@ build-mods = { depends-on = [
 ] }
 check = { depends-on = [
   "test-python",
-  "build-mods"
+  "build-mods",
 ] }
 py-check = { depends-on = [
   "py-lint",
@@ -46,4 +46,4 @@ py-format = "ruff format ."
 py-format-check = "ruff format --check ."
 py-lint = "ruff check ."
 py-lint-fix = "ruff check --fix ."
-py-typecheck = "ty check"
+py-typecheck = "ty check --python $CONDA_PREFIX/bin/python"

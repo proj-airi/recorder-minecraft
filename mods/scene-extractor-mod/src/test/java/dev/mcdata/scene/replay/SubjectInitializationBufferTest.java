@@ -111,7 +111,7 @@ final class SubjectInitializationBufferTest {
         return new SceneJob.SubjectPoseInput(
             "mc-recorder-subject-poses-v1", Path.of("/tmp/subject-poses.jsonl"),
             "b".repeat(64), 2, 2, 100, 101,
-            List.of(new SceneJob.SourceEpoch(0, "c".repeat(64), 1, 1)),
+            new SceneJob.SourceEvents("c".repeat(64), 1, 1),
             new SceneJob.SubjectPoseFileIdentity("test", 0),
             new SceneJob.SubjectPoseTimeline(
                 100, "session", PLAYER, CONNECTION,
