@@ -86,17 +86,21 @@ def replay_source(path: Path) -> ReplaySource:
     replay = unresolved.resolve()
     try:
         with zipfile.ZipFile(replay) as archive:
-            info = archive.getinfo("metadata.json")
-            if info.file_size > MAX_REPLAY_METADATA_BYTES:
+            flashback_info = archive.getinfo("metadata.json")
+            arcade_info = archive.getinfo("arcade_replay_meta.json")
+            if flashback_info.file_size > MAX_REPLAY_METADATA_BYTES or arcade_info.file_size > MAX_REPLAY_METADATA_BYTES:
                 raise RecorderError("Flashback metadata exceeds the byte limit")
-            value = json.loads(archive.read(info))
+            value = json.loads(archive.read(flashback_info))
+            arcade_metadata = json.loads(archive.read(arcade_info))
     except RecorderError:
         raise
     except (KeyError, OSError, ValueError, zipfile.BadZipFile) as exc:
         raise RecorderError(f"replay is not a readable Flashback ZIP: {replay}") from exc
     if not isinstance(value, dict) or not isinstance(value.get("chunks"), dict):
         raise RecorderError("replay does not contain Flashback metadata")
-    recorder = value.get("mc_recorder")
+    if not isinstance(arcade_metadata, dict):
+        raise RecorderError("replay does not contain ServerReplay metadata")
+    recorder = arcade_metadata.get("mc_recorder")
     if not isinstance(recorder, dict):
         raise RecorderError("Flashback replay lacks mc_recorder identity metadata")
     replay_id = _canonical_uuid(recorder.get("replay_id"), "replay ID")

@@ -19,8 +19,8 @@ REPLAY = "00000000-0000-4000-8000-000000000003"
 
 
 def _write_replay(path: Path, *, replay_id: str = REPLAY, player: str = PLAYER) -> None:
-    metadata = {
-        "chunks": {"c0": {}},
+    metadata = {"chunks": {"c0": {}}}
+    arcade_metadata = {
         "mc_recorder": {
             "replay_id": replay_id,
             "player_uuid": player,
@@ -30,6 +30,7 @@ def _write_replay(path: Path, *, replay_id: str = REPLAY, player: str = PLAYER) 
     }
     with zipfile.ZipFile(path, "w") as archive:
         archive.writestr("metadata.json", json.dumps(metadata))
+        archive.writestr("arcade_replay_meta.json", json.dumps(arcade_metadata))
         archive.writestr("chunks/c0.flashback", b"replay")
 
 

@@ -9,6 +9,7 @@ import net.casual.arcade.events.server.player.PlayerServerboundPacketEvent
 import net.casual.arcade.replay.events.ReplayRecorderStartEvent
 import net.casual.arcade.replay.events.ReplayRecorderCloseEvent
 import net.casual.arcade.replay.events.ReplayRecorderSaveEvent
+import net.casual.arcade.replay.recorder.player.ReplayPlayerRecorders
 import net.fabricmc.api.ModInitializer
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents
@@ -30,7 +31,10 @@ object RecorderMod : ModInitializer {
         ServerTickEvents.START_SERVER_TICK.register { CaptureRuntime.startTick() }
         ServerTickEvents.END_SERVER_TICK.register { server -> CaptureRuntime.endTick(server) }
         ServerPlayConnectionEvents.JOIN.register { handler, _, _ -> CaptureRuntime.playerJoin(handler.player) }
-        ServerPlayConnectionEvents.DISCONNECT.register { handler, _ -> CaptureRuntime.playerLeave(handler.player) }
+        ServerPlayConnectionEvents.DISCONNECT.register { handler, _ ->
+            CaptureRuntime.playerLeave(handler.player)
+            ReplayPlayerRecorders.stop(handler.player.uuid)
+        }
 
         GlobalEventHandler.Server.register<PlayerServerboundPacketEvent> { event ->
             CaptureRuntime.packetArrival(event.player, event.packet)

@@ -22,7 +22,7 @@ class ReplayCaptureTracker(
             recorderIdentity = recorder,
             playerUuid = recorder.recordingPlayerUUID,
             replayFormat = recorder.format.name.lowercase(),
-            location = recorder.location
+            workingDirectory = recorder.location
         )
         recorder.addMetadataProvider(metadataProvider)
     }
@@ -32,7 +32,7 @@ class ReplayCaptureTracker(
         recorderIdentity: Any,
         playerUuid: UUID,
         replayFormat: String,
-        location: Path
+        workingDirectory: Path
     ): (JsonObject) -> Unit {
         require(replayFormat == FLASHBACK_FORMAT) {
             "artifacts/v1 requires Flashback player replays"
@@ -44,13 +44,15 @@ class ReplayCaptureTracker(
         check(capturesByRecorder.values.none { it.playFiles === play }) {
             "play capture already has a ServerReplay recorder; replay rotation is disabled"
         }
-        require(location.toAbsolutePath().normalize() == play.paths.replayWorking) {
-            "ServerReplay was not redirected to ${play.paths.replayWorking}"
+        val working = workingDirectory.toAbsolutePath().normalize()
+        require(working.parent == play.paths.replayWorking) {
+            "ServerReplay working directory must be one child of ${play.paths.replayWorking}: $working"
         }
         val capture = ReplayCapture(
             replayId = UUID.randomUUID().toString(),
             playerUuid = playerUuid,
-            playFiles = play
+            playFiles = play,
+            workingDirectory = working
         )
         capturesByRecorder[recorderIdentity] = capture
         return { metadata -> addArchiveMetadata(capture, metadata) }
@@ -65,6 +67,12 @@ class ReplayCaptureTracker(
     internal fun captureSaved(recorderIdentity: Any, output: Path) {
         val capture = checkNotNull(capturesByRecorder[recorderIdentity]) {
             "completed recorder was not registered"
+        }
+        val expected = capture.workingDirectory.resolveSibling(
+            capture.workingDirectory.fileName.toString() + ".zip"
+        )
+        require(output.toAbsolutePath().normalize() == expected) {
+            "ServerReplay output does not match its working directory: $output"
         }
         capture.playFiles.replaySaved(output)
         capture.saved = true
@@ -104,6 +112,7 @@ class ReplayCaptureTracker(
         val replayId: String,
         val playerUuid: UUID,
         val playFiles: PlayFiles,
+        val workingDirectory: Path,
         var saved: Boolean = false
     )
 

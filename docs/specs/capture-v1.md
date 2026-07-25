@@ -26,11 +26,13 @@ are JSON `null`.
 bounded, buffered writer. A clean disconnect drains the queue, flushes, and
 fsyncs it. It is never renamed or rotated.
 
-ServerReplay streams Flashback data to `capture/replay/` while the connection
-is live. Flashback atomically produces its sibling `capture/replay.zip` and
-removes the working directory when it closes. Rotation is disabled. The
-archive embeds `mc_recorder` schema 4 identity with `replay_id`, player UUID,
-connection UUID, timeline/capture contracts, and the capture-relative path.
+ServerReplay streams Flashback data to a timestamped child of
+`capture/replay/` while the connection is live. After ServerReplay closes that
+writer, the recorder moves its completed ZIP unchanged to
+`capture/replay.zip` and removes the empty working parent. Rotation is
+disabled. The archive embeds `mc_recorder` schema 4 identity in
+`arcade_replay_meta.json`, with `replay_id`, player UUID, connection UUID,
+timeline/capture contracts, and the capture-relative path.
 
 Only after the event stream and replay have both closed does the recorder
 atomically rewrite `metadata.json` with the end fields.

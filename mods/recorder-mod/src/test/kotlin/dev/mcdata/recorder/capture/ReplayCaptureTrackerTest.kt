@@ -10,6 +10,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Instant
 import java.util.UUID
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
@@ -24,11 +25,12 @@ class ReplayCaptureTrackerTest {
         val play = playFiles()
         val tracker = ReplayCaptureTracker(SESSION) { play }
         val recorder = Any()
+        val working = play.paths.replayWorking.resolve("2026-07-25--10-20-30")
         val metadataProvider = tracker.captureStarted(
             recorder,
             UUID.fromString(PLAYER),
             "flashback",
-            play.paths.replayWorking
+            working
         )
         val embedded = JsonObject().also(metadataProvider).getAsJsonObject("mc_recorder")
 
@@ -45,13 +47,17 @@ class ReplayCaptureTrackerTest {
         var metadata = JsonParser.parseString(Files.readString(play.paths.metadata)).asJsonObject
         assertTrue(metadata.getAsJsonObject("connection").get("end_server_tick").isJsonNull)
 
-        Files.write(play.paths.replay, byteArrayOf(1, 2, 3, 4))
-        tracker.captureSaved(recorder, play.paths.replay)
+        Files.createDirectories(working)
+        val serverReplayOutput = working.resolveSibling(working.fileName.toString() + ".zip")
+        Files.write(serverReplayOutput, byteArrayOf(1, 2, 3, 4))
+        tracker.captureSaved(recorder, serverReplayOutput)
+        Files.delete(working)
         tracker.captureClosed(recorder)
 
         metadata = JsonParser.parseString(Files.readString(play.paths.metadata)).asJsonObject
         assertEquals(20, metadata.getAsJsonObject("connection").get("end_server_tick").asLong)
         assertTrue(Files.isRegularFile(play.paths.replay))
+        assertContentEquals(byteArrayOf(1, 2, 3, 4), Files.readAllBytes(play.paths.replay))
         assertFalse(Files.exists(play.paths.replayWorking))
     }
 
@@ -59,10 +65,26 @@ class ReplayCaptureTrackerTest {
     fun `rejects replay rotation for one play`() {
         val play = playFiles()
         val tracker = ReplayCaptureTracker(SESSION) { play }
-        tracker.captureStarted(Any(), UUID.fromString(PLAYER), "flashback", play.paths.replayWorking)
+        val working = play.paths.replayWorking.resolve("2026-07-25--10-20-30")
+        tracker.captureStarted(Any(), UUID.fromString(PLAYER), "flashback", working)
 
         assertFailsWith<IllegalStateException> {
-            tracker.captureStarted(Any(), UUID.fromString(PLAYER), "flashback", play.paths.replayWorking)
+            tracker.captureStarted(Any(), UUID.fromString(PLAYER), "flashback", working)
+        }
+    }
+
+    @Test
+    fun `rejects a writer outside the connection replay directory`() {
+        val play = playFiles()
+        val tracker = ReplayCaptureTracker(SESSION) { play }
+
+        assertFailsWith<IllegalArgumentException> {
+            tracker.captureStarted(
+                Any(),
+                UUID.fromString(PLAYER),
+                "flashback",
+                temporary.resolve("other/2026-07-25--10-20-30")
+            )
         }
     }
 

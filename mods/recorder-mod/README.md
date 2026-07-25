@@ -30,8 +30,9 @@ At player join the mod creates:
 ```
 
 It does not create actions, scenes, or renders. Those are post-processing
-outputs. ServerReplay writes one unrotated Flashback recording directly into
-the play capture and finalizes it as `capture/replay.zip` on disconnect.
+outputs. ServerReplay writes one unrotated Flashback recording through a
+timestamped working child; after close, the recorder moves the archive
+unchanged to `capture/replay.zip`.
 
 The recorder appends one buffered, connection-local `capture/events.jsonl`
 stream. There are no sessions on disk, epochs, manifests, or sealing step.

@@ -24,5 +24,5 @@ Vanilla empty-server tick pausing is disabled so recorder tick boundaries
 continue after the last player disconnects.
 
 ServerReplay duration and size rotation are disabled. The recorder redirects
-its one live Flashback writer per connection directly to
-`<play>/capture/replay`, which Flashback finalizes as `capture/replay.zip`.
+its one live Flashback writer per connection to `<play>/capture/replay/`, then
+moves the closed archive unchanged to `<play>/capture/replay.zip`.

@@ -53,11 +53,12 @@ capture/events.jsonl
 capture/replay.zip
 ```
 
-The JSONL stream is single, buffered, and connection-local. ServerReplay writes
-one unrotated Flashback archive directly into the same `capture/` directory.
-On disconnect the recorder closes both streams and writes the metadata end tick
-last. There is no explicit seal step. A non-null end tick is the handoff marker
-for post-processing.
+The JSONL stream is single, buffered, and connection-local. ServerReplay uses
+a timestamped working child under `capture/replay/`; after it closes, the
+recorder moves the archive unchanged to `capture/replay.zip` and removes the
+empty working parent. The recorder writes the metadata end tick last. There is
+no explicit seal step. A non-null end tick is the handoff marker for
+post-processing.
 
 See [Primitive Capture V1](capture-v1.md) for the persisted fields and gaps.
 

@@ -20,6 +20,7 @@ class PlayFiles private constructor(
     private val metadataValue: JsonObject
 ) {
     private var ended: CaptureEnd? = null
+    private var savedReplay: Path? = null
     private var replayClosed = false
 
     fun connectionId(): String =
@@ -27,21 +28,37 @@ class PlayFiles private constructor(
 
     @Synchronized
     fun replaySaved(output: Path) {
-        require(output.toAbsolutePath().normalize() == paths.replay) {
-            "ServerReplay output does not match capture/replay.zip: $output"
+        require(savedReplay == null) { "ServerReplay replay was already saved" }
+        val source = output.toAbsolutePath().normalize()
+        require(source.parent == paths.replayWorking && source.fileName.toString().endsWith(".zip")) {
+            "ServerReplay output must be one ZIP inside ${paths.replayWorking}: $source"
         }
-        require(Files.isRegularFile(paths.replay) && !Files.isSymbolicLink(paths.replay)) {
-            "completed replay must be a non-symlinked regular file: ${paths.replay}"
+        require(Files.isRegularFile(source) && !Files.isSymbolicLink(source)) {
+            "completed replay must be a non-symlinked regular file: $source"
         }
+        savedReplay = source
     }
 
     @Synchronized
     fun replayWriterClosed() {
+        val source = checkNotNull(savedReplay) { "Flashback writer closed before saving its replay" }
+        val working = source.resolveSibling(source.fileName.toString().removeSuffix(".zip"))
+        require(!Files.exists(working)) {
+            "Flashback working directory still exists after replay close: $working"
+        }
+        require(Files.isRegularFile(source) && !Files.isSymbolicLink(source)) {
+            "completed replay changed before writer close: $source"
+        }
+        val remaining = Files.list(paths.replayWorking).use { entries ->
+            entries.map { it.toAbsolutePath().normalize() }.toList()
+        }
+        require(remaining == listOf(source)) {
+            "unexpected files remain in ServerReplay working directory: ${paths.replayWorking}"
+        }
+        moveComplete(source, paths.replay)
+        Files.delete(paths.replayWorking)
         require(Files.isRegularFile(paths.replay) && !Files.isSymbolicLink(paths.replay)) {
             "Flashback replay did not finalize at ${paths.replay}"
-        }
-        require(!Files.exists(paths.replayWorking)) {
-            "Flashback working directory still exists after replay close: ${paths.replayWorking}"
         }
         replayClosed = true
         finishIfReady()

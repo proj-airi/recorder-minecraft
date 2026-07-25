@@ -16,21 +16,14 @@ fi
 PLAY="$(cd "$1" && pwd -P)"
 METADATA="${PLAY}/metadata.json"
 EVENTS="${PLAY}/capture/events.jsonl"
+REPLAY="${PLAY}/capture/replay.zip"
 
-for input in "${METADATA}" "${EVENTS}"; do
+for input in "${METADATA}" "${EVENTS}" "${REPLAY}"; do
   if [[ ! -f "${input}" ]]; then
     echo "missing play input: ${input}" >&2
     exit 2
   fi
 done
-
-shopt -s nullglob
-REPLAYS=("${PLAY}/capture/replay/"*.zip)
-if [[ "${#REPLAYS[@]}" -ne 1 ]]; then
-  echo "expected exactly one replay ZIP under ${PLAY}/capture/replay" >&2
-  exit 2
-fi
-REPLAY="${REPLAYS[0]}"
 
 cd "${ROOT}"
 
