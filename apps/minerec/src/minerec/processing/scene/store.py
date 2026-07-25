@@ -79,10 +79,10 @@ _SUBJECT_POSE_FIELDS = frozenset(
         "record_count",
         "first_tick",
         "last_tick",
-        "source_epochs",
+        "source_events",
     }
 )
-_SUBJECT_POSE_EPOCH_FIELDS = frozenset({"epoch_index", "events_sha256", "events_size_bytes", "record_count"})
+_SUBJECT_POSE_EVENT_SOURCE_FIELDS = frozenset({"events_sha256", "events_size_bytes", "record_count"})
 _EXTRACTION_STREAM_FIELDS = frozenset(
     {
         "format",
@@ -797,32 +797,15 @@ def _validated_subject_poses(
     last_tick = _validated_nonnegative_int(value.get("last_tick"), "scene extraction subject_poses last_tick")
     if size_bytes == 0 or record_count != frame_count or first_tick != start_tick or last_tick != end_tick or end_tick - start_tick + 1 != frame_count:
         raise SceneStoreValidationError("scene extraction subject_poses coverage does not match the store")
-    raw_epochs = value.get("source_epochs")
-    if not isinstance(raw_epochs, (list, tuple)) or not raw_epochs:
-        raise SceneStoreValidationError("scene extraction subject_poses source_epochs must be a non-empty array")
-    epochs: list[dict[str, Any]] = []
-    previous_index = -1
-    for index, raw in enumerate(raw_epochs):
-        context = f"scene extraction subject_poses source_epochs[{index}]"
-        if not isinstance(raw, Mapping) or set(raw) != _SUBJECT_POSE_EPOCH_FIELDS:
-            raise SceneStoreValidationError(f"{context} fields do not match the contract")
-        epoch_index = _validated_nonnegative_int(raw.get("epoch_index"), f"{context} epoch_index")
-        if epoch_index <= previous_index:
-            raise SceneStoreValidationError("scene extraction subject_poses source epochs must be strictly increasing")
-        previous_index = epoch_index
-        events_sha256 = _required_sha256(raw.get("events_sha256"), f"{context} events_sha256")
-        events_size_bytes = _validated_nonnegative_int(raw.get("events_size_bytes"), f"{context} events_size_bytes")
-        source_record_count = _validated_nonnegative_int(raw.get("record_count"), f"{context} record_count")
-        if events_size_bytes == 0 or source_record_count == 0:
-            raise SceneStoreValidationError(f"{context} integrity counts must be positive")
-        epochs.append(
-            {
-                "epoch_index": epoch_index,
-                "events_sha256": events_sha256,
-                "events_size_bytes": events_size_bytes,
-                "record_count": source_record_count,
-            }
-        )
+    raw_source = value.get("source_events")
+    context = "scene extraction subject_poses source_events"
+    if not isinstance(raw_source, Mapping) or set(raw_source) != _SUBJECT_POSE_EVENT_SOURCE_FIELDS:
+        raise SceneStoreValidationError(f"{context} fields do not match the contract")
+    events_sha256 = _required_sha256(raw_source.get("events_sha256"), f"{context} events_sha256")
+    events_size_bytes = _validated_nonnegative_int(raw_source.get("events_size_bytes"), f"{context} events_size_bytes")
+    source_record_count = _validated_nonnegative_int(raw_source.get("record_count"), f"{context} record_count")
+    if events_size_bytes == 0 or source_record_count == 0:
+        raise SceneStoreValidationError(f"{context} integrity counts must be positive")
     return {
         "format": "mc-recorder-subject-poses-v1",
         "path": path_text,
@@ -831,7 +814,11 @@ def _validated_subject_poses(
         "record_count": record_count,
         "first_tick": first_tick,
         "last_tick": last_tick,
-        "source_epochs": epochs,
+        "source_events": {
+            "events_sha256": events_sha256,
+            "events_size_bytes": events_size_bytes,
+            "record_count": source_record_count,
+        },
     }
 
 

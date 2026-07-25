@@ -49,7 +49,6 @@ class CaptureCoordinator(
         val capture = ConnectionCapture(
             id = connectionId.toString(),
             playerUuid = profile.id,
-            playerName = profile.name,
             startServerTick = associatedEventTick(),
             playFiles = playFiles,
             writer = AsyncPlayWriter(playFiles.paths.events, config.writerQueueCapacity, logger)
@@ -132,10 +131,6 @@ class CaptureCoordinator(
         capture.joined = true
         capture.entityId = player.id
         controls.getOrPut(player.uuid, ::ControlStateTracker)
-        capture.emit("player_join", associatedEventTick()) {
-            addPlayer(player, capture)
-            addProperty("replay_timeline_protocol", "mc_recorder:timeline/v1")
-        }
     }
 
     @Synchronized
@@ -143,10 +138,6 @@ class CaptureCoordinator(
         if (!active) return
         val capture = activeCapture(player) ?: return
         val leaveTick = associatedEventTick()
-        capture.emit("player_leave", leaveTick) {
-            addPlayer(player, capture)
-            addProperty("terminal_reason", "disconnect")
-        }
         closeEvents(capture, Instant.now(), leaveTick, "disconnect")
         controls.remove(player.uuid)
         captures.remove(player.uuid)
@@ -208,10 +199,6 @@ class CaptureCoordinator(
             val terminalTick = associatedEventTick()
             captures.values.sortedBy { it.playerUuid.toString() }.forEach { capture ->
                 if (capture.joined) {
-                    capture.emit("player_leave", terminalTick) {
-                        addConnection(capture)
-                        addProperty("terminal_reason", "server_shutdown")
-                    }
                     closeEvents(capture, Instant.now(), terminalTick, "server_shutdown")
                 } else {
                     capture.writer.abort()
@@ -267,14 +254,6 @@ class CaptureCoordinator(
         addProperty("connection_start_server_tick", capture.startServerTick)
     }
 
-    private fun JsonObject.addConnection(capture: ConnectionCapture) {
-        addProperty("player_uuid", capture.playerUuid.toString())
-        addProperty("player_name", capture.playerName)
-        addProperty("entity_id", capture.entityId)
-        addProperty("connection_id", capture.id)
-        addProperty("connection_start_server_tick", capture.startServerTick)
-    }
-
     private fun JsonObject.merge(other: JsonObject) {
         other.entrySet().forEach { (key, value) -> add(key, value) }
     }
@@ -282,7 +261,6 @@ class CaptureCoordinator(
     private inner class ConnectionCapture(
         val id: String,
         val playerUuid: UUID,
-        val playerName: String,
         val startServerTick: Long,
         val playFiles: PlayFiles,
         val writer: AsyncPlayWriter,

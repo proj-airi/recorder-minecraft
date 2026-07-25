@@ -53,12 +53,7 @@ class ServerConfig:
 class PathConfig:
     base: Path
     artifacts: Path
-    intermediate: Path
     runtime: Path
-
-    @property
-    def sessions(self) -> Path:
-        return self.intermediate / "sessions"
 
 
 @dataclass(frozen=True)
@@ -99,7 +94,7 @@ def load_config(path: str | Path = DEFAULT_CONFIG_NAME) -> RecorderConfig:
     paths_raw = _table(raw, "paths")
     mods_raw = _table(raw, "mods")
     _require_keys(server_raw, {"name", "instance_id", "eula"}, "server")
-    _require_keys(paths_raw, {"artifacts", "intermediate", "runtime"}, "paths")
+    _require_keys(paths_raw, {"artifacts", "runtime"}, "paths")
     _require_keys(
         mods_raw,
         {"recorder_project", "renderer_project", "scene_extractor_project", "scene_extractor_executable"},
@@ -119,14 +114,13 @@ def load_config(path: str | Path = DEFAULT_CONFIG_NAME) -> RecorderConfig:
     paths = PathConfig(
         base=base,
         artifacts=_resolve(base, _value(paths_raw, "artifacts", "artifacts", str)),
-        intermediate=_resolve(base, _value(paths_raw, "intermediate", ".mc-recorder/intermediate", str)),
         runtime=_resolve(base, _value(paths_raw, "runtime", ".mc-recorder/runtime", str)),
     )
-    managed = (paths.artifacts, paths.intermediate, paths.runtime)
+    managed = (paths.artifacts, paths.runtime)
     for index, left in enumerate(managed):
         for right in managed[index + 1 :]:
             if left == right or left in right.parents or right in left.parents:
-                raise RecorderError("artifacts, intermediate, and runtime paths must be separate and non-nested")
+                raise RecorderError("artifacts and runtime paths must be separate and non-nested")
 
     return RecorderConfig(
         source=source,
@@ -165,9 +159,8 @@ instance_id = "{instance_id}"
 eula = {eula}
 
 [paths]
-# Recorder artifacts and private processing intermediates never overlap.
+# Processing scratch remains outside recorder artifacts.
 artifacts = "artifacts"
-intermediate = ".mc-recorder/intermediate"
 runtime = ".mc-recorder/runtime"
 
 [mods]
@@ -188,6 +181,6 @@ def initialize(path: str | Path, *, accept_eula: bool = False, force: bool = Fal
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(default_config_text(accept_eula=accept_eula), encoding="utf-8")
     config = load_config(target)
-    for directory in (config.paths.artifacts, config.paths.sessions, config.paths.runtime):
+    for directory in (config.paths.artifacts, config.paths.runtime):
         directory.mkdir(parents=True, exist_ok=True)
     return target

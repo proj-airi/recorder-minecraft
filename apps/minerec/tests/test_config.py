@@ -12,16 +12,16 @@ from minerec.errors import RecorderError
 
 
 class ConfigTest(unittest.TestCase):
-    def test_init_creates_artifact_intermediate_and_runtime_roots(self) -> None:
+    def test_init_creates_artifact_and_private_runtime_roots(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             workspace = Path(temporary)
             config = load_config(initialize(workspace / "recorder.toml", accept_eula=True))
             self.assertTrue(config.server.eula)
             self.assertEqual("minecraft", config.server.name)
             self.assertEqual((workspace / "artifacts").resolve(), config.paths.artifacts)
-            self.assertEqual((workspace / ".mc-recorder" / "intermediate").resolve(), config.paths.intermediate)
             self.assertEqual((workspace / ".mc-recorder" / "runtime").resolve(), config.paths.runtime)
-            self.assertTrue(config.paths.sessions.is_dir())
+            self.assertTrue(config.paths.artifacts.is_dir())
+            self.assertTrue(config.paths.runtime.is_dir())
 
     def test_init_persists_one_required_server_instance_id(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -44,8 +44,8 @@ class ConfigTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             source = initialize(Path(temporary) / "recorder.toml")
             text = source.read_text(encoding="utf-8").replace(
-                'intermediate = ".mc-recorder/intermediate"',
-                'intermediate = "artifacts/intermediate"',
+                'runtime = ".mc-recorder/runtime"',
+                'runtime = "artifacts/runtime"',
             )
             source.write_text(text, encoding="utf-8")
             with self.assertRaisesRegex(RecorderError, "separate and non-nested"):

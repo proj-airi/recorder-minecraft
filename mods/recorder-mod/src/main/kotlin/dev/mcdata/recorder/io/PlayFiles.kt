@@ -68,7 +68,6 @@ class PlayFiles private constructor(
         val completed = ended ?: return
         if (!replayClosed) return
         val connection = metadataValue.getAsJsonObject("connection")
-        connection.addProperty("status", "complete")
         connection.addProperty("ended_at", completed.endedAt.toString())
         connection.addProperty("end_server_tick", completed.endServerTick)
         connection.addProperty("terminal_reason", completed.terminalReason)
@@ -115,7 +114,6 @@ class PlayFiles private constructor(
                 })
                 add("connection", JsonObject().apply {
                     addProperty("id", connectionId.toString())
-                    addProperty("status", "recording")
                     addProperty("started_at", startedAt.toString())
                     addProperty("start_server_tick", startServerTick)
                     add("ended_at", JsonNull.INSTANCE)

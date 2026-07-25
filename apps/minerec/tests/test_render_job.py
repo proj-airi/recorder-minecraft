@@ -13,50 +13,44 @@ sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
 from minerec.errors import RecorderError
 from minerec.processing.render.job import OWNER, RENDER_JOB_TYPE, RenderJobResult, _owned_render_directory, launch_render_job, prepare_render_job
-
-PLAYER = "12345678-1234-4678-9234-567812345678"
-CONNECTION = "87654321-4321-4678-9234-567812345678"
+from play_fixture import CONNECTION, PLAYER, completed_capture, event
 
 
 class RenderJobTest(unittest.TestCase):
     def test_processor_uses_only_explicit_inputs_and_creates_fpv_frames(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            events = root / "events"
-            events.mkdir()
-            (events / "manifest.json").write_text("{}", encoding="utf-8")
+            metadata, events = completed_capture(
+                root / "play",
+                [event("player_state", 10, 1), event("player_state", 11, 2)],
+            )
             replay = root / "replay.zip"
             replay.write_bytes(b"replay")
             output = root / "renders"
             with (
-                mock.patch("minerec.processing.render.job.validate_episode", return_value=SimpleNamespace(valid=True, sealed_epochs=1, session_id="session")),
-                mock.patch("minerec.processing.render.job._select_connection", return_value=(CONNECTION, 10, 20)),
                 mock.patch(
-                    "minerec.processing.render.job.replay_segment_source",
+                    "minerec.processing.render.job.verified_replay_source",
                     return_value=SimpleNamespace(
                         path=replay.resolve(),
                         player_uuid=PLAYER,
                         connection_id=CONNECTION,
-                        segment_id="00000000-0000-4000-8000-000000000003",
-                        segment_ordinal=0,
+                        replay_id="00000000-0000-4000-8000-000000000003",
                         replay_format="flashback",
                         sha256="b" * 64,
                         size_bytes=6,
                     ),
                 ),
-                mock.patch("minerec.processing.render.job.sha256_file", return_value="a" * 64),
             ):
                 job = prepare_render_job(
+                    metadata,
                     events,
                     replay,
                     output,
-                    player_uuid=PLAYER,
-                    connection_id=CONNECTION,
                     width=640,
                     height=360,
                     fps=20,
                     first_tick=10,
-                    last_tick=20,
+                    last_tick=11,
                     force=False,
                 )
             manifest = json.loads(job.manifest.read_text(encoding="utf-8"))
@@ -64,6 +58,7 @@ class RenderJobTest(unittest.TestCase):
             self.assertTrue((output / "fpv_frames").is_dir())
             self.assertNotIn("dataset", json.dumps(manifest))
             self.assertEqual("intersection", manifest["timeline"]["range_policy"])
+            self.assertEqual(str(metadata.resolve()), manifest["capture"]["metadata"])
 
     def test_force_replaces_only_an_owned_render_directory(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

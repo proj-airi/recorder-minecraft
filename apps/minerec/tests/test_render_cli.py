@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import hashlib
 import io
-import json
 import sys
 import tempfile
 import unittest
@@ -13,9 +11,6 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
 from minerec import cli
-
-PLAYER = "00000000-0000-4000-8000-000000000001"
-CONNECTION = "00000000-0000-4000-8000-000000000002"
 
 
 class ProcessorCliTest(unittest.TestCase):
@@ -32,35 +27,26 @@ class ProcessorCliTest(unittest.TestCase):
                 cli.run(
                     [
                         "render",
-                        "/input/events",
-                        "--player",
-                        PLAYER,
-                        "--connection",
-                        CONNECTION,
+                        "--metadata",
+                        "/input/metadata.json",
+                        "--events",
+                        "/input/capture/events.jsonl",
                         "--replay",
-                        "/input/replay.zip",
+                        "/input/capture/replay.zip",
                         "--output",
                         "/output/renders",
                         "--prepare-only",
                     ]
                 ),
             )
-        self.assertEqual(Path("/input/events"), prepare.call_args.args[0])
-        self.assertEqual(Path("/input/replay.zip"), prepare.call_args.args[1])
-        self.assertEqual(Path("/output/renders"), prepare.call_args.args[2])
+        self.assertEqual(Path("/input/metadata.json"), prepare.call_args.args[0])
+        self.assertEqual(Path("/input/capture/events.jsonl"), prepare.call_args.args[1])
+        self.assertEqual(Path("/input/capture/replay.zip"), prepare.call_args.args[2])
+        self.assertEqual(Path("/output/renders"), prepare.call_args.args[3])
 
-    def test_scene_forwards_each_explicit_replay(self) -> None:
+    def test_scene_forwards_explicit_capture_files(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            events = root / "events"
-            epoch = events / "epochs" / "epoch-000000"
-            epoch.mkdir(parents=True)
-            data = b"{}\n"
-            (epoch / "events.jsonl").write_bytes(data)
-            (epoch / "manifest.json").write_text(
-                json.dumps({"sealed": True, "record_count": 1, "events_bytes": len(data), "events_sha256": hashlib.sha256(data).hexdigest()}),
-                encoding="utf-8",
-            )
             config = SimpleNamespace(paths=SimpleNamespace(runtime=root / "runtime"))
             prepared = SimpleNamespace(manifest=root / "job" / "scene-job.json")
             output = io.StringIO()
@@ -75,23 +61,21 @@ class ProcessorCliTest(unittest.TestCase):
                     [
                         "scene",
                         "extract",
-                        str(events),
-                        "--player",
-                        PLAYER,
-                        "--connection",
-                        CONNECTION,
+                        "--metadata",
+                        str(root / "metadata.json"),
+                        "--events",
+                        str(root / "capture" / "events.jsonl"),
                         "--replay",
-                        str(root / "one.zip"),
-                        "--replay",
-                        str(root / "two.zip"),
+                        str(root / "capture" / "replay.zip"),
                         "--output",
                         str(root / "scene.sqlite3"),
                         "--prepare-only",
                     ]
                 )
             self.assertEqual(0, code)
-            self.assertEqual([root / "one.zip", root / "two.zip"], prepare.call_args.args[2])
-            self.assertEqual((epoch.resolve(),), prepare.call_args.kwargs["pinned_epoch_paths"])
+            self.assertEqual(root / "metadata.json", prepare.call_args.args[1])
+            self.assertEqual(root / "capture" / "events.jsonl", prepare.call_args.args[2])
+            self.assertEqual(root / "capture" / "replay.zip", prepare.call_args.args[3])
 
 
 if __name__ == "__main__":

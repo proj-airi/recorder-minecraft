@@ -8,7 +8,7 @@ import uuid
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from minerec.errors import RecorderError
 
@@ -17,9 +17,8 @@ MAX_REPLAY_METADATA_BYTES = 4 * 1024 * 1024
 
 
 @dataclass(frozen=True)
-class ReplaySegmentSource:
-    segment_id: str
-    segment_ordinal: int
+class ReplaySource:
+    replay_id: str
     player_uuid: str
     connection_id: str
     path: Path
@@ -30,8 +29,7 @@ class ReplaySegmentSource:
 
     def as_json(self) -> dict[str, Any]:
         return {
-            "segment_id": self.segment_id,
-            "segment_ordinal": self.segment_ordinal,
+            "replay_id": self.replay_id,
             "player_uuid": self.player_uuid,
             "connection_id": self.connection_id,
             "replay_format": self.replay_format,
@@ -77,7 +75,7 @@ def _stable_digest(path: Path) -> tuple[str, int]:
     return digest.hexdigest(), observed
 
 
-def replay_segment_source(path: Path) -> ReplaySegmentSource:
+def replay_source(path: Path) -> ReplaySource:
     unresolved = path.expanduser()
     try:
         status = unresolved.lstat()
@@ -101,19 +99,15 @@ def replay_segment_source(path: Path) -> ReplaySegmentSource:
     recorder = value.get("mc_recorder")
     if not isinstance(recorder, dict):
         raise RecorderError("Flashback replay lacks mc_recorder identity metadata")
-    segment_id = _canonical_uuid(recorder.get("segment_id"), "replay segment ID")
+    replay_id = _canonical_uuid(recorder.get("replay_id"), "replay ID")
     player_uuid = _canonical_uuid(recorder.get("player_uuid"), "replay player UUID")
     connection_id = _canonical_uuid(recorder.get("connection_id"), "replay connection ID")
-    ordinal = recorder.get("segment_ordinal")
-    if not isinstance(ordinal, int) or isinstance(ordinal, bool) or ordinal < 0:
-        raise RecorderError("replay segment ordinal must be a non-negative integer")
     contract = recorder.get("flashback_capture_contract")
     if contract != FLASHBACK_CAPTURE_CONTRACT:
         raise RecorderError(f"replay requires {FLASHBACK_CAPTURE_CONTRACT}")
     digest, size = _stable_digest(replay)
-    return ReplaySegmentSource(
-        segment_id=segment_id,
-        segment_ordinal=ordinal,
+    return ReplaySource(
+        replay_id=replay_id,
         player_uuid=player_uuid,
         connection_id=connection_id,
         path=replay,
@@ -124,29 +118,18 @@ def replay_segment_source(path: Path) -> ReplaySegmentSource:
     )
 
 
-def resolve_replay_segments(
-    replays: Iterable[Path],
-    *,
-    player_uuid: str,
-    connection_id: str,
-) -> tuple[ReplaySegmentSource, ...]:
+def verified_replay_source(path: Path, *, player_uuid: str, connection_id: str) -> ReplaySource:
     player = _canonical_uuid(player_uuid, "player UUID")
     connection = _canonical_uuid(connection_id, "connection UUID")
-    sources = tuple(replay_segment_source(path) for path in replays)
-    if not sources:
-        raise RecorderError("at least one explicit Flashback replay input is required")
-    if any(source.player_uuid != player or source.connection_id != connection for source in sources):
+    source = replay_source(path)
+    if source.player_uuid != player or source.connection_id != connection:
         raise RecorderError("replay input identity does not match the requested connection")
-    ordinals = [source.segment_ordinal for source in sources]
-    segment_ids = [source.segment_id for source in sources]
-    if len(set(ordinals)) != len(ordinals) or len(set(segment_ids)) != len(segment_ids):
-        raise RecorderError("replay inputs repeat a segment ordinal or ID")
-    return tuple(sorted(sources, key=lambda source: source.segment_ordinal))
+    return source
 
 
 __all__ = [
     "FLASHBACK_CAPTURE_CONTRACT",
-    "ReplaySegmentSource",
-    "replay_segment_source",
-    "resolve_replay_segments",
+    "ReplaySource",
+    "replay_source",
+    "verified_replay_source",
 ]

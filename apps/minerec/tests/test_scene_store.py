@@ -91,14 +91,11 @@ def _result(
             "record_count": len(ticks),
             "first_tick": ticks[0],
             "last_tick": ticks[-1],
-            "source_epochs": [
-                {
-                    "epoch_index": 0,
-                    "events_sha256": "5" * 64,
-                    "events_size_bytes": 1000,
-                    "record_count": 20,
-                }
-            ],
+            "source_events": {
+                "events_sha256": "5" * 64,
+                "events_size_bytes": 1000,
+                "record_count": 20,
+            },
         },
         "stream": {"path": str(stream.resolve()), **integrity.as_dict()},
         "ignored_packet_counts": {},

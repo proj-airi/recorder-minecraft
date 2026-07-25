@@ -17,8 +17,7 @@ record RenderJobSpec(
     String sessionId,
     String connectionId,
     UUID playerId,
-    String segmentId,
-    Long segmentOrdinal,
+    String replayId,
     RangePolicy rangePolicy,
     long globalStartTick,
     long globalEndTick,
@@ -56,18 +55,13 @@ record RenderJobSpec(
         String sessionId = requiredString(json, "session_id");
         String connectionId = requiredString(json, "connection_id");
         UUID playerId = UUID.fromString(requiredString(json, "player_uuid"));
-        String segmentId = requiredString(json, "segment_id");
-        long segmentOrdinal = requiredLong(json, "segment_ordinal");
-        UUID parsedSegmentId = UUID.fromString(segmentId);
-        if (!parsedSegmentId.toString().equals(segmentId)) {
-            throw new IllegalArgumentException("segment_id must use canonical UUID spelling");
+        String replayId = requiredString(json, "replay_id");
+        UUID parsedReplayId = UUID.fromString(replayId);
+        if (!parsedReplayId.toString().equals(replayId)) {
+            throw new IllegalArgumentException("replay_id must use canonical UUID spelling");
         }
-        if (segmentOrdinal < 0) {
-            throw new IllegalArgumentException("segment_ordinal must not be negative");
-        }
-        if (!segmentId.equals(requiredString(sourceReplay, "segment_id"))
-            || segmentOrdinal != requiredLong(sourceReplay, "segment_ordinal")) {
-            throw new IllegalArgumentException("source_replay segment identity does not match the render job");
+        if (!replayId.equals(requiredString(sourceReplay, "replay_id"))) {
+            throw new IllegalArgumentException("source_replay identity does not match the render job");
         }
         JsonObject timeline = json.has("timeline") && json.get("timeline").isJsonObject()
             ? json.getAsJsonObject("timeline") : null;
@@ -105,7 +99,7 @@ record RenderJobSpec(
             throw new IllegalArgumentException("Renderer v1 requires fps=20");
         }
         return new RenderJobSpec(normalizedJob, replay, replaySha256, replayBytes,
-            output, sessionId, connectionId, playerId, segmentId, segmentOrdinal, rangePolicy,
+            output, sessionId, connectionId, playerId, replayId, rangePolicy,
             globalStartTick, globalEndTick,
             width, height, fps, noGui, stop, result);
     }

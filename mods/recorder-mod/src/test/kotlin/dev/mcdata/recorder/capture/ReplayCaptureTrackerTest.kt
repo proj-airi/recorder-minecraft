@@ -35,7 +35,9 @@ class ReplayCaptureTrackerTest {
         assertEquals(SESSION, embedded.get("session_id").asString)
         assertEquals(PLAYER, embedded.get("player_uuid").asString)
         assertEquals(CONNECTION, embedded.get("connection_id").asString)
-        assertEquals(0, embedded.get("segment_ordinal").asInt)
+        assertEquals(4, embedded.get("schema_version").asInt)
+        UUID.fromString(embedded.get("replay_id").asString)
+        assertFalse(embedded.has("segment_ordinal"))
         assertEquals("capture/replay.zip", embedded.get("capture_path").asString)
 
         Files.writeString(play.paths.events, "{}\n")
@@ -48,7 +50,6 @@ class ReplayCaptureTrackerTest {
         tracker.captureClosed(recorder)
 
         metadata = JsonParser.parseString(Files.readString(play.paths.metadata)).asJsonObject
-        assertEquals("complete", metadata.getAsJsonObject("connection").get("status").asString)
         assertEquals(20, metadata.getAsJsonObject("connection").get("end_server_tick").asLong)
         assertTrue(Files.isRegularFile(play.paths.replay))
         assertFalse(Files.exists(play.paths.replayWorking))

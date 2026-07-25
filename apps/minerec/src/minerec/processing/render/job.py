@@ -5,7 +5,6 @@ import re
 import shutil
 import subprocess
 import tempfile
-import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -13,8 +12,9 @@ from typing import TYPE_CHECKING, Any, Callable
 
 from minerec.config import ENV_GRADLE_EXECUTABLE, ENV_RENDER_JOB, current_process_environment
 from minerec.errors import RecorderError
-from minerec.processing.capture.episodes import iter_epochs, iter_events, sha256_file, validate_episode
-from minerec.processing.replays import replay_segment_source
+from minerec.processing.capture import CaptureMetadata, EventsSource, load_capture_metadata, scan_capture_events
+from minerec.processing.capture.play import sha256_file
+from minerec.processing.replays import verified_replay_source
 
 if TYPE_CHECKING:
     from minerec.config import RecorderConfig
@@ -52,35 +52,20 @@ def _stable_file_digest(path: Path, description: str) -> tuple[str, int]:
     return digest, after.st_size
 
 
-def _player_connections(episode: Path, player_uuid: str) -> dict[str, tuple[int, int]]:
-    ticks: dict[str, list[int]] = {}
-    for epoch in iter_epochs(episode):
-        if epoch.status != "sealed":
-            continue
-        for _line, record in iter_events(epoch):
-            if record.get("record_type") != "player_state" or record.get("player_uuid") != player_uuid:
-                continue
-            connection = record.get("connection_id")
-            tick = record.get("server_tick")
-            if isinstance(connection, str) and isinstance(tick, int) and not isinstance(tick, bool):
-                ticks.setdefault(connection, []).append(tick)
-    return {connection: (min(values), max(values)) for connection, values in ticks.items() if values}
+def _state_range(events: Path, metadata_path: Path) -> tuple[CaptureMetadata, int, int, EventsSource]:
+    metadata = load_capture_metadata(metadata_path)
+    ticks: list[int] = []
 
+    def visit(record: dict[str, Any]) -> None:
+        if record.get("record_type") == "player_state":
+            ticks.append(int(record["server_tick"]))
 
-def _select_connection(episode: Path, player_uuid: str, requested: str | None) -> tuple[str, int, int]:
-    connections = _player_connections(episode, player_uuid)
-    if not connections:
-        raise RecorderError(f"player {player_uuid} has no connection-tagged state records in sealed epochs")
-    if requested is not None:
-        if requested not in connections:
-            raise RecorderError(f"connection {requested!r} does not belong to player {player_uuid}")
-        first, last = connections[requested]
-        return requested, first, last
-    if len(connections) != 1:
-        choices = ", ".join(sorted(connections))
-        raise RecorderError(f"player has multiple connections ({choices}); pass --connection ID")
-    connection, (first, last) = next(iter(connections.items()))
-    return connection, first, last
+    source = scan_capture_events(events, metadata, visit)
+    if not ticks:
+        raise RecorderError("capture has no player_state records")
+    if ticks != sorted(set(ticks)) or ticks != list(range(ticks[0], ticks[-1] + 1)):
+        raise RecorderError("capture player_state timeline is duplicated, unordered, or incomplete")
+    return (metadata, ticks[0], ticks[-1], source)
 
 
 def _owned_render_directory(path: Path) -> bool:
@@ -137,12 +122,11 @@ def _owned_render_artifacts(frames: Path) -> bool:
 
 
 def prepare_render_job(
-    episode: Path,
+    metadata: Path,
+    events: Path,
     replay: Path,
     output: Path,
     *,
-    player_uuid: str,
-    connection_id: str | None,
     width: int,
     height: int,
     fps: int,
@@ -151,28 +135,25 @@ def prepare_render_job(
     force: bool,
     no_gui: bool = False,
 ) -> RenderJobResult:
-    try:
-        normalized_player_uuid = str(uuid.UUID(player_uuid))
-    except ValueError as exc:
-        raise RecorderError(f"invalid player UUID: {player_uuid!r}") from exc
     if not 64 <= width <= 16384 or not 64 <= height <= 16384:
         raise RecorderError("render dimensions must be between 64 and 16384 pixels")
     if fps != 20:
         raise RecorderError("renderer v1 supports exactly 20 FPS")
     if not isinstance(no_gui, bool):
         raise RecorderError("no_gui must be a boolean")
-    validation = validate_episode(episode)
-    if not validation.valid or validation.sealed_epochs == 0:
-        raise RecorderError("episode must have at least one valid sealed epoch before rendering")
-    connection, observed_first, observed_last = _select_connection(episode, normalized_player_uuid, connection_id)
+    capture, observed_first, observed_last, events_source = _state_range(events, metadata)
+    normalized_player_uuid = capture.player_uuid
+    connection = capture.connection_id
     selected_first = observed_first if first_tick is None else first_tick
     selected_last = observed_last if last_tick is None else last_tick
     if selected_first < observed_first or selected_last > observed_last or selected_first > selected_last:
         raise RecorderError(f"render tick range must be within connection range {observed_first}..{observed_last}")
 
-    replay_source = replay_segment_source(replay)
-    if replay_source.player_uuid != normalized_player_uuid or replay_source.connection_id != connection:
-        raise RecorderError("replay input identity does not match the requested connection")
+    replay_source = verified_replay_source(
+        replay,
+        player_uuid=normalized_player_uuid,
+        connection_id=connection,
+    )
     replay = replay_source.path
     requested_output = output.expanduser()
     if requested_output.is_symlink():
@@ -199,11 +180,10 @@ def prepare_render_job(
             "replay": str(replay),
             "output": str((output / "fpv_frames").resolve()),
             "result": str((output / "result.json").resolve()),
-            "session_id": validation.session_id,
+            "session_id": capture.session_id,
             "connection_id": connection,
             "player_uuid": normalized_player_uuid,
-            "segment_id": replay_source.segment_id,
-            "segment_ordinal": replay_source.segment_ordinal,
+            "replay_id": replay_source.replay_id,
             "global_start_tick": selected_first,
             "global_end_tick": selected_last,
             "width": width,
@@ -211,18 +191,20 @@ def prepare_render_job(
             "fps": fps,
             "no_gui": no_gui,
             "stop_when_done": True,
-            "episode": {
-                "session_id": validation.session_id,
-                "path": str(episode.resolve()),
-                "manifest_sha256": sha256_file(episode / "manifest.json"),
+            "capture": {
+                "session_id": capture.session_id,
+                "metadata": str(capture.path),
+                "events": str(events_source.path),
+                "events_sha256": events_source.sha256,
+                "events_size_bytes": events_source.size_bytes,
+                "event_count": events_source.record_count,
             },
             "source_replay": {
                 "path": str(replay),
                 "format": replay_source.replay_format,
                 "sha256": replay_source.sha256,
                 "size_bytes": replay_source.size_bytes,
-                "segment_id": replay_source.segment_id,
-                "segment_ordinal": replay_source.segment_ordinal,
+                "replay_id": replay_source.replay_id,
             },
             "subject": {
                 "player_uuid": normalized_player_uuid,
@@ -258,7 +240,6 @@ def prepare_render_job(
             },
             "limitations": [
                 "The rendered view is reconstructed from server-visible packets, not original client pixels.",
-                "A five-minute ServerReplay segment may cover only part of a longer player connection.",
             ],
         }
         manifest = staging / "render-job.json"

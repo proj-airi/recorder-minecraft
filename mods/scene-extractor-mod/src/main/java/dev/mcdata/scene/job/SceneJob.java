@@ -47,21 +47,16 @@ public record SceneJob(
         long recordCount,
         long firstTick,
         long lastTick,
-        List<SourceEpoch> sourceEpochs,
+        SourceEvents sourceEvents,
         SubjectPoseFileIdentity fileIdentity,
         SubjectPoseTimeline timeline
     ) {
-        public SubjectPoseInput {
-            sourceEpochs = List.copyOf(sourceEpochs);
-        }
-
         public SubjectPose require(long tick) {
             return timeline.require(tick);
         }
     }
 
-    public record SourceEpoch(
-        int epochIndex,
+    public record SourceEvents(
         String eventsSha256,
         long eventsSizeBytes,
         long recordCount

@@ -426,7 +426,7 @@ final class SceneReducerTest {
             count,
             100,
             101,
-            List.of(new SceneJob.SourceEpoch(0, "b".repeat(64), 1, 1)),
+            new SceneJob.SourceEvents("b".repeat(64), 1, 1),
             new SceneJob.SubjectPoseFileIdentity("test", 0),
             new SceneJob.SubjectPoseTimeline(
                 100, "session", PLAYER, CONNECTION,

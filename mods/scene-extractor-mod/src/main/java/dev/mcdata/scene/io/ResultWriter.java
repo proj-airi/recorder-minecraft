@@ -102,16 +102,12 @@ public final class ResultWriter {
         value.addProperty("record_count", input.recordCount());
         value.addProperty("first_tick", input.firstTick());
         value.addProperty("last_tick", input.lastTick());
-        JsonArray epochs = new JsonArray();
-        for (SceneJob.SourceEpoch source : input.sourceEpochs()) {
-            JsonObject epoch = new JsonObject();
-            epoch.addProperty("epoch_index", source.epochIndex());
-            epoch.addProperty("events_sha256", source.eventsSha256());
-            epoch.addProperty("events_size_bytes", source.eventsSizeBytes());
-            epoch.addProperty("record_count", source.recordCount());
-            epochs.add(epoch);
-        }
-        value.add("source_epochs", epochs);
+        SceneJob.SourceEvents source = input.sourceEvents();
+        JsonObject events = new JsonObject();
+        events.addProperty("events_sha256", source.eventsSha256());
+        events.addProperty("events_size_bytes", source.eventsSizeBytes());
+        events.addProperty("record_count", source.recordCount());
+        value.add("source_events", events);
         return value;
     }
 

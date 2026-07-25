@@ -88,8 +88,7 @@ class ReplayCaptureTracker(
         metadata.add("mc_recorder", JsonObject().apply {
             addProperty("schema_version", REPLAY_METADATA_SCHEMA_VERSION)
             addProperty("session_id", sessionId)
-            addProperty("segment_id", capture.replayId)
-            addProperty("segment_ordinal", 0)
+            addProperty("replay_id", capture.replayId)
             addProperty("player_uuid", capture.playerUuid.toString())
             addProperty("connection_id", capture.playFiles.connectionId())
             addProperty("capture_path", "capture/replay.zip")
@@ -109,7 +108,7 @@ class ReplayCaptureTracker(
     )
 
     companion object {
-        private const val REPLAY_METADATA_SCHEMA_VERSION = 3
+        private const val REPLAY_METADATA_SCHEMA_VERSION = 4
         private const val FLASHBACK_FORMAT = "flashback"
     }
 }

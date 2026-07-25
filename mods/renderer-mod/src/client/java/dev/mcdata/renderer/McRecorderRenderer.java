@@ -365,8 +365,8 @@ public final class McRecorderRenderer implements ClientModInitializer {
         ReplayPacketCompatibility.endAutomatedRender();
         this.phase = Phase.COMPLETE;
         LOGGER.info(
-            "Replay segment {} has no coverage for requested global ticks {}..{}",
-            this.job.segmentId(), this.job.globalStartTick(), this.job.globalEndTick()
+            "Replay {} has no coverage for requested global ticks {}..{}",
+            this.job.replayId(), this.job.globalStartTick(), this.job.globalEndTick()
         );
         if (this.job.stopWhenDone()) {
             minecraft.stop();
@@ -696,10 +696,7 @@ public final class McRecorderRenderer implements ClientModInitializer {
                 row.addProperty("session_id", this.job.sessionId());
                 row.addProperty("connection_id", this.job.connectionId());
                 row.addProperty("player_uuid", this.job.playerId().toString());
-                if (this.job.segmentId() != null) {
-                    row.addProperty("segment_id", this.job.segmentId());
-                    row.addProperty("segment_ordinal", this.job.segmentOrdinal());
-                }
+                row.addProperty("replay_id", this.job.replayId());
                 row.addProperty("path", image.getFileName().toString());
                 writer.write(row.toString());
                 writer.newLine();
@@ -721,8 +718,7 @@ public final class McRecorderRenderer implements ClientModInitializer {
         result.addProperty("session_id", this.job.sessionId());
         result.addProperty("connection_id", this.job.connectionId());
         result.addProperty("player_uuid", this.job.playerId().toString());
-        result.addProperty("segment_id", this.job.segmentId());
-        result.addProperty("segment_ordinal", this.job.segmentOrdinal());
+        result.addProperty("replay_id", this.job.replayId());
         result.addProperty("range_policy", this.job.rangePolicy().serialized());
         result.addProperty("requested_global_start_tick", this.job.globalStartTick());
         result.addProperty("requested_global_end_tick", this.job.globalEndTick());
@@ -767,10 +763,7 @@ public final class McRecorderRenderer implements ClientModInitializer {
         progress.addProperty("session_id", this.job.sessionId());
         progress.addProperty("connection_id", this.job.connectionId());
         progress.addProperty("player_uuid", this.job.playerId().toString());
-        if (this.job.segmentId() != null) {
-            progress.addProperty("segment_id", this.job.segmentId());
-            progress.addProperty("segment_ordinal", this.job.segmentOrdinal());
-        }
+        progress.addProperty("replay_id", this.job.replayId());
         progress.addProperty("completed_units", completedUnits);
         progress.addProperty("total_units", totalUnits);
         progress.addProperty("updated_at", Instant.now().toString());

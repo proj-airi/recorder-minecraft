@@ -86,7 +86,7 @@ _RESOURCE_LOCATION_RE = re.compile(r"^[a-z0-9_.-]+:[a-z0-9_./-]+$")
 _SAFE_SEGMENT_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _WINDOWS_ABSOLUTE_PATH_RE = re.compile(r"^[A-Za-z]:[\\\\/]")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
-_REDACTED_HOST_PATH = "recorder-intermediate://host-path-removed"
+_REDACTED_HOST_PATH = "processor-runtime://host-path-removed"
 
 _SQLITE_CORE_DIALECT = sqlite_dialect.dialect(paramstyle="named")
 
@@ -794,7 +794,9 @@ def _meta_json_value(
 def _play_replay_entry_name(segment_ordinal: int, segment_id: str) -> str:
     if _SAFE_SEGMENT_ID_RE.fullmatch(segment_id) is None:
         raise SceneStoreV2Error(f"scene source replay segment_id is not play-safe: {segment_id!r}")
-    return f"replays/{segment_ordinal:06d}--{segment_id}.zip"
+    if segment_ordinal != 0:
+        raise SceneStoreV2Error("Scene V2 accepts one unrotated capture replay with ordinal zero")
+    return "capture/replay.zip"
 
 
 def _validated_play_source_replays(
@@ -803,6 +805,8 @@ def _validated_play_source_replays(
 ) -> tuple[dict[str, Any], ...]:
     if not isinstance(value, (list, tuple)):
         raise SceneStoreV2Error(f"{description} must be an array")
+    if len(value) > 1:
+        raise SceneStoreV2Error(f"{description} may contain at most one capture replay")
     result: list[dict[str, Any]] = []
     segment_ids: set[str] = set()
     previous_source_ordinal = -1

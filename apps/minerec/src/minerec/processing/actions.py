@@ -3,13 +3,12 @@ from __future__ import annotations
 import json
 import os
 import tempfile
-import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from minerec.errors import RecorderError
-from minerec.processing.capture.episodes import iter_epochs, iter_events, validate_episode
+from minerec.processing.capture import load_capture_metadata, scan_capture_events
 
 ACTION_SCHEMA_VERSION = 1
 
@@ -22,16 +21,6 @@ class ActionExtractionResult:
     last_tick: int
 
 
-def _canonical_uuid(value: str, label: str) -> str:
-    try:
-        canonical = str(uuid.UUID(value))
-    except (AttributeError, TypeError, ValueError) as exc:
-        raise RecorderError(f"{label} must be a UUID") from exc
-    if value != canonical:
-        raise RecorderError(f"{label} must use canonical UUID spelling")
-    return canonical
-
-
 def _payload(record: dict[str, Any]) -> dict[str, Any]:
     value = record.get("packet")
     if isinstance(value, dict):
@@ -40,7 +29,6 @@ def _payload(record: dict[str, Any]) -> dict[str, Any]:
         "schema_version",
         "record_type",
         "session_id",
-        "epoch_index",
         "server_tick",
         "sequence",
         "recorded_at_ns",
@@ -85,25 +73,19 @@ def _action_row(record: dict[str, Any]) -> dict[str, Any]:
 
 
 def extract_actions(
+    metadata: Path,
     events: Path,
     output: Path,
     *,
-    player_uuid: str,
-    connection_id: str,
     first_tick: int | None = None,
     last_tick: int | None = None,
     force: bool = False,
 ) -> ActionExtractionResult:
     """Reconstruct one connection action stream from recorder events into one file."""
 
-    player = _canonical_uuid(player_uuid, "player UUID")
-    connection = _canonical_uuid(connection_id, "connection ID")
+    capture = load_capture_metadata(metadata)
     if first_tick is not None and last_tick is not None and first_tick > last_tick:
         raise RecorderError("first tick cannot be greater than last tick")
-    validation = validate_episode(events)
-    if not validation.valid or validation.active_epochs or validation.sealed_epochs == 0:
-        raise RecorderError("action extraction requires a closed intermediate session with valid sealed epochs")
-
     requested = output.expanduser()
     if requested.is_symlink():
         raise RecorderError(f"action output may not be a symlink: {requested}")
@@ -120,40 +102,30 @@ def extract_actions(
     staging = Path(staging_name)
     count = 0
     observed_ticks: list[int] = []
-    previous_sequence: int | None = None
     try:
         with staging.open("wb") as handle:
-            for epoch in iter_epochs(events):
-                if epoch.status != "sealed":
-                    continue
-                for _line_number, record in iter_events(epoch):
-                    if record.get("record_type") not in {"control_state", "packet_apply"}:
-                        continue
-                    if record.get("player_uuid") != player or record.get("connection_id") != connection:
-                        continue
-                    tick = record.get("server_tick")
-                    sequence = record.get("sequence")
-                    if not isinstance(tick, int) or isinstance(tick, bool):
-                        raise RecorderError("selected action record has an invalid server tick")
-                    if (first_tick is not None and tick < first_tick) or (last_tick is not None and tick > last_tick):
-                        continue
-                    if not isinstance(sequence, int) or isinstance(sequence, bool):
-                        raise RecorderError("selected action record has an invalid sequence")
-                    if previous_sequence is not None and sequence <= previous_sequence:
-                        raise RecorderError("selected action records are not strictly ordered")
-                    previous_sequence = sequence
-                    handle.write(
-                        json.dumps(
-                            _action_row(record),
-                            sort_keys=True,
-                            separators=(",", ":"),
-                            ensure_ascii=False,
-                            allow_nan=False,
-                        ).encode("utf-8")
-                        + b"\n"
-                    )
-                    count += 1
-                    observed_ticks.append(tick)
+
+            def visit(record: dict[str, Any]) -> None:
+                nonlocal count
+                if record.get("record_type") not in {"control_state", "packet_apply"}:
+                    return
+                tick = record["server_tick"]
+                if (first_tick is not None and tick < first_tick) or (last_tick is not None and tick > last_tick):
+                    return
+                handle.write(
+                    json.dumps(
+                        _action_row(record),
+                        sort_keys=True,
+                        separators=(",", ":"),
+                        ensure_ascii=False,
+                        allow_nan=False,
+                    ).encode("utf-8")
+                    + b"\n"
+                )
+                count += 1
+                observed_ticks.append(tick)
+
+            scan_capture_events(events, capture, visit)
             handle.flush()
             os.fsync(handle.fileno())
         if not observed_ticks:

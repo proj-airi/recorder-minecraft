@@ -16,13 +16,12 @@ final class RenderJobSpecTest {
     Path temporary;
 
     @Test
-    void acceptsCurrentSegmentJob() throws Exception {
+    void acceptsCurrentReplayJob() throws Exception {
         Path job = writeJob("");
         RenderJobSpec spec = RenderJobSpec.read(job);
 
         assertEquals(RenderJobSpec.RangePolicy.INTERSECTION, spec.rangePolicy());
-        assertEquals("33333333-3333-4333-8333-333333333333", spec.segmentId());
-        assertEquals(7L, spec.segmentOrdinal());
+        assertEquals("33333333-3333-4333-8333-333333333333", spec.replayId());
         assertTrue(spec.noGui());
         assertEquals(temporary.resolve("progress.json").toAbsolutePath().normalize(), spec.progress());
     }
@@ -37,11 +36,11 @@ final class RenderJobSpecTest {
     }
 
     @Test
-    void rejectsMismatchedSegmentIdentity() throws Exception {
+    void rejectsMismatchedReplayIdentity() throws Exception {
         Path job = writeJob("");
         Files.writeString(job, Files.readString(job).replaceFirst(
-            "\\\"segment_id\\\":\\\"33333333-3333-4333-8333-333333333333\\\"",
-            "\\\"segment_id\\\":\\\"44444444-4444-4444-8444-444444444444\\\""
+            "\\\"replay_id\\\":\\\"33333333-3333-4333-8333-333333333333\\\"",
+            "\\\"replay_id\\\":\\\"44444444-4444-4444-8444-444444444444\\\""
         ));
         assertThrows(IllegalArgumentException.class, () -> RenderJobSpec.read(job));
     }
@@ -60,16 +59,14 @@ final class RenderJobSpecTest {
                 "path":"replay.zip",
                 "sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                 "size_bytes":0,
-                "segment_id":"33333333-3333-4333-8333-333333333333",
-                "segment_ordinal":7
+                "replay_id":"33333333-3333-4333-8333-333333333333"
               },
               "output":"fpv_frames",
               "result":"result.json",
               "session_id":"session",
               "connection_id":"22222222-2222-2222-2222-222222222222",
               "player_uuid":"11111111-1111-1111-1111-111111111111",
-              "segment_id":"33333333-3333-4333-8333-333333333333",
-              "segment_ordinal":7,
+              "replay_id":"33333333-3333-4333-8333-333333333333",
               "global_start_tick":10,
               "global_end_tick":20,
               "timeline":{"range_policy":"intersection"}

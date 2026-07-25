@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import sys
-from dataclasses import asdict
 from pathlib import Path
 from typing import Sequence
 
@@ -12,8 +10,6 @@ from .config import DEFAULT_CONFIG_NAME, initialize, load_config
 from .errors import RecorderError
 from .operations import operation_lock
 from .processing.actions import extract_actions
-from .processing.capture.episodes import EpisodeInfo, list_episodes, resolve_episode, validate_episode
-from .processing.capture.pinning import pin_sealed_epochs
 from .processing.render.job import launch_render_job, prepare_render_job
 from .processing.scene.job import cleanup_scene_job, cleanup_stale_scene_jobs, launch_scene_job, prepare_scene_job
 from .processing.scene.store import compact_scene_stream
@@ -29,23 +25,15 @@ def _parser() -> argparse.ArgumentParser:
     init.add_argument("--accept-eula", action="store_true")
     init.add_argument("--force", action="store_true")
 
-    sessions = commands.add_parser("sessions", help="inspect recorder intermediate sessions")
-    session_commands = sessions.add_subparsers(dest="sessions_command", required=True)
-    session_list = session_commands.add_parser("list", help="list intermediate sessions")
-    session_list.add_argument("--json", action="store_true", dest="as_json")
-    validate = session_commands.add_parser("validate", help="validate sealed epoch envelopes")
-    validate.add_argument("session", nargs="?", help="session ID; validates every session when omitted")
-    validate.add_argument("--json", action="store_true", dest="as_json")
-
     actions = commands.add_parser("actions", help="reconstruct player actions")
     action_commands = actions.add_subparsers(dest="actions_command", required=True)
     action_extract = action_commands.add_parser("extract", help="write one connection action stream")
-    _add_connection_inputs(action_extract)
+    _add_capture_inputs(action_extract)
     action_extract.add_argument("--output", "-o", type=Path, required=True, help="actions.jsonl output")
     action_extract.add_argument("--force", action="store_true")
 
     render = commands.add_parser("render", help="render one Flashback replay into an explicit output directory")
-    _add_connection_inputs(render)
+    _add_capture_inputs(render)
     render.add_argument("--replay", type=Path, required=True, help="Flashback replay ZIP input")
     render.add_argument("--output", "-o", type=Path, required=True, help="renders directory output")
     render.add_argument("--width", type=int, default=640)
@@ -58,24 +46,17 @@ def _parser() -> argparse.ArgumentParser:
     scene = commands.add_parser("scene", help="extract one connection into Scene Store V2")
     scene_commands = scene.add_subparsers(dest="scene_command", required=True)
     scene_extract = scene_commands.add_parser("extract", help="write scene.sqlite3 from explicit inputs")
-    _add_connection_inputs(scene_extract)
-    scene_extract.add_argument(
-        "--replay",
-        type=Path,
-        required=True,
-        action="append",
-        help="Flashback replay ZIP input; repeat for every contributing segment",
-    )
+    _add_capture_inputs(scene_extract)
+    scene_extract.add_argument("--replay", type=Path, required=True, help="capture/replay.zip input")
     scene_extract.add_argument("--output", "-o", type=Path, required=True, help="scene.sqlite3 output")
     scene_extract.add_argument("--force", action="store_true")
     scene_extract.add_argument("--prepare-only", action="store_true")
     return parser
 
 
-def _add_connection_inputs(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("events", type=Path, help="closed recorder intermediate session")
-    parser.add_argument("--player", required=True, help="recorded player UUID")
-    parser.add_argument("--connection", required=True, help="recorded connection UUID")
+def _add_capture_inputs(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--metadata", type=Path, required=True, help="completed play metadata.json input")
+    parser.add_argument("--events", type=Path, required=True, help="capture/events.jsonl input")
     parser.add_argument("--from-tick", type=int)
     parser.add_argument("--to-tick", type=int)
 
@@ -105,35 +86,6 @@ def _prepare_scene_output(path: Path, *, force: bool) -> Path:
     return output
 
 
-def _episode_json(info: EpisodeInfo) -> dict[str, object]:
-    value = asdict(info)
-    value["path"] = str(info.path)
-    return value
-
-
-def _sessions(config_path: str, session_id: str | None, *, validate: bool, as_json: bool) -> int:
-    config = load_config(config_path)
-    if validate:
-        paths = [resolve_episode(config.paths.sessions, session_id)] if session_id else [item.path for item in list_episodes(config.paths.sessions)]
-        results = [validate_episode(path) for path in paths]
-        if as_json:
-            print(json.dumps([result.as_json() for result in results], indent=2, sort_keys=True))
-        else:
-            for result in results:
-                print(f"{result.session_id}: {'valid' if result.valid else 'INVALID'}; {result.sealed_epochs} sealed epoch(s)")
-                for issue in result.issues:
-                    print(f"  {issue.severity.upper()}: {issue.path}: {issue.message}")
-        return 0 if all(result.valid for result in results) else 1
-    sessions = list_episodes(config.paths.sessions)
-    if as_json:
-        print(json.dumps([_episode_json(info) for info in sessions], indent=2, sort_keys=True))
-    else:
-        for info in sessions:
-            tick_range = "-" if info.first_tick is None else f"{info.first_tick}..{info.last_tick}"
-            print(f"{info.session_id}\t{info.status}\t{tick_range}")
-    return 0
-
-
 def run(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     if args.command == "init":
@@ -141,22 +93,13 @@ def run(argv: Sequence[str] | None = None) -> int:
         print(f"Initialized {path}")
         return 0
 
-    if args.command == "sessions":
-        return _sessions(
-            args.config,
-            getattr(args, "session", None),
-            validate=args.sessions_command == "validate",
-            as_json=args.as_json,
-        )
-
     config = load_config(args.config)
     if args.command == "actions":
         with operation_lock(config.paths.runtime, "actions_extract"):
             result = extract_actions(
+                args.metadata,
                 args.events,
                 args.output,
-                player_uuid=args.player,
-                connection_id=args.connection,
                 first_tick=args.from_tick,
                 last_tick=args.to_tick,
                 force=args.force,
@@ -167,11 +110,10 @@ def run(argv: Sequence[str] | None = None) -> int:
     if args.command == "render":
         with operation_lock(config.paths.runtime, "render_prepare"):
             job = prepare_render_job(
+                args.metadata,
                 args.events,
                 args.replay,
                 args.output,
-                player_uuid=args.player,
-                connection_id=args.connection,
                 width=args.width,
                 height=args.height,
                 fps=args.fps,
@@ -191,17 +133,14 @@ def run(argv: Sequence[str] | None = None) -> int:
         output = _prepare_scene_output(args.output, force=args.force)
         with operation_lock(config.paths.runtime, "scene_extract"):
             cleanup_stale_scene_jobs(config.paths.runtime, keep=1)
-            with pin_sealed_epochs(args.events) as pinned_epochs:
-                job = prepare_scene_job(
-                    config,
-                    args.events,
-                    args.replay,
-                    player_uuid=args.player,
-                    connection_id=args.connection,
-                    first_tick=args.from_tick,
-                    last_tick=args.to_tick,
-                    pinned_epoch_paths=pinned_epochs,
-                )
+            job = prepare_scene_job(
+                config,
+                args.metadata,
+                args.events,
+                args.replay,
+                first_tick=args.from_tick,
+                last_tick=args.to_tick,
+            )
             print(f"Prepared scene extraction job {job.manifest}")
             if args.prepare_only:
                 return 0

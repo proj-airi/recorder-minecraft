@@ -139,10 +139,9 @@ public final class ReplayArchiveValidator {
         SceneJob job,
         SceneJob.SourceReplay source
     ) throws IOException {
-        if (requiredInt(identity, "schema_version") != 3
+        if (requiredInt(identity, "schema_version") != 4
             || !requiredString(identity, "session_id").equals(job.sessionId())
-            || !requiredUuid(identity, "segment_id").equals(source.segmentId())
-            || requiredInt(identity, "segment_ordinal") != source.segmentOrdinal()
+            || !requiredUuid(identity, "replay_id").equals(source.segmentId())
             || !requiredUuid(identity, "player_uuid").equals(job.playerUuid())
             || !requiredUuid(identity, "connection_id").equals(job.connectionId())
             || !requiredString(identity, "hotbar_snapshot_contract")

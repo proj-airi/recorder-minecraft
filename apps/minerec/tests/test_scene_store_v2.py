@@ -172,18 +172,10 @@ def _source_replays(root: Path) -> tuple[dict[str, object], ...]:
     return (
         {
             "segment_id": "segment-alpha",
-            "segment_ordinal": 3,
+            "segment_ordinal": 0,
             "path": str((root / "sealed" / "alpha.zip").resolve()),
             "sha256": "1" * 64,
             "size_bytes": 100,
-            "format": "flashback",
-        },
-        {
-            "segment_id": "segment-beta",
-            "segment_ordinal": 7,
-            "path": str((root / "sealed" / "beta.zip").resolve()),
-            "sha256": "2" * 64,
-            "size_bytes": 200,
             "format": "flashback",
         },
     )
@@ -218,14 +210,11 @@ def _provenance(
                 "record_count": 4,
                 "first_tick": 10,
                 "last_tick": 13,
-                "source_epochs": [
-                    {
-                        "epoch_index": 0,
-                        "events_sha256": "4" * 64,
-                        "events_size_bytes": 1000,
-                        "record_count": 20,
-                    }
-                ],
+                "source_events": {
+                    "events_sha256": "4" * 64,
+                    "events_size_bytes": 1000,
+                    "record_count": 20,
+                },
             },
             "stream": {
                 "path": str((root / "work" / "scene-stream").resolve()),
@@ -360,14 +349,11 @@ class SceneStoreV2Test(unittest.TestCase):
             info = finalize_scene_store_v2(source, states, output)
 
             self.assertEqual(
-                (
-                    "replays/000003--segment-alpha.zip",
-                    "replays/000007--segment-beta.zip",
-                ),
+                ("capture/replay.zip",),
                 tuple(item["path"] for item in info.source_replays),
             )
             self.assertEqual(
-                (3, 7),
+                (0,),
                 tuple(item["segment_ordinal"] for item in info.source_replays),
             )
             provenance_text = json.dumps(
@@ -375,13 +361,13 @@ class SceneStoreV2Test(unittest.TestCase):
                 default=lambda value: dict(value),
             )
             self.assertNotIn(str(root), provenance_text)
-            self.assertIn("recorder-intermediate://host-path-removed", provenance_text)
+            self.assertIn("processor-runtime://host-path-removed", provenance_text)
 
             with SceneStoreV2(output) as store:
                 alignments = tuple(store.iter_frame_alignments())
             self.assertEqual((10, 11, 12, 13), tuple(row.server_tick for row in alignments))
             self.assertEqual(
-                ("segment-alpha", "segment-alpha", "segment-beta", "segment-beta"),
+                ("segment-alpha", "segment-alpha", "segment-alpha", "segment-alpha"),
                 tuple(row.segment_id for row in alignments),
             )
             self.assertEqual((110, 111, 112, 113), tuple(row.replay_tick for row in alignments))

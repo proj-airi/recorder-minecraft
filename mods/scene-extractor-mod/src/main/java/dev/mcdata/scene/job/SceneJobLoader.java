@@ -49,10 +49,10 @@ public final class SceneJobLoader {
     );
     private static final Set<String> SUBJECT_POSE_KEYS = Set.of(
         "format", "path", "sha256", "size_bytes", "record_count", "first_tick",
-        "last_tick", "source_epochs"
+        "last_tick", "source_events"
     );
-    private static final Set<String> SUBJECT_POSE_EPOCH_KEYS = Set.of(
-        "epoch_index", "events_sha256", "events_size_bytes", "record_count"
+    private static final Set<String> SUBJECT_POSE_EVENT_SOURCE_KEYS = Set.of(
+        "events_sha256", "events_size_bytes", "record_count"
     );
     private static final Set<String> SUBJECT_POSE_RECORD_KEYS = Set.of(
         "schema_version", "server_tick", "session_id", "player_uuid", "connection_id",
@@ -233,39 +233,21 @@ public final class SceneJobLoader {
             throw new IOException("subject pose stream coverage does not exactly match the scene job");
         }
 
-        JsonArray rawEpochs = requiredArray(envelope, "source_epochs");
-        if (rawEpochs.isEmpty()) {
-            throw new IOException("subject pose stream requires source epoch integrity");
+        JsonObject source = requiredObject(envelope, "source_events");
+        requireExactKeys(source, SUBJECT_POSE_EVENT_SOURCE_KEYS, "subject_poses source_events");
+        long eventsSize = requiredLong(source, "events_size_bytes");
+        long sourceRecordCount = requiredLong(source, "record_count");
+        String eventsSha256 = requiredString(source, "events_sha256");
+        if (
+            eventsSize <= 0
+                || sourceRecordCount <= 0
+                || !SHA256.matcher(eventsSha256).matches()
+        ) {
+            throw new IOException("subject pose source events integrity is invalid");
         }
-        List<SceneJob.SourceEpoch> sourceEpochs = new ArrayList<>(rawEpochs.size());
-        int previousEpoch = -1;
-        for (int index = 0; index < rawEpochs.size(); index++) {
-            JsonElement element = rawEpochs.get(index);
-            if (!element.isJsonObject()) {
-                throw new IOException("subject_poses source_epochs[" + index + "] must be an object");
-            }
-            JsonObject source = element.getAsJsonObject();
-            requireExactKeys(
-                source, SUBJECT_POSE_EPOCH_KEYS, "subject_poses source_epochs[" + index + "]"
-            );
-            int epochIndex = requiredInt(source, "epoch_index");
-            long eventsSize = requiredLong(source, "events_size_bytes");
-            long sourceRecordCount = requiredLong(source, "record_count");
-            String eventsSha256 = requiredString(source, "events_sha256");
-            if (
-                epochIndex < 0
-                    || epochIndex <= previousEpoch
-                    || eventsSize <= 0
-                    || sourceRecordCount <= 0
-                    || !SHA256.matcher(eventsSha256).matches()
-            ) {
-                throw new IOException("subject pose source epoch integrity is invalid or out of order");
-            }
-            previousEpoch = epochIndex;
-            sourceEpochs.add(
-                new SceneJob.SourceEpoch(epochIndex, eventsSha256, eventsSize, sourceRecordCount)
-            );
-        }
+        SceneJob.SourceEvents sourceEvents = new SceneJob.SourceEvents(
+            eventsSha256, eventsSize, sourceRecordCount
+        );
 
         SceneJob.SubjectPoseTimeline timeline = readSubjectPoseTimeline(
             path, sha256, sizeBytes, (int) recordCount, start,
@@ -283,7 +265,7 @@ public final class SceneJobLoader {
             recordCount,
             start,
             end,
-            sourceEpochs,
+            sourceEvents,
             new SceneJob.SubjectPoseFileIdentity(
                 String.valueOf(after.fileKey()), after.lastModifiedTime().toMillis()
             ),
