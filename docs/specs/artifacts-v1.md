@@ -34,9 +34,11 @@ NFC Unicode without separators or control characters. UUIDs use canonical
 lowercase spelling. Start time uses `YYYYMMDDTHHMMSS[.fraction]Z`. No alternate
 nesting is valid.
 
-The instance UUID is generated once by `minerec init`; the server name remains
-an editable display label. A new connection UUID is generated for every join.
-Multiple players and overlapping connections create independent plays.
+The instance UUID is generated once by `minerec init`. The optional
+`server.name` value in `recorder.toml` is an editable display label; when it is
+omitted, `minerec` uses the machine hostname. A new connection UUID is
+generated for every join. Multiple players and overlapping connections create
+independent plays.
 
 `world/` is reserved for future server-instance-wide inputs such as a world
 save or seed. It is not required in V1 and processors must not infer it.

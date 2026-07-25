@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import socket
 import tomllib
 import uuid
 from dataclasses import dataclass
@@ -40,6 +41,19 @@ def _value(table: dict[str, Any], key: str, default: Any, expected: type) -> Any
 def _resolve(base: Path, raw: str) -> Path:
     path = Path(raw).expanduser()
     return (base / path).resolve() if not path.is_absolute() else path.resolve()
+
+
+def _server_name(table: dict[str, Any]) -> str:
+    if "name" in table:
+        name = _value(table, "name", "", str).strip()
+        if not name:
+            raise RecorderError("server.name must not be empty")
+        return name
+
+    name = socket.gethostname().strip()
+    if not name:
+        raise RecorderError("machine hostname is empty; configure server.name explicitly")
+    return name
 
 
 @dataclass(frozen=True)
@@ -100,9 +114,7 @@ def load_config(path: str | Path = DEFAULT_CONFIG_NAME) -> RecorderConfig:
         {"recorder_project", "renderer_project", "scene_extractor_project", "scene_extractor_executable"},
         "mods",
     )
-    name = _value(server_raw, "name", "minecraft", str).strip()
-    if not name:
-        raise RecorderError("server.name must not be empty")
+    name = _server_name(server_raw)
     instance_value = _value(server_raw, "instance_id", "", str)
     try:
         instance_id = str(uuid.UUID(instance_value))
@@ -153,8 +165,9 @@ def default_config_text(*, accept_eula: bool = False, server_instance_id: str | 
     return f'''version = 1
 
 [server]
+# Optional artifact display name. When omitted, the machine hostname is used.
+# name = "minecraft"
 # Accept https://aka.ms/MinecraftEULA before provisioning a recorder server.
-name = "minecraft"
 instance_id = "{instance_id}"
 eula = {eula}
 

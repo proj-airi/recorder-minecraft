@@ -1,7 +1,8 @@
 version = 1
 
 [server]
-name = "minecraft"
+# Optional artifact display name. When omitted, the machine hostname is used.
+# name = "minecraft"
 # `minerec init` generates this once. Never share it between server instances.
 instance_id = "00000000-0000-4000-8000-000000000000"
 eula = false

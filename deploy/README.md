@@ -9,7 +9,8 @@ hack/minecraft-server start
 ```
 
 The helper builds the recorder mod and stages both mod configurations. It reads
-the stable server name and instance UUID from `recorder.toml`.
+the stable server instance UUID and either the configured `server.name` or the
+machine hostname from `recorder.toml`.
 
 The Minecraft container mounts:
 

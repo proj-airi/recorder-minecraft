@@ -4,6 +4,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
@@ -15,13 +16,36 @@ class ConfigTest(unittest.TestCase):
     def test_init_creates_artifact_and_private_runtime_roots(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             workspace = Path(temporary)
-            config = load_config(initialize(workspace / "recorder.toml", accept_eula=True))
+            with mock.patch("minerec.config.socket.gethostname", return_value="recorder-a"):
+                source = initialize(workspace / "recorder.toml", accept_eula=True)
+                config = load_config(source)
             self.assertTrue(config.server.eula)
-            self.assertEqual("minecraft", config.server.name)
+            self.assertEqual("recorder-a", config.server.name)
+            self.assertNotIn('\nname = "', source.read_text(encoding="utf-8"))
             self.assertEqual((workspace / "artifacts").resolve(), config.paths.artifacts)
             self.assertEqual((workspace / ".mc-recorder" / "runtime").resolve(), config.paths.runtime)
             self.assertTrue(config.paths.artifacts.is_dir())
             self.assertTrue(config.paths.runtime.is_dir())
+
+    def test_server_name_can_override_machine_hostname(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            source = initialize(Path(temporary) / "recorder.toml")
+            text = source.read_text(encoding="utf-8").replace(
+                "[server]\n",
+                '[server]\nname = "friendly-name"\n',
+            )
+            source.write_text(text, encoding="utf-8")
+            with mock.patch("minerec.config.socket.gethostname", return_value="recorder-a"):
+                self.assertEqual("friendly-name", load_config(source).server.name)
+
+    def test_empty_machine_hostname_requires_an_explicit_name(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            source = initialize(Path(temporary) / "recorder.toml")
+            with (
+                mock.patch("minerec.config.socket.gethostname", return_value=""),
+                self.assertRaisesRegex(RecorderError, "configure server.name explicitly"),
+            ):
+                load_config(source)
 
     def test_init_persists_one_required_server_instance_id(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
