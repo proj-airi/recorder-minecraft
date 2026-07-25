@@ -187,11 +187,14 @@ public final class SceneReducer {
             return;
         }
         if (event instanceof SceneEvent.EntityPassengersChanged changed) {
-            MutableEntity vehicle = requireEntity(changed.vehicleId());
-            for (int passenger : changed.passengers()) {
-                requireEntity(passenger);
+            // Match ClientPacketListener: ignore an absent vehicle and skip absent passengers.
+            MutableEntity vehicle = entities.get(changed.vehicleId());
+            if (vehicle == null) {
+                return;
             }
-            vehicle.passengers = List.copyOf(changed.passengers());
+            vehicle.passengers = changed.passengers().stream()
+                .filter(entities::containsKey)
+                .toList();
             return;
         }
         if (event instanceof SceneEvent.EntityLeashChanged changed) {
