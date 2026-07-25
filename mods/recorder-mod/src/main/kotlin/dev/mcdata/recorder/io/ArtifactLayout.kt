@@ -15,7 +15,10 @@ data class PlayIdentity(
 
 data class PlayPaths(val root: Path) {
     val metadata: Path = root.resolve("metadata.json")
-    val replays: Path = root.resolve("replays")
+    val capture: Path = root.resolve("capture")
+    val events: Path = capture.resolve("events.jsonl")
+    val replayWorking: Path = capture.resolve("replay")
+    val replay: Path = capture.resolve("replay.zip")
     val actions: Path = root.resolve("actions.jsonl")
     val scene: Path = root.resolve("scene.sqlite3")
     val renders: Path = root.resolve("renders")

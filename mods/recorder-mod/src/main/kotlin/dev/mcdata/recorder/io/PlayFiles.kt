@@ -2,6 +2,7 @@ package dev.mcdata.recorder.io
 
 import com.google.gson.GsonBuilder
 import com.google.gson.JsonArray
+import com.google.gson.JsonNull
 import com.google.gson.JsonObject
 import dev.mcdata.recorder.capture.ReplayScenePacketContract
 import dev.mcdata.recorder.config.RecorderConfig
@@ -18,61 +19,64 @@ class PlayFiles private constructor(
     val paths: PlayPaths,
     private val metadataValue: JsonObject
 ) {
+    private var ended: CaptureEnd? = null
+    private var replayClosed = false
+
+    fun connectionId(): String =
+        metadataValue.getAsJsonObject("connection").get("id").asString
+
     @Synchronized
-    fun addReplay(
-        source: Path,
-        segmentId: String,
-        segmentOrdinal: Long,
-        replayFormat: String
-    ): Path {
-        require(replayFormat == "flashback") { "artifacts/v1 accepts Flashback replay archives only" }
-        require(segmentOrdinal >= 0) { "replay segment ordinal must be non-negative" }
-        UUID.fromString(segmentId)
-        require(Files.isRegularFile(source) && !Files.isSymbolicLink(source)) {
-            "completed replay must be a non-symlinked regular file: $source"
+    fun replaySaved(output: Path) {
+        require(output.toAbsolutePath().normalize() == paths.replay) {
+            "ServerReplay output does not match capture/replay.zip: $output"
         }
-        val filename = "%06d--%s.zip".format(segmentOrdinal, segmentId)
-        val destination = paths.replays.resolve(filename)
-        require(!Files.exists(destination)) { "replay destination already exists: $destination" }
-        val partial = destination.resolveSibling("$filename.inprogress")
-        try {
-            Files.copy(source, partial)
-            moveComplete(partial, destination)
-        } catch (failure: Throwable) {
-            Files.deleteIfExists(partial)
-            throw failure
+        require(Files.isRegularFile(paths.replay) && !Files.isSymbolicLink(paths.replay)) {
+            "completed replay must be a non-symlinked regular file: ${paths.replay}"
         }
-        metadataValue.getAsJsonArray("replays").add(JsonObject().apply {
-            addProperty("segment_id", segmentId)
-            addProperty("segment_ordinal", segmentOrdinal)
-            addProperty("format", replayFormat)
-            addProperty("path", "replays/$filename")
-        })
-        atomicWrite(paths.metadata, metadataValue)
-        return destination
     }
 
     @Synchronized
-    fun close(endedAt: Instant, endServerTick: Long, terminalReason: String) {
-        finish("closed", endedAt, endServerTick, terminalReason)
+    fun replayWriterClosed() {
+        require(Files.isRegularFile(paths.replay) && !Files.isSymbolicLink(paths.replay)) {
+            "Flashback replay did not finalize at ${paths.replay}"
+        }
+        require(!Files.exists(paths.replayWorking)) {
+            "Flashback working directory still exists after replay close: ${paths.replayWorking}"
+        }
+        replayClosed = true
+        finishIfReady()
     }
 
     @Synchronized
-    fun fail(endedAt: Instant, endServerTick: Long, terminalReason: String) {
-        finish("failed", endedAt, endServerTick, terminalReason)
+    fun eventsClosed(endedAt: Instant, endServerTick: Long, terminalReason: String) {
+        require(ended == null) { "capture events were already closed" }
+        require(Files.isRegularFile(paths.events) && !Files.isSymbolicLink(paths.events)) {
+            "capture events did not finalize at ${paths.events}"
+        }
+        ended = CaptureEnd(endedAt, endServerTick, terminalReason)
+        finishIfReady()
     }
 
-    private fun finish(status: String, endedAt: Instant, endServerTick: Long, terminalReason: String) {
+    @Synchronized
+    fun fail(reason: String) {
         val connection = metadataValue.getAsJsonObject("connection")
-        connection.addProperty("status", status)
-        connection.addProperty("ended_at", endedAt.toString())
-        connection.addProperty("end_server_tick", endServerTick)
-        connection.addProperty("terminal_reason", terminalReason)
+        connection.addProperty("capture_failure", reason.take(2_048))
+        atomicWrite(paths.metadata, metadataValue)
+    }
+
+    private fun finishIfReady() {
+        val completed = ended ?: return
+        if (!replayClosed) return
+        val connection = metadataValue.getAsJsonObject("connection")
+        connection.addProperty("status", "complete")
+        connection.addProperty("ended_at", completed.endedAt.toString())
+        connection.addProperty("end_server_tick", completed.endServerTick)
+        connection.addProperty("terminal_reason", completed.terminalReason)
         atomicWrite(paths.metadata, metadataValue)
     }
 
     companion object {
-        private val gson = GsonBuilder().setPrettyPrinting().create()
+        private val gson = GsonBuilder().serializeNulls().setPrettyPrinting().create()
         private val pathTime = DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss.SSS'Z'")
             .withZone(ZoneOffset.UTC)
 
@@ -96,7 +100,7 @@ class PlayFiles private constructor(
             val paths = ArtifactLayout.play(config.artifactsPath(), identity)
             Files.createDirectories(paths.root.parent)
             Files.createDirectory(paths.root)
-            Files.createDirectory(paths.replays)
+            Files.createDirectory(paths.capture)
             val metadata = JsonObject().apply {
                 addProperty("schema_version", 1)
                 addProperty("layout_version", ArtifactLayout.VERSION)
@@ -114,6 +118,8 @@ class PlayFiles private constructor(
                     addProperty("status", "recording")
                     addProperty("started_at", startedAt.toString())
                     addProperty("start_server_tick", startServerTick)
+                    add("ended_at", JsonNull.INSTANCE)
+                    add("end_server_tick", JsonNull.INSTANCE)
                 })
                 addProperty(
                     "flashback_capture_contract",
@@ -125,7 +131,11 @@ class PlayFiles private constructor(
                     add("lighting_not_persisted_in_scene_v2")
                     add("unopened_container_contents_may_be_unknown")
                 })
-                add("replays", JsonArray())
+                add("capture", JsonObject().apply {
+                    addProperty("events", "capture/events.jsonl")
+                    addProperty("replay", "capture/replay.zip")
+                    addProperty("replay_format", "flashback")
+                })
             }
             atomicWrite(paths.metadata, metadata)
             return PlayFiles(paths, metadata)
@@ -152,4 +162,10 @@ class PlayFiles private constructor(
             }
         }
     }
+
+    private data class CaptureEnd(
+        val endedAt: Instant,
+        val endServerTick: Long,
+        val terminalReason: String
+    )
 }

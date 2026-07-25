@@ -8,7 +8,6 @@ eula = false
 
 [paths]
 artifacts = "artifacts"
-intermediate = ".mc-recorder/intermediate"
 runtime = ".mc-recorder/runtime"
 
 [mods]

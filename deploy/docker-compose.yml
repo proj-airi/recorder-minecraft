@@ -31,7 +31,6 @@ services:
       - '${MC_LOCAL_MODS_DIR}:/mods:ro'
       - '${MC_CONFIG_SOURCE_DIR}:/config:ro'
       - '${MC_ARTIFACTS_DIR}:/artifacts'
-      - '${MC_INTERMEDIATE_DIR}:/intermediate'
     healthcheck:
       test: ['CMD', 'mc-health']
       start_period: 1m

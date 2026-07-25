@@ -7,6 +7,7 @@ import net.casual.arcade.events.GlobalEventHandler
 import net.casual.arcade.events.ListenerRegistry.Companion.register
 import net.casual.arcade.events.server.player.PlayerServerboundPacketEvent
 import net.casual.arcade.replay.events.ReplayRecorderStartEvent
+import net.casual.arcade.replay.events.ReplayRecorderCloseEvent
 import net.casual.arcade.replay.events.ReplayRecorderSaveEvent
 import net.fabricmc.api.ModInitializer
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents
@@ -41,6 +42,9 @@ object RecorderMod : ModInitializer {
             phase = ReplayRecorderSaveEvent.PHASE_POST
         ) { event ->
             CaptureRuntime.replayRecorderSaved(event.recorder, event.output)
+        }
+        GlobalEventHandler.Server.register<ReplayRecorderCloseEvent> { event ->
+            CaptureRuntime.replayRecorderClosed(event.recorder)
         }
         logger.info("Minecraft recorder initialized for automatic all-player capture")
     }

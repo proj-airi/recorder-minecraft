@@ -9,36 +9,34 @@ reconstructed controls, and end-of-tick player state.
 ```json
 {
   "artifacts_root": "/artifacts",
-  "intermediate_root": "/runtime/intermediate",
   "server_name": "minecraft",
   "server_instance_id": "00000000-0000-4000-8000-000000000000",
-  "epoch_ticks": 6000,
   "record_all_players": true,
   "writer_queue_capacity": 65536,
   "include_inventory_components": true
 }
 ```
 
-Unknown/legacy configuration keys are rejected. Artifact and intermediate
-roots must be separate and non-nested.
+Unknown and removed configuration keys are rejected.
 
 At player join the mod creates:
 
 ```text
 <artifacts_root>/v1/<server>--<instance>/players/<player>--<uuid>/plays/<start>--<connection>/
   metadata.json
-  replays/
+  capture/
+    events.jsonl
+    replay.zip
 ```
 
 It does not create actions, scenes, or renders. Those are post-processing
-outputs. ServerReplay continues writing independently under its working root;
-after each Flashback ZIP is complete, the recorder copies its exact bytes into
-the play's `replays/` directory. Replay rotations are never merged.
+outputs. ServerReplay writes one unrotated Flashback recording directly into
+the play capture and finalizes it as `capture/replay.zip` on disconnect.
 
-Raw combined event sessions are written to
-`<intermediate_root>/sessions/<session-id>/`. Active epochs use
-`events.jsonl.inprogress`; a seal atomically publishes `events.jsonl` and its
-count/size/SHA-256 manifest.
+The recorder appends one buffered, connection-local `capture/events.jsonl`
+stream. There are no sessions on disk, epochs, manifests, or sealing step.
+After events are durable and the replay writer has closed, `metadata.json` is
+atomically updated with the end tick; a null end tick means incomplete.
 
 `packet_arrival` is diagnostic network-thread timing. `packet_apply` is the
 authoritative action order. `control_state` is a semantic 20 Hz reconstruction,

@@ -30,6 +30,8 @@ class ArtifactLayoutTest {
             paths.root
         )
         assertEquals(paths.root.resolve("renders/fpv_frames"), paths.fpvFrames)
+        assertEquals(paths.root.resolve("capture/events.jsonl"), paths.events)
+        assertEquals(paths.root.resolve("capture/replay.zip"), paths.replay)
     }
 
     @Test

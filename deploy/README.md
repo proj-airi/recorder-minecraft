@@ -14,8 +14,6 @@ the stable server name and instance UUID from `recorder.toml`.
 The Minecraft container mounts:
 
 - `MC_ARTIFACTS_DIR` at `/artifacts` for canonical Artifacts V1 plays;
-- `MC_INTERMEDIATE_DIR` at `/intermediate` for raw sidecars and ServerReplay working
-  files; and
 - `MC_DATA_DIR` at `/data` for the Minecraft server/world.
 
 No storage monitor deletes artifacts. No dashboard, RabbitMQ, render worker,
@@ -23,3 +21,7 @@ or viewer service is part of this Compose file.
 
 Vanilla empty-server tick pausing is disabled so recorder tick boundaries
 continue after the last player disconnects.
+
+ServerReplay duration and size rotation are disabled. The recorder redirects
+its one live Flashback writer per connection directly to
+`<play>/capture/replay`, which Flashback finalizes as `capture/replay.zip`.
