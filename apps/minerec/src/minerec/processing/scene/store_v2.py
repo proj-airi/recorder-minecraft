@@ -11,11 +11,12 @@ import sqlite3
 import tempfile
 import uuid
 import zlib
+from collections import OrderedDict
 from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType, TracebackType
-from typing import Any, Iterable, Iterator, Mapping, Sequence, cast
+from typing import Any, Callable, Iterable, Iterator, Mapping, Sequence, cast
 from urllib.parse import quote
 
 from sqlalchemy import and_, bindparam, create_engine, func, insert, or_, select
@@ -72,6 +73,8 @@ from minerec.processing.scene.store import (
 MAX_STATE_JSONL_LINE_BYTES = 64 * 1024 * 1024
 MAX_STATE_READ_ROWS = 100_000
 MAX_PRIVATE_TEXT_BYTES = 8 * 1024 * 1024
+MAX_VALIDATION_BLOB_CACHE_BYTES = 64 * 1024 * 1024
+MAX_VALIDATION_BLOB_CACHE_ENTRIES = 65_536
 
 _ABILITY_FIELDS = frozenset({"invulnerable", "flying", "may_fly", "instant_build", "may_build"})
 _EFFECT_FIELDS = frozenset({"effect", "duration", "amplifier", "ambient", "visible", "show_icon"})
@@ -379,6 +382,20 @@ def _decompress(data: bytes, expected_size: int, description: str) -> bytes:
     return value
 
 
+def _validated_blob_row(row: Mapping[str, Any], digest: str, expected_kind: str) -> bytes:
+    if row["kind"] != expected_kind or row["encoding"] != "zlib":
+        raise SceneStoreV2ValidationError(f"blob {digest} has the wrong kind or encoding")
+    data = bytes(row["data"])
+    if len(data) != row["compressed_size"]:
+        raise SceneStoreV2ValidationError(f"blob {digest} compressed size is invalid")
+    value = _decompress(data, row["uncompressed_size"], f"{expected_kind} blob {digest}")
+    if hashlib.sha256(value).hexdigest() != digest:
+        raise SceneStoreV2ValidationError(f"blob {digest} content hash is invalid")
+    if zlib.compress(value, level=9) != data:
+        raise SceneStoreV2ValidationError(f"blob {digest} does not use the canonical zlib encoding")
+    return value
+
+
 def _blob_value(connection: sqlite3.Connection, digest: str, expected_kind: str) -> bytes:
     row = _execute_core(
         connection,
@@ -393,17 +410,7 @@ def _blob_value(connection: sqlite3.Connection, digest: str, expected_kind: str)
     ).fetchone()
     if row is None:
         raise SceneStoreV2ValidationError(f"missing {expected_kind} blob {digest}")
-    if row["kind"] != expected_kind or row["encoding"] != "zlib":
-        raise SceneStoreV2ValidationError(f"blob {digest} has the wrong kind or encoding")
-    data = bytes(row["data"])
-    if len(data) != row["compressed_size"]:
-        raise SceneStoreV2ValidationError(f"blob {digest} compressed size is invalid")
-    value = _decompress(data, row["uncompressed_size"], f"{expected_kind} blob {digest}")
-    if hashlib.sha256(value).hexdigest() != digest:
-        raise SceneStoreV2ValidationError(f"blob {digest} content hash is invalid")
-    if zlib.compress(value, level=9) != data:
-        raise SceneStoreV2ValidationError(f"blob {digest} does not use the canonical zlib encoding")
-    return value
+    return _validated_blob_row(row, digest, expected_kind)
 
 
 def _put_blob(connection: Connection, kind: str, value: bytes) -> str:
@@ -1292,6 +1299,7 @@ def _validate_rtrees(connection: sqlite3.Connection) -> None:
 
 def _validate_entity_version_rows(
     connection: sqlite3.Connection,
+    blob_value: Callable[[str, str], bytes],
 ) -> dict[int, tuple[str, str | None]]:
     linked_identities: dict[int, tuple[str, str | None]] = {}
     rows = _execute_core(
@@ -1313,7 +1321,7 @@ def _validate_entity_version_rows(
     )
     for row in rows:
         payload = _parse_canonical_json(
-            _blob_value(connection, row["blob_sha256"], "entity"),
+            blob_value(row["blob_sha256"], "entity"),
             f"entity version {row['version_id']}",
         )
         if not isinstance(payload, dict):
@@ -1349,7 +1357,10 @@ def _validate_entity_version_rows(
     return linked_identities
 
 
-def _validate_block_entity_version_rows(connection: sqlite3.Connection) -> None:
+def _validate_block_entity_version_rows(
+    connection: sqlite3.Connection,
+    blob_value: Callable[[str, str], bytes],
+) -> None:
     rows = _execute_core(
         connection,
         select(
@@ -1364,7 +1375,7 @@ def _validate_block_entity_version_rows(connection: sqlite3.Connection) -> None:
     )
     for row in rows:
         payload = _parse_canonical_json(
-            _blob_value(connection, row["blob_sha256"], "block_entity"),
+            blob_value(row["blob_sha256"], "block_entity"),
             f"block-entity version {row['version_id']}",
         )
         if not isinstance(payload, dict):
@@ -1389,9 +1400,12 @@ def _validate_block_entity_version_rows(connection: sqlite3.Connection) -> None:
             raise SceneStoreV2ValidationError(f"block-entity version {row['version_id']} type disagrees with its canonical payload")
 
 
-def _validate_player_state_row(connection: sqlite3.Connection, row: sqlite3.Row) -> None:
+def _validate_player_state_row(
+    row: sqlite3.Row,
+    blob_value: Callable[[str, str], bytes],
+) -> Mapping[str, Any]:
     value = _parse_canonical_json(
-        _blob_value(connection, row["payload_sha256"], "player_state"),
+        blob_value(row["payload_sha256"], "player_state"),
         f"player_state blob at tick {row['server_tick']}",
     )
     if not isinstance(value, dict):
@@ -1450,6 +1464,7 @@ def _validate_player_state_row(connection: sqlite3.Connection, row: sqlite3.Row)
         actual = bool(row[name]) if name in boolean_columns else row[name]
         if actual != expected[name]:
             raise SceneStoreV2ValidationError(f"player_state typed column {name} disagrees with its canonical payload at tick {row['server_tick']}")
+    return value
 
 
 def _segment_id_for_frame(
@@ -1656,11 +1671,48 @@ def _validate_connection(connection: sqlite3.Connection) -> None:
         ).fetchone()
         if wrong is not None:
             raise SceneStoreV2ValidationError(f"{table.name} references a blob with the wrong kind")
+    blob_cache: OrderedDict[tuple[str, str], bytes] = OrderedDict()
+    blob_cache_size = 0
+
+    def cache_blob_value(key: tuple[str, str], value: bytes) -> None:
+        nonlocal blob_cache_size
+        if len(value) > MAX_VALIDATION_BLOB_CACHE_BYTES:
+            return
+        previous = blob_cache.pop(key, None)
+        if previous is not None:
+            blob_cache_size -= len(previous)
+        while blob_cache and (blob_cache_size + len(value) > MAX_VALIDATION_BLOB_CACHE_BYTES or len(blob_cache) >= MAX_VALIDATION_BLOB_CACHE_ENTRIES):
+            _, evicted = blob_cache.popitem(last=False)
+            blob_cache_size -= len(evicted)
+        blob_cache[key] = value
+        blob_cache_size += len(value)
+
+    def validated_blob_value(digest: str, expected_kind: str) -> bytes:
+        key = (digest, expected_kind)
+        cached = blob_cache.get(key)
+        if cached is not None:
+            blob_cache.move_to_end(key)
+            return cached
+        value = _blob_value(connection, digest, expected_kind)
+        cache_blob_value(key, value)
+        return value
+
+    # Fetch the blob table once. Point-reading every blob through SQLAlchemy's
+    # compiler made import time grow with thousands of avoidable SQL queries.
     for blob in _execute_core(
         connection,
-        select(blobs.c.sha256, blobs.c.kind).order_by(blobs.c.sha256),
+        select(
+            blobs.c.sha256,
+            blobs.c.kind,
+            blobs.c.encoding,
+            blobs.c.uncompressed_size,
+            blobs.c.compressed_size,
+            blobs.c.data,
+        ).order_by(blobs.c.sha256),
     ):
-        value = _blob_value(connection, blob["sha256"], blob["kind"])
+        value = _validated_blob_row(blob, blob["sha256"], blob["kind"])
+        key = (blob["sha256"], blob["kind"])
+        cache_blob_value(key, value)
         if blob["kind"] == "section":
             _decode_section_blob(value)
         else:
@@ -1668,8 +1720,8 @@ def _validate_connection(connection: sqlite3.Connection) -> None:
             if not isinstance(payload, dict):
                 raise SceneStoreV2ValidationError(f"{blob['kind']} blob {blob['sha256']} must contain an object")
 
-    linked_entity_identities = _validate_entity_version_rows(connection)
-    _validate_block_entity_version_rows(connection)
+    linked_entity_identities = _validate_entity_version_rows(connection, validated_blob_value)
+    _validate_block_entity_version_rows(connection, validated_blob_value)
 
     state_rows = _execute_core(
         connection,
@@ -1697,11 +1749,7 @@ def _validate_connection(connection: sqlite3.Connection) -> None:
         .order_by(player_states.c.server_tick),
     )
     for row in state_rows:
-        _validate_player_state_row(connection, row)
-        payload = _parse_canonical_json(
-            _blob_value(connection, row["payload_sha256"], "player_state"),
-            f"player_state at tick {row['server_tick']}",
-        )
+        payload = _validate_player_state_row(row, validated_blob_value)
         if (
             payload.get("session_id"),
             payload.get("player_uuid"),

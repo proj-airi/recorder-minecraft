@@ -10,12 +10,14 @@ import zlib
 from contextlib import closing
 from pathlib import Path
 from typing import cast
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.schema import CreateTable
 
+import minerec.processing.scene.store_v2 as scene_store_v2_module
 from minerec.processing.scene.schema_v2 import FRAME_ALIGNMENT_SELECT, PORTABLE_TABLES
 from minerec.processing.scene.store import SceneIdentity, SceneStoreBuilder
 from minerec.processing.scene.store_v2 import (
@@ -290,6 +292,25 @@ class PortableSchemaTest(unittest.TestCase):
 
 
 class SceneStoreV2Test(unittest.TestCase):
+    def test_validation_scans_blob_table_without_point_reads(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "scene-v1.sqlite3"
+            states = root / "states.jsonl"
+            output = root / "scene.sqlite3"
+            _write_v1(source)
+            _write_states(states)
+            finalize_scene_store_v2(source, states, output)
+
+            with mock.patch.object(
+                scene_store_v2_module,
+                "_blob_value",
+                wraps=scene_store_v2_module._blob_value,
+            ) as point_read:
+                validate_scene_store_v2(output)
+
+            point_read.assert_not_called()
+
     def test_sqlite_round_trip_relinks_respawn_and_preserves_full_state(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
