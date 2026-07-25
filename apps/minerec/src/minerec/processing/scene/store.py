@@ -17,12 +17,12 @@ from typing import Any, Iterable, Mapping, Sequence
 from urllib.parse import quote
 
 from minerec.errors import RecorderError
+from minerec.processing.replays import FLASHBACK_CAPTURE_CONTRACT
 from minerec.processing.scene.integrity import (
     SceneStreamIntegrityError,
     VerifiedSceneStream,
     verify_scene_stream,
 )
-from minerec.render.control.sources import FLASHBACK_CAPTURE_CONTRACT
 
 SCENE_STORE_SCHEMA = "mc-recorder-scene-store-v1"
 SCENE_STREAM_SCHEMA = "mc-recorder-scene-stream-v1"
@@ -923,7 +923,7 @@ def _validated_extraction_provenance(
 def validate_scene_attachment_provenance(
     info: SceneStoreInfo,
 ) -> SceneExtractionProvenance:
-    """Require extraction-authenticated provenance before dataset attachment."""
+    """Require extraction-authenticated provenance before V2 finalization."""
 
     if info.extraction is None:
         raise SceneStoreValidationError("scene store lacks authenticated extraction provenance")

@@ -21,7 +21,9 @@ class CaptureMetadataTest {
         Files.createDirectories(sessionDirectory.resolve("epochs"))
         val session = SessionFiles(SESSION, sessionDirectory)
         val config = RecorderConfig(
-            captureRoot = temporary.resolve("captures").toString(),
+            artifactsRoot = temporary.resolve("artifacts").toString(),
+            intermediateRoot = temporary.resolve("intermediate").toString(),
+            serverInstanceId = "00000000-0000-4000-8000-000000000001",
             epochTicks = 20,
             writerQueueCapacity = 1_024
         )

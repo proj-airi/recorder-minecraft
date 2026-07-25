@@ -1,7 +1,7 @@
 [workspace]
 name = "mc-play-recorder"
 version = "0.1.0"
-description = "Minecraft gameplay dataset recorder development workspace"
+description = "Minecraft gameplay recorder development workspace"
 authors = [ "Project AIRI" ]
 channels = [ "conda-forge" ]
 platforms = [
@@ -12,38 +12,21 @@ requires-pixi = ">=0.73,<1"
 
 [dependencies]
 python = "3.14.*"
-ffmpeg = ">=7,<9"
 setuptools = ">=68"
 ruff = ">=0.15.22,<0.16"
 ty = ">=0.0.61,<0.0.62"
 
 [pypi-dependencies]
 minerec = { path = "apps/minerec", editable = true }
-platformdirs = ">=4.11.0, <5"
 
 [tasks]
 setup-jvm = "proto install --config-mode local"
-build-dashboard = "pnpm --filter @mc-recorder/dashboard build"
-test-python = { cmd = "python -m unittest discover -s apps/minerec/tests -v", depends-on = [
-  "build-dashboard",
-] }
+test-python = "python -m unittest discover -s apps/minerec/tests -v"
 build-recorder-mod = "gradle --project-dir mods/recorder-mod build"
 build-scene-extractor-mod = "gradle --project-dir mods/scene-extractor-mod build installDist"
 build-renderer-mod = "gradle --project-dir mods/renderer-mod build"
-build-viewer = "pnpm --filter @mc-recorder/viewer build"
-test-viewer = "pnpm --filter @mc-recorder/viewer test"
-typecheck-viewer = "pnpm --filter @mc-recorder/viewer typecheck"
-check-viewer = { depends-on = [
-  "test-viewer",
-  "typecheck-viewer",
-  "build-viewer",
-] }
-check-minerec-wheel = { cmd = "python apps/minerec/scripts/validate_wheel.py", depends-on = [
-  "build-viewer",
-] }
 build-minerec-image = { cmd = "docker buildx build --platform linux/amd64 -f apps/minerec/Dockerfile . --tag minerec:local --load", depends-on = [
   "build-scene-extractor-mod",
-  "build-viewer",
 ] }
 build-mods = { depends-on = [
   "build-recorder-mod",
@@ -53,8 +36,6 @@ build-mods = { depends-on = [
 check = { depends-on = [
   "test-python",
   "build-mods",
-  "check-viewer",
-  "check-minerec-wheel",
 ] }
 py-check = { depends-on = [
   "py-lint",

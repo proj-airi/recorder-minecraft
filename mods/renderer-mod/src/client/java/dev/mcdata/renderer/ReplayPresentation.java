@@ -5,9 +5,6 @@ import com.moulberry.flashback.visuals.ReplayVisuals;
 import java.util.UUID;
 
 final class ReplayPresentation {
-    static final String FULL_CLIENT_PRESENTATION_CONTRACT =
-        "flashback_server_spectate_structured_hud_v1";
-
     private ReplayPresentation() {
     }
 
@@ -55,13 +52,13 @@ final class ReplayPresentation {
         boolean currentCameraIsRequestedPlayer,
         boolean requestedPlayerPresent,
         boolean heldDeathCameraAvailable,
-        boolean authoritativelyDead,
+        boolean replayReportsDeath,
         boolean countsTowardRender
     ) {
         if (requestedPlayerPresent) {
             return currentCameraMatchesPresent ? CameraContinuity.KEEP : CameraContinuity.REBIND_PRESENT;
         }
-        if (authoritativelyDead) {
+        if (replayReportsDeath) {
             if (currentCameraIsRequestedPlayer) {
                 return CameraContinuity.KEEP;
             }
@@ -73,22 +70,11 @@ final class ReplayPresentation {
     }
 
     static ServerSpectateRecovery planServerSpectateRecovery(
-        boolean pending, boolean cameraRecovered, boolean authoritativelyDead
+        boolean pending, boolean cameraRecovered, boolean replayReportsDeath
     ) {
         boolean nextPending = pending || cameraRecovered;
-        boolean requestNow = nextPending && !authoritativelyDead;
+        boolean requestNow = nextPending && !replayReportsDeath;
         return new ServerSpectateRecovery(requestNow ? false : nextPending, requestNow);
     }
 
-    static String resultPresentationContract(boolean noGui, String requestedContract) {
-        if (noGui || requestedContract == null) {
-            return null;
-        }
-        if (!FULL_CLIENT_PRESENTATION_CONTRACT.equals(requestedContract)) {
-            throw new IllegalArgumentException(
-                "Unsupported requested presentation contract: " + requestedContract
-            );
-        }
-        return requestedContract;
-    }
 }

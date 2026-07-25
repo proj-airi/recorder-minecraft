@@ -1,4 +1,4 @@
-"""Portable Scene Store V2 writer, validator, and read-only SQLite adapter."""
+"""Scene Store V2 writer, validator, and read-only SQLite adapter."""
 
 from __future__ import annotations
 
@@ -283,7 +283,7 @@ ORDER BY source.block_y, source.block_z, source.block_x
 
 
 def create_sqlite_scene_schema(connection: Connection) -> None:
-    """Create the portable base schema plus SQLite-only R-tree adapters."""
+    """Create the vendor-neutral base schema plus SQLite-only R-tree adapters."""
 
     if connection.dialect.name != "sqlite":
         raise SceneStoreV2Error("the SQLite scene adapter requires a SQLite connection")
@@ -784,13 +784,13 @@ def _meta_json_value(
     return parsed
 
 
-def _portable_replay_entry_name(bundle_ordinal: int, segment_id: str) -> str:
+def _play_replay_entry_name(segment_ordinal: int, segment_id: str) -> str:
     if _SAFE_SEGMENT_ID_RE.fullmatch(segment_id) is None:
-        raise SceneStoreV2Error(f"scene source replay segment_id is not bundle-safe: {segment_id!r}")
-    return f"replays/{bundle_ordinal:06d}--{segment_id}.zip"
+        raise SceneStoreV2Error(f"scene source replay segment_id is not play-safe: {segment_id!r}")
+    return f"replays/{segment_ordinal:06d}--{segment_id}.zip"
 
 
-def _validated_portable_source_replays(
+def _validated_play_source_replays(
     value: object,
     description: str = "Scene V2 source replays",
 ) -> tuple[dict[str, Any], ...]:
@@ -799,23 +799,23 @@ def _validated_portable_source_replays(
     result: list[dict[str, Any]] = []
     segment_ids: set[str] = set()
     previous_source_ordinal = -1
-    for bundle_ordinal, raw in enumerate(value):
-        context = f"{description}[{bundle_ordinal}]"
+    for index, raw in enumerate(value):
+        context = f"{description}[{index}]"
         if not isinstance(raw, Mapping) or set(raw) != _SOURCE_REPLAY_FIELDS:
             raise SceneStoreV2Error(f"{context} fields do not match the source replay contract")
         segment_id = _required_text(raw.get("segment_id"), f"{context} segment_id")
-        expected_path = _portable_replay_entry_name(bundle_ordinal, segment_id)
         source_ordinal = _bounded_int(
             raw.get("segment_ordinal"),
             f"{context} segment_ordinal",
             0,
             2**31 - 1,
         )
+        expected_path = _play_replay_entry_name(source_ordinal, segment_id)
         if source_ordinal <= previous_source_ordinal or segment_id in segment_ids:
             raise SceneStoreV2Error(f"{description} must have unique IDs and increasing source ordinals")
         path = _required_text(raw.get("path"), f"{context} path")
         if path != expected_path:
-            raise SceneStoreV2Error(f"{context} path must be the deterministic bundle-relative replay path")
+            raise SceneStoreV2Error(f"{context} path must be the deterministic play-relative replay path")
         digest = _required_text(raw.get("sha256"), f"{context} sha256")
         if _SHA256_RE.fullmatch(digest) is None:
             raise SceneStoreV2Error(f"{context} sha256 must be lowercase SHA-256 text")
@@ -842,22 +842,28 @@ def _validated_portable_source_replays(
     return tuple(result)
 
 
-def _portable_source_replays(value: object) -> tuple[dict[str, Any], ...]:
+def _play_source_replays(value: object) -> tuple[dict[str, Any], ...]:
     if not isinstance(value, list):
         raise SceneStoreV2Error("Scene V1 source_replays_json must contain a list")
-    portable: list[dict[str, Any]] = []
-    for bundle_ordinal, raw in enumerate(value):
+    play_replays: list[dict[str, Any]] = []
+    for index, raw in enumerate(value):
         if not isinstance(raw, Mapping):
-            raise SceneStoreV2Error(f"Scene V1 source replay {bundle_ordinal} must be an object")
+            raise SceneStoreV2Error(f"Scene V1 source replay {index} must be an object")
         normalized = dict(raw)
         segment_id = _required_text(
             normalized.get("segment_id"),
-            f"Scene V1 source replay {bundle_ordinal} segment_id",
+            f"Scene V1 source replay {index} segment_id",
         )
-        normalized["path"] = _portable_replay_entry_name(bundle_ordinal, segment_id)
-        portable.append(normalized)
-    return _validated_portable_source_replays(
-        portable,
+        segment_ordinal = _bounded_int(
+            normalized.get("segment_ordinal"),
+            f"Scene V1 source replay {index} segment_ordinal",
+            0,
+            2**31 - 1,
+        )
+        normalized["path"] = _play_replay_entry_name(segment_ordinal, segment_id)
+        play_replays.append(normalized)
+    return _validated_play_source_replays(
+        play_replays,
         "normalized Scene V1 source replays",
     )
 
@@ -867,7 +873,7 @@ def _is_absolute_host_path(value: str) -> bool:
     return value.startswith(("/", "\\")) or _WINDOWS_ABSOLUTE_PATH_RE.match(value) is not None or lowered.startswith("file:")
 
 
-def _portable_provenance_value(
+def _play_provenance_value(
     value: Any,  # noqa: ANN401
     source_replays: tuple[dict[str, Any], ...],
 ) -> Any:  # noqa: ANN401
@@ -875,18 +881,18 @@ def _portable_provenance_value(
         normalized: dict[str, Any] = {}
         for key, item in value.items():
             if key == "source_replays":
-                nested = _portable_source_replays(item)
+                nested = _play_source_replays(item)
                 if nested != source_replays:
                     raise SceneStoreV2Error("Scene V1 provenance source replays do not match scene metadata")
                 normalized[str(key)] = list(nested)
             else:
-                normalized[str(key)] = _portable_provenance_value(
+                normalized[str(key)] = _play_provenance_value(
                     item,
                     source_replays,
                 )
         return normalized
     if isinstance(value, list):
-        return [_portable_provenance_value(item, source_replays) for item in value]
+        return [_play_provenance_value(item, source_replays) for item in value]
     if isinstance(value, str) and _is_absolute_host_path(value):
         return _REDACTED_HOST_PATH
     return value
@@ -903,7 +909,7 @@ def _reject_host_paths(value: Any, description: str) -> None:  # noqa: ANN401
         raise SceneStoreV2Error(f"{description} contains a host-local absolute path")
 
 
-def _validated_portable_provenance(
+def _validated_play_provenance(
     value: object,
     source_replays: tuple[dict[str, Any], ...],
     *,
@@ -926,7 +932,7 @@ def _validated_portable_provenance(
     if not isinstance(subject_poses, dict) or subject_poses.get("path") != _REDACTED_HOST_PATH or not isinstance(stream, dict) or stream.get("path") != _REDACTED_HOST_PATH:
         raise SceneStoreV2Error("Scene V2 provenance must redact non-portable subject-pose and stream paths")
     # The V1 provenance validator intentionally requires the original private
-    # subject-pose path.  Validate the portable value through that mature
+    # subject-pose path.  Validate the play-local value through that mature
     # semantic contract with an ephemeral sentinel; never persist the sentinel.
     subject_poses["path"] = "/portable/subject-poses.jsonl"
     try:
@@ -985,14 +991,14 @@ def _copy_v1_into_v2(
         "Scene V1 provenance_json",
         dict,
     )
-    portable_sources = _portable_source_replays(source_replays_value)
-    portable_provenance = _portable_provenance_value(
+    play_sources = _play_source_replays(source_replays_value)
+    play_provenance = _play_provenance_value(
         provenance_value,
-        portable_sources,
+        play_sources,
     )
-    _validated_portable_provenance(
-        portable_provenance,
-        portable_sources,
+    _validated_play_provenance(
+        play_provenance,
+        play_sources,
         identity=identity,
         start_tick=meta["start_tick"],
         end_tick=meta["end_tick"],
@@ -1014,12 +1020,12 @@ def _copy_v1_into_v2(
             start_tick=meta["start_tick"],
             end_tick=meta["end_tick"],
             source_replays_json=_canonical_json(
-                list(portable_sources),
+                list(play_sources),
                 "Scene V2 source replays",
             ),
             sensitive=bool(meta["sensitive"]),
             provenance_json=_canonical_json(
-                portable_provenance,
+                play_provenance,
                 "Scene V2 provenance",
             ),
         )
@@ -1104,8 +1110,10 @@ def finalize_scene_store_v2(
     scene_v1_path: Path | str,
     states_jsonl_path: Path | str,
     output_path: Path | str,
+    *,
+    force: bool = False,
 ) -> SceneStoreV2Info:
-    """Build and atomically publish an immutable V2 store from verified V1 inputs."""
+    """Build one V2 store from private V1 staging and authoritative states."""
 
     source_path = Path(scene_v1_path)
     states_path = Path(states_jsonl_path)
@@ -1114,19 +1122,24 @@ def finalize_scene_store_v2(
     source_before = _path_identity(source_path)
     source_info = validate_scene_store(source_path)
     if not source_info.coverage_complete:
-        raise SceneStoreV2Error("Scene V1 coverage is incomplete; refusing V2 publication")
+        raise SceneStoreV2Error("Scene V1 coverage is incomplete; refusing to write Scene Store V2")
     states_by_tick, states_identity, states_sha256 = _read_authoritative_states(
         states_path,
         source_info.identity,
     )
     if not output.parent.is_dir() or output.parent.is_symlink():
         raise SceneStoreV2Error(f"Scene V2 parent is not a safe directory: {output.parent}")
+    output_before: tuple[int, int, int, int] | None = None
     try:
         output.lstat()
     except FileNotFoundError:
         pass
     else:
-        raise SceneStoreV2Error(f"refusing to replace immutable Scene V2 output: {output}")
+        if not force:
+            raise SceneStoreV2Error(f"Scene V2 output exists: {output}; pass force=True to replace it")
+        _check_regular_file(output, "existing Scene V2 output")
+        validate_scene_store_v2(output)
+        output_before = _path_identity(output)
 
     descriptor, temporary_name = tempfile.mkstemp(
         prefix=f".{output.name}.tmp-",
@@ -1168,11 +1181,16 @@ def finalize_scene_store_v2(
             raise SceneStoreV2Error("authoritative player-state content changed during V2 finalization")
         with temporary.open("rb") as handle:
             os.fsync(handle.fileno())
-        try:
-            os.link(temporary, output)
-        except FileExistsError as exc:
-            raise SceneStoreV2Error(f"refusing to replace immutable Scene V2 output: {output}") from exc
-        temporary.unlink()
+        if output_before is None:
+            try:
+                os.link(temporary, output)
+            except FileExistsError as exc:
+                raise SceneStoreV2Error(f"Scene V2 output appeared during extraction: {output}") from exc
+            temporary.unlink()
+        else:
+            if _path_identity(output) != output_before:
+                raise SceneStoreV2Error("existing Scene V2 output changed during replacement")
+            os.replace(temporary, output)
         directory_fd = os.open(output.parent, os.O_RDONLY)
         try:
             os.fsync(directory_fd)
@@ -1499,7 +1517,7 @@ def _validate_connection(connection: sqlite3.Connection) -> None:
         dict,
     )
     try:
-        source_replays = _validated_portable_source_replays(source_replays_value)
+        source_replays = _validated_play_source_replays(source_replays_value)
     except SceneStoreV2Error as exc:
         raise SceneStoreV2ValidationError(str(exc)) from exc
 
@@ -1514,7 +1532,7 @@ def _validate_connection(connection: sqlite3.Connection) -> None:
     if frame_count == 0:
         raise SceneStoreV2ValidationError("Scene V2 contains no frames")
     try:
-        _validated_portable_provenance(
+        _validated_play_provenance(
             provenance,
             source_replays,
             identity=identity,
@@ -1746,7 +1764,7 @@ def validate_scene_store_v2(
     expected_end_tick: int | None = None,
     expected_ticks: Iterable[int] | None = None,
 ) -> SceneStoreV2Info:
-    """Fully validate a portable Scene Store V2 and its SQLite accelerators."""
+    """Fully validate a Scene Store V2 and its SQLite accelerators."""
 
     store_path = Path(path)
     try:

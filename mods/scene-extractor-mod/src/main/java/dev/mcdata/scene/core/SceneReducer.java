@@ -261,7 +261,7 @@ public final class SceneReducer {
         ));
     }
 
-    /** Replaces only authoritative subject pose fields at a selected dataset tick. */
+    /** Replaces only authoritative subject pose fields at a selected scene tick. */
     public void applyCanonicalSubjectPose(SceneJob.SubjectPose pose) {
         requireDimension();
         if (!pose.sessionId().equals(job.sessionId())

@@ -3,15 +3,18 @@ package dev.mcdata.recorder.capture
 import com.google.gson.JsonObject
 import dev.mcdata.recorder.config.RecorderConfig
 import dev.mcdata.recorder.io.AsyncEpochWriter
+import dev.mcdata.recorder.io.PlayFiles
 import dev.mcdata.recorder.io.SessionFiles
 import dev.mcdata.recorder.model.ControlStateTracker
 import dev.mcdata.recorder.model.EpochRotationPolicy
 import dev.mcdata.recorder.network.ReplayTimelinePayload
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking
+import net.casual.arcade.replay.recorder.ReplayRecorder
 import net.minecraft.network.protocol.Packet
 import net.minecraft.server.MinecraftServer
 import net.minecraft.server.level.ServerPlayer
 import org.slf4j.Logger
+import java.time.Instant
 import java.util.IdentityHashMap
 import java.util.UUID
 
@@ -36,7 +39,8 @@ class CaptureCoordinator(
         synchronized(this) {
             emit("session_start") {
                 addProperty("epoch_ticks", config.epochTicks)
-                addProperty("capture_root", config.capturePath().toString())
+                addProperty("artifacts_root", config.artifactsPath().toString())
+                addProperty("intermediate_root", config.intermediatePath().toString())
                 addProperty(
                     "flashback_capture_contract",
                     ReplayScenePacketContract.FLASHBACK_CAPTURE_CONTRACT
@@ -102,16 +106,40 @@ class CaptureCoordinator(
     }
 
     @Synchronized
+    fun replayRecorderStarted(recorder: ReplayRecorder) {
+        if (!active) return
+        replaySegments?.recorderStarted(recorder)
+    }
+
+    @Synchronized
+    fun replayRecorderSaved(recorder: ReplayRecorder, output: java.nio.file.Path) {
+        if (!active) return
+        replaySegments?.recorderSaved(recorder, output)
+    }
+
+    @Synchronized
     fun playerJoin(player: ServerPlayer) {
         if (!active) return
         if (connections.containsKey(player.uuid)) return
+        val connectionId = UUID.randomUUID()
+        val startedAt = Instant.now()
+        val playFiles = PlayFiles.create(
+            config = config,
+            sessionId = session.sessionId,
+            playerName = player.gameProfile.name,
+            playerUuid = player.uuid,
+            connectionId = connectionId,
+            startedAt = startedAt,
+            startServerTick = associatedEventTick()
+        )
         val connection = ConnectionCapture(
-            id = UUID.randomUUID().toString(),
+            id = connectionId.toString(),
             playerUuid = player.uuid,
             playerName = player.gameProfile.name,
             entityId = player.id,
             startServerTick = associatedEventTick(),
-            startSequence = sequence + 1
+            startSequence = sequence + 1,
+            playFiles = playFiles
         )
         connections[player.uuid] = connection
         controls.getOrPut(player.uuid, ::ControlStateTracker)
@@ -121,7 +149,8 @@ class CaptureCoordinator(
         }
         replaySegments?.connectionStarted(
             playerUuid = connection.playerUuid,
-            connectionId = connection.id
+            connectionId = connection.id,
+            playFiles = connection.playFiles
         )
     }
 
@@ -135,6 +164,7 @@ class CaptureCoordinator(
             addProperty("terminal_reason", "disconnect")
         }
         replaySegments?.connectionEnded(connection.id)
+        connection.playFiles.close(Instant.now(), leaveTick, "disconnect")
         controls.remove(player.uuid)
         connections.remove(player.uuid)
     }
@@ -208,6 +238,7 @@ class CaptureCoordinator(
                         addConnection(connection)
                         addProperty("terminal_reason", "server_shutdown")
                     }
+                    connection.playFiles.close(Instant.now(), terminalTick, "server_shutdown")
                     connection.id
                 }
                 connections.clear()
@@ -222,7 +253,7 @@ class CaptureCoordinator(
             shutdownConnections.forEach { connectionId ->
                 replaySegments?.connectionEnded(connectionId)
             }
-            logger.info("Completed dataset recording session {} at tick {}", session.sessionId, serverTick)
+            logger.info("Completed recording session {} at tick {}", session.sessionId, serverTick)
         } catch (throwable: Throwable) {
             // If publishing the final record failed before the coordinator became inactive,
             // abandon the active epoch and publish an incomplete session marker.
@@ -232,15 +263,26 @@ class CaptureCoordinator(
     }
 
     fun abort(failure: Throwable) {
-        val wasActive = synchronized(this) {
+        val openConnections = synchronized(this) {
             val previous = active
             active = false
-            previous
+            if (!previous) emptyList() else connections.values.toList().also {
+                connections.clear()
+                controls.clear()
+            }
         }
         val reason = "${failure::class.java.simpleName}: ${failure.message ?: "capture failure"}"
+        openConnections.forEach { connection ->
+            runCatching {
+                connection.playFiles.fail(Instant.now(), associatedEventTick(), reason)
+            }.onFailure { metadataFailure ->
+                logger.error("Could not mark play metadata failed for connection {}", connection.id, metadataFailure)
+            }
+            replaySegments?.connectionEnded(connection.id)
+        }
         writer.abort(reason)
-        if (wasActive) {
-            logger.error("Marked dataset recording session {} incomplete at tick {}", session.sessionId, serverTick)
+        if (openConnections.isNotEmpty()) {
+            logger.error("Marked recording session {} incomplete at tick {}", session.sessionId, serverTick)
         }
     }
 
@@ -309,7 +351,8 @@ class CaptureCoordinator(
         val playerName: String,
         val entityId: Int,
         val startServerTick: Long,
-        val startSequence: Long
+        val startSequence: Long,
+        val playFiles: PlayFiles
     )
 
     private enum class TickPhase(val serialized: String) {

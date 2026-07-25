@@ -1,20 +1,14 @@
 from __future__ import annotations
 
-import io
 import json
 import sys
 import tempfile
 import unittest
-from contextlib import redirect_stdout
 from pathlib import Path
-from types import SimpleNamespace
-from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
-from minerec.cli import _list
 from minerec.processing.capture.episodes import inspect_episode
-from minerec.processing.capture.storage import sealed_epoch_paths
 
 
 def _active_episode(root: Path, *, terminal_status: str | None = None, clean: bool = False) -> Path:
@@ -50,7 +44,7 @@ class EpisodeStatusTest(unittest.TestCase):
             assert info is not None
             self.assertEqual("active", info.status)
 
-    def test_aborted_inprogress_epoch_reports_terminal_incomplete_but_is_not_evictable(self) -> None:
+    def test_aborted_inprogress_epoch_reports_terminal_incomplete(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             episode = _active_episode(root, terminal_status="incomplete", clean=False)
@@ -58,7 +52,6 @@ class EpisodeStatusTest(unittest.TestCase):
             assert info is not None
             self.assertEqual("incomplete", info.status)
             self.assertEqual(1, info.active_epoch_count)
-            self.assertEqual([], sealed_epoch_paths(root / "captures"))
 
     def test_explicit_terminal_failure_reports_failed(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -73,21 +66,6 @@ class EpisodeStatusTest(unittest.TestCase):
             info = inspect_episode(episode)
             assert info is not None
             self.assertEqual("incomplete", info.status)
-
-    def test_cli_labels_terminal_epoch_unsealed_instead_of_active(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            _active_episode(root, terminal_status="incomplete", clean=False)
-            replays = root / "replays"
-            replays.mkdir()
-            config = SimpleNamespace(
-                paths=SimpleNamespace(captures=root / "captures", replays=replays),
-                storage=SimpleNamespace(quota_bytes=1_000_000, warn_percent=80),
-            )
-            output = io.StringIO()
-            with patch("minerec.cli.load_config", return_value=config), redirect_stdout(output):
-                self.assertEqual(0, _list("unused.toml", as_json=False))
-            self.assertIn("session-a\tincomplete\t0 sealed, 1 unsealed", output.getvalue())
 
 
 if __name__ == "__main__":

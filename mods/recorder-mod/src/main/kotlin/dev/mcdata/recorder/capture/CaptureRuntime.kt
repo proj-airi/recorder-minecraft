@@ -13,8 +13,6 @@ object CaptureRuntime {
     private var coordinator: CaptureCoordinator? = null
     @Volatile
     private var failed = false
-    @Volatile
-    private var replaySegments: ReplaySegmentTracker? = null
     private lateinit var logger: Logger
 
     fun initialize(logger: Logger) {
@@ -27,10 +25,9 @@ object CaptureRuntime {
         val session = SessionFiles.create(config)
         val writer = AsyncEpochWriter(session.sessionId, session.directory, config.writerQueueCapacity, logger)
         val segmentTracker = ReplaySegmentTracker(session.sessionId)
-        replaySegments = segmentTracker
         coordinator = CaptureCoordinator(config, session, writer, logger, segmentTracker)
         failed = false
-        logger.info("Started dataset recording session {} in {}", session.sessionId, session.directory)
+        logger.info("Started recording session {} in {}", session.sessionId, session.directory)
 
         // Dedicated server lifecycle normally starts before players can join. This also handles
         // integrated/test servers where players may already exist when the callback runs.
@@ -44,9 +41,14 @@ object CaptureRuntime {
     fun packetArrival(player: ServerPlayer, packet: Packet<*>) = safely { it.packetArrival(player, packet) }
 
     fun replayRecorderStarted(recorder: net.casual.arcade.replay.recorder.ReplayRecorder) {
-        runCatching { replaySegments?.recorderStarted(recorder) }.onFailure {
-            logger.error("Could not register ServerReplay segment identity", it)
-        }
+        safely { it.replayRecorderStarted(recorder) }
+    }
+
+    fun replayRecorderSaved(
+        recorder: net.casual.arcade.replay.recorder.ReplayRecorder,
+        output: java.nio.file.Path
+    ) {
+        safely { it.replayRecorderSaved(recorder, output) }
     }
 
     @JvmStatic
@@ -57,7 +59,7 @@ object CaptureRuntime {
         val current = coordinator ?: return
         coordinator = null
         runCatching { current.close() }.onFailure {
-            logger.error("Failed to seal dataset recording session", it)
+            logger.error("Failed to seal recording session", it)
         }
     }
 
@@ -69,11 +71,11 @@ object CaptureRuntime {
         } catch (throwable: Throwable) {
             failed = true
             logger.error(
-                "Dataset capture disabled after a fatal write/capture error; no records will be silently dropped",
+                "Recording disabled after a fatal write/capture error; no records will be silently dropped",
                 throwable
             )
             runCatching { current.abort(throwable) }.onFailure { abortFailure ->
-                logger.error("Failed to mark dataset capture incomplete", abortFailure)
+                logger.error("Failed to mark recording session incomplete", abortFailure)
             }
         }
     }

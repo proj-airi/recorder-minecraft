@@ -7,7 +7,6 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class ReplayPresentationTest {
@@ -28,7 +27,7 @@ final class ReplayPresentationTest {
     }
 
     @Test
-    void leavesLegacyCleanCameraVisualsUnchanged() {
+    void supportsHudlessTrackedCameraRendering() {
         ReplayVisuals visuals = new ReplayVisuals();
 
         ReplayPresentation.configureClientGui(visuals, true);
@@ -49,14 +48,6 @@ final class ReplayPresentationTest {
 
         assertEquals("spectate " + playerId, ReplayPresentation.startSpectatingCommand(playerId));
         assertEquals("spectate", ReplayPresentation.stopSpectatingCommand());
-        assertEquals(
-            "flashback_server_spectate_structured_hud_v1",
-            ReplayPresentation.resultPresentationContract(
-                false, ReplayPresentation.FULL_CLIENT_PRESENTATION_CONTRACT
-            )
-        );
-        assertNull(ReplayPresentation.resultPresentationContract(true, null));
-        assertNull(ReplayPresentation.resultPresentationContract(false, null));
     }
 
     @Test

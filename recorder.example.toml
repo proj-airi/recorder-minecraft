@@ -2,35 +2,17 @@ version = 1
 
 [server]
 name = "minecraft"
-# `minerec init` generates a unique stable UUID. Replace this example value if
-# copying the file; never share one instance ID between recorder installations.
+# `minerec init` generates this once. Never share it between server instances.
 instance_id = "00000000-0000-4000-8000-000000000000"
-# Scene extraction launches a local dedicated server; set true only after
-# accepting https://aka.ms/MinecraftEULA.
 eula = false
 
 [paths]
-# Relative paths resolve from this file. Defaults stay inside the workspace.
-bundles = "artifacts"
-captures = "artifacts/captures"
-replays = "artifacts/replays"
-exports = "artifacts/exports"
-runtime = ".mc-recorder"
+artifacts = "artifacts"
+intermediate = ".mc-recorder/intermediate"
+runtime = ".mc-recorder/runtime"
 
 [mods]
 recorder_project = "mods/recorder-mod"
 renderer_project = "mods/renderer-mod"
 scene_extractor_project = "mods/scene-extractor-mod"
-
-[storage]
-# Combined quota for sidecar captures and replay archives; world data is excluded.
-quota_gib = 100.0
-warn_percent = 80
-evict_oldest = true
-check_interval_seconds = 60
-
-[dashboard]
-# Trusted-LAN listener. Basic authentication over plain HTTP does not encrypt
-# credentials; use only on a network you trust.
-bind = "0.0.0.0"
-port = 8765
+scene_extractor_executable = "mods/scene-extractor-mod/build/install/mc-recorder-scene-extractor/bin/mc-recorder-scene-extractor"

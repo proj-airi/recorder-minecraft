@@ -1,210 +1,109 @@
-# Source record v1
+# Source Record V1
 
-Source record v1 is the loss-minimizing, server-side capture contract for
-Minecraft 1.21.8. The recorder writes one combined JSONL event stream and
-ServerReplay writes independent Flashback archives. Both use the Minecraft
-server tick as their common clock.
+Source Record V1 is the server-side intermediate capture contract for
+Minecraft 1.21.8. The recorder writes one combined JSONL event stream while
+ServerReplay independently rotates Flashback archives. Minecraft server ticks
+and recorded timeline payloads are their shared clock.
 
-## Session and epoch layout
+## Intermediate layout
 
 ```text
-artifacts/captures/<session-id>/
+<intermediate-root>/sessions/<session-id>/
   manifest.json
-  session_end.json                    # written on close; status may be incomplete
+  session_end.json
   epochs/
     epoch-000000/
-      events.jsonl                    # present only after slice publication
+      events.jsonl
       manifest.json
 
-artifacts/replays/
-  players/<player-uuid>/...           # independent ServerReplay archives
-  chunks/...                          # only for explicitly configured fixed areas
+<intermediate-root>/replays/          # ServerReplay working files
 ```
 
-The default sidecar epoch is 6,000 ticks, nominally five minutes at 20 Hz.
-While it is active, its stream is named `events.jsonl.inprogress`. Slice
-publication flushes and syncs the stream, atomically publishes it as
-`events.jsonl`, and then publishes a manifest containing:
+An active epoch uses `events.jsonl.inprogress`. At an end-of-tick rotation,
+the recorder syncs and renames the stream, then writes a sealed manifest with
+session/epoch identity, tick and sequence bounds, record and byte counts,
+record-type counts, SHA-256, close time, rotation reason, and forced-seal flag.
+Post-processors read only epochs whose declared count, size, and hash verify.
 
-- `session_id` and `epoch_index`;
-- `sealed: true`;
-- record and byte counts;
-- first/last server tick and global sequence;
-- per-record-type counts;
-- SHA-256 of `events.jsonl`; and
-- `sealed_at`, `rotation_reason`, and `forced_seal` boundary metadata.
+These are private intermediates. At player join, the recorder separately
+creates the canonical Artifacts V1 play directory described in
+[Artifacts V1](artifacts-v1.md).
 
-Epoch indices are session-local, contiguous, and monotonically increasing.
-Automatic rotation occurs after the configured number of complete ticks. The
-recorder does not accept external promotion requests; it keeps appending to the
-active stream and publishes immutable slices only at its own rotation and
-shutdown boundaries. Slice rotation never changes the session ID or
-ServerReplay's independent archive schedule.
+## Common envelope
 
-Readers, exporters, and retention code accept an epoch as immutable only when
-the final file and all three integrity checks (record count, byte count, and
-SHA-256) match its manifest. Active or incomplete epochs are never silently
-promoted.
-
-V1 leaves fixed-area chunk recorders disabled: the default source is the moving
-client-visible corridor inside each player's archive. ServerReplay archives
-rotate on their own five-minute schedule. A sidecar
-epoch and a replay archive are deliberately **not** assumed to be one-to-one or
-to start on the same tick. They are retained and selected independently, then
-aligned from timeline markers recorded inside the replay.
-
-## Common event envelope
-
-Every line in `events.jsonl` is one JSON object with these fields:
+Every `events.jsonl` line contains:
 
 | Field | Meaning |
 | --- | --- |
-| `schema_version` | `1` for this contract. |
-| `record_type` | The event kind. |
-| `session_id` | Stable generated identifier for one server-process capture session. |
-| `epoch_index` | Sidecar epoch containing the event. |
-| `server_tick` | Logical server tick; events between ticks belong to the upcoming tick. |
-| `sequence` | Strictly increasing, session-global event order assigned by the recorder. |
-| `recorded_at_ns` | Process-monotonic diagnostic timestamp; not a cross-process join key. |
-| `recorded_at_unix_ms` | Wall-clock diagnostic timestamp; not a training-order key. |
+| `schema_version` | `1`. |
+| `record_type` | Event kind. |
+| `session_id` | One server-process recording session. |
+| `epoch_index` | Containing intermediate epoch. |
+| `server_tick` | Logical server tick. Between-tick events belong to the upcoming tick. |
+| `sequence` | Strictly increasing session-global event order. |
+| `recorded_at_ns` | Process-monotonic diagnostic timestamp. |
+| `recorded_at_unix_ms` | Wall-clock diagnostic timestamp. |
 
-Player-scoped records also carry `player_uuid`, `player_name`, and `entity_id`.
-After join they carry `connection_id` and `connection_start_server_tick`. A new
-random `connection_id` is allocated for every join, so reconnects by the same
-player remain distinct. V1 always records every connected player; end-of-tick
-players are emitted in UUID order for deterministic multiplayer capture.
+Player-scoped records include player UUID/name and entity ID. After join they
+also include the random per-join `connection_id` and connection start tick. The
+recorder always records every connected player.
 
-The session manifest declares the exact loaded mods, capture scope, tick/apply
-phase, privacy policy, and record types. `session_end.json` distinguishes clean
-and incomplete shutdowns.
+## Records
 
-## Flashback archive identity
+The stream contains `session_start`, `session_end`, `tick_start`, `tick_end`,
+`player_join`, `player_leave`, `packet_arrival`, `packet_apply`,
+`player_state`, `control_state`, and `replay_timeline`.
 
-ServerReplay owns Flashback archive creation and finalization. The recorder only
-registers a metadata provider when each player replay starts. That provider
-embeds `mc_recorder` identity in `arcade_replay_meta.json`: session ID, segment
-UUID, per-player segment ordinal, player UUID, connection UUID when known, and
-the capture contracts. The Dashboard discovers completed archives directly from
-the replay filesystem and validates their structure, containment, size, and
-SHA-256; there is no recorder control ledger or render-ready spool.
+`packet_arrival` is diagnostic network-thread observation. It can diagnose
+queueing, latency, or a missing arrival/apply match, but it is not authoritative
+gameplay order and is not copied to `actions.jsonl`.
 
-Every saved replay embeds an `mc_recorder` metadata object in ServerReplay's
-`arcade_replay_meta.json` ZIP entry. Metadata schema v3 contains session ID,
-segment ID/ordinal, player UUID, the connection ID when binding completed, and
-both capture contract markers. Schema-v1/v2 archives lack the Flashback marker
-and cannot be used for scene extraction; schema v1 also lacks the hotbar marker
-and cannot prove faithful unselected-hotbar history. The
-`client_visible_scene_v1` contract changes only two upstream discard points:
+`packet_apply` is stamped on the main server thread immediately before the
+handler body. Its `apply_sequence` is the authoritative serverbound action
+order. It carries normalized semantic packet fields, not raw bytes. Chat,
+commands, and custom-payload contents are redacted.
 
-- Flashback's writer retains `ClientboundForgetLevelChunkPacket`,
-  `ClientboundPlayerPositionPacket`, and `ClientboundMoveMinecartPacket`; and
-- Arcade's entity optimizer retains all `ClientboundMoveEntityPacket`,
-  `ClientboundTeleportEntityPacket`, and `ClientboundSetEntityMotionPacket`
-  instances because the headless reducer does not simulate projectile or TNT
-  physics.
+At each tick end, `player_state` records dimension, transform, velocity, pose,
+movement flags, health/food/air/experience, game mode, abilities, effects,
+vehicle/passenger references, selected slot, and non-empty inventory stacks.
+`state_barrier_apply_sequence` identifies the last applied action included in
+that post-tick state.
 
-Paused writers remain paused, and unrelated upstream exclusions remain in
-force. Mutable minecart step lists and relative-movement sets are frozen at the
-synchronous record boundary before asynchronous encoding. The session manifest
-and `session_start` source record carry the same Flashback contract marker.
-This metadata is distinct from Flashback's base `metadata.json`. The current
-and session-history segment ledgers are atomic runtime indexes, not substitutes
-for archive metadata, timeline markers, or host integrity verification.
+`control_state` reconstructs the latest server-visible persistent movement
+flags, camera yaw/pitch and deltas, and selected slot at 20 Hz. It is useful as
+a semantic action stream but is not physical keyboard or raw mouse telemetry.
 
-These files coordinate the dashboard; they are never source truth. Exporters
-must still validate the immutable source events and slice manifests.
-
-## Packet observation and authoritative order
-
-`packet_arrival` records the server's network-thread observation. It includes
-`arrival_sequence`, `tick_phase`, `network_thread`, player/connection identity,
-and a normalized `packet` object. `packet_apply` is stamped on the main server
-thread immediately before the packet handler body continues. It includes:
-
-- a session-global `apply_sequence`;
-- `phase: "main_thread_before_handler_body"`;
-- the matching `arrival_sequence` and `arrival_server_tick`, when available;
-- the player and connection identity; and
-- the normalized `packet` object, enriched with apply-time data when possible.
-
-`sequence` orders every source record. `apply_sequence` orders only
-authoritative serverbound applications and is the action/state barrier used by
-the converter. Arrival fields are diagnostic and must not replace apply order.
-
-Packet payloads are decoded, server-observed semantic actions, not physical
-keyboard events, raw mouse samples, or canonical packet bytes. Normalization
-covers movement-control flags, accepted position/rotation, block/entity
-interaction, use/swing, inventory, stance, and related gameplay fields. Unknown
-packets retain class, type, action kind, and order metadata. Chat, commands, and
-custom payload contents are redacted; `raw_bytes_available` is `false`.
-
-## Tick records and canonical transition
-
-The combined stream includes:
-
-- `tick_start` and `tick_end`, each with `apply_sequence_at_barrier`;
-- `player_join` and `player_leave`;
-- `packet_arrival` and `packet_apply`;
-- `player_state`, `control_state`, and `replay_timeline`; and
-- `session_start` and `session_end` events.
-
-At the end of each tick the recorder snapshots every connected player.
-`player_state` includes dimension, transform, velocity, pose, movement state,
-health/food/air/experience, game mode, abilities, effects, vehicle/passenger
-references, selected slot, and non-empty inventory stacks. Its
-`state_barrier_apply_sequence` is the last applied packet included in that
-post-tick state.
-
-`control_state` is a 20 Hz reconstruction of the latest server-observed
-persistent controls (`forward`, `backward`, `left`, `right`, `jump`, `sneak`,
-and `sprint`), selected slot, accepted yaw/pitch, and their per-tick deltas. It
-is useful for behavioral cloning, but it is not the original input-device
-telemetry.
-
-For two consecutive snapshots, the canonical transition is:
+For consecutive snapshots, the transition boundary is:
 
 ```text
 post_state[t]
   + control_state[t+1]
-  + packet_apply where
-      state_barrier_apply_sequence[t] < apply_sequence
-      <= state_barrier_apply_sequence[t+1]
+  + packet_apply where state_barrier[t] < apply_sequence <= state_barrier[t+1]
   -> post_state[t+1]
 ```
 
-Multiple discrete actions inside that interval remain ordered by `sequence`;
-they are not collapsed into a single categorical action.
+## Replay identity and alignment
 
-## Replay alignment and coverage
+Each replay recorder embeds `mc_recorder` into Flashback `metadata.json` with
+session ID, segment UUID, per-player segment ordinal, player UUID, connection
+UUID when bound, and capture-contract markers.
 
-Once per connected player per tick, the server sends a custom payload using
-`mc_recorder:timeline/v1`. ServerReplay captures that payload inside the
-player's Flashback archive. Its values are:
+On ServerReplay's post-save event, the recorder copies the exact completed ZIP
+into the connection play's `replays/` directory. It never merges segments or
+removes the working copy. A copy failure marks recording failed.
 
-- `session_id`;
-- `connection_id`;
-- global `server_tick`; and
-- event sequence, exposed as `marker_event_sequence` by the matching sidecar
-  `replay_timeline` record.
+Once per player tick, `mc_recorder:timeline/v1` records session ID, connection
+ID, global server tick, and matching event sequence inside Flashback. Render and
+scene processors use those values rather than filenames or modification times.
 
-The renderer finds the first and last markers for the requested session and
-connection and requires a constant exact offset from replay ticks to global
-server ticks. Segment-aware jobs use `range_policy: "intersection"` to render
-only the overlap between marker coverage and the requested connection range; a
-disjoint archive completes with `status: "no_coverage"` and no synthetic
-frames. Jobs without `range_policy` retain the legacy single-anchor behavior.
-Joins must therefore use both player UUID and connection ID, never filename or
-archive mtime. Independent archive rotation does not change the sample
-timeline.
+## World coverage and gaps
 
-Open-world capture coverage is intentionally client-visible. Each `player_state` contains a
-`replay_coverage` hint with `kind: "client_visible_best_effort"`, the player's
-center chunk, server view distance, and `complete: false`. It does not force
-chunk generation. Missing world data must remain unknown rather than being
-encoded as air.
+World capture is the moving client-visible corridor, not omniscient server
+state. Each player state declares best-effort center/view-distance coverage and
+`complete=false`; unloaded cells must remain unknown.
 
-Current implementation status: the structured sidecar, replay markers, RGB
-renderer, and headless replay-to-scene extractor are implemented. The extractor
-materializes random-access block, entity, and block-entity state for every
-selected Dataset V2 tick. The immutable replay remains the scene's
-integrity-bound source.
+The scene extractor reconstructs block sections, entities, block entities, and
+authoritative player state. It currently does not persist exact light arrays,
+particles, or audio. Block-derived lighting is only an approximation. Minecraft
+may omit unopened container inventory from client packets, so missing contents
+must not be interpreted as an empty chest.

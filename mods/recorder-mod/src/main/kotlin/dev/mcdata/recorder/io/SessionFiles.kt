@@ -20,7 +20,7 @@ data class SessionFiles(val sessionId: String, val directory: Path) {
             .withZone(ZoneOffset.UTC)
 
         fun create(config: RecorderConfig): SessionFiles {
-            val root = config.capturePath()
+            val root = config.intermediatePath().resolve("sessions")
             Files.createDirectories(root)
             val sessionId = "${idTime.format(Instant.now())}-${UUID.randomUUID().toString().take(8)}"
             val directory = root.resolve(sessionId)

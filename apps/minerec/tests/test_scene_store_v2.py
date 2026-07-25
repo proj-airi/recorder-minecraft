@@ -340,8 +340,8 @@ class SceneStoreV2Test(unittest.TestCase):
 
             self.assertEqual(
                 (
-                    "replays/000000--segment-alpha.zip",
-                    "replays/000001--segment-beta.zip",
+                    "replays/000003--segment-alpha.zip",
+                    "replays/000007--segment-beta.zip",
                 ),
                 tuple(item["path"] for item in info.source_replays),
             )
@@ -365,7 +365,7 @@ class SceneStoreV2Test(unittest.TestCase):
             )
             self.assertEqual((110, 111, 112, 113), tuple(row.replay_tick for row in alignments))
 
-    def test_rejects_incomplete_private_player_payload_before_publication(self) -> None:
+    def test_rejects_incomplete_private_player_payload_before_v2_write(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             source = root / "scene-v1.sqlite3"

@@ -25,6 +25,11 @@ from minerec.processing.capture.episodes import (
     sha256_file,
     validate_episode,
 )
+from minerec.processing.replays import (
+    FLASHBACK_CAPTURE_CONTRACT,
+    ReplaySegmentSource,
+    resolve_replay_segments,
+)
 from minerec.processing.scene.integrity import (
     SceneStreamIntegrity,
     SceneStreamIntegrityError,
@@ -32,11 +37,6 @@ from minerec.processing.scene.integrity import (
     freeze_json_value,
     scene_stream_integrity_from_mapping,
     verify_scene_stream,
-)
-from minerec.render.control.sources import (
-    FLASHBACK_CAPTURE_CONTRACT,
-    ReplaySegmentSource,
-    resolve_replay_segments,
 )
 
 SCENE_JOB_TYPE = "mc-recorder-scene-extraction-job-v1"
@@ -46,6 +46,7 @@ MAX_RESULT_BYTES = 8 * 1024 * 1024
 SCENE_JOB_OWNER_TYPE = "mc-recorder-owned-scene-job-v1"
 SUBJECT_POSE_FORMAT = "mc-recorder-subject-poses-v1"
 SUBJECT_POSE_FILE = "subject-poses.jsonl"
+PLAYER_STATES_FILE = "player-states.jsonl"
 MAX_SUBJECT_POSE_BYTES = 256 * 1024 * 1024
 MAX_SOURCE_EVENT_LINE_BYTES = 64 * 1024 * 1024
 _RESOURCE_LOCATION = re.compile(r"[a-z0-9_.-]+:[a-z0-9/._-]+")
@@ -93,6 +94,7 @@ class SubjectPoseEnvelope:
 @dataclass(frozen=True)
 class _SubjectPoseSelection:
     data: bytes
+    player_states: bytes
     ticks: tuple[int, ...]
     source_epochs: tuple[SubjectPoseSourceEpoch, ...]
 
@@ -112,6 +114,7 @@ class SceneJob:
     state_ticks: tuple[int, ...]
     sources: tuple[ReplaySegmentSource, ...]
     subject_poses: SubjectPoseEnvelope
+    player_states: Path
 
 
 @dataclass(frozen=True)
@@ -197,7 +200,7 @@ def _epoch_subject_poses(
     connection_id: str,
     first_tick: int | None,
     last_tick: int | None,
-) -> tuple[list[dict[str, object]], SubjectPoseSourceEpoch]:
+) -> tuple[list[tuple[dict[str, object], dict[str, Any]]], SubjectPoseSourceEpoch]:
     if epoch.status != "sealed" or epoch.event_count is None or epoch.events_bytes is None or epoch.events_sha256 is None:
         raise RecorderError(f"subject poses require a verified sealed epoch: {epoch.path}")
     events = epoch.path / "events.jsonl"
@@ -206,7 +209,7 @@ def _epoch_subject_poses(
     digest = hashlib.sha256()
     byte_count = 0
     record_count = 0
-    poses: list[dict[str, object]] = []
+    poses: list[tuple[dict[str, object], dict[str, Any]]] = []
     try:
         with events.open("rb") as handle:
             before = os.fstat(handle.fileno())
@@ -234,11 +237,14 @@ def _epoch_subject_poses(
                 if last_tick is not None and tick > last_tick:
                     continue
                 poses.append(
-                    _subject_pose_record(
+                    (
+                        _subject_pose_record(
+                            record,
+                            session_id=session_id,
+                            player_uuid=player_uuid,
+                            connection_id=connection_id,
+                        ),
                         record,
-                        session_id=session_id,
-                        player_uuid=player_uuid,
-                        connection_id=connection_id,
                     )
                 )
             after = os.fstat(handle.fileno())
@@ -276,6 +282,7 @@ def _select_subject_poses(
     player = _canonical_uuid(player_uuid, "player UUID")
     connection = _canonical_uuid(connection_id, "connection UUID")
     encoded = bytearray()
+    player_states = bytearray()
     ticks: list[int] = []
     sources: list[SubjectPoseSourceEpoch] = []
     for epoch in epochs:
@@ -290,11 +297,12 @@ def _select_subject_poses(
             last_tick=last_tick,
         )
         if poses:
-            for pose in poses:
+            for pose, player_state in poses:
                 line = _encode_subject_pose(pose)
                 if len(encoded) + len(line) > MAX_SUBJECT_POSE_BYTES:
                     raise RecorderError(f"subject pose stream exceeds the {MAX_SUBJECT_POSE_BYTES}-byte safety limit")
                 encoded.extend(line)
+                player_states.extend(_encode_player_state(player_state))
                 ticks.append(int(pose["server_tick"]))  # ty:ignore[invalid-argument-type]
             sources.append(source)
     if not ticks:
@@ -303,7 +311,7 @@ def _select_subject_poses(
         raise RecorderError("the selected subject timeline is duplicated or out of order")
     if ticks != list(range(ticks[0], ticks[-1] + 1)):
         raise RecorderError("the selected subject timeline is not contiguous")
-    return _SubjectPoseSelection(bytes(encoded), tuple(ticks), tuple(sources))
+    return _SubjectPoseSelection(bytes(encoded), bytes(player_states), tuple(ticks), tuple(sources))
 
 
 def subject_state_ticks(
@@ -349,6 +357,22 @@ def _encode_subject_pose(record: dict[str, object]) -> bytes:
     if len(line) > 16 * 1024:
         raise RecorderError("subject pose record exceeds the 16 KiB safety limit")
     return line
+
+
+def _encode_player_state(record: dict[str, Any]) -> bytes:
+    try:
+        return (
+            json.dumps(
+                record,
+                ensure_ascii=False,
+                allow_nan=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+            + b"\n"
+        )
+    except (TypeError, ValueError) as exc:
+        raise RecorderError("player_state is not canonical JSON") from exc
 
 
 def _pinned_epoch_snapshot(
@@ -477,6 +501,7 @@ def cleanup_stale_scene_jobs(runtime: Path, *, keep: int = 0) -> tuple[Path, ...
 def prepare_scene_job(
     config: RecorderConfig,
     episode: Path,
+    replays: Iterable[Path],
     *,
     player_uuid: str,
     connection_id: str,
@@ -505,13 +530,10 @@ def prepare_scene_job(
     selected_first = ticks[0]
     selected_last = ticks[-1]
 
-    sources = tuple(
-        resolve_replay_segments(
-            replays_root=config.paths.replays,
-            session_id=validation.session_id,
-            player_uuid=player,
-            connection_id=connection,
-        )
+    sources = resolve_replay_segments(
+        replays,
+        player_uuid=player,
+        connection_id=connection,
     )
     if any(source.flashback_capture_contract != FLASHBACK_CAPTURE_CONTRACT for source in sources):
         raise RecorderError(f"scene extraction requires replay archives captured under {FLASHBACK_CAPTURE_CONTRACT}")
@@ -571,6 +593,7 @@ def prepare_scene_job(
             "stop_when_done": True,
         }
         (staging / SUBJECT_POSE_FILE).write_bytes(pose_bytes)
+        (staging / PLAYER_STATES_FILE).write_bytes(selection.player_states)
         manifest = staging / "scene-job.json"
         manifest.write_text(
             json.dumps(manifest_value, indent=2, sort_keys=True) + "\n",
@@ -609,6 +632,7 @@ def prepare_scene_job(
         state_ticks=ticks,
         sources=sources,
         subject_poses=subject_poses,
+        player_states=directory / PLAYER_STATES_FILE,
     )
 
 
@@ -854,6 +878,7 @@ __all__ = [
     "SCENE_JOB_TYPE",
     "SCENE_RESULT_TYPE",
     "SCENE_STREAM_FORMAT",
+    "PLAYER_STATES_FILE",
     "SceneJob",
     "SubjectPoseEnvelope",
     "SubjectPoseSourceEpoch",

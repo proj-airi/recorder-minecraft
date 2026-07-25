@@ -1,8 +1,10 @@
 package dev.mcdata.recorder.capture
 
 import com.google.gson.JsonObject
+import dev.mcdata.recorder.io.PlayFiles
 import net.casual.arcade.replay.recorder.ReplayRecorder
 import net.casual.arcade.replay.recorder.player.ReplayPlayerRecorder
+import java.nio.file.Path
 import java.util.IdentityHashMap
 import java.util.UUID
 
@@ -19,7 +21,7 @@ class ReplaySegmentTracker internal constructor(
 ) {
     private val segmentsByRecorder = IdentityHashMap<Any, MutableSegment>()
     private val segmentsById = linkedMapOf<String, MutableSegment>()
-    private val activeConnections = mutableMapOf<UUID, String>()
+    private val activeConnections = mutableMapOf<UUID, ActiveConnection>()
     private val nextOrdinalByPlayer = mutableMapOf<UUID, Long>()
 
     fun recorderStarted(recorder: ReplayRecorder) {
@@ -35,18 +37,43 @@ class ReplaySegmentTracker internal constructor(
     @Synchronized
     fun connectionStarted(
         playerUuid: UUID,
-        connectionId: String
+        connectionId: String,
+        playFiles: PlayFiles
     ) {
-        activeConnections[playerUuid] = connectionId
+        activeConnections[playerUuid] = ActiveConnection(connectionId, playFiles)
         segmentsById.values
             .filter { it.playerUuid == playerUuid && it.connectionId == null }
-            .forEach { it.connectionId = connectionId }
+            .forEach {
+                it.connectionId = connectionId
+                it.playFiles = playFiles
+            }
     }
 
     @Synchronized
     fun connectionEnded(connectionId: String) {
-        val active = activeConnections.entries.firstOrNull { it.value == connectionId }
+        val active = activeConnections.entries.firstOrNull { it.value.connectionId == connectionId }
         if (active != null) activeConnections.remove(active.key)
+    }
+
+    fun recorderSaved(recorder: ReplayRecorder, output: Path) {
+        segmentSaved(recorder, output)
+    }
+
+    @Synchronized
+    internal fun segmentSaved(recorderIdentity: Any, output: Path): Path {
+        val segment = checkNotNull(segmentsByRecorder.remove(recorderIdentity)) {
+            "completed recorder was not registered"
+        }
+        segmentsById.remove(segment.segmentId)
+        val playFiles = checkNotNull(segment.playFiles) {
+            "completed replay segment has no play connection"
+        }
+        return playFiles.addReplay(
+            source = output,
+            segmentId = segment.segmentId,
+            segmentOrdinal = segment.segmentOrdinal,
+            replayFormat = segment.replayFormat
+        )
     }
 
     @Synchronized
@@ -55,17 +82,22 @@ class ReplaySegmentTracker internal constructor(
         playerUuid: UUID,
         replayFormat: String
     ): (JsonObject) -> Unit {
+        require(replayFormat == FLASHBACK_FORMAT) {
+            "artifacts/v1 requires Flashback player replay segments"
+        }
         check(!segmentsByRecorder.containsKey(recorderIdentity)) {
             "recorder instance was already registered"
         }
         val ordinal = nextOrdinalByPlayer.getOrDefault(playerUuid, 0L)
         nextOrdinalByPlayer[playerUuid] = ordinal + 1
+        val active = activeConnections[playerUuid]
         val segment = MutableSegment(
             segmentId = UUID.randomUUID().toString(),
             segmentOrdinal = ordinal,
             playerUuid = playerUuid,
             replayFormat = replayFormat,
-            connectionId = activeConnections[playerUuid]
+            connectionId = active?.connectionId,
+            playFiles = active?.playFiles
         )
         segmentsByRecorder[recorderIdentity] = segment
         segmentsById[segment.segmentId] = segment
@@ -82,12 +114,10 @@ class ReplaySegmentTracker internal constructor(
             addProperty("segment_ordinal", segment.segmentOrdinal)
             addProperty("player_uuid", segment.playerUuid.toString())
             addProperty("hotbar_snapshot_contract", ReplayPacketSnapshots.HOTBAR_SNAPSHOT_CONTRACT)
-            if (segment.replayFormat == FLASHBACK_FORMAT) {
-                addProperty(
-                    "flashback_capture_contract",
-                    ReplayScenePacketContract.FLASHBACK_CAPTURE_CONTRACT
-                )
-            }
+            addProperty(
+                "flashback_capture_contract",
+                ReplayScenePacketContract.FLASHBACK_CAPTURE_CONTRACT
+            )
             segment.connectionId?.let { addProperty("connection_id", it) }
         })
     }
@@ -97,7 +127,13 @@ class ReplaySegmentTracker internal constructor(
         val segmentOrdinal: Long,
         val playerUuid: UUID,
         val replayFormat: String,
-        var connectionId: String?
+        var connectionId: String?,
+        var playFiles: PlayFiles?
+    )
+
+    private data class ActiveConnection(
+        val connectionId: String,
+        val playFiles: PlayFiles
     )
 
     companion object {

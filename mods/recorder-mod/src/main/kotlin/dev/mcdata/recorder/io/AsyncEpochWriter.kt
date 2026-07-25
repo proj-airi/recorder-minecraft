@@ -117,7 +117,7 @@ class AsyncEpochWriter(
                 joinWorker(throwOnWorkerFailure = false)
             }.onFailure {
                 worker.interrupt()
-                logger.error("Could not stop dataset writer cleanly while aborting", it)
+                logger.error("Could not stop recorder writer cleanly while aborting", it)
             }
         }
         publishIncompleteIfMissing(reason)
@@ -198,7 +198,7 @@ class AsyncEpochWriter(
             queue.forEach { pending ->
                 if (pending is QueueItem.Seal) pending.completion.completeExceptionally(throwable)
             }
-            logger.error("Dataset recorder writer failed; active epoch remains unsealed", throwable)
+            logger.error("Recorder writer failed; active epoch remains unsealed", throwable)
             runCatching { segment?.abandon() }
         }
     }

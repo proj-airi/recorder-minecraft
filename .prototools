@@ -1,7 +1,5 @@
 openjdk = "21"
 gradle = "9.6.1"
-node = "26.5.0"
-pnpm = "10.33.0"
 
 [plugins.tools]
 openjdk = "https://github.com/eplightning/openjdk-adoptium-proto-plugin/releases/download/v0.2.0/openjdk_adoptium_tool.wasm"

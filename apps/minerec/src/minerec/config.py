@@ -3,36 +3,18 @@ from __future__ import annotations
 import os
 import tomllib
 import uuid
-from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-
-from platformdirs import user_cache_path
 
 from .errors import RecorderError
 
 CONFIG_VERSION = 1
 DEFAULT_CONFIG_NAME = "recorder.toml"
-APP_NAME = "minerec"
-DEFAULT_RENDER_TASK_QUEUE = "minerec.render.jobs"
-ENV_DASHBOARD_PASSWORD = "MC_RECORDER_DASHBOARD_PASSWORD"
-ENV_DASHBOARD_STATIC_ROOT = "MC_RECORDER_DASHBOARD_STATIC_ROOT"
-ENV_DASHBOARD_USERNAME = "MC_RECORDER_DASHBOARD_USERNAME"
 ENV_GRADLE_EXECUTABLE = "MC_RECORDER_GRADLE"
 ENV_RENDER_JOB = "MC_RECORDER_RENDER_JOB"
-ENV_RENDER_CONTROL_URL = "MC_RECORDER_RENDER_CONTROL_URL"
-ENV_RENDER_QUEUE_DATABASE = "MC_RECORDER_RENDER_QUEUE_DATABASE"
-ENV_RENDER_TASK_QUEUE = "MC_RECORDER_RENDER_TASK_QUEUE"
-ENV_REPLAY_ROOT = "MC_RECORDER_REPLAY_ROOT"
-ENV_RABBITMQ_URL = "MC_RECORDER_RABBITMQ_URL"
 ENV_SCENE_JOB = "MC_RECORDER_SCENE_JOB"
 ENV_SCENE_EXTRACTOR_EXECUTABLE = "MC_RECORDER_SCENE_EXTRACTOR"
-ENV_STORAGE_CAPTURE_ROOT = "MC_RECORDER_CAPTURE_ROOT"
-ENV_STORAGE_CHECK_INTERVAL = "MC_RECORDER_CHECK_INTERVAL"
-ENV_STORAGE_EVICT_OLDEST = "MC_RECORDER_EVICT_OLDEST"
-ENV_STORAGE_QUOTA_BYTES = "MC_RECORDER_QUOTA_BYTES"
-ENV_STORAGE_WARN_PERCENT = "MC_RECORDER_WARN_PERCENT"
 
 
 def _table(data: dict[str, Any], name: str) -> dict[str, Any]:
@@ -42,10 +24,14 @@ def _table(data: dict[str, Any], name: str) -> dict[str, Any]:
     return value
 
 
+def _require_keys(table: dict[str, Any], allowed: set[str], label: str) -> None:
+    unknown = set(table) - allowed
+    if unknown:
+        raise RecorderError(f"unsupported {label} configuration keys: {', '.join(sorted(unknown))}")
+
+
 def _value(table: dict[str, Any], key: str, default: Any, expected: type) -> Any:  # noqa: ANN401
     value = table.get(key, default)
-    if expected is float and isinstance(value, int):
-        value = float(value)
     if not isinstance(value, expected):
         raise RecorderError(f"configuration value {key!r} must be {expected.__name__}")
     return value
@@ -53,26 +39,26 @@ def _value(table: dict[str, Any], key: str, default: Any, expected: type) -> Any
 
 def _resolve(base: Path, raw: str) -> Path:
     path = Path(raw).expanduser()
-    if not path.is_absolute():
-        path = base / path
-    return path.resolve()
+    return (base / path).resolve() if not path.is_absolute() else path.resolve()
 
 
 @dataclass(frozen=True)
 class ServerConfig:
     name: str
-    instance_id: str | None
+    instance_id: str
     eula: bool
 
 
 @dataclass(frozen=True)
 class PathConfig:
     base: Path
-    bundles: Path
-    captures: Path
-    replays: Path
-    exports: Path
+    artifacts: Path
+    intermediate: Path
     runtime: Path
+
+    @property
+    def sessions(self) -> Path:
+        return self.intermediate / "sessions"
 
 
 @dataclass(frozen=True)
@@ -84,138 +70,15 @@ class ModConfig:
 
 
 @dataclass(frozen=True)
-class StorageConfig:
-    quota_gib: float
-    warn_percent: int
-    evict_oldest: bool
-    check_interval_seconds: int
-
-    @property
-    def quota_bytes(self) -> int:
-        return int(self.quota_gib * 1024**3)
-
-
-@dataclass(frozen=True)
-class DashboardConfig:
-    bind: str
-    port: int
-
-
-@dataclass(frozen=True)
 class RecorderConfig:
     source: Path
     server: ServerConfig
     paths: PathConfig
     mods: ModConfig
-    storage: StorageConfig
-    dashboard: DashboardConfig
-
-
-@dataclass(frozen=True)
-class DashboardEnvConfig:
-    username: str
-    password: str
-    static_root: Path | None
-
-
-@dataclass(frozen=True)
-class RenderQueueEnvConfig:
-    rabbitmq_url: str
-    task_queue: str
-
-
-@dataclass(frozen=True)
-class StorageMonitorEnvConfig:
-    capture_root: Path
-    quota_bytes: int
-    warn_percent: int
-    check_interval_seconds: int
-    evict_oldest: bool
-
-
-@dataclass(frozen=True)
-class RuntimeEnvConfig:
-    dashboard: DashboardEnvConfig
-    render_queue: RenderQueueEnvConfig
-    replay_root: Path | None
-    gradle_executable: str | None
-    worker_cache_root: Path
-
-
-def render_queue_database(config: RecorderConfig, environ: Mapping[str, str] | None = None) -> Path:
-    """Resolve the control-plane-owned render queue database."""
-
-    source = os.environ if environ is None else environ
-    override = _env(source, ENV_RENDER_QUEUE_DATABASE).strip()
-    return Path(override).expanduser().resolve() if override else config.paths.runtime / "render-queue.sqlite3"
-
-
-def _env(environ: Mapping[str, str], name: str, default: str = "") -> str:
-    return environ.get(name, default)
-
-
-def _env_path(environ: Mapping[str, str], name: str) -> Path | None:
-    value = _env(environ, name).strip()
-    return Path(value).expanduser().resolve() if value else None
-
-
-def _env_bool(environ: Mapping[str, str], name: str, default: bool) -> bool:
-    value = environ.get(name)
-    if value is None:
-        return default
-    return value.strip().lower() in {"1", "true", "yes", "on"}
-
-
-def _env_int(environ: Mapping[str, str], name: str, default: int | None = None) -> int:
-    value = environ.get(name)
-    if value is None:
-        if default is None:
-            raise RecorderError(f"{name} is required")
-        return default
-    try:
-        return int(value)
-    except ValueError as exc:
-        raise RecorderError(f"{name} must be an integer") from exc
 
 
 def current_process_environment() -> dict[str, str]:
-    """Return a mutable copy of the host environment.
-
-    Keeping this boundary in one module makes it clear which code is inheriting
-    ambient process state and keeps direct environment reads out of business
-    logic modules.
-    """
-
     return dict(os.environ)
-
-
-def load_runtime_env(environ: Mapping[str, str] | None = None) -> RuntimeEnvConfig:
-    source = os.environ if environ is None else environ
-    return RuntimeEnvConfig(
-        dashboard=DashboardEnvConfig(
-            username=_env(source, ENV_DASHBOARD_USERNAME),
-            password=_env(source, ENV_DASHBOARD_PASSWORD),
-            static_root=_env_path(source, ENV_DASHBOARD_STATIC_ROOT),
-        ),
-        render_queue=RenderQueueEnvConfig(
-            rabbitmq_url=_env(source, ENV_RABBITMQ_URL),
-            task_queue=_env(source, ENV_RENDER_TASK_QUEUE, DEFAULT_RENDER_TASK_QUEUE),
-        ),
-        replay_root=_env_path(source, ENV_REPLAY_ROOT),
-        gradle_executable=_env(source, ENV_GRADLE_EXECUTABLE) or None,
-        worker_cache_root=user_cache_path(APP_NAME),
-    )
-
-
-def load_storage_monitor_env(environ: Mapping[str, str] | None = None) -> StorageMonitorEnvConfig:
-    source = os.environ if environ is None else environ
-    return StorageMonitorEnvConfig(
-        capture_root=Path(_env(source, ENV_STORAGE_CAPTURE_ROOT, "/captures")).expanduser().resolve(),
-        quota_bytes=_env_int(source, ENV_STORAGE_QUOTA_BYTES),
-        warn_percent=_env_int(source, ENV_STORAGE_WARN_PERCENT, 80),
-        check_interval_seconds=_env_int(source, ENV_STORAGE_CHECK_INTERVAL, 60),
-        evict_oldest=_env_bool(source, ENV_STORAGE_EVICT_OLDEST, True),
-    )
 
 
 def load_config(path: str | Path = DEFAULT_CONFIG_NAME) -> RecorderConfig:
@@ -227,119 +90,73 @@ def load_config(path: str | Path = DEFAULT_CONFIG_NAME) -> RecorderConfig:
             raw = tomllib.load(handle)
     except (OSError, tomllib.TOMLDecodeError) as exc:
         raise RecorderError(f"cannot read {source}: {exc}") from exc
+    if raw.get("version") != CONFIG_VERSION:
+        raise RecorderError(f"unsupported recorder.toml version {raw.get('version')!r}; expected {CONFIG_VERSION}")
 
-    version = raw.get("version")
-    if version != CONFIG_VERSION:
-        raise RecorderError(f"unsupported recorder.toml version {version!r}; expected {CONFIG_VERSION}")
-
+    _require_keys(raw, {"version", "server", "paths", "mods"}, "top-level")
     base = source.parent
     server_raw = _table(raw, "server")
     paths_raw = _table(raw, "paths")
     mods_raw = _table(raw, "mods")
-    storage_raw = _table(raw, "storage")
-    dashboard_raw = _table(raw, "dashboard")
-
-    server_instance_id = _value(server_raw, "instance_id", "", str).strip() or None
-    if server_instance_id is not None:
-        try:
-            server_instance_id = str(uuid.UUID(server_instance_id))
-        except ValueError as exc:
-            raise RecorderError("configuration value 'server.instance_id' must be a UUID") from exc
-    server = ServerConfig(
-        name=_value(server_raw, "name", "minecraft", str).strip(),
-        instance_id=server_instance_id,
-        eula=_value(server_raw, "eula", False, bool),
+    _require_keys(server_raw, {"name", "instance_id", "eula"}, "server")
+    _require_keys(paths_raw, {"artifacts", "intermediate", "runtime"}, "paths")
+    _require_keys(
+        mods_raw,
+        {"recorder_project", "renderer_project", "scene_extractor_project", "scene_extractor_executable"},
+        "mods",
     )
+    name = _value(server_raw, "name", "minecraft", str).strip()
+    if not name:
+        raise RecorderError("server.name must not be empty")
+    instance_value = _value(server_raw, "instance_id", "", str)
+    try:
+        instance_id = str(uuid.UUID(instance_value))
+    except ValueError as exc:
+        raise RecorderError("configuration value 'server.instance_id' must be a UUID") from exc
+    if instance_value != instance_id:
+        raise RecorderError("configuration value 'server.instance_id' must use canonical UUID spelling")
 
     paths = PathConfig(
         base=base,
-        bundles=_resolve(base, _value(paths_raw, "bundles", "artifacts", str)),
-        captures=_resolve(base, _value(paths_raw, "captures", "artifacts/captures", str)),
-        replays=_resolve(base, _value(paths_raw, "replays", "artifacts/replays", str)),
-        exports=_resolve(base, _value(paths_raw, "exports", "artifacts/exports", str)),
-        runtime=_resolve(base, _value(paths_raw, "runtime", ".mc-recorder", str)),
+        artifacts=_resolve(base, _value(paths_raw, "artifacts", "artifacts", str)),
+        intermediate=_resolve(base, _value(paths_raw, "intermediate", ".mc-recorder/intermediate", str)),
+        runtime=_resolve(base, _value(paths_raw, "runtime", ".mc-recorder/runtime", str)),
     )
+    managed = (paths.artifacts, paths.intermediate, paths.runtime)
+    for index, left in enumerate(managed):
+        for right in managed[index + 1 :]:
+            if left == right or left in right.parents or right in left.parents:
+                raise RecorderError("artifacts, intermediate, and runtime paths must be separate and non-nested")
 
-    mods = ModConfig(
-        recorder_project=_resolve(base, _value(mods_raw, "recorder_project", "mods/recorder-mod", str)),
-        renderer_project=_resolve(base, _value(mods_raw, "renderer_project", "mods/renderer-mod", str)),
-        scene_extractor_project=_resolve(
-            base,
-            _value(mods_raw, "scene_extractor_project", "mods/scene-extractor-mod", str),
+    return RecorderConfig(
+        source=source,
+        server=ServerConfig(
+            name=name,
+            instance_id=instance_id,
+            eula=_value(server_raw, "eula", False, bool),
         ),
-        scene_extractor_executable=_resolve(
-            base,
-            _value(
-                mods_raw,
-                "scene_extractor_executable",
-                "mods/scene-extractor-mod/build/install/mc-recorder-scene-extractor/bin/mc-recorder-scene-extractor",
-                str,
+        paths=paths,
+        mods=ModConfig(
+            recorder_project=_resolve(base, _value(mods_raw, "recorder_project", "mods/recorder-mod", str)),
+            renderer_project=_resolve(base, _value(mods_raw, "renderer_project", "mods/renderer-mod", str)),
+            scene_extractor_project=_resolve(base, _value(mods_raw, "scene_extractor_project", "mods/scene-extractor-mod", str)),
+            scene_extractor_executable=_resolve(
+                base,
+                _value(
+                    mods_raw,
+                    "scene_extractor_executable",
+                    "mods/scene-extractor-mod/build/install/mc-recorder-scene-extractor/bin/mc-recorder-scene-extractor",
+                    str,
+                ),
             ),
         ),
     )
-
-    storage = StorageConfig(
-        quota_gib=_value(storage_raw, "quota_gib", 100.0, float),
-        warn_percent=_value(storage_raw, "warn_percent", 80, int),
-        evict_oldest=_value(storage_raw, "evict_oldest", True, bool),
-        check_interval_seconds=_value(storage_raw, "check_interval_seconds", 60, int),
-    )
-    dashboard = DashboardConfig(
-        bind=_value(dashboard_raw, "bind", "0.0.0.0", str),
-        port=_value(dashboard_raw, "port", 8765, int),
-    )
-
-    _validate(server, paths, storage, dashboard)
-    return RecorderConfig(
-        source=source,
-        server=server,
-        paths=paths,
-        mods=mods,
-        storage=storage,
-        dashboard=dashboard,
-    )
-
-
-def _validate(
-    server: ServerConfig,
-    paths: PathConfig,
-    storage: StorageConfig,
-    dashboard: DashboardConfig,
-) -> None:
-    if not server.name:
-        raise RecorderError("server.name must not be empty")
-    if storage.quota_gib <= 0:
-        raise RecorderError("storage.quota_gib must be positive")
-    if not 1 <= storage.warn_percent <= 100:
-        raise RecorderError("storage.warn_percent must be between 1 and 100")
-    if not 10 <= storage.check_interval_seconds <= 3600:
-        raise RecorderError("storage.check_interval_seconds must be between 10 and 3600")
-    if not dashboard.bind.strip():
-        raise RecorderError("dashboard.bind must not be empty")
-    if not 1 <= dashboard.port <= 65535:
-        raise RecorderError("dashboard.port must be between 1 and 65535")
-    managed_paths = (
-        ("capture", paths.captures),
-        ("replay", paths.replays),
-        ("export", paths.exports),
-        ("runtime", paths.runtime),
-    )
-    for index, (left_label, left_path) in enumerate(managed_paths):
-        for right_label, right_path in managed_paths[index + 1 :]:
-            if _paths_overlap(left_path, right_path):
-                raise RecorderError(f"{left_label} and {right_label} paths must be separate and non-nested")
-
-
-def _paths_overlap(left: Path, right: Path) -> bool:
-    if left == right:
-        return True
-    return left in right.parents or right in left.parents
 
 
 def default_config_text(*, accept_eula: bool = False, server_instance_id: str | None = None) -> str:
     eula = "true" if accept_eula else "false"
     instance_id = str(uuid.UUID(server_instance_id)) if server_instance_id else str(uuid.uuid4())
-    return f"""version = 1
+    return f'''version = 1
 
 [server]
 # Accept https://aka.ms/MinecraftEULA before provisioning a recorder server.
@@ -348,33 +165,17 @@ instance_id = "{instance_id}"
 eula = {eula}
 
 [paths]
-# Relative paths are resolved from this file. All defaults stay in this workspace.
-# Publisher adds the versioned v1/ subtree beneath this artifact root.
-bundles = "artifacts"
-captures = "artifacts/captures"
-replays = "artifacts/replays"
-exports = "artifacts/exports"
-runtime = ".mc-recorder"
+# Recorder artifacts and private processing intermediates never overlap.
+artifacts = "artifacts"
+intermediate = ".mc-recorder/intermediate"
+runtime = ".mc-recorder/runtime"
 
 [mods]
 recorder_project = "mods/recorder-mod"
 renderer_project = "mods/renderer-mod"
 scene_extractor_project = "mods/scene-extractor-mod"
 scene_extractor_executable = "mods/scene-extractor-mod/build/install/mc-recorder-scene-extractor/bin/mc-recorder-scene-extractor"
-
-[storage]
-# Applies to capture epochs plus completed replay archives; world data is never evicted.
-quota_gib = 100.0
-warn_percent = 80
-evict_oldest = true
-check_interval_seconds = 60
-
-[dashboard]
-# Bind to all interfaces for the trusted-LAN dashboard. HTTP Basic credentials
-# come from {ENV_DASHBOARD_USERNAME} and {ENV_DASHBOARD_PASSWORD}.
-bind = "0.0.0.0"
-port = 8765
-"""
+'''
 
 
 def initialize(path: str | Path, *, accept_eula: bool = False, force: bool = False) -> Path:
@@ -387,12 +188,6 @@ def initialize(path: str | Path, *, accept_eula: bool = False, force: bool = Fal
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(default_config_text(accept_eula=accept_eula), encoding="utf-8")
     config = load_config(target)
-    for directory in (
-        config.paths.bundles,
-        config.paths.captures,
-        config.paths.replays,
-        config.paths.exports,
-        config.paths.runtime,
-    ):
+    for directory in (config.paths.artifacts, config.paths.sessions, config.paths.runtime):
         directory.mkdir(parents=True, exist_ok=True)
     return target
