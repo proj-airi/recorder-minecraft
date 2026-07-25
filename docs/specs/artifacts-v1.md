@@ -1,126 +1,125 @@
-# Artifacts V1
+# Artifacts V1 Pipeline
 
-Artifacts V1 is a staged, filesystem-native recording layout. It is not a
-bundle or publication format. No wrapper directory, content ID, custom file
-extension, archive, publisher, importer, or compatibility reader exists.
+Artifacts V1 is the shared, filesystem-native pipeline. The recorder and later
+processors operate on the same play directory, but have separate ownership.
+It is not a ZIP bundle, publisher, importer, dataset format, or custom file
+extension.
 
-## Canonical path
-
-Every player connection has exactly one play directory:
+## Canonical hierarchy
 
 ```text
 artifacts/v1/
   <server-name>--<server-instance-uuid>/
+    world/                                      # reserved; optional
     players/
       <player-name>--<player-uuid>/
         plays/
           <started-at-utc>--<connection-uuid>/
+            metadata.json                       # recorder
+            capture/                            # recorder
+              events.jsonl
+              replay.zip
+            actions.jsonl                       # optional post-process result
+            scene.sqlite3                       # optional post-process result
+            renders/                            # optional render result
+              render-job.json
+              result.json
+              fpv_frames/
+                frames.jsonl
+                frame_*.png
 ```
 
-Names are non-empty NFC Unicode without path separators or control characters.
-UUIDs use canonical lowercase spelling. `<started-at-utc>` uses
-`YYYYMMDDTHHMMSS[.fraction]Z`. Alternate nesting is invalid.
+Every player connection has exactly one play directory. Names are non-empty
+NFC Unicode without separators or control characters. UUIDs use canonical
+lowercase spelling. Start time uses `YYYYMMDDTHHMMSS[.fraction]Z`. No alternate
+nesting is valid.
 
-`server-instance-uuid` is generated once by `minerec init` and remains stable
-when the editable display name changes. A new `connection-uuid` is generated
-for every join, including reconnects by the same player.
+The instance UUID is generated once by `minerec init`; the server name remains
+an editable display label. A new connection UUID is generated for every join.
+Multiple players and overlapping connections create independent plays.
 
-## Recorder stage
+`world/` is reserved for future server-instance-wide inputs such as a world
+save or seed. It is not required in V1 and processors must not infer it.
 
-The server recorder creates only:
+## Stage 1: recorder
+
+At player join the recorder creates the play and starts writing only:
 
 ```text
-<play>/
-  metadata.json
-  replays/
-    000000--<segment-uuid>.zip
-    000001--<segment-uuid>.zip
+metadata.json
+capture/events.jsonl
+capture/replay.zip
 ```
 
-`metadata.json` identifies the server, session, player, connection, start/end
-ticks and times, terminal status, Flashback capture contract, known modality
-gaps, and ordered replay filenames. It is ordinary recorder metadata, not an
-integrity manifest.
+The JSONL stream is single, buffered, and connection-local. ServerReplay writes
+one unrotated Flashback archive directly into the same `capture/` directory.
+On disconnect the recorder closes both streams and writes the metadata end tick
+last. There is no explicit seal step. A non-null end tick is the handoff marker
+for post-processing.
 
-ServerReplay owns and rotates each Flashback ZIP. On its post-save event the
-recorder copies the exact completed file into the connection's `replays/`
-directory. It does not merge segments and does not remove the ServerReplay
-working copy. A replay copy failure is fatal to that recording session; the
-play is marked failed instead of silently continuing with an incomplete tree.
+See [Primitive Capture V1](capture-v1.md) for the persisted fields and gaps.
 
-Raw sidecar epochs and ServerReplay working files live under the configured
-intermediate root, outside `artifacts/`.
+## Stage 2: post-processing and rendering
 
-## Post-processing stages
-
-Processors take explicit input paths and one explicit output path. They do not
-discover, construct, publish, import, or mutate the Artifacts V1 hierarchy.
-The caller chooses these conventional outputs:
-
-```text
-<play>/
-  metadata.json
-  replays/
-  actions.jsonl             # after action extraction
-  scene.sqlite3             # after scene extraction
-  renders/                  # optional, after rendering
-    render-job.json
-    result.json
-    fpv_frames/
-      frame_*.png
-      frames.jsonl
-```
-
-Commands:
+Processors are explicit file-to-file tools. They do not discover a play,
+construct the hierarchy, download data, or mutate recorder-owned inputs. The
+caller passes exact inputs and chooses an exact output, conventionally in the
+same play:
 
 ```sh
-pixi run minerec actions extract INTERMEDIATE_SESSION \
-  --player PLAYER_UUID --connection CONNECTION_UUID \
-  --output PLAY/actions.jsonl
+PLAY='artifacts/v1/<server>--<instance>/players/<player>--<uuid>/plays/<start>--<connection>'
 
-pixi run minerec scene extract INTERMEDIATE_SESSION \
-  --player PLAYER_UUID --connection CONNECTION_UUID \
-  --replay PLAY/replays/000000--SEGMENT.zip \
-  --output PLAY/scene.sqlite3
+pixi run minerec actions extract \
+  --metadata "$PLAY/metadata.json" \
+  --events "$PLAY/capture/events.jsonl" \
+  --output "$PLAY/actions.jsonl"
 
-pixi run minerec render INTERMEDIATE_SESSION \
-  --player PLAYER_UUID --connection CONNECTION_UUID \
-  --replay PLAY/replays/000000--SEGMENT.zip \
-  --output PLAY/renders
+pixi run minerec scene extract \
+  --metadata "$PLAY/metadata.json" \
+  --events "$PLAY/capture/events.jsonl" \
+  --replay "$PLAY/capture/replay.zip" \
+  --output "$PLAY/scene.sqlite3"
+
+pixi run minerec render \
+  --metadata "$PLAY/metadata.json" \
+  --events "$PLAY/capture/events.jsonl" \
+  --replay "$PLAY/capture/replay.zip" \
+  --output "$PLAY/renders"
 ```
 
-Repeat `--replay` for scene extraction when multiple replay segments
-contribute. FPV rendering currently processes one segment per invocation.
+All commands validate that metadata has an end tick and that the event/replay
+identities match it. `--from-tick` and `--to-tick` select a bounded interval.
+`--prepare-only` leaves a scene/render job for inspection. `--force` replaces
+only an output already recognized as owned by that processor.
 
-## Scene Store V2
+Processor scratch, locks, subject-pose streams, player-state staging, and the
+private Scene Store V1 spool live under `.mc-recorder/runtime/`. They are not
+part of Artifacts V1. Durable results alone are written to the explicit output.
 
-`scene.sqlite3` is the public scene result. Scene Store V1 exists only as a
-private extraction spool and is deleted with the job workspace.
+Independent workers can copy complete plays with SSH/rsync, process them, and
+copy back only `actions.jsonl`, `scene.sqlite3`, or `renders/`. Coordination and
+dataset assembly are deliberately outside V1.
 
-The vendor-neutral SQLAlchemy Core schema contains `schema_info`, `scene_meta`,
-`blobs`, `frames`, `player_states`, `section_versions`, `entity_versions`, and
-`block_entity_versions`. Entity and block-entity versions use explicit
-application-assigned `BIGINT` IDs. SQLite-specific R-tree tables, triggers,
-PRAGMAs, immutable reads, and atomic replacement remain in the SQLite adapter;
-a future PostgreSQL adapter can use the same logical tables.
+## Derived outputs
 
-There is exactly one `player_states` row per scene frame tick. It links to the
-active player entity version. Common state is typed; the complete canonical
-inventory/effects/abilities state is retained in a compressed,
-content-addressed blob. Missing state or incomplete reconstructed world
-coverage rejects the output.
+`actions.jsonl` contains semantic actions reconstructed from authoritative
+`packet_apply` records and 20 Hz `control_state`. It excludes diagnostic
+`packet_arrival`, physical keyboard events, raw mouse samples, and raw bytes.
 
-Scene data is client-visible, not omniscient server state. Unloaded cells stay
-unknown. An unopened container may not expose its inventory in client packets;
-missing inventory data must not be interpreted as an empty chest. Exact light
-arrays, particles, and audio are not persisted in Scene Store V2. Block-derived
-lighting can only be an approximation, not a reconstruction of observed light.
+`renders/fpv_frames/` contains PNG frames plus `frames.jsonl`, which maps every
+frame to server tick, replay tick, player/connection identity, and replay ID.
+Renders are optional; absence means not rendered.
 
-## Actions
+`scene.sqlite3` is Scene Store V2. It requires exact frame/player-state tick
+coverage and contains typed player state plus the full inventory/effect/ability
+payload in compressed content-addressed blobs. Its portable SQLAlchemy Core
+base tables are `schema_info`, `scene_meta`, `blobs`, `frames`,
+`player_states`, `section_versions`, `entity_versions`, and
+`block_entity_versions`. Explicit application-assigned `BIGINT` version IDs
+avoid SQLite `rowid` dependence. SQLite-only R-tree tables, triggers, PRAGMAs,
+immutable reads, and atomic replacement stay in the SQLite adapter so the
+logical schema can later target PostgreSQL.
 
-`actions.jsonl` contains the selected connection's reconstructed semantic
-action stream from authoritative packet application and 20 Hz reconstructed
-control state. It does not contain physical keyboard events, raw mouse samples,
-or raw packet bytes. `packet_arrival` remains intermediate diagnostic data; it
-is useful for latency/order diagnosis but is not an exported action because
-main-thread `packet_apply` is authoritative.
+Scene data has the same client-visible limits as the replay. Unknown cells and
+unopened-container contents remain unknown; they are never fabricated as air
+or empty inventories.

@@ -1,47 +1,40 @@
 # minerec
 
-`minerec` is the file-oriented post-processing CLI. Its processors require
-explicit inputs and outputs and never discover the Artifacts V1 directory.
+`minerec` is the explicit file-to-file post-processing CLI. It never discovers
+or constructs the Artifacts V1 hierarchy.
 
 ```sh
 pixi run minerec --help
-pixi run minerec sessions list
-pixi run minerec sessions validate SESSION_ID
 ```
 
-Action extraction:
+For one completed play:
 
 ```sh
-pixi run minerec actions extract SESSION_DIR \
-  --player PLAYER_UUID --connection CONNECTION_UUID \
-  --output actions.jsonl
-```
+pixi run minerec actions extract \
+  --metadata PLAY/metadata.json \
+  --events PLAY/capture/events.jsonl \
+  --output PLAY/actions.jsonl
 
-Scene extraction emits Scene Store V2 directly. The extractor's Scene Store V1
-is private staging:
-
-```sh
 pixi run build-scene-extractor-mod
-pixi run minerec scene extract SESSION_DIR \
-  --player PLAYER_UUID --connection CONNECTION_UUID \
-  --replay SEGMENT_0.zip --replay SEGMENT_1.zip \
-  --output scene.sqlite3
-```
+pixi run minerec scene extract \
+  --metadata PLAY/metadata.json \
+  --events PLAY/capture/events.jsonl \
+  --replay PLAY/capture/replay.zip \
+  --output PLAY/scene.sqlite3
 
-FPV rendering writes `render-job.json`, `result.json`, and `fpv_frames/` below
-the requested output directory:
-
-```sh
 pixi run build-renderer-mod
-pixi run minerec render SESSION_DIR \
-  --player PLAYER_UUID --connection CONNECTION_UUID \
-  --replay SEGMENT.zip --output renders
+pixi run minerec render \
+  --metadata PLAY/metadata.json \
+  --events PLAY/capture/events.jsonl \
+  --replay PLAY/capture/replay.zip \
+  --output PLAY/renders
 ```
 
-Use `--prepare-only` to inspect a scene or render job without launching the
-Minecraft process. Use `--force` only to replace a valid output created by the
-same processor.
+Scene extraction publishes Scene Store V2; Scene Store V1 and subject-state
+files are private job staging. Rendering writes `render-job.json`,
+`result.json`, and `fpv_frames/` under the requested output.
 
-Configuration has three disjoint roots: `paths.artifacts`,
-`paths.intermediate`, and `paths.runtime`. Legacy capture/replay/export roots
-are rejected rather than migrated.
+Use `--prepare-only` to inspect a scene/render job without launching Minecraft.
+Use `--force` only to replace a valid output owned by the same processor.
+Configuration has two disjoint roots: durable `paths.artifacts` and private
+`paths.runtime`.
