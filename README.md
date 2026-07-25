@@ -51,6 +51,10 @@ SSH/rsync and passed to independent processors.
 ## Post-process
 
 ```sh
+# Run every stage for one play directory:
+hack/process-play PLAY
+
+# Or run the processors independently:
 pixi run minerec actions extract \
   --metadata PLAY/metadata.json \
   --events PLAY/capture/events.jsonl \
