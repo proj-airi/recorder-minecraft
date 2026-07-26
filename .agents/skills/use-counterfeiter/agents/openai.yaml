@@ -1,0 +1,4 @@
+interface:
+  display_name: "Use Counterfeiter"
+  short_description: "Generate Go interface fakes consistently"
+  default_prompt: "Use $use-counterfeiter to generate and verify a Go interface fake."
