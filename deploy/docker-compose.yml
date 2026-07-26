@@ -27,10 +27,10 @@ services:
       MODRINTH_DOWNLOAD_DEPENDENCIES: required
       SYNC_SKIP_NEWER_IN_DESTINATION: 'false'
     volumes:
-      - '${MC_DATA_DIR}:/data'
-      - '${MC_LOCAL_MODS_DIR}:/mods:ro'
-      - '${MC_CONFIG_SOURCE_DIR}:/config:ro'
-      - '${MC_ARTIFACTS_DIR}:/artifacts'
+      - '${MC_DATA_HOST_DIR}:/data'
+      - '${MC_LOCAL_MODS_HOST_DIR}:/mods:ro'
+      - '${MC_CONFIG_SOURCE_HOST_DIR}:/config:ro'
+      - '${MC_ARTIFACTS_HOST_DIR}:/artifacts'
     healthcheck:
       test: ['CMD', 'mc-health']
       start_period: 1m

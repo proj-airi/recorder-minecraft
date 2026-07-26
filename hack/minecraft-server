@@ -77,8 +77,8 @@ prepare() {
   pixi run build-recorder-mod
 
   local mods_dir config_dir config_file jar level_name eula server_name server_instance_id
-  mods_dir="$(env_path MC_LOCAL_MODS_DIR)"
-  config_dir="$(env_path MC_CONFIG_SOURCE_DIR)"
+  mods_dir="$(env_path MC_LOCAL_MODS_HOST_DIR)"
+  config_dir="$(env_path MC_CONFIG_SOURCE_HOST_DIR)"
   config_file="$(env_path MC_CONFIG_FILE)"
   mkdir -p "${mods_dir}" "${config_dir}/server-replay"
   if [[ ! -f "${config_file}" ]]; then

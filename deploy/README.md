@@ -14,8 +14,8 @@ machine hostname from `recorder.toml`.
 
 The Minecraft container mounts:
 
-- `MC_ARTIFACTS_DIR` at `/artifacts` for canonical Artifacts V1 plays;
-- `MC_DATA_DIR` at `/data` for the Minecraft server/world.
+- `MC_ARTIFACTS_HOST_DIR` at `/artifacts` for canonical Artifacts V1 plays;
+- `MC_DATA_HOST_DIR` at `/data` for the Minecraft server/world.
 
 No storage monitor deletes artifacts. No dashboard, RabbitMQ, render worker,
 or viewer service is part of this Compose file.
