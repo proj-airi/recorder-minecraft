@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	artifactsv1 "github.com/proj-airi/mc-play-recorder/apis/sdk/go/mc-play-recorder/artifacts/v1"
-	"github.com/proj-airi/mc-play-recorder/internal/datastore"
+	artifactsv1 "github.com/proj-airi/recorder-minecraft/apis/sdk/go/recorder-minecraft/artifacts/v1"
+	"github.com/proj-airi/recorder-minecraft/internal/datastore"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/encoding/protojson"

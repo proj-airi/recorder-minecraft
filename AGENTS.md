@@ -2,13 +2,13 @@
 
 ## Project Structure & Module Organization
 
-- `cmd/minerec/` and `internal/` contain the Go provisioning, validation, export, scene, and render-job CLI. Go tests live beside the affected packages.
-- `apis/proto/` defines artifact contracts; generated Go types live under `apis/sdk/go/`. `databases/minerec-scene/` models each play-local Scene Store V2 with Ent.
+- `cmd/recorder-minecraft/` and `internal/` contain the Go provisioning, validation, export, scene, and render-job CLI. Go tests live beside the affected packages.
+- `apis/proto/` defines artifact contracts; generated Go types live under `apis/sdk/go/`. `databases/scene/` models each play-local Scene Store V2 with Ent.
 - `mods/recorder-mod/` is the Kotlin/Java Fabric server mod; production code is under `src/main/` and JUnit tests under `src/test/`.
 - `mods/scene-extractor-mod/` is the Java Fabric dedicated-server extractor for random-access block/entity scene stores; `mods/renderer-mod/` is the client-only first-person RGB renderer.
 - `docs/specs/` defines the source JSONL and dataset contracts. Update these documents when changing persisted fields or invariants.
 - `deploy/` contains Docker Compose configuration. `ServerReplay/` is upstream source; avoid unrelated edits there.
-- `artifacts/`, `.mc-recorder/`, `runtime/`, and renderer `run/` directories are generated and must not be committed.
+- `artifacts/`, `.recorder/minecraft/`, `runtime/`, and renderer `run/` directories are generated and must not be committed.
 
 ## Build, Test, and Development Commands
 
@@ -29,7 +29,7 @@ pixi run build-scene-extractor-mod
 pixi run build-renderer-mod
 ```
 
-Use `MC_RECORDER_FLASHBACK_JAR=/path/to/Flashback-0.39.5.jar` for renderer builds when Modrinth is unavailable. For an end-to-end capture, use `pixi run minerec server start --wait`, join `localhost:25565`, then run `pixi run minerec server stop` and `pixi run minerec episodes validate SESSION_ID`.
+Use `MC_RECORDER_FLASHBACK_JAR=/path/to/Flashback-0.39.5.jar` for renderer builds when Modrinth is unavailable. For an end-to-end capture, use `pixi run recorder-minecraft server start --wait`, join `localhost:25565`, then run `pixi run recorder-minecraft server stop` and `pixi run recorder-minecraft episodes validate SESSION_ID`.
 
 ## Coding Style & Naming Conventions
 

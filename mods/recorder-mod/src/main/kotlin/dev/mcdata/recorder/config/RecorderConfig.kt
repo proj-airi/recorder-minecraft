@@ -63,7 +63,7 @@ data class RecorderConfig(
         )
 
         fun load(logger: Logger): RecorderConfig {
-            val path = FabricLoader.getInstance().configDir.resolve("mc-recorder.json")
+            val path = FabricLoader.getInstance().configDir.resolve("recorder-minecraft.json")
             if (!path.exists()) {
                 val defaults = RecorderConfig()
                 Files.createDirectories(path.parent)

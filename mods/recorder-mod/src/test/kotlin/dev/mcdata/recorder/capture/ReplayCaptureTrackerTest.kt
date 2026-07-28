@@ -1,7 +1,7 @@
 package dev.mcdata.recorder.capture
 
 import com.google.gson.JsonObject
-import dev.minerec.artifacts.v1.ServerMetadata
+import dev.recorderminecraft.artifacts.v1.ServerMetadata
 import com.google.protobuf.util.JsonFormat
 import dev.mcdata.recorder.config.RecorderConfig
 import dev.mcdata.recorder.io.PlayFiles
@@ -33,7 +33,7 @@ class ReplayCaptureTrackerTest {
             "flashback",
             working
         )
-        val embedded = JsonObject().also(metadataProvider).getAsJsonObject("mc_recorder")
+        val embedded = JsonObject().also(metadataProvider).getAsJsonObject("recorder-minecraft")
 
         assertEquals(SESSION, embedded.get("session_id").asString)
         assertEquals(PLAYER, embedded.get("player_uuid").asString)

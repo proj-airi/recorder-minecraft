@@ -18,7 +18,7 @@ import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry
 import org.slf4j.LoggerFactory
 
 object RecorderMod : ModInitializer {
-    private val logger = LoggerFactory.getLogger("mc-recorder")
+    private val logger = LoggerFactory.getLogger("recorder-minecraft")
     private lateinit var config: RecorderConfig
 
     override fun onInitialize() {

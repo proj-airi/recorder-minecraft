@@ -11,10 +11,10 @@ import (
 	"path/filepath"
 	"regexp"
 
-	artifactsv1 "github.com/proj-airi/mc-play-recorder/apis/sdk/go/mc-play-recorder/artifacts/v1"
-	"github.com/proj-airi/mc-play-recorder/internal/configs"
-	"github.com/proj-airi/mc-play-recorder/internal/models/captures"
-	"github.com/proj-airi/mc-play-recorder/internal/models/replays"
+	artifactsv1 "github.com/proj-airi/recorder-minecraft/apis/sdk/go/recorder-minecraft/artifacts/v1"
+	"github.com/proj-airi/recorder-minecraft/internal/configs"
+	"github.com/proj-airi/recorder-minecraft/internal/models/captures"
+	"github.com/proj-airi/recorder-minecraft/internal/models/replays"
 	"github.com/samber/do/v2"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
@@ -22,8 +22,8 @@ import (
 )
 
 const (
-	jobType = "mc-recorder-first-person-render-v1"
-	owner   = "mc-recorder"
+	jobType = "recorder-minecraft-first-person-render-v1"
+	owner   = "recorder-minecraft"
 )
 
 var frameName = regexp.MustCompile(`^frame_[0-9]+\.png$`)

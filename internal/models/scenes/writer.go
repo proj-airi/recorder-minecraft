@@ -15,8 +15,8 @@ import (
 	"sort"
 	"strings"
 
-	artifactsv1 "github.com/proj-airi/mc-play-recorder/apis/sdk/go/mc-play-recorder/artifacts/v1"
-	sceneent "github.com/proj-airi/mc-play-recorder/databases/minerec-scene/ent"
+	artifactsv1 "github.com/proj-airi/recorder-minecraft/apis/sdk/go/recorder-minecraft/artifacts/v1"
+	sceneent "github.com/proj-airi/recorder-minecraft/databases/scene/ent"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
@@ -469,7 +469,7 @@ func (w *storeWriter) writeMetadata(result *artifactsv1.SceneExtractionResult) e
 	if err != nil {
 		return fmt.Errorf("encode scene provenance: %w", err)
 	}
-	if err := w.tx.SchemaInfo.Create().SetID(1).SetSchemaName("mc-recorder-scene-store-v2").SetSchemaVersion(2).Exec(w.ctx); err != nil {
+	if err := w.tx.SchemaInfo.Create().SetID(1).SetSchemaName("recorder-minecraft-scene-store-v2").SetSchemaVersion(2).Exec(w.ctx); err != nil {
 		return err
 	}
 	return w.tx.SceneMeta.Create().SetID(1).SetSessionID(result.GetSessionId()).SetPlayerUUID(result.GetPlayerUuid()).SetConnectionID(result.GetConnectionId()).

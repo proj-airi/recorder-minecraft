@@ -18,7 +18,7 @@ import java.util.Map;
 
 /** Runs one extraction job without owning the process launch mechanism. */
 public final class SceneExtractionRunner {
-    private static final Logger LOGGER = LoggerFactory.getLogger("mc-recorder-scene-extractor");
+    private static final Logger LOGGER = LoggerFactory.getLogger("recorder-minecraft-scene-extractor");
 
     private final RegistryAccess registries;
     private final Map<String, String> runtimeMods;

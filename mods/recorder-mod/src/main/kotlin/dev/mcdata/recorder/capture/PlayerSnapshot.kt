@@ -1,13 +1,13 @@
 package dev.mcdata.recorder.capture
 
-import dev.minerec.artifacts.v1.Abilities
-import dev.minerec.artifacts.v1.EntityReference
-import dev.minerec.artifacts.v1.InventorySlot
-import dev.minerec.artifacts.v1.Passenger
-import dev.minerec.artifacts.v1.PlayerStateEvent
-import dev.minerec.artifacts.v1.Rotation
-import dev.minerec.artifacts.v1.StatusEffect
-import dev.minerec.artifacts.v1.Vector3
+import dev.recorderminecraft.artifacts.v1.Abilities
+import dev.recorderminecraft.artifacts.v1.EntityReference
+import dev.recorderminecraft.artifacts.v1.InventorySlot
+import dev.recorderminecraft.artifacts.v1.Passenger
+import dev.recorderminecraft.artifacts.v1.PlayerStateEvent
+import dev.recorderminecraft.artifacts.v1.Rotation
+import dev.recorderminecraft.artifacts.v1.StatusEffect
+import dev.recorderminecraft.artifacts.v1.Vector3
 import dev.mcdata.recorder.config.RecorderConfig
 import net.minecraft.core.registries.BuiltInRegistries
 import net.minecraft.nbt.NbtOps

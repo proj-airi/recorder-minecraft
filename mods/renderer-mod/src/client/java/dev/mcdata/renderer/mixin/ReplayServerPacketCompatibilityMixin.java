@@ -14,7 +14,7 @@ import org.spongepowered.asm.mixin.injection.Redirect;
 /** Keeps automated RGB playback moving when Flashback explicitly rejects a decoded packet. */
 @Mixin(value = ReplayServer.class, remap = false)
 public abstract class ReplayServerPacketCompatibilityMixin {
-    private static final Logger LOGGER = LoggerFactory.getLogger("mc-recorder-renderer");
+    private static final Logger LOGGER = LoggerFactory.getLogger("recorder-minecraft-renderer");
 
     @Redirect(
         method = "handleGamePacket",

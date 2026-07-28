@@ -1,12 +1,12 @@
 package dev.mcdata.recorder.capture
 
-import dev.minerec.artifacts.v1.BlockHit
-import dev.minerec.artifacts.v1.CameraOrPositionAction
-import dev.minerec.artifacts.v1.EntityTarget
-import dev.minerec.artifacts.v1.MovementInput
-import dev.minerec.artifacts.v1.Packet
-import dev.minerec.artifacts.v1.PacketIdentity
-import dev.minerec.artifacts.v1.Vector3
+import dev.recorderminecraft.artifacts.v1.BlockHit
+import dev.recorderminecraft.artifacts.v1.CameraOrPositionAction
+import dev.recorderminecraft.artifacts.v1.EntityTarget
+import dev.recorderminecraft.artifacts.v1.MovementInput
+import dev.recorderminecraft.artifacts.v1.Packet
+import dev.recorderminecraft.artifacts.v1.PacketIdentity
+import dev.recorderminecraft.artifacts.v1.Vector3
 import dev.mcdata.recorder.mixin.ServerboundInteractPacketAccessor
 import dev.mcdata.recorder.model.InputFlags
 import net.minecraft.core.registries.BuiltInRegistries

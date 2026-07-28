@@ -1,10 +1,10 @@
 package dev.mcdata.renderer;
 
 import com.google.protobuf.util.JsonFormat;
-import dev.minerec.artifacts.v1.RenderJob;
-import dev.minerec.artifacts.v1.RenderJobStatus;
-import dev.minerec.artifacts.v1.RenderRangePolicy;
-import dev.minerec.artifacts.v1.RenderReplaySource;
+import dev.recorderminecraft.artifacts.v1.RenderJob;
+import dev.recorderminecraft.artifacts.v1.RenderJobStatus;
+import dev.recorderminecraft.artifacts.v1.RenderRangePolicy;
+import dev.recorderminecraft.artifacts.v1.RenderReplaySource;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -40,10 +40,10 @@ record RenderJobSpec(
         Path base = normalizedJob.getParent();
 
         if (job.getSchemaVersion() != 1
-            || !"mc-recorder".equals(job.getOwner())
-            || !"mc-recorder-first-person-render-v1".equals(job.getJobType())
+            || !"recorder-minecraft".equals(job.getOwner())
+            || !"recorder-minecraft-first-person-render-v1".equals(job.getJobType())
             || job.getStatus() != RenderJobStatus.RENDER_JOB_STATUS_PREPARED) {
-            throw new IllegalArgumentException("Render job is not owned by the mc-recorder v1 framework");
+            throw new IllegalArgumentException("Render job is not owned by the recorder-minecraft v1 framework");
         }
         if (!job.hasReplay() || !job.hasGlobalTicks()) {
             throw new IllegalArgumentException("Render job is missing replay or tick coverage");

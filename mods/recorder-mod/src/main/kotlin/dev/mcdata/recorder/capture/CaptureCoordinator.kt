@@ -1,14 +1,14 @@
 package dev.mcdata.recorder.capture
 
 import com.mojang.authlib.GameProfile
-import dev.minerec.artifacts.v1.CaptureEvent
-import dev.minerec.artifacts.v1.ControlState
-import dev.minerec.artifacts.v1.ControlStateEvent
-import dev.minerec.artifacts.v1.EventIdentity
-import dev.minerec.artifacts.v1.PacketApplyEvent
-import dev.minerec.artifacts.v1.PacketArrivalEvent
-import dev.minerec.artifacts.v1.ReplayCoverage
-import dev.minerec.artifacts.v1.ReplayTimelineEvent
+import dev.recorderminecraft.artifacts.v1.CaptureEvent
+import dev.recorderminecraft.artifacts.v1.ControlState
+import dev.recorderminecraft.artifacts.v1.ControlStateEvent
+import dev.recorderminecraft.artifacts.v1.EventIdentity
+import dev.recorderminecraft.artifacts.v1.PacketApplyEvent
+import dev.recorderminecraft.artifacts.v1.PacketArrivalEvent
+import dev.recorderminecraft.artifacts.v1.ReplayCoverage
+import dev.recorderminecraft.artifacts.v1.ReplayTimelineEvent
 import dev.mcdata.recorder.config.RecorderConfig
 import dev.mcdata.recorder.io.AsyncPlayWriter
 import dev.mcdata.recorder.io.PlayFiles
@@ -185,7 +185,7 @@ class CaptureCoordinator(
 
             val markerSequence = capture.emit(serverTick, player) { event ->
                 event.replayTimeline = ReplayTimelineEvent.newBuilder()
-                    .setProtocol("mc_recorder:timeline/v1")
+                    .setProtocol("recorder-minecraft:timeline/v1")
                     .build()
             }
             ServerPlayNetworking.send(

@@ -17,7 +17,7 @@ import java.util.Map;
 
 /** One-shot server entrypoint. Minecraft supplies registries; extraction never starts a client. */
 public final class SceneExtractorMod implements ModInitializer {
-    private static final Logger LOGGER = LoggerFactory.getLogger("mc-recorder-scene-extractor");
+    private static final Logger LOGGER = LoggerFactory.getLogger("recorder-minecraft-scene-extractor");
     private static final String ENVIRONMENT_JOB = "MC_RECORDER_SCENE_JOB";
     private static final String PROPERTY_JOB = "mc.recorder.sceneJob";
 
@@ -25,7 +25,7 @@ public final class SceneExtractorMod implements ModInitializer {
 
     @Override
     public void onInitialize() {
-        if (!FabricLoader.getInstance().isModLoaded("mc-recorder")) {
+        if (!FabricLoader.getInstance().isModLoaded("recorder-minecraft")) {
             PayloadTypeRegistry.playS2C().register(ReplayTimelinePayload.TYPE, ReplayTimelinePayload.STREAM_CODEC);
         }
         this.request = resolveRequestPath();
@@ -33,7 +33,7 @@ public final class SceneExtractorMod implements ModInitializer {
     }
 
     private void startExtraction(MinecraftServer server) {
-        Thread worker = new Thread(() -> runExtraction(server), "mc-recorder-scene-extractor");
+        Thread worker = new Thread(() -> runExtraction(server), "recorder-minecraft-scene-extractor");
         worker.setDaemon(false);
         worker.start();
     }

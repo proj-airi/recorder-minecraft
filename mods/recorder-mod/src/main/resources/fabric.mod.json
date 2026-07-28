@@ -4,7 +4,7 @@
   "version": "${version}",
   "name": "Minecraft Play Recorder",
   "description": "Synchronized server-side action and state capture companion for ServerReplay.",
-  "authors": ["mc-play-recorder contributors"],
+  "authors": ["recorder-minecraft contributors"],
   "license": "MIT",
   "environment": "server",
   "entrypoints": {

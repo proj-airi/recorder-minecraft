@@ -8,7 +8,7 @@ import java.util.TreeMap;
 /**
  * Owns the automated renderer's compatibility policy for packets that Flashback can decode but
  * cannot apply. Interactive Flashback playback remains strict because suppression is enabled only
- * while an explicit mc-recorder render job is active.
+ * while an explicit recorder-minecraft render job is active.
  */
 public final class ReplayPacketCompatibility {
     public static final String POLICY = "ignore_flashback_unsupported_v1";

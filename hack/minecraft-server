@@ -82,7 +82,7 @@ prepare() {
   config_file="$(env_path MC_CONFIG_FILE)"
   mkdir -p "${mods_dir}" "${config_dir}/server-replay"
   if [[ ! -f "${config_file}" ]]; then
-    echo "missing recorder config: ${config_file}; run 'pixi run minerec init' first" >&2
+    echo "missing recorder config: ${config_file}; run 'pixi run recorder-minecraft init' first" >&2
     exit 2
   fi
 
@@ -108,8 +108,8 @@ prepare() {
   level_name="$(env_value MC_LEVEL_NAME)"
   : "${level_name:=world}"
   level_name="$(json_string_escape "${level_name}")"
-  server_name="$(pixi run minerec --config "${config_file}" config get server.name)"
-  server_instance_id="$(pixi run minerec --config "${config_file}" config get server.instance_id)"
+  server_name="$(pixi run recorder-minecraft --config "${config_file}" config get server.name)"
+  server_instance_id="$(pixi run recorder-minecraft --config "${config_file}" config get server.instance_id)"
   server_name="$(json_string_escape "${server_name}")"
 
   cat > "${config_dir}/server-replay/config.json" <<EOF

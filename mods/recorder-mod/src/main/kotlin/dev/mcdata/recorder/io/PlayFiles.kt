@@ -2,11 +2,11 @@ package dev.mcdata.recorder.io
 
 import com.google.protobuf.Timestamp
 import com.google.protobuf.util.JsonFormat
-import dev.minerec.artifacts.v1.CaptureMetadata
-import dev.minerec.artifacts.v1.Connection
-import dev.minerec.artifacts.v1.PlayerIdentity
-import dev.minerec.artifacts.v1.ServerIdentity
-import dev.minerec.artifacts.v1.ServerMetadata
+import dev.recorderminecraft.artifacts.v1.CaptureMetadata
+import dev.recorderminecraft.artifacts.v1.Connection
+import dev.recorderminecraft.artifacts.v1.PlayerIdentity
+import dev.recorderminecraft.artifacts.v1.ServerIdentity
+import dev.recorderminecraft.artifacts.v1.ServerMetadata
 import dev.mcdata.recorder.capture.ReplayScenePacketContract
 import dev.mcdata.recorder.config.RecorderConfig
 import java.nio.file.AtomicMoveNotSupportedException

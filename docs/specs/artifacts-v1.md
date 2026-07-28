@@ -34,9 +34,9 @@ NFC Unicode without separators or control characters. UUIDs use canonical
 lowercase spelling. Start time uses `YYYYMMDDTHHMMSS[.fraction]Z`. No alternate
 nesting is valid.
 
-The instance UUID is generated once by `minerec init`. The optional
+The instance UUID is generated once by `recorder-minecraft init`. The optional
 `server.name` value in `recorder.toml` is an editable display label; when it is
-omitted, `minerec` uses the machine hostname. A new connection UUID is
+omitted, `recorder-minecraft` uses the machine hostname. A new connection UUID is
 generated for every join. Multiple players and overlapping connections create
 independent plays.
 
@@ -72,18 +72,18 @@ same play:
 ```sh
 PLAY='artifacts/v1/<server>--<instance>/players/<player>--<uuid>/plays/<start>--<connection>'
 
-pixi run minerec actions extract \
+pixi run recorder-minecraft actions extract \
   --metadata "$PLAY/metadata.json" \
   --events "$PLAY/capture/events.jsonl" \
   --output "$PLAY/actions.jsonl"
 
-pixi run minerec scene extract \
+pixi run recorder-minecraft scene extract \
   --metadata "$PLAY/metadata.json" \
   --events "$PLAY/capture/events.jsonl" \
   --replay "$PLAY/capture/replay.zip" \
   --output "$PLAY/scene.sqlite3"
 
-pixi run minerec render \
+pixi run recorder-minecraft render \
   --metadata "$PLAY/metadata.json" \
   --events "$PLAY/capture/events.jsonl" \
   --replay "$PLAY/capture/replay.zip" \
@@ -96,7 +96,7 @@ identities match it. `--from-tick` and `--to-tick` select a bounded interval.
 only an output already recognized as owned by that processor.
 
 Processor scratch, locks, subject-pose streams, player-state staging, and the
-private Scene Store V1 spool live under `.mc-recorder/runtime/`. They are not
+private Scene Store V1 spool live under `.recorder/minecraft/runtime/`. They are not
 part of Artifacts V1. Durable results alone are written to the explicit output.
 
 Independent workers can copy complete plays with SSH/rsync, process them, and

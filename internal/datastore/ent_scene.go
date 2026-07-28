@@ -12,10 +12,10 @@ import (
 	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
 	_ "github.com/glebarez/go-sqlite"
-	sceneent "github.com/proj-airi/mc-play-recorder/databases/minerec-scene/ent"
-	"github.com/proj-airi/mc-play-recorder/databases/minerec-scene/ent/migrate"
-	"github.com/proj-airi/mc-play-recorder/internal/configs"
-	"github.com/proj-airi/mc-play-recorder/pkg/filelock"
+	sceneent "github.com/proj-airi/recorder-minecraft/databases/scene/ent"
+	"github.com/proj-airi/recorder-minecraft/databases/scene/ent/migrate"
+	"github.com/proj-airi/recorder-minecraft/internal/configs"
+	"github.com/proj-airi/recorder-minecraft/pkg/filelock"
 	"github.com/samber/do/v2"
 )
 
@@ -262,5 +262,5 @@ func isSceneStore(ctx context.Context, path string) (bool, error) {
 	if err := db.QueryRowContext(ctx, `SELECT schema_name FROM schema_info WHERE singleton = 1`).Scan(&schemaName); err != nil {
 		return false, nil
 	}
-	return schemaName == "mc-recorder-scene-store-v2", nil
+	return schemaName == "recorder-minecraft-scene-store-v2", nil
 }

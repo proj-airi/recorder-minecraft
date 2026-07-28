@@ -1,5 +1,5 @@
 [workspace]
-name = "mc-play-recorder"
+name = "recorder-minecraft"
 version = "0.1.0"
 description = "Minecraft gameplay recorder development workspace"
 authors = [ "Project AIRI" ]
@@ -12,8 +12,8 @@ requires-pixi = ">=0.73,<1"
 
 [tasks]
 setup-toolchains = "proto install --config-mode local"
-minerec = "go run ./cmd/minerec"
-build-minerec = "mkdir -p .mc-recorder/bin && go build -o .mc-recorder/bin/minerec ./cmd/minerec"
+recorder-minecraft = "go run ./cmd/recorder-minecraft"
+build-recorder-minecraft = "mkdir -p .recorder/minecraft/bin && go build -o .recorder/minecraft/bin/recorder-minecraft ./cmd/recorder-minecraft"
 test-go = "go test ./..."
 lint-go = "golangci-lint run ./..."
 go-format = "find cmd internal databases apis/sdk/go -name '*.go' -type f -exec gofmt -w {} +"
@@ -26,7 +26,7 @@ buf-generate-check = "buf generate && git diff --exit-code -- apis/sdk/go apis/s
 build-recorder-mod = "gradle --project-dir mods/recorder-mod build"
 build-scene-extractor-mod = "gradle --project-dir mods/scene-extractor-mod build installDist"
 build-renderer-mod = "gradle --project-dir mods/renderer-mod build"
-build-minerec-image = { cmd = "docker buildx build --platform linux/amd64 -f cmd/minerec/Dockerfile . --tag minerec:local --load", depends-on = [
+build-recorder-minecraft-image = { cmd = "docker buildx build --platform linux/amd64 -f cmd/recorder-minecraft/Dockerfile . --tag recorder-minecraft:local --load", depends-on = [
   "build-scene-extractor-mod",
 ] }
 build-mods = { depends-on = [

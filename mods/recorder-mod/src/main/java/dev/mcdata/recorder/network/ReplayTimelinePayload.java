@@ -16,7 +16,7 @@ public record ReplayTimelinePayload(
     long eventSequence
 ) implements CustomPacketPayload {
     public static final Type<ReplayTimelinePayload> TYPE = new Type<>(
-        ResourceLocation.fromNamespaceAndPath("mc_recorder", "timeline")
+        ResourceLocation.fromNamespaceAndPath("recorder-minecraft", "timeline")
     );
 
     public static final StreamCodec<RegistryFriendlyByteBuf, ReplayTimelinePayload> STREAM_CODEC =

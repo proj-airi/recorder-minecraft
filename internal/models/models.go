@@ -1,11 +1,11 @@
 package models
 
 import (
-	"github.com/proj-airi/mc-play-recorder/internal/models/actions"
-	"github.com/proj-airi/mc-play-recorder/internal/models/captures"
-	"github.com/proj-airi/mc-play-recorder/internal/models/renders"
-	"github.com/proj-airi/mc-play-recorder/internal/models/replays"
-	"github.com/proj-airi/mc-play-recorder/internal/models/scenes"
+	"github.com/proj-airi/recorder-minecraft/internal/models/actions"
+	"github.com/proj-airi/recorder-minecraft/internal/models/captures"
+	"github.com/proj-airi/recorder-minecraft/internal/models/renders"
+	"github.com/proj-airi/recorder-minecraft/internal/models/replays"
+	"github.com/proj-airi/recorder-minecraft/internal/models/scenes"
 	"github.com/samber/do/v2"
 )
 

@@ -3,7 +3,7 @@
 Initialize `recorder.toml`, copy `.env.example` to `.env`, and edit host paths:
 
 ```sh
-pixi run minerec init --accept-eula
+pixi run recorder-minecraft init --accept-eula
 cp deploy/.env.example deploy/.env
 hack/minecraft-server start
 ```

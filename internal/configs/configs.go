@@ -14,8 +14,9 @@ import (
 )
 
 const (
-	Version     = 1
-	DefaultPath = "recorder.toml"
+	Version            = 1
+	DefaultPath        = "recorder.toml"
+	defaultRuntimePath = ".recorder/minecraft/runtime"
 )
 
 type Server struct {
@@ -57,14 +58,14 @@ func Package(path string) func(do.Injector) {
 }
 
 func Load(path string) (*Config, error) {
-	source, err := filepath.Abs(expandHome(path))
+	source, err := filepath.Abs(expandHome(filepath.FromSlash(path)))
 	if err != nil {
 		return nil, fmt.Errorf("resolve configuration: %w", err)
 	}
 	info, err := os.Lstat(source)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return nil, fmt.Errorf("configuration not found: %s; run 'minerec init' first", source)
+			return nil, fmt.Errorf("configuration not found: %s; run 'recorder-minecraft init' first", source)
 		}
 		return nil, fmt.Errorf("inspect configuration: %w", err)
 	}
@@ -99,7 +100,7 @@ func Load(path string) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	file.Paths.Runtime, err = resolve(base, defaultString(file.Paths.Runtime, ".mc-recorder/runtime"))
+	file.Paths.Runtime, err = resolve(base, defaultString(file.Paths.Runtime, defaultRuntimePath))
 	if err != nil {
 		return nil, err
 	}
@@ -109,7 +110,7 @@ func Load(path string) (*Config, error) {
 	file.Mods.RecorderProject, _ = resolve(base, defaultString(file.Mods.RecorderProject, "mods/recorder-mod"))
 	file.Mods.RendererProject, _ = resolve(base, defaultString(file.Mods.RendererProject, "mods/renderer-mod"))
 	file.Mods.SceneExtractorProject, _ = resolve(base, defaultString(file.Mods.SceneExtractorProject, "mods/scene-extractor-mod"))
-	file.Mods.SceneExtractorExecutable, _ = resolve(base, defaultString(file.Mods.SceneExtractorExecutable, "mods/scene-extractor-mod/build/install/mc-recorder-scene-extractor/bin/mc-recorder-scene-extractor"))
+	file.Mods.SceneExtractorExecutable, _ = resolve(base, defaultString(file.Mods.SceneExtractorExecutable, "mods/scene-extractor-mod/build/install/recorder-minecraft-scene-extractor/bin/recorder-minecraft-scene-extractor"))
 	return &Config{
 		Source: source,
 		Server: file.Server,
@@ -119,7 +120,7 @@ func Load(path string) (*Config, error) {
 }
 
 func Initialize(path string, acceptEULA bool, overwrite bool) (string, error) {
-	requested := expandHome(path)
+	requested := expandHome(filepath.FromSlash(path))
 	if info, err := os.Lstat(requested); err == nil {
 		if info.Mode()&os.ModeSymlink != 0 {
 			return "", fmt.Errorf("refusing to initialize through a symlinked configuration path: %s", requested)
@@ -187,18 +188,20 @@ eula = %t
 [paths]
 # Processing scratch remains outside recorder artifacts.
 artifacts = "artifacts"
-runtime = ".mc-recorder/runtime"
+runtime = ".recorder/minecraft/runtime"
 
 [mods]
 recorder_project = "mods/recorder-mod"
 renderer_project = "mods/renderer-mod"
 scene_extractor_project = "mods/scene-extractor-mod"
-scene_extractor_executable = "mods/scene-extractor-mod/build/install/mc-recorder-scene-extractor/bin/mc-recorder-scene-extractor"
+scene_extractor_executable = "mods/scene-extractor-mod/build/install/recorder-minecraft-scene-extractor/bin/recorder-minecraft-scene-extractor"
 `, instanceID, acceptEULA)
 }
 
 func resolve(base, path string) (string, error) {
-	path = expandHome(path)
+	// Recorder configuration uses forward slashes so the same file can move
+	// between Unix and Windows hosts. Convert them before inspecting the path.
+	path = expandHome(filepath.FromSlash(path))
 	if !filepath.IsAbs(path) {
 		path = filepath.Join(base, path)
 	}

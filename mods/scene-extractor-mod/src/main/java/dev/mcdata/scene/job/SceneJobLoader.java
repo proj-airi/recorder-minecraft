@@ -1,8 +1,8 @@
 package dev.mcdata.scene.job;
 
-import dev.minerec.artifacts.v1.SceneExtractionJob;
-import dev.minerec.artifacts.v1.SceneSourceReplay;
-import dev.minerec.artifacts.v1.SubjectPose;
+import dev.recorderminecraft.artifacts.v1.SceneExtractionJob;
+import dev.recorderminecraft.artifacts.v1.SceneSourceReplay;
+import dev.recorderminecraft.artifacts.v1.SubjectPose;
 import dev.mcdata.scene.core.SceneEvent;
 import dev.mcdata.scene.io.Hashing;
 import com.google.protobuf.util.JsonFormat;

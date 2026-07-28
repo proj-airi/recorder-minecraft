@@ -499,7 +499,7 @@ public final class PacketTranslator {
             return new TimelineValues(sessionId, connectionId, serverTick, eventSequence);
         } catch (ReflectiveOperationException | ClassCastException exception) {
             throw new IOException(
-                "mc_recorder:timeline payload is registered to an incompatible runtime type "
+                "recorder-minecraft:timeline payload is registered to an incompatible runtime type "
                     + payload.getClass().getName(),
                 exception
             );

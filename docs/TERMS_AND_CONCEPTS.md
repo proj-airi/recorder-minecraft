@@ -71,7 +71,7 @@ hierarchy on the caller's behalf.
 | Identity or coordinate | Scope | Meaning |
 | --- | --- | --- |
 | `server.name` | Human-facing server label | Configurable display name; defaults to the machine hostname when omitted |
-| `server.instance_id` | Recorder server instance | UUID generated once by `minerec init` and reused across restarts |
+| `server.instance_id` | Recorder server instance | UUID generated once by `recorder-minecraft init` and reused across restarts |
 | `session_id` | One recorder process run | In-memory run identity embedded in metadata, events, and replay metadata; it does not create a session directory |
 | `player_uuid` | Minecraft player | Stable player identity across reconnects and display-name changes |
 | `connection_id` | One play | UUID generated for every join-to-disconnect interval |

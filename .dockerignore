@@ -1,7 +1,7 @@
 .git
 .pixi
 .gradle
-.mc-recorder
+.recorder/minecraft
 artifacts
 runtime
 **/build

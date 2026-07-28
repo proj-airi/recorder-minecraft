@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 
 	"github.com/google/uuid"
-	artifactsv1 "github.com/proj-airi/mc-play-recorder/apis/sdk/go/mc-play-recorder/artifacts/v1"
+	artifactsv1 "github.com/proj-airi/recorder-minecraft/apis/sdk/go/recorder-minecraft/artifacts/v1"
 	"github.com/samber/do/v2"
 	"google.golang.org/protobuf/encoding/protojson"
 )

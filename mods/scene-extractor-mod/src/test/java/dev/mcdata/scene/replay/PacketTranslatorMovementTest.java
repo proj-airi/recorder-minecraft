@@ -188,7 +188,7 @@ final class PacketTranslatorMovementTest {
         int[] entityIds = new int[count];
         java.util.Arrays.fill(entityIds, 7);
         return new SceneJob.SubjectPoseInput(
-            "mc-recorder-subject-poses-v1", Path.of("subject-poses.jsonl"), "a".repeat(64),
+            "recorder-minecraft-subject-poses-v1", Path.of("subject-poses.jsonl"), "a".repeat(64),
             11, count, 0, 10,
             new SceneJob.SourceEvents("b".repeat(64), 1, 1),
             new SceneJob.SubjectPoseFileIdentity("test", 0),

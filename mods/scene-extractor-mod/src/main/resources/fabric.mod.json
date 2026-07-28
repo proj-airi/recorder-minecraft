@@ -4,7 +4,7 @@
   "version": "${version}",
   "name": "MC Recorder Scene Extractor",
   "description": "One-shot, server-only Flashback-to-scene extraction without a client or renderer.",
-  "authors": ["mc-play-recorder contributors"],
+  "authors": ["recorder-minecraft contributors"],
   "license": "MIT",
   "environment": "server",
   "entrypoints": {

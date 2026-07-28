@@ -15,12 +15,12 @@ final class ReplayArchiveValidatorTest {
         assertDoesNotThrow(() -> ReplayArchiveValidator.verifyModCompatibility(
             Map.of(
                 "fabricloader", "0.17.2",
-                "mc-recorder", "0.1.0+1.21.8",
+                "recorder-minecraft", "0.1.0+1.21.8",
                 "server-replay", "3.0.1+1.21.8"
             ),
             Map.of(
                 "fabricloader", "0.17.2",
-                "mc-recorder-scene-extractor", "0.1.0"
+                "recorder-minecraft-scene-extractor", "0.1.0"
             )
         ));
     }

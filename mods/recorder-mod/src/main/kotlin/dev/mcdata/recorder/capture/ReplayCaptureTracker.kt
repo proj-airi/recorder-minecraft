@@ -93,7 +93,7 @@ class ReplayCaptureTracker(
     }
 
     private fun addArchiveMetadata(capture: ReplayCapture, metadata: JsonObject) {
-        metadata.add("mc_recorder", JsonObject().apply {
+        metadata.add("recorder-minecraft", JsonObject().apply {
             addProperty("schema_version", REPLAY_METADATA_SCHEMA_VERSION)
             addProperty("session_id", sessionId)
             addProperty("replay_id", capture.replayId)

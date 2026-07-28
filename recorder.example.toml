@@ -3,13 +3,13 @@ version = 1
 [server]
 # Optional artifact display name. When omitted, the machine hostname is used.
 # name = "minecraft"
-# `minerec init` generates this once. Never share it between server instances.
+# `recorder-minecraft init` generates this once. Never share it between server instances.
 instance_id = "00000000-0000-4000-8000-000000000000"
 eula = false
 
 [paths]
 artifacts = "artifacts"
-runtime = ".mc-recorder/runtime"
+runtime = ".recorder/minecraft/runtime"
 
 [mods]
 recorder_project = "mods/recorder-mod"

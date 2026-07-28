@@ -1,7 +1,7 @@
 /ServerReplay/
 /.gradle/
 /.gradle-recorder/
-/.mc-recorder/
+/.recorder/minecraft/
 /.pixi/
 /.idea/
 /.vscode/

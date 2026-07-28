@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/proj-airi/mc-play-recorder/internal/configs"
+	"github.com/proj-airi/recorder-minecraft/internal/configs"
 	"github.com/samber/do/v2"
 	"github.com/stretchr/testify/require"
 )

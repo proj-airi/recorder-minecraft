@@ -1,11 +1,11 @@
 package dev.mcdata.renderer;
 
 import com.google.protobuf.util.JsonFormat;
-import dev.minerec.artifacts.v1.RenderJob;
-import dev.minerec.artifacts.v1.RenderJobStatus;
-import dev.minerec.artifacts.v1.RenderRangePolicy;
-import dev.minerec.artifacts.v1.RenderReplaySource;
-import dev.minerec.artifacts.v1.TickRange;
+import dev.recorderminecraft.artifacts.v1.RenderJob;
+import dev.recorderminecraft.artifacts.v1.RenderJobStatus;
+import dev.recorderminecraft.artifacts.v1.RenderRangePolicy;
+import dev.recorderminecraft.artifacts.v1.RenderReplaySource;
+import dev.recorderminecraft.artifacts.v1.TickRange;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -55,8 +55,8 @@ final class RenderJobSpecTest {
         Files.createDirectories(temporary.resolve("fpv_frames"));
         RenderJob value = RenderJob.newBuilder()
             .setSchemaVersion(1)
-            .setOwner("mc-recorder")
-            .setJobType("mc-recorder-first-person-render-v1")
+            .setOwner("recorder-minecraft")
+            .setJobType("recorder-minecraft-first-person-render-v1")
             .setStatus(RenderJobStatus.RENDER_JOB_STATUS_PREPARED)
             .setSessionId("session")
             .setConnectionId("22222222-2222-4222-8222-222222222222")

@@ -1,9 +1,9 @@
 package dev.mcdata.scene.io;
 
-import dev.minerec.artifacts.v1.SceneExtractionResult;
-import dev.minerec.artifacts.v1.SceneSourceReplay;
-import dev.minerec.artifacts.v1.SceneStreamResult;
-import dev.minerec.artifacts.v1.TickRange;
+import dev.recorderminecraft.artifacts.v1.SceneExtractionResult;
+import dev.recorderminecraft.artifacts.v1.SceneSourceReplay;
+import dev.recorderminecraft.artifacts.v1.SceneStreamResult;
+import dev.recorderminecraft.artifacts.v1.TickRange;
 import dev.mcdata.scene.job.SceneJob;
 import dev.mcdata.scene.replay.FlashbackSceneExtractor;
 import com.google.protobuf.util.JsonFormat;

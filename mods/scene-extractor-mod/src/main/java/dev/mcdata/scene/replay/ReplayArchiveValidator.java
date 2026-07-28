@@ -24,11 +24,11 @@ import java.util.zip.ZipFile;
 public final class ReplayArchiveValidator {
     private static final long MAX_METADATA_BYTES = 1_048_576;
     private static final Set<String> REPLACED_CAPTURE_INFRASTRUCTURE_IDS = Set.of(
-        "mc-recorder", "server-replay"
+        "recorder-minecraft", "server-replay"
     );
     private static final Set<String> INFRASTRUCTURE_IDS = Set.of(
         "minecraft", "java", "fabricloader", "fabric-api", "fabric-language-kotlin",
-        "mc-recorder", "server-replay", "mc-recorder-scene-extractor", "mixinextras", "inject"
+        "recorder-minecraft", "server-replay", "recorder-minecraft-scene-extractor", "mixinextras", "inject"
     );
     private final Map<String, String> loadedMods;
 
@@ -43,7 +43,7 @@ public final class ReplayArchiveValidator {
         putProperty(mods, "fabric-api", "mcRecorder.fabricVersion");
         putProperty(mods, "fabric-language-kotlin", "mcRecorder.fabricKotlinVersion");
         putProperty(mods, "arcade-replay", "mcRecorder.arcadeVersion");
-        putProperty(mods, "mc-recorder-scene-extractor", "mcRecorder.extractorVersion");
+        putProperty(mods, "recorder-minecraft-scene-extractor", "mcRecorder.extractorVersion");
         String javaVersion = System.getProperty("java.version");
         if (javaVersion != null && !javaVersion.isBlank()) {
             mods.put("java", javaVersion);
@@ -64,7 +64,7 @@ public final class ReplayArchiveValidator {
         }
 
         JsonObject arcadeMetadata = readMetadata(source.path(), "arcade_replay_meta.json");
-        JsonObject identity = requiredObject(arcadeMetadata, "mc_recorder");
+        JsonObject identity = requiredObject(arcadeMetadata, "recorder-minecraft");
         requireIdentity(identity, job, source);
         verifyMods(requiredObject(arcadeMetadata, "mods"));
         JsonObject flashbackMetadata = readMetadata(source.path(), "metadata.json");
@@ -148,7 +148,7 @@ public final class ReplayArchiveValidator {
                 .equals(SceneJob.HOTBAR_SNAPSHOT_CONTRACT)
             || !requiredString(identity, "flashback_capture_contract")
                 .equals(SceneJob.FLASHBACK_CAPTURE_CONTRACT)) {
-            throw new IOException("embedded mc_recorder identity does not match scene job for " + source.path());
+            throw new IOException("embedded recorder-minecraft identity does not match scene job for " + source.path());
         }
     }
 

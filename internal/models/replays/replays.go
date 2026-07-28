@@ -37,7 +37,7 @@ type recorderMetadata struct {
 		PlayerUUID               string `json:"player_uuid"`
 		ConnectionID             string `json:"connection_id"`
 		FlashbackCaptureContract string `json:"flashback_capture_contract"`
-	} `json:"mc_recorder"`
+	} `json:"recorder-minecraft"`
 }
 
 type Service struct{}

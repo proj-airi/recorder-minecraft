@@ -14,7 +14,7 @@ proto install --config-mode local
 pixi install --locked
 
 if [[ ! -f recorder.toml ]]; then
-  pixi run minerec init
+  pixi run recorder-minecraft init
 fi
 
 if [[ ! -f deploy/.env ]]; then

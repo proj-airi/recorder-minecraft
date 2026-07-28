@@ -1,6 +1,6 @@
 package dev.mcdata.recorder.io
 
-import dev.minerec.artifacts.v1.CaptureEvent
+import dev.recorderminecraft.artifacts.v1.CaptureEvent
 import com.google.protobuf.util.JsonFormat
 import org.slf4j.Logger
 import java.io.BufferedOutputStream
@@ -27,7 +27,7 @@ class AsyncPlayWriter(
     private val enqueueTransition = Any()
     private val closing = AtomicBoolean(false)
     private val failure = AtomicReference<Throwable?>()
-    private val worker = Thread(::writeLoop, "mc-recorder-play-writer").apply {
+    private val worker = Thread(::writeLoop, "recorder-minecraft-play-writer").apply {
         isDaemon = true
         start()
     }

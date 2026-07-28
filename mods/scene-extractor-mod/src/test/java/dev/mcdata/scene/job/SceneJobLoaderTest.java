@@ -1,12 +1,12 @@
 package dev.mcdata.scene.job;
 
-import dev.minerec.artifacts.v1.ArtifactFile;
-import dev.minerec.artifacts.v1.Rotation;
-import dev.minerec.artifacts.v1.SceneExtractionJob;
-import dev.minerec.artifacts.v1.SceneSourceReplay;
-import dev.minerec.artifacts.v1.SubjectPose;
-import dev.minerec.artifacts.v1.TickRange;
-import dev.minerec.artifacts.v1.Vector3;
+import dev.recorderminecraft.artifacts.v1.ArtifactFile;
+import dev.recorderminecraft.artifacts.v1.Rotation;
+import dev.recorderminecraft.artifacts.v1.SceneExtractionJob;
+import dev.recorderminecraft.artifacts.v1.SceneSourceReplay;
+import dev.recorderminecraft.artifacts.v1.SubjectPose;
+import dev.recorderminecraft.artifacts.v1.TickRange;
+import dev.recorderminecraft.artifacts.v1.Vector3;
 import dev.mcdata.scene.io.Hashing;
 import com.google.protobuf.util.JsonFormat;
 import org.junit.jupiter.api.Test;

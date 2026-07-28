@@ -33,7 +33,7 @@ proto run openjdk -- --version
 proto run gradle -- --version
 proto run go -- version
 proto run buf -- --version
-pixi run minerec --help
+pixi run recorder-minecraft --help
 ```
 
 If your shell is configured with proto shims, plain `java` and `gradle` should

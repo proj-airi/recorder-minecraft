@@ -1,8 +1,8 @@
 package dev.mcdata.recorder.io
 
-import dev.minerec.artifacts.v1.CaptureEvent
-import dev.minerec.artifacts.v1.EventIdentity
-import dev.minerec.artifacts.v1.PlayerStateEvent
+import dev.recorderminecraft.artifacts.v1.CaptureEvent
+import dev.recorderminecraft.artifacts.v1.EventIdentity
+import dev.recorderminecraft.artifacts.v1.PlayerStateEvent
 import com.google.protobuf.util.JsonFormat
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir

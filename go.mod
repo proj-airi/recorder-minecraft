@@ -1,4 +1,4 @@
-module github.com/proj-airi/mc-play-recorder
+module github.com/proj-airi/recorder-minecraft
 
 go 1.26.1
 

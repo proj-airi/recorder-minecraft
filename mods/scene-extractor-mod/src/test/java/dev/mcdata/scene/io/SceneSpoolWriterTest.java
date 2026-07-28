@@ -1,7 +1,7 @@
 package dev.mcdata.scene.io;
 
-import dev.minerec.artifacts.v1.SceneChangeRecord;
-import dev.minerec.artifacts.v1.SceneFrameRecord;
+import dev.recorderminecraft.artifacts.v1.SceneChangeRecord;
+import dev.recorderminecraft.artifacts.v1.SceneFrameRecord;
 import com.google.protobuf.util.JsonFormat;
 import dev.mcdata.scene.core.SceneEvent;
 import dev.mcdata.scene.core.SceneFrame;

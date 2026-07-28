@@ -444,7 +444,7 @@ final class SceneReducerTest {
     private static SceneJob.SubjectPoseInput subjectPoses() {
         int count = 2;
         return new SceneJob.SubjectPoseInput(
-            "mc-recorder-subject-poses-v1",
+            "recorder-minecraft-subject-poses-v1",
             Path.of("/tmp/job/subject-poses.jsonl"),
             "a".repeat(64),
             2,

@@ -109,7 +109,7 @@ final class SubjectInitializationBufferTest {
     private static SceneJob.SubjectPoseInput poses() {
         int count = 2;
         return new SceneJob.SubjectPoseInput(
-            "mc-recorder-subject-poses-v1", Path.of("/tmp/subject-poses.jsonl"),
+            "recorder-minecraft-subject-poses-v1", Path.of("/tmp/subject-poses.jsonl"),
             "b".repeat(64), 2, 2, 100, 101,
             new SceneJob.SourceEvents("c".repeat(64), 1, 1),
             new SceneJob.SubjectPoseFileIdentity("test", 0),

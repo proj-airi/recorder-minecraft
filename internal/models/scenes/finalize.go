@@ -10,9 +10,9 @@ import (
 	"os"
 	"path/filepath"
 
-	artifactsv1 "github.com/proj-airi/mc-play-recorder/apis/sdk/go/mc-play-recorder/artifacts/v1"
-	sceneent "github.com/proj-airi/mc-play-recorder/databases/minerec-scene/ent"
-	"github.com/proj-airi/mc-play-recorder/internal/datastore"
+	artifactsv1 "github.com/proj-airi/recorder-minecraft/apis/sdk/go/recorder-minecraft/artifacts/v1"
+	sceneent "github.com/proj-airi/recorder-minecraft/databases/scene/ent"
+	"github.com/proj-airi/recorder-minecraft/internal/datastore"
 	"github.com/samber/do/v2"
 	"google.golang.org/protobuf/encoding/protojson"
 )

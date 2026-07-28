@@ -14,16 +14,16 @@ import com.moulberry.flashback.playback.ReplayServer;
 import com.moulberry.flashback.state.EditorScene;
 import com.moulberry.flashback.state.EditorState;
 import com.moulberry.flashback.state.KeyframeTrack;
-import dev.minerec.artifacts.v1.RenderArtifact;
-import dev.minerec.artifacts.v1.RenderFrameIndex;
-import dev.minerec.artifacts.v1.RenderProgress;
-import dev.minerec.artifacts.v1.RenderProgressStatus;
-import dev.minerec.artifacts.v1.RenderReplaySource;
-import dev.minerec.artifacts.v1.RenderResult;
-import dev.minerec.artifacts.v1.RenderResultStatus;
-import dev.minerec.artifacts.v1.TickRange;
-import dev.minerec.artifacts.v1.UnsupportedPacketCount;
-import dev.minerec.artifacts.v1.UnsupportedPackets;
+import dev.recorderminecraft.artifacts.v1.RenderArtifact;
+import dev.recorderminecraft.artifacts.v1.RenderFrameIndex;
+import dev.recorderminecraft.artifacts.v1.RenderProgress;
+import dev.recorderminecraft.artifacts.v1.RenderProgressStatus;
+import dev.recorderminecraft.artifacts.v1.RenderReplaySource;
+import dev.recorderminecraft.artifacts.v1.RenderResult;
+import dev.recorderminecraft.artifacts.v1.RenderResultStatus;
+import dev.recorderminecraft.artifacts.v1.TickRange;
+import dev.recorderminecraft.artifacts.v1.UnsupportedPacketCount;
+import dev.recorderminecraft.artifacts.v1.UnsupportedPackets;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
@@ -52,7 +52,7 @@ import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 
 public final class McRecorderRenderer implements ClientModInitializer {
-    private static final Logger LOGGER = LoggerFactory.getLogger("mc-recorder-renderer");
+    private static final Logger LOGGER = LoggerFactory.getLogger("recorder-minecraft-renderer");
     private static final JsonFormat.Printer JSON = JsonFormat.printer().omittingInsignificantWhitespace();
     private static final String JOB_PROPERTY = "mc.recorder.renderJob";
     private static final String JOB_ENVIRONMENT = "MC_RECORDER_RENDER_JOB";
@@ -246,7 +246,7 @@ public final class McRecorderRenderer implements ClientModInitializer {
         int scanLimit = Math.min(MAX_ANCHOR_SCAN_TICKS, replayServer.getTotalReplayTicks());
         if (!this.advanceAnchorScan(replayServer, 1, scanLimit)) {
             throw new IllegalStateException(
-                "No matching mc_recorder:timeline marker found in the first " + scanLimit + " replay ticks"
+                "No matching recorder-minecraft:timeline marker found in the first " + scanLimit + " replay ticks"
             );
         }
     }
@@ -287,7 +287,7 @@ public final class McRecorderRenderer implements ClientModInitializer {
         }
 
         throw new IllegalStateException(
-            "No matching mc_recorder:timeline marker was applied at the replay tail"
+            "No matching recorder-minecraft:timeline marker was applied at the replay tail"
         );
     }
 
@@ -429,7 +429,7 @@ public final class McRecorderRenderer implements ClientModInitializer {
         }
         EditorState editorState = this.firstPersonEditorState();
         ExportSettings settings = new ExportSettings(
-            "mc-recorder-" + this.job.playerId(),
+            "recorder-minecraft-" + this.job.playerId(),
             editorState,
             minecraft.player.position(), minecraft.player.getYRot(), minecraft.player.getXRot(),
             this.job.width(), this.job.height(), this.resolvedStartTick, this.resolvedEndTick,

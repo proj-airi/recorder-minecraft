@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/proj-airi/mc-play-recorder/internal/datastore"
+	"github.com/proj-airi/recorder-minecraft/internal/datastore"
 	"github.com/samber/do/v2"
 )
 

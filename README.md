@@ -31,7 +31,7 @@ pixi run --locked check
 Initialize one stable server instance identity:
 
 ```sh
-pixi run minerec init --accept-eula
+pixi run recorder-minecraft init --accept-eula
 cp deploy/.env.example deploy/.env
 ```
 
@@ -55,18 +55,18 @@ SSH/rsync and passed to independent processors.
 hack/process-play PLAY
 
 # Or run the processors independently:
-pixi run minerec actions extract \
+pixi run recorder-minecraft actions extract \
   --metadata PLAY/metadata.json \
   --events PLAY/capture/events.jsonl \
   --output PLAY/actions.jsonl
 
-pixi run minerec scene extract \
+pixi run recorder-minecraft scene extract \
   --metadata PLAY/metadata.json \
   --events PLAY/capture/events.jsonl \
   --replay PLAY/capture/replay.zip \
   --output PLAY/scene.sqlite3
 
-pixi run minerec render \
+pixi run recorder-minecraft render \
   --metadata PLAY/metadata.json \
   --events PLAY/capture/events.jsonl \
   --replay PLAY/capture/replay.zip \
@@ -74,7 +74,7 @@ pixi run minerec render \
 ```
 
 Processors know only the files and output supplied on the command line. Their
-temporary jobs and locks live under `.mc-recorder/runtime`; durable results can
+temporary jobs and locks live under `.recorder/minecraft/runtime`; durable results can
 be placed back in the play as shown above.
 
 Each `scene.sqlite3` is a self-contained, immutable per-play datastore. Ent
@@ -84,7 +84,7 @@ and closed through `samber/do`. The repository has no shared base database.
 See [Artifacts V1 Pipeline](docs/specs/artifacts-v1.md),
 [Primitive Capture V1](docs/specs/capture-v1.md),
 [Terms and Concepts](docs/TERMS_AND_CONCEPTS.md), and
-[the minerec CLI](cmd/minerec/README.md).
+[the recorder-minecraft CLI](cmd/recorder-minecraft/README.md).
 
 ## Modules
 
@@ -92,9 +92,9 @@ See [Artifacts V1 Pipeline](docs/specs/artifacts-v1.md),
 mods/recorder-mod/         server recorder and canonical capture writer
 mods/scene-extractor-mod/ headless Flashback scene reducer
 mods/renderer-mod/        client-only FPV frame renderer
-cmd/minerec/              Go file-to-file processor CLI
+cmd/recorder-minecraft/              Go file-to-file processor CLI
 apis/proto/               Protobuf artifact contracts
-databases/minerec-scene/  Ent model for per-play scene.sqlite3 files
+databases/scene/  Ent model for per-play scene.sqlite3 files
 deploy/                   recorder server Compose configuration
 ```
 
