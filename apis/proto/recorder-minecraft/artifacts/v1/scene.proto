@@ -1,0 +1,150 @@
+syntax = "proto3";
+
+package recorder_minecraft.artifacts.v1;
+
+import "recorder-minecraft/artifacts/v1/common.proto";
+
+option go_package = "github.com/proj-airi/recorder-minecraft/apis/sdk/go/recorder-minecraft/artifacts/v1;artifactsv1";
+option java_multiple_files = true;
+option java_package = "dev.recorderminecraft.artifacts.v1";
+
+message SceneStore {
+  SceneSchema schema = 1;
+  SceneMetadata metadata = 2;
+  repeated SceneFrame frames = 3;
+  repeated SectionVersion sections = 4;
+  repeated EntityVersion entities = 5;
+  repeated BlockEntityVersion block_entities = 6;
+  repeated ScenePlayerState player_states = 7;
+  repeated SceneBlob blobs = 8;
+}
+
+message SceneSchema {
+  string name = 1;
+  uint32 version = 2;
+}
+
+message SceneMetadata {
+  string session_id = 1;
+  string player_uuid = 2;
+  string connection_id = 3;
+  TickRange ticks = 4;
+  repeated SourceReplay source_replays = 5;
+  bool sensitive = 6;
+  SceneProvenance provenance = 7;
+}
+
+message SourceReplay {
+  string segment_id = 1;
+  uint32 segment_ordinal = 2;
+  string format = 3;
+  ArtifactFile file = 4;
+}
+
+message SceneProvenance {
+  string scope = 1;
+  string metadata_policy = 2;
+  string result_type = 3;
+  string job_id = 4;
+  map<string, uint64> ignored_packet_counts = 5;
+}
+
+enum SceneBlobKind {
+  SCENE_BLOB_KIND_UNSPECIFIED = 0;
+  SCENE_BLOB_KIND_SECTION = 1;
+  SCENE_BLOB_KIND_ENTITY = 2;
+  SCENE_BLOB_KIND_BLOCK_ENTITY = 3;
+  SCENE_BLOB_KIND_FRAME = 4;
+  SCENE_BLOB_KIND_PLAYER_STATE = 5;
+}
+
+message SceneBlob {
+  string sha256 = 1;
+  SceneBlobKind kind = 2;
+  string encoding = 3;
+  uint64 uncompressed_size = 4;
+  uint64 compressed_size = 5;
+  bytes data = 6;
+}
+
+message SceneFrame {
+  int64 server_tick = 1;
+  string frame_id = 2;
+  optional int64 replay_tick = 3;
+  string dimension = 4;
+  Vector3 subject_position = 5;
+  bool coverage_complete = 6;
+  string payload_sha256 = 7;
+}
+
+message SectionVersion {
+  int64 version_id = 1;
+  string dimension = 2;
+  int64 section_x = 3;
+  int64 section_y = 4;
+  int64 section_z = 5;
+  TickRange ticks = 6;
+  string blob_sha256 = 7;
+}
+
+message Bounds3 {
+  Vector3 min = 1;
+  Vector3 max = 2;
+}
+
+message EntityVersion {
+  int64 version_id = 1;
+  string instance_id = 2;
+  optional int64 network_id = 3;
+  string dimension = 4;
+  string type_id = 5;
+  TickRange ticks = 6;
+  Bounds3 bounds = 7;
+  string blob_sha256 = 8;
+}
+
+message BlockEntityVersion {
+  int64 version_id = 1;
+  string dimension = 2;
+  int64 block_x = 3;
+  int64 block_y = 4;
+  int64 block_z = 5;
+  string type_id = 6;
+  TickRange ticks = 7;
+  string blob_sha256 = 8;
+}
+
+message ScenePlayerState {
+  int64 server_tick = 1;
+  int64 entity_version_id = 2;
+  string entity_instance_id = 3;
+  int64 entity_id = 4;
+  string dimension = 5;
+  Vector3 position = 6;
+  Vector3 velocity = 7;
+  Rotation rotation = 8;
+  bool alive = 9;
+  bool on_ground = 10;
+  string pose = 11;
+  bool sprinting = 12;
+  bool sneaking = 13;
+  bool swimming = 14;
+  bool fall_flying = 15;
+  bool using_item = 16;
+  int32 use_item_remaining_ticks = 17;
+  string game_mode = 18;
+  double health = 19;
+  double max_health = 20;
+  double absorption = 21;
+  int32 armor = 22;
+  int32 air = 23;
+  int32 max_air = 24;
+  int32 food_level = 25;
+  double saturation = 26;
+  int32 experience_level = 27;
+  double experience_progress = 28;
+  int32 total_experience = 29;
+  uint32 selected_slot = 30;
+  uint64 state_barrier_apply_sequence = 31;
+  string payload_sha256 = 32;
+}
