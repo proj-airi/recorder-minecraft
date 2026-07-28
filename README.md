@@ -43,7 +43,7 @@ hack/minecraft-server start
 hack/minecraft-server stop
 ```
 
-At join, the recorder creates a play and streams one JSONL file plus one
+At join, the recorder creates a play and streams one generated ProtoJSON line file plus one
 unrotated Flashback replay directly into `capture/`. At disconnect it writes
 the metadata end tick last. That completed directory can be copied with normal
 SSH/rsync and passed to independent processors.
@@ -77,10 +77,14 @@ Processors know only the files and output supplied on the command line. Their
 temporary jobs and locks live under `.mc-recorder/runtime`; durable results can
 be placed back in the play as shown above.
 
+Each `scene.sqlite3` is a self-contained, immutable per-play datastore. Ent
+opens that explicit file read-only; writable command-scoped stores are created
+and closed through `samber/do`. The repository has no shared base database.
+
 See [Artifacts V1 Pipeline](docs/specs/artifacts-v1.md),
 [Primitive Capture V1](docs/specs/capture-v1.md),
 [Terms and Concepts](docs/TERMS_AND_CONCEPTS.md), and
-[the minerec CLI](apps/minerec/README.md).
+[the minerec CLI](cmd/minerec/README.md).
 
 ## Modules
 
@@ -88,7 +92,9 @@ See [Artifacts V1 Pipeline](docs/specs/artifacts-v1.md),
 mods/recorder-mod/         server recorder and canonical capture writer
 mods/scene-extractor-mod/ headless Flashback scene reducer
 mods/renderer-mod/        client-only FPV frame renderer
-apps/minerec/             explicit file-to-file processors
+cmd/minerec/              Go file-to-file processor CLI
+apis/proto/               Protobuf artifact contracts
+databases/minerec-scene/  Ent model for per-play scene.sqlite3 files
 deploy/                   recorder server Compose configuration
 ```
 

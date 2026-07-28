@@ -2,7 +2,8 @@
 
 ## Project Structure & Module Organization
 
-- `apps/minerec/src/minerec/` contains the Python provisioning, validation, export, retention, and render-job CLI. Its tests live in `apps/minerec/tests/`.
+- `cmd/minerec/` and `internal/` contain the Go provisioning, validation, export, scene, and render-job CLI. Go tests live beside the affected packages.
+- `apis/proto/` defines artifact contracts; generated Go types live under `apis/sdk/go/`. `databases/minerec-scene/` models each play-local Scene Store V2 with Ent.
 - `mods/recorder-mod/` is the Kotlin/Java Fabric server mod; production code is under `src/main/` and JUnit tests under `src/test/`.
 - `mods/scene-extractor-mod/` is the Java Fabric dedicated-server extractor for random-access block/entity scene stores; `mods/renderer-mod/` is the client-only first-person RGB renderer.
 - `docs/specs/` defines the source JSONL and dataset contracts. Update these documents when changing persisted fields or invariants.
@@ -11,7 +12,7 @@
 
 ## Build, Test, and Development Commands
 
-Install the pinned Python and JVM toolchains:
+Install the pinned Go, Buf, and JVM toolchains:
 
 ```sh
 proto install --config-mode local
@@ -21,7 +22,8 @@ pixi install --locked
 Run the automated checks:
 
 ```sh
-pixi run test-python
+pixi run test-go
+pixi run buf-lint
 pixi run build-recorder-mod
 pixi run build-scene-extractor-mod
 pixi run build-renderer-mod
@@ -31,11 +33,11 @@ Use `MC_RECORDER_FLASHBACK_JAR=/path/to/Flashback-0.39.5.jar` for renderer build
 
 ## Coding Style & Naming Conventions
 
-Use four-space indentation. Follow standard Python `snake_case`, Java/Kotlin `UpperCamelCase` types, and `lowerCamelCase` members. Keep CLI errors actionable and preserve explicit type hints. Prefer small functions around integrity boundaries; never weaken containment, SHA-256, sealing, or provenance checks. Use the configured Ruff tasks for Python formatting and linting, match adjacent Java/Kotlin code, and keep `git diff --check` clean.
+Use `gofmt` for Go. Follow standard Go naming, Java/Kotlin `UpperCamelCase` types, and `lowerCamelCase` members. Keep CLI errors actionable. Prefer small functions around integrity boundaries; never weaken containment, SHA-256, completion, or provenance checks. Match adjacent Java/Kotlin code and keep `git diff --check` clean.
 
 ## Testing Guidelines
 
-Python tests use `unittest` and files named `test_*.py`. Mod tests use JUnit 5/Kotlin Test and classes named `*Test`. Add regression coverage beside the affected module. Changes to capture alignment, rendering, or retention should also be exercised with a sealed real replay; do not mutate source captures during verification.
+Go tests use the standard `testing` package and files named `*_test.go`. Mod tests use JUnit 5/Kotlin Test and classes named `*Test`. Add regression coverage beside the affected module. Changes to capture alignment, rendering, or retention should also be exercised with a completed real replay; do not mutate source captures during verification.
 
 ## Readability, Naming, and Comments
 

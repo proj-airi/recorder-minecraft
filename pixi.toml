@@ -10,22 +10,23 @@ platforms = [
 ]
 requires-pixi = ">=0.73,<1"
 
-[dependencies]
-python = "3.14.*"
-setuptools = ">=68"
-ruff = ">=0.15.22,<0.16"
-ty = ">=0.0.61,<0.0.62"
-
-[pypi-dependencies]
-minerec = { path = "apps/minerec", editable = true }
-
 [tasks]
-setup-jvm = "proto install --config-mode local"
-test-python = "python -m unittest discover -s apps/minerec/tests -v"
+setup-toolchains = "proto install --config-mode local"
+minerec = "go run ./cmd/minerec"
+build-minerec = "mkdir -p .mc-recorder/bin && go build -o .mc-recorder/bin/minerec ./cmd/minerec"
+test-go = "go test ./..."
+lint-go = "golangci-lint run ./..."
+go-format = "find cmd internal databases apis/sdk/go -name '*.go' -type f -exec gofmt -w {} +"
+go-format-check = "test -z \"$(find cmd internal databases apis/sdk/go -name '*.go' -type f -exec gofmt -l {} +)\""
+buf-format = "buf format -w"
+buf-format-check = "buf format --diff --exit-code"
+buf-lint = "buf lint"
+buf-generate = "buf generate"
+buf-generate-check = "buf generate && git diff --exit-code -- apis/sdk/go apis/sdk/jvm"
 build-recorder-mod = "gradle --project-dir mods/recorder-mod build"
 build-scene-extractor-mod = "gradle --project-dir mods/scene-extractor-mod build installDist"
 build-renderer-mod = "gradle --project-dir mods/renderer-mod build"
-build-minerec-image = { cmd = "docker buildx build --platform linux/amd64 -f apps/minerec/Dockerfile . --tag minerec:local --load", depends-on = [
+build-minerec-image = { cmd = "docker buildx build --platform linux/amd64 -f cmd/minerec/Dockerfile . --tag minerec:local --load", depends-on = [
   "build-scene-extractor-mod",
 ] }
 build-mods = { depends-on = [
@@ -34,16 +35,11 @@ build-mods = { depends-on = [
   "build-renderer-mod"
 ] }
 check = { depends-on = [
-  "test-python",
+  "go-format-check",
+  "buf-format-check",
+  "buf-lint",
+  "buf-generate-check",
+  "test-go",
+  "lint-go",
   "build-mods",
 ] }
-py-check = { depends-on = [
-  "py-lint",
-  "py-format-check",
-  "py-typecheck"
-] }
-py-format = "ruff format ."
-py-format-check = "ruff format --check ."
-py-lint = "ruff check ."
-py-lint-fix = "ruff check --fix ."
-py-typecheck = "ty check --python $CONDA_PREFIX/bin/python"
