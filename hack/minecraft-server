@@ -108,8 +108,8 @@ prepare() {
   level_name="$(env_value MC_LEVEL_NAME)"
   : "${level_name:=world}"
   level_name="$(json_string_escape "${level_name}")"
-  server_name="$(pixi run python -c 'import sys; from minerec.config import load_config; print(load_config(sys.argv[1]).server.name)' "${config_file}")"
-  server_instance_id="$(pixi run python -c 'import sys; from minerec.config import load_config; print(load_config(sys.argv[1]).server.instance_id)' "${config_file}")"
+  server_name="$(pixi run minerec --config "${config_file}" config get server.name)"
+  server_instance_id="$(pixi run minerec --config "${config_file}" config get server.instance_id)"
   server_name="$(json_string_escape "${server_name}")"
 
   cat > "${config_dir}/server-replay/config.json" <<EOF
