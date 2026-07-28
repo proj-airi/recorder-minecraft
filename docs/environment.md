@@ -1,15 +1,15 @@
 # Development Environment
 
-This repository uses Pixi for the Python CLI workspace and proto for the JVM
-toolchain. Gradle is installed by proto instead of the Gradle wrapper.
+This repository uses Pixi as its task boundary and proto for the Go, Buf, and
+JVM toolchains. Gradle is installed by proto instead of the Gradle wrapper.
 
 ## Tool Ownership
 
 | Area | Owner | Configuration |
 | --- | --- | --- |
-| Python 3.14 development interpreter, editable `minerec` install, and root tasks | Pixi | `pixi.toml`, `pixi.lock` |
-| OpenJDK 21 and Gradle 9.6.1 | proto | `.prototools` |
-| Python package metadata | setuptools | `apps/minerec/pyproject.toml` |
+| Reproducible root tasks | Pixi | `pixi.toml`, `pixi.lock` |
+| Go, Buf, OpenJDK 21, and Gradle 9.6.1 | proto | `.prototools` |
+| Artifact contracts and generated Go SDK | Buf | `buf.yaml`, `buf.gen.yaml`, `apis/` |
 | Fabric/Kotlin build logic and dependencies | Gradle projects | `mods/recorder-mod/`, `mods/scene-extractor-mod/`, `mods/renderer-mod/` |
 | Docker Compose runtime | Docker Compose | `deploy/docker-compose.yml`, `deploy/.env` copied from `deploy/.env.example` |
 | Pull request verification | GitHub Actions | `.github/workflows/ci.yml` |
@@ -31,7 +31,8 @@ Verify the toolchain:
 ```sh
 proto run openjdk -- --version
 proto run gradle -- --version
-pixi run python --version
+proto run go -- version
+proto run buf -- --version
 pixi run minerec --help
 ```
 
@@ -46,7 +47,8 @@ repository.
 ./hack/minecraft-server restart
 ./hack/minecraft-server stop
 ./hack/minecraft-server logs --follow
-pixi run test-python
+pixi run test-go
+pixi run buf-lint
 pixi run build-recorder-mod
 pixi run build-scene-extractor-mod
 pixi run build-renderer-mod
@@ -59,13 +61,13 @@ Compose and `hack/minecraft-server prepare`. Use Docker Compose directly with
 container lifecycle control. Run `hack/minecraft-server prepare` after changing
 the local recorder mod or mod configuration inputs.
 
-`pixi run check` runs the Python test suite and all three Gradle builds. Renderer
+`pixi run check` runs Go and Protobuf checks plus all three Gradle builds. Renderer
 builds normally resolve Flashback from the pinned Modrinth version ID in
 `mods/renderer-mod/gradle.properties`. If Modrinth is unavailable, set
 `MC_RECORDER_FLASHBACK_JAR` to the Flashback 0.39.5 JAR for Minecraft 1.21.8.
 
 Scene extraction launches the `mc-recorder-scene-extractor` CLI produced by
-`pixi run build-scene-extractor-mod`. By default the Python launcher uses
+`pixi run build-scene-extractor-mod`. By default the Go launcher uses
 `mods/scene-extractor-mod/build/install/mc-recorder-scene-extractor/bin/mc-recorder-scene-extractor`.
 Set `MC_RECORDER_SCENE_EXTRACTOR` to an absolute executable path when a service
 manager needs a different installed extractor. The launcher does not invoke a

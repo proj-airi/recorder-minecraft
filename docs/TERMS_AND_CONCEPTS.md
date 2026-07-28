@@ -155,7 +155,7 @@ actions between adjacent authoritative states without relying on arrival time.
 | Rendering | Transformation from metadata, events, and replay into a `renders/` directory |
 | Tick selection | Optional inclusive `--from-tick` and `--to-tick` interval applied by a processor |
 | Prepared job | Private scene or render job created under the runtime root for validation or execution |
-| Owned output | Existing result that passes the processor's identity/format checks and may therefore be replaced with `--force` |
+| Owned output | Existing result that passes the processor's identity/format checks and may therefore be replaced with `--overwrite` |
 
 Processors do not scan `artifacts/v1`, infer a replay from a player, create a
 play, download remote files, or mutate `metadata.json` and `capture/`.

@@ -15,7 +15,7 @@ artifacts/v1/
       <player-name>--<player-uuid>/
         plays/
           <started-at-utc>--<connection-uuid>/
-            metadata.json                       # recorder
+            metadata.json                       # recorder ProtoJSON
             capture/                            # recorder
               events.jsonl
               replay.zip
@@ -53,7 +53,7 @@ capture/events.jsonl
 capture/replay.zip
 ```
 
-The JSONL stream is single, buffered, and connection-local. ServerReplay uses
+The generated ProtoJSON-lines stream is single, buffered, and connection-local. ServerReplay uses
 a timestamped working child under `capture/replay/`; after it closes, the
 recorder moves the archive unchanged to `capture/replay.zip` and removes the
 empty working parent. The recorder writes the metadata end tick last. There is
@@ -92,7 +92,7 @@ pixi run minerec render \
 
 All commands validate that metadata has an end tick and that the event/replay
 identities match it. `--from-tick` and `--to-tick` select a bounded interval.
-`--prepare-only` leaves a scene/render job for inspection. `--force` replaces
+`--prepare-only` leaves a scene/render job for inspection. `--overwrite` replaces
 only an output already recognized as owned by that processor.
 
 Processor scratch, locks, subject-pose streams, player-state staging, and the
@@ -105,13 +105,17 @@ dataset assembly are deliberately outside V1.
 
 ## Derived outputs
 
-`actions.jsonl` contains semantic actions reconstructed from authoritative
+`actions.jsonl` contains generated `PlayerAction` ProtoJSON records reconstructed from authoritative
 `packet_apply` records and 20 Hz `control_state`. It excludes diagnostic
 `packet_arrival`, physical keyboard events, raw mouse samples, and raw bytes.
 
-`renders/fpv_frames/` contains PNG frames plus `frames.jsonl`, which maps every
-frame to server tick, replay tick, player/connection identity, and replay ID.
-Renders are optional; absence means not rendered.
+`renders/render-job.json` and `renders/result.json` are generated `RenderJob`
+and `RenderResult` ProtoJSON messages. `renders/fpv_frames/` contains PNG frames
+plus generated `RenderFrameIndex` ProtoJSON lines mapping every frame to server
+tick, replay tick, player/connection identity, and replay ID. The terminal
+result binds the frame-index digest, byte size, frame count, replay integrity,
+identity, requested/actual tick ranges, resolution, and frame rate. Renders are
+optional; absence means not rendered.
 
 `scene.sqlite3` is Scene Store V2. It requires exact frame/player-state tick
 coverage and contains typed player state plus the full inventory/effect/ability

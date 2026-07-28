@@ -1,8 +1,8 @@
 # Primitive Capture V1
 
 Primitive Capture V1 is the recorder-owned input to every later processor. One
-player connection produces one top-level metadata file, one connection-local
-JSONL stream, and one unrotated Flashback archive.
+player connection produces one top-level ProtoJSON metadata message, one
+connection-local ProtoJSON-lines stream, and one unrotated Flashback archive.
 
 ## Files
 
@@ -17,14 +17,14 @@ JSONL stream, and one unrotated Flashback archive.
 There are no sessions directories, epochs, rotations, per-epoch manifests,
 seal files, replay segments, or recorder-side post-processing intermediates.
 
-`metadata.json` owns facts that occur once: server and player identity,
+`metadata.json` is the ProtoJSON form of generated `ServerMetadata` and owns facts that occur once: server and player identity,
 connection UUID, start time/tick, end time/tick, terminal reason, capture file
-names, capture contract, and known gaps. While recording, the two end fields
-are JSON `null`.
+names, capture contract, and known gaps. While recording, its optional end fields are absent.
 
 `capture/events.jsonl` is opened at connection start and appended through one
 bounded, buffered writer. A clean disconnect drains the queue, flushes, and
-fsyncs it. It is never renamed or rotated.
+fsyncs it. Every line is the ProtoJSON form of one generated `CaptureEvent`.
+The file is never renamed or rotated.
 
 ServerReplay streams Flashback data to a timestamped child of
 `capture/replay/` while the connection is live. After ServerReplay closes that
@@ -37,18 +37,19 @@ timeline/capture contracts, and the capture-relative path.
 Only after the event stream and replay have both closed does the recorder
 atomically rewrite `metadata.json` with the end fields.
 That rewrite is the readiness marker, not a publication or cryptographic seal.
-If recording stops partway through, the end tick remains `null`; processors
+If recording stops partway through, the optional end tick remains absent; processors
 reject the play as incomplete. Operators can copy complete plays with ordinary
 SSH or rsync. No downloader is part of this contract.
 
 ## Event envelope
 
-Every line is UTF-8 JSON followed by LF and contains:
+Every JSONL `CaptureEvent` contains an `EventIdentity` plus exactly one
+generated oneof record:
 
 | Field | Meaning |
 | --- | --- |
 | `schema_version` | `1`. |
-| `record_type` | Event kind. |
+| `record` | Oneof event kind. |
 | `session_id` | In-memory recorder-process identity. |
 | `server_tick` | Logical server tick; between-tick events use the upcoming tick. |
 | `sequence` | Strictly increasing order within this connection stream. |
