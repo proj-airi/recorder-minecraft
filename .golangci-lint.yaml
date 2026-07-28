@@ -1,0 +1,159 @@
+version: "2"
+linters:
+  default: all
+  disable:
+    - containedctx
+    - contextcheck
+    - cyclop
+    - depguard
+    - err113
+    - exhaustruct
+    - funlen
+    - funcorder
+    - goconst
+    - gochecknoglobals
+    - gochecknoinits
+    - gocognit
+    - gocyclo
+    - godoclint
+    - godot
+    - godox
+    - gomodguard
+    - ireturn
+    - lll
+    - maintidx
+    - mnd
+    - nilnil
+    - nlreturn
+    - noinlineerr
+    - nonamedreturns
+    - paralleltest
+    - tagalign
+    - tagliatelle
+    - testpackage
+    - varnamelen
+    - wrapcheck
+    - wsl
+    - wsl_v5
+  settings:
+    dupl:
+      threshold: 600
+    gocritic:
+      disabled-checks:
+        - ifElseChain
+    gosec:
+      excludes:
+        - G115
+    mnd:
+      ignored-files:
+        - examples/.*
+      ignored-functions:
+        - context.WithTimeout
+        - strconv.ParseComplex
+    nestif:
+      min-complexity: 9
+    revive:
+      rules:
+        - name: blank-imports
+          disabled: true
+    wsl_v5:
+      # Allow cuddling a variable if it's used first in the immediate following block,
+      # even if the statement with the block doesn't use the variable.
+      # https://github.com/bombsimon/wsl/tree/main?tab=readme-ov-file#configuration
+      # Default: true
+      allow-first-in-block: false
+      # Same as above,
+      # but allows cuddling if the variable is used anywhere in the following (or nested) block.
+      # https://github.com/bombsimon/wsl/tree/main?tab=readme-ov-file#configuration
+      # Default: false
+      allow-whole-block: true
+      # If a block contains more than this number of lines,
+      # the branch statement needs to be separated by whitespace.
+      # https://github.com/bombsimon/wsl/tree/main?tab=readme-ov-file#configuration
+      # Default: 2
+      branch-max-lines: 4
+      # If set to a non-negative number,
+      # case blocks need to end with whitespace if exceeding this number
+      # https://github.com/bombsimon/wsl/tree/main?tab=readme-ov-file#configuration
+      # Default: 0
+      case-max-lines: 2
+      # Max number of cuddled statements allowed above block statements, go, defer and send.
+      # Every cuddled statement must have at least one variable used in the block.
+      # Respects allow-first-in-block and allow-whole-block.
+      # With 0 no cuddling is allowed at all; every cuddle-checked trigger requires a blank line above it
+      # Default: 1
+      cuddle-max-statements: 2
+      # Enabled checks.
+      # Will be additive to any presets.
+      # https://github.com/bombsimon/wsl/tree/main?tab=readme-ov-file#checks-and-configuration
+      # Default: []
+      enable:
+        - append
+        - assign
+        - branch
+        - decl
+        - defer
+        - err
+        - expr
+        - for
+        - go
+        - if
+        - inc-dec
+        - label
+        - range
+        - return
+        - select
+        - send
+        - switch
+        - type-switch
+        - leading-whitespace
+        - trailing-whitespace
+      disable:
+        - after-block
+        - after-decl
+        - after-defer
+        - after-expr
+        - after-go
+        - assign-exclusive
+        - assign-expr
+        - cuddle-group
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - linters:
+          - perfsprint
+        path: _test\.go
+      - path: (.+)\.go$
+        text: if statements should only be cuddled with assignments
+      - path: (.+)\.go$
+        text: if statements should only be cuddled with assignments used in the if statement itself
+      - path: (.+)\.go$
+        text: assignments should only be cuddled with other assignments
+    paths:
+      - apis/sdk/go/fake
+      - apis
+      - api
+      - ent
+      - \.worktrees
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  enable:
+    - gofmt
+  exclusions:
+    generated: lax
+    paths:
+      - apis/sdk/go/fake
+      - apis
+      - api
+      - ent
+      - \.worktrees
+      - third_party$
+      - builtin$
+      - examples$

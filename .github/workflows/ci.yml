@@ -25,7 +25,7 @@ jobs:
           auto-install: false
           cache: true
 
-      - name: Install JVM toolchain
+      - name: Install pinned toolchains
         run: proto install --config-mode local
 
       - name: Set up Pixi
