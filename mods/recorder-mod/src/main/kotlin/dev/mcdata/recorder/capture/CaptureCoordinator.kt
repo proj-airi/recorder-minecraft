@@ -1,7 +1,14 @@
 package dev.mcdata.recorder.capture
 
-import com.google.gson.JsonObject
 import com.mojang.authlib.GameProfile
+import dev.minerec.artifacts.v1.CaptureEvent
+import dev.minerec.artifacts.v1.ControlState
+import dev.minerec.artifacts.v1.ControlStateEvent
+import dev.minerec.artifacts.v1.EventIdentity
+import dev.minerec.artifacts.v1.PacketApplyEvent
+import dev.minerec.artifacts.v1.PacketArrivalEvent
+import dev.minerec.artifacts.v1.ReplayCoverage
+import dev.minerec.artifacts.v1.ReplayTimelineEvent
 import dev.mcdata.recorder.config.RecorderConfig
 import dev.mcdata.recorder.io.AsyncPlayWriter
 import dev.mcdata.recorder.io.PlayFiles
@@ -73,12 +80,13 @@ class CaptureCoordinator(
         val normalized = PacketNormalizer.normalize(packet)
         val arrivalSequence = capture.peekNextSequence()
         arrivals[packet] = ArrivalStamp(arrivalSequence, eventTick, normalized)
-        capture.emit("packet_arrival", eventTick) {
-            addPlayer(player, capture)
-            addProperty("arrival_sequence", arrivalSequence)
-            addProperty("tick_phase", tickPhase.serialized)
-            addProperty("network_thread", Thread.currentThread().name)
-            add("packet", normalized.data.deepCopy())
+        capture.emit(eventTick, player) { event ->
+            event.packetArrival = PacketArrivalEvent.newBuilder()
+                .setArrivalSequence(arrivalSequence)
+                .setTickPhase(tickPhase.serialized)
+                .setNetworkThread(Thread.currentThread().name)
+                .setPacket(normalized.data.build())
+                .build()
         }
     }
 
@@ -91,23 +99,22 @@ class CaptureCoordinator(
         val normalized = arrival?.normalized ?: PacketNormalizer.normalize(packet)
         PacketNormalizer.enrichAtApply(player, packet, normalized.data)
         normalized.input?.let { controls.getOrPut(player.uuid, ::ControlStateTracker).updateInput(it) }
-        normalized.data.get("slot")?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }?.let {
-            controls.getOrPut(player.uuid, ::ControlStateTracker).updateSelectedSlot(it.asInt)
-        }
+        normalized.selectedSlot?.let { controls.getOrPut(player.uuid, ::ControlStateTracker).updateSelectedSlot(it) }
 
-        capture.emit("packet_apply", eventTick) {
-            addPlayer(player, capture)
-            addProperty("apply_sequence", applySequence)
-            addProperty("phase", "main_thread_before_handler_body")
-            addProperty("tick_phase", tickPhase.serialized)
-            addProperty("main_thread", Thread.currentThread().name)
+        capture.emit(eventTick, player) { event ->
+            val applied = PacketApplyEvent.newBuilder()
+                .setApplySequence(applySequence)
+                .setPhase("main_thread_before_handler_body")
+                .setTickPhase(tickPhase.serialized)
+                .setMainThread(Thread.currentThread().name)
+                .setPacket(normalized.data.build())
             if (arrival != null) {
-                addProperty("arrival_sequence", arrival.arrivalSequence)
-                addProperty("arrival_server_tick", arrival.arrivalTick)
+                applied.arrivalSequence = arrival.arrivalSequence
+                applied.arrivalServerTick = arrival.arrivalTick
             } else {
-                addProperty("arrival_missing", true)
+                applied.arrivalMissing = true
             }
-            add("packet", normalized.data)
+            event.packetApply = applied.build()
         }
     }
 
@@ -150,40 +157,36 @@ class CaptureCoordinator(
         for (player in server.playerList.players.sortedBy { it.uuid.toString() }) {
             val capture = activeCapture(player) ?: continue
             val state = PlayerSnapshot.capture(player, config)
-            capture.emit("player_state", serverTick) {
-                merge(state)
-                addPlayer(player, capture)
-                addProperty("state_barrier_apply_sequence", stateBarrier)
-                add("replay_coverage", JsonObject().apply {
-                    addProperty("kind", "client_visible_best_effort")
-                    addProperty("center_chunk_x", player.chunkPosition().x)
-                    addProperty("center_chunk_z", player.chunkPosition().z)
-                    addProperty("view_distance_chunks", server.playerList.viewDistance)
-                    addProperty("complete", false)
-                })
+            capture.emit(serverTick, player) { event ->
+                state.stateBarrierApplySequence = stateBarrier
+                state.replayCoverage = ReplayCoverage.newBuilder()
+                    .setKind("client_visible_best_effort")
+                    .setCenterChunkX(player.chunkPosition().x)
+                    .setCenterChunkZ(player.chunkPosition().z)
+                    .setViewDistanceChunks(server.playerList.viewDistance)
+                    .setComplete(false)
+                    .build()
+                event.playerState = state.build()
             }
 
             val tracker = controls.getOrPut(player.uuid, ::ControlStateTracker)
             val control = tracker.endTick(player.yRot, player.xRot, player.inventory.selectedSlot)
-            capture.emit("control_state", serverTick) {
-                addPlayer(player, capture)
-                addProperty("forward", control.input.forward)
-                addProperty("backward", control.input.backward)
-                addProperty("left", control.input.left)
-                addProperty("right", control.input.right)
-                addProperty("jump", control.input.jump)
-                addProperty("sneak", control.input.sneak)
-                addProperty("sprint", control.input.sprint)
-                addProperty("camera_yaw", control.yaw)
-                addProperty("camera_pitch", control.pitch)
-                addProperty("camera_delta_yaw", control.deltaYaw)
-                addProperty("camera_delta_pitch", control.deltaPitch)
-                addProperty("selected_slot", control.selectedSlot)
+            capture.emit(serverTick, player) { event ->
+                event.controlState = ControlStateEvent.newBuilder().setState(
+                    ControlState.newBuilder()
+                        .setForward(control.input.forward).setBackward(control.input.backward)
+                        .setLeft(control.input.left).setRight(control.input.right)
+                        .setJump(control.input.jump).setSneak(control.input.sneak).setSprint(control.input.sprint)
+                        .setCameraYaw(control.yaw.toDouble()).setCameraPitch(control.pitch.toDouble())
+                        .setCameraDeltaYaw(control.deltaYaw.toDouble()).setCameraDeltaPitch(control.deltaPitch.toDouble())
+                        .setSelectedSlot(control.selectedSlot)
+                ).build()
             }
 
-            val markerSequence = capture.emit("replay_timeline", serverTick) {
-                addPlayer(player, capture)
-                addProperty("protocol", "mc_recorder:timeline/v1")
+            val markerSequence = capture.emit(serverTick, player) { event ->
+                event.replayTimeline = ReplayTimelineEvent.newBuilder()
+                    .setProtocol("mc_recorder:timeline/v1")
+                    .build()
             }
             ServerPlayNetworking.send(
                 player,
@@ -246,18 +249,6 @@ class CaptureCoordinator(
     private fun associatedEventTick(): Long =
         if (tickPhase == TickPhase.BETWEEN_TICKS) serverTick + 1 else serverTick
 
-    private fun JsonObject.addPlayer(player: ServerPlayer, capture: ConnectionCapture) {
-        addProperty("player_uuid", player.uuid.toString())
-        addProperty("player_name", player.gameProfile.name)
-        addProperty("entity_id", player.id)
-        addProperty("connection_id", capture.id)
-        addProperty("connection_start_server_tick", capture.startServerTick)
-    }
-
-    private fun JsonObject.merge(other: JsonObject) {
-        other.entrySet().forEach { (key, value) -> add(key, value) }
-    }
-
     private inner class ConnectionCapture(
         val id: String,
         val playerUuid: UUID,
@@ -270,19 +261,23 @@ class CaptureCoordinator(
     ) {
         fun peekNextSequence(): Long = sequence + 1
 
-        fun emit(recordType: String, recordTick: Long, payload: JsonObject.() -> Unit): Long {
+        fun emit(recordTick: Long, player: ServerPlayer, payload: (CaptureEvent.Builder) -> Unit): Long {
             sequence++
-            val record = JsonObject().apply {
-                addProperty("schema_version", 1)
-                addProperty("record_type", recordType)
-                addProperty("session_id", sessionId)
-                addProperty("server_tick", recordTick)
-                addProperty("sequence", sequence)
-                addProperty("recorded_at_ns", System.nanoTime())
-                addProperty("recorded_at_unix_ms", System.currentTimeMillis())
-                payload()
-            }
-            writer.submit(record)
+            val identity = EventIdentity.newBuilder()
+                .setSchemaVersion(1)
+                .setSessionId(sessionId)
+                .setServerTick(recordTick)
+                .setSequence(sequence)
+                .setRecordedAtNs(System.nanoTime())
+                .setRecordedAtUnixMs(System.currentTimeMillis())
+                .setPlayerUuid(player.uuid.toString())
+                .setPlayerName(player.gameProfile.name)
+                .setEntityId(player.id.toLong())
+                .setConnectionId(id)
+                .setConnectionStartServerTick(startServerTick)
+            val record = CaptureEvent.newBuilder().setIdentity(identity)
+            payload(record)
+            writer.submit(record.build())
             return sequence
         }
     }

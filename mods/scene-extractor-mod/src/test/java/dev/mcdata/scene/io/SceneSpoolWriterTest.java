@@ -1,5 +1,8 @@
 package dev.mcdata.scene.io;
 
+import dev.minerec.artifacts.v1.SceneChangeRecord;
+import dev.minerec.artifacts.v1.SceneFrameRecord;
+import com.google.protobuf.util.JsonFormat;
 import dev.mcdata.scene.core.SceneEvent;
 import dev.mcdata.scene.core.SceneFrame;
 import dev.mcdata.scene.core.SceneSnapshot;
@@ -55,8 +58,10 @@ final class SceneSpoolWriterTest {
         assertEquals(3, stats.changeCount());
         assertTrue(Files.isRegularFile(output.resolve("frames.jsonl")));
         assertTrue(Files.isRegularFile(output.resolve("changes.jsonl")));
-        assertTrue(Files.readString(output.resolve("frames.jsonl")).contains("\"server_tick\":1"));
-        assertTrue(Files.readString(output.resolve("changes.jsonl")).contains("\"type\":\"section_set\""));
+        assertEquals(1, parseFrame(Files.readAllLines(output.resolve("frames.jsonl")).getFirst()).getServerTick());
+        List<String> initialChanges = Files.readAllLines(output.resolve("changes.jsonl"));
+        assertEquals(SceneChangeRecord.ChangeCase.SEGMENT_BEGIN, parseChange(initialChanges.get(0)).getChangeCase());
+        assertEquals(SceneChangeRecord.ChangeCase.SECTION_SET, parseChange(initialChanges.get(1)).getChangeCase());
         try (var blobs = Files.list(output.resolve("blobs"))) {
             assertEquals(1, blobs.count());
         }
@@ -92,11 +97,13 @@ final class SceneSpoolWriterTest {
 
         assertEquals(1, stats.frameCount());
         assertEquals(2, stats.changeCount());
-        assertEquals(1, Files.readAllLines(output.resolve("frames.jsonl")).size());
+        List<String> frames = Files.readAllLines(output.resolve("frames.jsonl"));
+        assertEquals(1, frames.size());
+        assertEquals(first.segmentId().toString(), parseFrame(frames.getFirst()).getSegmentId());
         List<String> changes = Files.readAllLines(output.resolve("changes.jsonl"));
         assertEquals(2, changes.size());
-        assertTrue(changes.get(0).contains(first.segmentId().toString()));
-        assertTrue(changes.get(1).contains(second.segmentId().toString()));
+        assertEquals(first.segmentId().toString(), parseChange(changes.get(0)).getSegmentId());
+        assertEquals(second.segmentId().toString(), parseChange(changes.get(1)).getSegmentId());
     }
 
     @Test
@@ -131,5 +138,17 @@ final class SceneSpoolWriterTest {
             tick, replayTick, 4, source.segmentId(), source.segmentOrdinal(),
             "minecraft:overworld", 7, new SceneEvent.Vec3(0, 64, 0), 0, 0, true
         );
+    }
+
+    private static SceneFrameRecord parseFrame(String json) throws IOException {
+        SceneFrameRecord.Builder value = SceneFrameRecord.newBuilder();
+        JsonFormat.parser().merge(json, value);
+        return value.build();
+    }
+
+    private static SceneChangeRecord parseChange(String json) throws IOException {
+        SceneChangeRecord.Builder value = SceneChangeRecord.newBuilder();
+        JsonFormat.parser().merge(json, value);
+        return value.build();
     }
 }

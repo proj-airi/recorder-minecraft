@@ -1,7 +1,8 @@
 package dev.mcdata.recorder.capture
 
 import com.google.gson.JsonObject
-import com.google.gson.JsonParser
+import dev.minerec.artifacts.v1.ServerMetadata
+import com.google.protobuf.util.JsonFormat
 import dev.mcdata.recorder.config.RecorderConfig
 import dev.mcdata.recorder.io.PlayFiles
 import org.junit.jupiter.api.Test
@@ -44,8 +45,8 @@ class ReplayCaptureTrackerTest {
 
         Files.writeString(play.paths.events, "{}\n")
         play.eventsClosed(Instant.parse("2026-07-25T10:21:00Z"), 20, "disconnect")
-        var metadata = JsonParser.parseString(Files.readString(play.paths.metadata)).asJsonObject
-        assertTrue(metadata.getAsJsonObject("connection").get("end_server_tick").isJsonNull)
+        var metadata = readMetadata(play.paths.metadata)
+        assertFalse(metadata.connection.hasEndServerTick())
 
         Files.createDirectories(working)
         val serverReplayOutput = working.resolveSibling(working.fileName.toString() + ".zip")
@@ -54,8 +55,8 @@ class ReplayCaptureTrackerTest {
         Files.delete(working)
         tracker.captureClosed(recorder)
 
-        metadata = JsonParser.parseString(Files.readString(play.paths.metadata)).asJsonObject
-        assertEquals(20, metadata.getAsJsonObject("connection").get("end_server_tick").asLong)
+        metadata = readMetadata(play.paths.metadata)
+        assertEquals(20, metadata.connection.endServerTick)
         assertTrue(Files.isRegularFile(play.paths.replay))
         assertContentEquals(byteArrayOf(1, 2, 3, 4), Files.readAllBytes(play.paths.replay))
         assertFalse(Files.exists(play.paths.replayWorking))
@@ -91,12 +92,12 @@ class ReplayCaptureTrackerTest {
     @Test
     fun `recorder stage reserves only metadata and capture inputs`() {
         val play = playFiles()
-        val metadata = JsonParser.parseString(Files.readString(play.paths.metadata)).asJsonObject
+        val metadata = readMetadata(play.paths.metadata)
 
         assertTrue(Files.isRegularFile(play.paths.metadata))
         assertTrue(Files.isDirectory(play.paths.capture))
-        assertEquals("capture/events.jsonl", metadata.getAsJsonObject("capture").get("events").asString)
-        assertEquals("capture/replay.zip", metadata.getAsJsonObject("capture").get("replay").asString)
+        assertEquals("capture/events.jsonl", metadata.capture.events)
+        assertEquals("capture/replay.zip", metadata.capture.replay)
         assertFalse(Files.exists(play.paths.actions))
         assertFalse(Files.exists(play.paths.scene))
         assertFalse(Files.exists(play.paths.renders))
@@ -115,6 +116,10 @@ class ReplayCaptureTrackerTest {
         startedAt = Instant.parse("2026-07-25T10:20:30Z"),
         startServerTick = 10
     )
+
+    private fun readMetadata(path: Path): ServerMetadata = ServerMetadata.newBuilder()
+        .also { JsonFormat.parser().merge(Files.readString(path), it) }
+        .build()
 
     companion object {
         private const val SESSION = "session-20260721"

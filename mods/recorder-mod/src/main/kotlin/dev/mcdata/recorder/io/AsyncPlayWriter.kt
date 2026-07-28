@@ -1,6 +1,7 @@
 package dev.mcdata.recorder.io
 
-import com.google.gson.JsonObject
+import dev.minerec.artifacts.v1.CaptureEvent
+import com.google.protobuf.util.JsonFormat
 import org.slf4j.Logger
 import java.io.BufferedOutputStream
 import java.io.FileOutputStream
@@ -31,7 +32,7 @@ class AsyncPlayWriter(
         start()
     }
 
-    fun submit(record: JsonObject) {
+    fun submit(record: CaptureEvent) {
         synchronized(enqueueTransition) {
             check(!closing.get()) { "play writer is closing" }
             offerWhileHealthy(QueueItem.Record(record), "record")
@@ -94,7 +95,10 @@ class AsyncPlayWriter(
                 BufferedOutputStream(file, BUFFER_BYTES).use { output ->
                     while (true) {
                         when (val item = queue.take()) {
-                            is QueueItem.Record -> output.write(JsonLineEncoder.encode(item.value))
+                            is QueueItem.Record -> {
+                                output.write(PRINTER.print(item.value).toByteArray(Charsets.UTF_8))
+                                output.write('\n'.code)
+                            }
                             QueueItem.Stop -> {
                                 output.flush()
                                 file.fd.sync()
@@ -116,7 +120,7 @@ class AsyncPlayWriter(
     }
 
     private sealed interface QueueItem {
-        data class Record(val value: JsonObject) : QueueItem
+        data class Record(val value: CaptureEvent) : QueueItem
         data object Stop : QueueItem
         data object Abort : QueueItem
     }
@@ -124,5 +128,6 @@ class AsyncPlayWriter(
     companion object {
         private const val QUEUE_TIMEOUT_SECONDS = 30L
         private const val BUFFER_BYTES = 256 * 1024
+        private val PRINTER = JsonFormat.printer().omittingInsignificantWhitespace()
     }
 }

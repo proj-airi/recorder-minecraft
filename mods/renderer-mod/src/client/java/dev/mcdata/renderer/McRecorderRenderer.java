@@ -1,7 +1,7 @@
 package dev.mcdata.renderer;
 
-import com.google.gson.JsonArray;
-import com.google.gson.JsonObject;
+import com.google.protobuf.Timestamp;
+import com.google.protobuf.util.JsonFormat;
 import com.moulberry.flashback.Flashback;
 import com.moulberry.flashback.combo_options.TrackingBodyPart;
 import com.moulberry.flashback.combo_options.VideoContainer;
@@ -14,6 +14,16 @@ import com.moulberry.flashback.playback.ReplayServer;
 import com.moulberry.flashback.state.EditorScene;
 import com.moulberry.flashback.state.EditorState;
 import com.moulberry.flashback.state.KeyframeTrack;
+import dev.minerec.artifacts.v1.RenderArtifact;
+import dev.minerec.artifacts.v1.RenderFrameIndex;
+import dev.minerec.artifacts.v1.RenderProgress;
+import dev.minerec.artifacts.v1.RenderProgressStatus;
+import dev.minerec.artifacts.v1.RenderReplaySource;
+import dev.minerec.artifacts.v1.RenderResult;
+import dev.minerec.artifacts.v1.RenderResultStatus;
+import dev.minerec.artifacts.v1.TickRange;
+import dev.minerec.artifacts.v1.UnsupportedPacketCount;
+import dev.minerec.artifacts.v1.UnsupportedPackets;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
@@ -43,6 +53,7 @@ import java.time.Instant;
 
 public final class McRecorderRenderer implements ClientModInitializer {
     private static final Logger LOGGER = LoggerFactory.getLogger("mc-recorder-renderer");
+    private static final JsonFormat.Printer JSON = JsonFormat.printer().omittingInsignificantWhitespace();
     private static final String JOB_PROPERTY = "mc.recorder.renderJob";
     private static final String JOB_ENVIRONMENT = "MC_RECORDER_RENDER_JOB";
     private static final int LOAD_TIMEOUT_TICKS = 20 * 120;
@@ -118,7 +129,7 @@ public final class McRecorderRenderer implements ClientModInitializer {
             this.job = RenderJobSpec.read(Path.of(jobValue));
             this.validateInputs();
             ReplayPacketCompatibility.beginAutomatedRender();
-            this.writeProgress("prepared", 0, 0);
+            this.writeProgress(RenderProgressStatus.RENDER_PROGRESS_STATUS_PREPARED, 0, 0);
             this.phase = Phase.OPEN_REPLAY;
             LOGGER.info("Loaded render job {}", this.job.jobPath());
         } catch (Exception exception) {
@@ -175,7 +186,7 @@ public final class McRecorderRenderer implements ClientModInitializer {
         }
         this.phase = Phase.WAIT_REPLAY;
         this.waitTicks = 0;
-        this.writeProgressUnchecked("opening_replay", 0, 0);
+        this.writeProgressUnchecked(RenderProgressStatus.RENDER_PROGRESS_STATUS_OPENING_REPLAY, 0, 0);
         LOGGER.info("Minecraft startup settled on {}; scheduling replay open", minecraft.screen.getClass().getSimpleName());
         Thread.startVirtualThread(() -> minecraft.submit(() -> {
             try {
@@ -204,7 +215,7 @@ public final class McRecorderRenderer implements ClientModInitializer {
         this.lastTimelineObservation = null;
         this.phase = Phase.FIND_FIRST_ANCHOR;
         this.waitTicks = 0;
-        this.writeProgress("finding_coverage", 0, 0);
+        this.writeProgress(RenderProgressStatus.RENDER_PROGRESS_STATUS_FINDING_COVERAGE, 0, 0);
     }
 
     private void findFirstTimelineAnchor(Minecraft minecraft) throws IOException {
@@ -366,8 +377,8 @@ public final class McRecorderRenderer implements ClientModInitializer {
     }
 
     private void completeNoCoverage(Minecraft minecraft) throws IOException {
-        this.writeStatus("no_coverage", null);
-        this.writeProgress("no_coverage", 0, 0);
+        this.writeStatus(RenderResultStatus.RENDER_RESULT_STATUS_NO_COVERAGE, null, 0);
+        this.writeProgress(RenderProgressStatus.RENDER_PROGRESS_STATUS_NO_COVERAGE, 0, 0);
         ReplayPacketCompatibility.endAutomatedRender();
         this.phase = Phase.COMPLETE;
         LOGGER.info(
@@ -428,8 +439,7 @@ public final class McRecorderRenderer implements ClientModInitializer {
             this.job.output(), "frame_%06d"
         );
 
-        this.writeStatus("running", null);
-        this.writeProgress("rendering", 0, this.resolvedEndTick - this.resolvedStartTick + 1);
+        this.writeProgress(RenderProgressStatus.RENDER_PROGRESS_STATUS_RENDERING, 0, this.resolvedEndTick - this.resolvedStartTick + 1);
         Flashback.EXPORT_JOB = new ExportJob(settings);
         this.phase = Phase.EXPORTING;
         LOGGER.info(
@@ -568,7 +578,7 @@ public final class McRecorderRenderer implements ClientModInitializer {
             if (++this.progressTicks >= 20) {
                 this.progressTicks = 0;
                 this.writeProgress(
-                    "rendering",
+                    RenderProgressStatus.RENDER_PROGRESS_STATUS_RENDERING,
                     this.countRenderedFrames(),
                     this.resolvedEndTick - this.resolvedStartTick + 1
                 );
@@ -585,8 +595,8 @@ public final class McRecorderRenderer implements ClientModInitializer {
 
         this.validateReplayIntegrity();
 
-        this.writeStatus("complete", null);
-        this.writeProgress("complete", actualFrames, expectedFrames);
+        this.writeStatus(RenderResultStatus.RENDER_RESULT_STATUS_COMPLETE, null, actualFrames);
+        this.writeProgress(RenderProgressStatus.RENDER_PROGRESS_STATUS_COMPLETE, actualFrames, expectedFrames);
         ReplayPacketCompatibility.endAutomatedRender();
         this.phase = Phase.COMPLETE;
         LOGGER.info("Completed render job with {} frames in {}", actualFrames, this.job.output());
@@ -610,17 +620,18 @@ public final class McRecorderRenderer implements ClientModInitializer {
                 }
                 int replayTick = this.resolvedStartTick + frame;
                 long serverTick = this.globalTickOffset + replayTick;
-                JsonObject row = new JsonObject();
-                row.addProperty("frame", number);
-                row.addProperty("server_tick", serverTick);
-                row.addProperty("replay_tick", replayTick);
-                row.addProperty("partial_tick", 0.0);
-                row.addProperty("session_id", this.job.sessionId());
-                row.addProperty("connection_id", this.job.connectionId());
-                row.addProperty("player_uuid", this.job.playerId().toString());
-                row.addProperty("replay_id", this.job.replayId());
-                row.addProperty("path", image.getFileName().toString());
-                writer.write(row.toString());
+                RenderFrameIndex row = RenderFrameIndex.newBuilder()
+                    .setOrdinal(number)
+                    .setServerTick(serverTick)
+                    .setReplayTick(replayTick)
+                    .setPartialTick(0.0)
+                    .setSessionId(this.job.sessionId())
+                    .setConnectionId(this.job.connectionId())
+                    .setPlayerUuid(this.job.playerId().toString())
+                    .setReplayId(this.job.replayId())
+                    .setPath(image.getFileName().toString())
+                    .build();
+                writer.write(JSON.print(row));
                 writer.newLine();
                 frame++;
             }
@@ -630,44 +641,40 @@ public final class McRecorderRenderer implements ClientModInitializer {
         return frame;
     }
 
-    private void writeStatus(String status, Throwable failure) throws IOException {
-        JsonObject result = new JsonObject();
-        result.addProperty("status", status);
-        result.addProperty("replay", this.job.replay().toString());
-        result.addProperty("replay_sha256", this.job.replaySha256());
-        result.addProperty("replay_bytes", this.job.replayBytes());
-        result.addProperty("output", this.job.output().toString());
-        result.addProperty("session_id", this.job.sessionId());
-        result.addProperty("connection_id", this.job.connectionId());
-        result.addProperty("player_uuid", this.job.playerId().toString());
-        result.addProperty("replay_id", this.job.replayId());
-        result.addProperty("range_policy", this.job.rangePolicy().serialized());
-        result.addProperty("requested_global_start_tick", this.job.globalStartTick());
-        result.addProperty("requested_global_end_tick", this.job.globalEndTick());
-        result.addProperty(
-            "global_start_tick",
-            this.resolvedStartTick >= 0 ? this.resolvedGlobalStartTick : this.job.globalStartTick()
-        );
-        result.addProperty(
-            "global_end_tick",
-            this.resolvedEndTick >= 0 ? this.resolvedGlobalEndTick : this.job.globalEndTick()
-        );
-        result.addProperty("replay_start_tick", this.resolvedStartTick);
-        result.addProperty("replay_end_tick", this.resolvedEndTick);
-        result.addProperty("global_tick_offset", this.globalTickOffset);
+    private void writeStatus(RenderResultStatus status, Throwable failure, int frameCount) throws IOException {
+        RenderResult.Builder result = RenderResult.newBuilder()
+            .setSchemaVersion(1)
+            .setStatus(status)
+            .setSessionId(this.job.sessionId())
+            .setConnectionId(this.job.connectionId())
+            .setPlayerUuid(this.job.playerId().toString())
+            .setReplay(RenderReplaySource.newBuilder()
+                .setReplayId(this.job.replayId())
+                .setPath(this.job.replay().toString())
+                .setFormat("flashback")
+                .setSha256(this.job.replaySha256())
+                .setSizeBytes(this.job.replayBytes()))
+            .setOutputPath(this.job.output().toString())
+            .setRequestedGlobalTicks(ticks(this.job.globalStartTick(), this.job.globalEndTick()))
+            .setFramesPerSecond(this.job.framesPerSecond())
+            .setWidth(this.job.width())
+            .setHeight(this.job.height())
+            .setNoGui(this.job.noGui())
+            .setFrameCount(frameCount)
+            .setUnsupportedPackets(unsupportedPacketEnvelope());
+        if (status == RenderResultStatus.RENDER_RESULT_STATUS_COMPLETE) {
+            result.setGlobalTicks(ticks(this.resolvedGlobalStartTick, this.resolvedGlobalEndTick));
+            result.setReplayTicks(ticks(this.resolvedStartTick, this.resolvedEndTick));
+            result.setGlobalTickOffset(this.globalTickOffset);
+            result.setFrameIndex(artifact(this.job.output().resolve("frames.jsonl"), "application/jsonl"));
+        }
         if (this.firstTimelineObservation != null) {
-            result.addProperty("segment_coverage_start_tick", this.segmentCoverageStartTick);
-            result.addProperty("segment_coverage_end_tick", this.segmentCoverageEndTick);
+            result.setSegmentCoverageTicks(ticks(this.segmentCoverageStartTick, this.segmentCoverageEndTick));
         }
-        result.addProperty("fps", (int) Math.round(this.job.framesPerSecond()));
-        result.addProperty("width", this.job.width());
-        result.addProperty("height", this.job.height());
-        result.addProperty("no_gui", this.job.noGui());
-        result.add("unsupported_packets", unsupportedPacketEnvelope());
         if (failure != null) {
-            result.addProperty("error", failure.getClass().getSimpleName() + ": " + failure.getMessage());
+            result.setError(failure.getClass().getSimpleName() + ": " + failure.getMessage());
         }
-        atomicWriteString(this.job.result(), result.toString() + System.lineSeparator());
+        atomicWriteProto(this.job.result(), result.build());
     }
 
     private int countRenderedFrames() throws IOException {
@@ -678,21 +685,22 @@ public final class McRecorderRenderer implements ClientModInitializer {
         return count;
     }
 
-    private void writeProgress(String status, int completedUnits, int totalUnits) throws IOException {
-        JsonObject progress = new JsonObject();
-        progress.addProperty("schema_version", 1);
-        progress.addProperty("status", status);
-        progress.addProperty("session_id", this.job.sessionId());
-        progress.addProperty("connection_id", this.job.connectionId());
-        progress.addProperty("player_uuid", this.job.playerId().toString());
-        progress.addProperty("replay_id", this.job.replayId());
-        progress.addProperty("completed_units", completedUnits);
-        progress.addProperty("total_units", totalUnits);
-        progress.addProperty("updated_at", Instant.now().toString());
-        atomicWriteString(this.job.progress(), progress.toString() + System.lineSeparator());
+    private void writeProgress(RenderProgressStatus status, int completedUnits, int totalUnits) throws IOException {
+        RenderProgress progress = RenderProgress.newBuilder()
+            .setSchemaVersion(1)
+            .setStatus(status)
+            .setSessionId(this.job.sessionId())
+            .setConnectionId(this.job.connectionId())
+            .setPlayerUuid(this.job.playerId().toString())
+            .setReplayId(this.job.replayId())
+            .setCompletedUnits(completedUnits)
+            .setTotalUnits(totalUnits)
+            .setUpdatedAt(timestamp(Instant.now()))
+            .build();
+        atomicWriteProto(this.job.progress(), progress);
     }
 
-    private void writeProgressUnchecked(String status, int completedUnits, int totalUnits) {
+    private void writeProgressUnchecked(RenderProgressStatus status, int completedUnits, int totalUnits) {
         try {
             this.writeProgress(status, completedUnits, totalUnits);
         } catch (IOException exception) {
@@ -732,8 +740,8 @@ public final class McRecorderRenderer implements ClientModInitializer {
         LOGGER.error("Automated render failed", throwable);
         try {
             if (this.job != null) {
-                this.writeStatus("failed", throwable);
-                this.writeProgress("failed", 0, 0);
+                this.writeStatus(RenderResultStatus.RENDER_RESULT_STATUS_FAILED, throwable, 0);
+                this.writeProgress(RenderProgressStatus.RENDER_PROGRESS_STATUS_FAILED, 0, 0);
             }
         } catch (IOException statusFailure) {
             LOGGER.error("Unable to write render failure status", statusFailure);
@@ -745,29 +753,56 @@ public final class McRecorderRenderer implements ClientModInitializer {
         }
     }
 
-    private static void atomicWriteString(Path destination, String value) throws IOException {
+    private static void atomicWriteProto(Path destination, com.google.protobuf.Message value) throws IOException {
         Files.createDirectories(destination.getParent());
         Path partial = destination.resolveSibling(destination.getFileName() + ".inprogress");
-        Files.writeString(partial, value, StandardCharsets.UTF_8,
+        Files.writeString(partial, JSON.print(value) + System.lineSeparator(), StandardCharsets.UTF_8,
             StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
         forceFile(partial);
         atomicMove(partial, destination);
     }
 
-    private static JsonObject unsupportedPacketEnvelope() {
+    private static UnsupportedPackets unsupportedPacketEnvelope() {
         ReplayPacketCompatibility.Snapshot snapshot = ReplayPacketCompatibility.snapshot();
-        JsonObject envelope = new JsonObject();
-        envelope.addProperty("policy", snapshot.policy());
-        envelope.addProperty("total_count", snapshot.totalCount());
-        JsonArray types = new JsonArray();
+        UnsupportedPackets.Builder envelope = UnsupportedPackets.newBuilder()
+            .setPolicy(snapshot.policy())
+            .setTotalCount(snapshot.totalCount());
         snapshot.packetTypes().forEach((packetType, count) -> {
-            JsonObject entry = new JsonObject();
-            entry.addProperty("packet_type", packetType);
-            entry.addProperty("count", count);
-            types.add(entry);
+            envelope.addTypes(UnsupportedPacketCount.newBuilder()
+                .setPacketType(packetType)
+                .setCount(count));
         });
-        envelope.add("types", types);
-        return envelope;
+        return envelope.build();
+    }
+
+    private static TickRange ticks(long first, long last) {
+        return TickRange.newBuilder().setFirstTick(first).setLastTick(last).build();
+    }
+
+    private static Timestamp timestamp(Instant value) {
+        return Timestamp.newBuilder().setSeconds(value.getEpochSecond()).setNanos(value.getNano()).build();
+    }
+
+    private static RenderArtifact artifact(Path path, String mediaType) throws IOException {
+        return RenderArtifact.newBuilder()
+            .setPath(path.toString())
+            .setSha256(sha256(path))
+            .setSizeBytes(Files.size(path))
+            .setMediaType(mediaType)
+            .build();
+    }
+
+    private static String sha256(Path path) throws IOException {
+        MessageDigest digest;
+        try {
+            digest = MessageDigest.getInstance("SHA-256");
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IOException("SHA-256 is unavailable", exception);
+        }
+        try (DigestInputStream input = new DigestInputStream(Files.newInputStream(path), digest)) {
+            input.transferTo(java.io.OutputStream.nullOutputStream());
+        }
+        return java.util.HexFormat.of().formatHex(digest.digest());
     }
 
     private static void forceFile(Path path) throws IOException {

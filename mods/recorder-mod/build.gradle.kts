@@ -27,6 +27,10 @@ dependencies {
     // recorder does not publish a second copy of the replay framework.
     modCompileOnly("net.casualchampionships:arcade-replay:0.6.3-beta.43+1.21.8")
 
+    include(implementation("com.google.protobuf:protobuf-java:4.33.2")!!)
+    include(implementation("com.google.protobuf:protobuf-java-util:4.33.2")!!)
+    include(implementation("com.google.protobuf:protobuf-kotlin:4.33.2")!!)
+
     testImplementation(kotlin("test"))
     testImplementation("org.junit.jupiter:junit-jupiter:6.1.2")
 }
@@ -40,8 +44,15 @@ java {
     withSourcesJar()
 }
 
+sourceSets.main {
+    java.srcDir("../../apis/sdk/jvm")
+}
+
 kotlin {
     jvmToolchain(21)
+    sourceSets.main {
+        kotlin.srcDir("../../apis/sdk/jvm")
+    }
 }
 
 tasks.processResources {

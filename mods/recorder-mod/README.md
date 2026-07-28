@@ -34,7 +34,7 @@ outputs. ServerReplay writes one unrotated Flashback recording through a
 timestamped working child; after close, the recorder moves the archive
 unchanged to `capture/replay.zip`.
 
-The recorder appends one buffered, connection-local `capture/events.jsonl`
+The recorder appends one buffered, connection-local generated ProtoJSON `capture/events.jsonl`
 stream. There are no sessions on disk, epochs, manifests, or sealing step.
 After events are durable and the replay writer has closed, `metadata.json` is
 atomically updated with the end tick; a null end tick means incomplete.

@@ -1,7 +1,10 @@
 package dev.mcdata.renderer;
 
-import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
+import com.google.protobuf.util.JsonFormat;
+import dev.minerec.artifacts.v1.RenderJob;
+import dev.minerec.artifacts.v1.RenderJobStatus;
+import dev.minerec.artifacts.v1.RenderRangePolicy;
+import dev.minerec.artifacts.v1.RenderReplaySource;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -26,131 +29,89 @@ record RenderJobSpec(
     double framesPerSecond,
     boolean noGui,
     boolean stopWhenDone,
-    Path result
+    Path result,
+    Path progress
 ) {
     static RenderJobSpec read(Path jobPath) throws IOException {
-        JsonObject json = JsonParser.parseString(Files.readString(jobPath)).getAsJsonObject();
+        RenderJob.Builder builder = RenderJob.newBuilder();
+        JsonFormat.parser().merge(Files.readString(jobPath), builder);
+        RenderJob job = builder.build();
         Path normalizedJob = jobPath.toAbsolutePath().normalize();
         Path base = normalizedJob.getParent();
 
-        if (!"mc-recorder".equals(requiredString(json, "owner"))
-            || !"mc-recorder-first-person-render-v1".equals(requiredString(json, "job_type"))) {
+        if (job.getSchemaVersion() != 1
+            || !"mc-recorder".equals(job.getOwner())
+            || !"mc-recorder-first-person-render-v1".equals(job.getJobType())
+            || job.getStatus() != RenderJobStatus.RENDER_JOB_STATUS_PREPARED) {
             throw new IllegalArgumentException("Render job is not owned by the mc-recorder v1 framework");
         }
-
-        Path replay = resolve(base, requiredString(json, "replay"));
-        if (!json.has("source_replay") || !json.get("source_replay").isJsonObject()) {
-            throw new IllegalArgumentException("Missing required object: source_replay");
+        if (!job.hasReplay() || !job.hasGlobalTicks()) {
+            throw new IllegalArgumentException("Render job is missing replay or tick coverage");
         }
-        JsonObject sourceReplay = json.getAsJsonObject("source_replay");
-        Path sourceReplayPath = resolve(base, requiredString(sourceReplay, "path"));
-        String replaySha256 = requiredString(sourceReplay, "sha256").toLowerCase();
-        long replayBytes = requiredLong(sourceReplay, "size_bytes");
-        if (!sourceReplayPath.equals(replay)
-            || !replaySha256.matches("[0-9a-f]{64}")
-            || replayBytes < 0) {
-            throw new IllegalArgumentException("Invalid source_replay integrity envelope");
+        RenderReplaySource source = job.getReplay();
+        Path replay = resolve(base, source.getPath());
+        String replaySha256 = source.getSha256();
+        long replayBytes = source.getSizeBytes();
+        if (!replaySha256.matches("[0-9a-f]{64}") || replayBytes < 0 || !"flashback".equals(source.getFormat())) {
+            throw new IllegalArgumentException("Invalid replay integrity envelope");
         }
-        Path output = resolve(base, requiredString(json, "output"));
-        String sessionId = requiredString(json, "session_id");
-        String connectionId = requiredString(json, "connection_id");
-        UUID playerId = UUID.fromString(requiredString(json, "player_uuid"));
-        String replayId = requiredString(json, "replay_id");
-        UUID parsedReplayId = UUID.fromString(replayId);
-        if (!parsedReplayId.toString().equals(replayId)) {
-            throw new IllegalArgumentException("replay_id must use canonical UUID spelling");
-        }
-        if (!replayId.equals(requiredString(sourceReplay, "replay_id"))) {
-            throw new IllegalArgumentException("source_replay identity does not match the render job");
-        }
-        JsonObject timeline = json.has("timeline") && json.get("timeline").isJsonObject()
-            ? json.getAsJsonObject("timeline") : null;
-        if (timeline == null) {
-            throw new IllegalArgumentException("Missing required object: timeline");
-        }
-        RangePolicy rangePolicy = RangePolicy.parse(requiredString(timeline, "range_policy"));
-        long globalStartTick = requiredLong(json, "global_start_tick");
-        long globalEndTick = requiredLong(json, "global_end_tick");
-        int width = integer(json, "width", 640);
-        int height = integer(json, "height", 360);
-        double fps = decimal(json, "fps", 20.0);
-        boolean noGui = bool(json, "no_gui", true);
-        boolean stop = bool(json, "stop_when_done", true);
-        Path result = json.has("result")
-            ? resolve(base, json.get("result").getAsString())
-            : output.resolve("render-result.json");
-
+        String replayId = canonicalUuid(source.getReplayId(), "replay_id");
+        String sessionId = required(job.getSessionId(), "session_id");
+        String connectionId = canonicalUuid(job.getConnectionId(), "connection_id");
+        UUID playerId = UUID.fromString(canonicalUuid(job.getPlayerUuid(), "player_uuid"));
+        Path output = resolve(base, job.getOutputPath());
+        Path result = resolve(base, job.getResultPath());
+        Path progress = resolve(base, job.getProgressPath());
         if (!output.equals(base.resolve("fpv_frames").toAbsolutePath().normalize())
-            || !result.equals(base.resolve("result.json").toAbsolutePath().normalize())) {
-            throw new IllegalArgumentException("Renderer output and result must remain inside the owned job directory");
+            || !result.equals(base.resolve("result.json").toAbsolutePath().normalize())
+            || !progress.equals(base.resolve("progress.json").toAbsolutePath().normalize())) {
+            throw new IllegalArgumentException("Renderer outputs must remain inside the owned job directory");
         }
-        if (sessionId.length() > 128 || connectionId.length() > 64) {
-            throw new IllegalArgumentException("Session or connection identifier is too long");
-        }
-        UUID.fromString(connectionId);
-
+        long globalStartTick = job.getGlobalTicks().getFirstTick();
+        long globalEndTick = job.getGlobalTicks().getLastTick();
+        int width = job.getWidth();
+        int height = job.getHeight();
+        double fps = job.getFramesPerSecond();
         if (globalStartTick < 0 || globalEndTick < globalStartTick) {
-            throw new IllegalArgumentException("Invalid global_start_tick/global_end_tick interval");
+            throw new IllegalArgumentException("Invalid global tick interval");
         }
-        if (width <= 0 || height <= 0 || width > 16384 || height > 16384) {
+        if (width < 64 || height < 64 || width > 16384 || height > 16384) {
             throw new IllegalArgumentException("Invalid render resolution");
         }
         if (Math.abs(fps - 20.0) > 0.0001) {
-            throw new IllegalArgumentException("Renderer v1 requires fps=20");
+            throw new IllegalArgumentException("Renderer v1 requires 20 FPS");
         }
-        return new RenderJobSpec(normalizedJob, replay, replaySha256, replayBytes,
-            output, sessionId, connectionId, playerId, replayId, rangePolicy,
-            globalStartTick, globalEndTick,
-            width, height, fps, noGui, stop, result);
-    }
-
-    Path progress() {
-        return this.jobPath.getParent().resolve("progress.json");
+        if (job.getRangePolicy() != RenderRangePolicy.RENDER_RANGE_POLICY_INTERSECTION) {
+            throw new IllegalArgumentException("Unsupported render range policy");
+        }
+        return new RenderJobSpec(normalizedJob, replay, replaySha256, replayBytes, output,
+            sessionId, connectionId, playerId, replayId, RangePolicy.INTERSECTION,
+            globalStartTick, globalEndTick, width, height, fps, job.getNoGui(),
+            job.getStopWhenDone(), result, progress);
     }
 
     enum RangePolicy {
-        INTERSECTION;
-
-        static RangePolicy parse(String serialized) {
-            return switch (serialized) {
-                case "intersection" -> INTERSECTION;
-                default -> throw new IllegalArgumentException("Unsupported range_policy: " + serialized);
-            };
-        }
-
-        String serialized() {
-            return "intersection";
-        }
+        INTERSECTION
     }
 
     private static Path resolve(Path base, String value) {
-        Path path = Path.of(value);
+        Path path = Path.of(required(value, "path"));
         return (path.isAbsolute() ? path : base.resolve(path)).toAbsolutePath().normalize();
     }
 
-    private static String requiredString(JsonObject json, String key) {
-        if (!json.has(key) || json.get(key).getAsString().isBlank()) {
-            throw new IllegalArgumentException("Missing required field: " + key);
+    private static String required(String value, String label) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException("Missing required field: " + label);
         }
-        return json.get(key).getAsString();
+        return value;
     }
 
-    private static int integer(JsonObject json, String key, int fallback) {
-        return json.has(key) ? json.get(key).getAsInt() : fallback;
-    }
-
-    private static long requiredLong(JsonObject json, String key) {
-        if (!json.has(key)) {
-            throw new IllegalArgumentException("Missing required field: " + key);
+    private static String canonicalUuid(String value, String label) {
+        String required = required(value, label);
+        UUID parsed = UUID.fromString(required);
+        if (!parsed.toString().equals(required)) {
+            throw new IllegalArgumentException(label + " must use canonical UUID spelling");
         }
-        return json.get(key).getAsLong();
-    }
-
-    private static double decimal(JsonObject json, String key, double fallback) {
-        return json.has(key) ? json.get(key).getAsDouble() : fallback;
-    }
-
-    private static boolean bool(JsonObject json, String key, boolean fallback) {
-        return json.has(key) ? json.get(key).getAsBoolean() : fallback;
+        return required;
     }
 }

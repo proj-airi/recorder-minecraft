@@ -74,6 +74,8 @@ dependencies {
     modCompileOnly(files(flashbackJar))
     modLocalRuntime(files(flashbackJar))
     nestedFlashbackJars.forEach { modLocalRuntime(it) }
+    include(implementation("com.google.protobuf:protobuf-java:4.33.2")!!)
+    include(implementation("com.google.protobuf:protobuf-java-util:4.33.2")!!)
 
     testImplementation("org.junit.jupiter:junit-jupiter:6.1.2")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
@@ -87,6 +89,10 @@ loom {
             sourceSet(sourceSets["client"])
         }
     }
+}
+
+sourceSets.named("client") {
+    java.srcDir("../../apis/sdk/jvm")
 }
 
 java {

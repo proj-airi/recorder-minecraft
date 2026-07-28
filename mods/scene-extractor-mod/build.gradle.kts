@@ -36,9 +36,15 @@ dependencies {
     modImplementation("net.fabricmc.fabric-api:fabric-api:${property("fabric_version")}")
     modImplementation("net.fabricmc:fabric-language-kotlin:${property("fabric_kotlin_version")}")
     modImplementation("net.casualchampionships:arcade-replay:${property("arcade_version")}")
+    implementation("com.google.protobuf:protobuf-java:4.33.2")
+    implementation("com.google.protobuf:protobuf-java-util:4.33.2")
 
     testImplementation("org.junit.jupiter:junit-jupiter:6.1.2")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+}
+
+sourceSets.main {
+    java.srcDir("../../apis/sdk/jvm")
 }
 
 loom {
