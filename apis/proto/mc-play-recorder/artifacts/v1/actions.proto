@@ -1,0 +1,96 @@
+syntax = "proto3";
+
+package mc_play_recorder.artifacts.v1;
+
+option go_package = "github.com/proj-airi/mc-play-recorder/apis/sdk/go/mc-play-recorder/artifacts/v1;artifactsv1";
+option java_multiple_files = true;
+option java_package = "dev.minerec.artifacts.v1";
+
+message PlayerActions {
+  repeated PlayerAction actions = 1;
+}
+
+// PlayerAction models one line of actions.json. apply_sequence is optional
+// because synthetic control_state records do not originate in packet apply.
+message PlayerAction {
+  uint32 schema_version = 1;
+  string source_record_type = 2;
+  string connection_id = 3;
+  string player_uuid = 4;
+  int64 server_tick = 5;
+  uint64 sequence = 6;
+  optional uint64 apply_sequence = 7;
+  oneof payload {
+    ControlState control_state = 20;
+    CameraOrPositionAction camera_or_position = 21;
+    MovementControlsAction movement_controls = 22;
+    PacketAction player_action = 23;
+    PacketAction protocol_ack = 24;
+    PacketAction swing = 25;
+    TextRedactedAction text_redacted = 26;
+    PacketAction tick_boundary = 27;
+    PacketAction packet = 28;
+  }
+}
+
+message ControlState {
+  bool forward = 1;
+  bool backward = 2;
+  bool left = 3;
+  bool right = 4;
+  bool jump = 5;
+  bool sneak = 6;
+  bool sprint = 7;
+  double camera_yaw = 8;
+  double camera_pitch = 9;
+  double camera_delta_yaw = 10;
+  double camera_delta_pitch = 11;
+  uint32 selected_slot = 12;
+}
+
+message PacketIdentity {
+  string packet_class = 1;
+  string packet_type = 2;
+  bool raw_bytes_available = 3;
+}
+
+message PacketAction {
+  string action_kind = 1;
+  PacketIdentity packet = 2;
+}
+
+message CameraOrPositionAction {
+  string action_kind = 1;
+  PacketIdentity packet = 2;
+  bool has_position = 3;
+  bool has_rotation = 4;
+  optional double x = 5;
+  optional double y = 6;
+  optional double z = 7;
+  optional double yaw = 8;
+  optional double pitch = 9;
+  bool on_ground = 10;
+  bool horizontal_collision = 11;
+}
+
+message MovementControlsAction {
+  string action_kind = 1;
+  PacketIdentity packet = 2;
+  MovementInput input = 3;
+}
+
+message MovementInput {
+  bool forward = 1;
+  bool backward = 2;
+  bool left = 3;
+  bool right = 4;
+  bool jump = 5;
+  bool sneak = 6;
+  bool sprint = 7;
+}
+
+message TextRedactedAction {
+  string action_kind = 1;
+  PacketIdentity packet = 2;
+  bool payload_redacted = 3;
+}

@@ -1,0 +1,254 @@
+syntax = "proto3";
+
+package mc_play_recorder.artifacts.v1;
+
+import "mc-play-recorder/artifacts/v1/common.proto";
+import "mc-play-recorder/artifacts/v1/events.proto";
+
+option go_package = "github.com/proj-airi/mc-play-recorder/apis/sdk/go/mc-play-recorder/artifacts/v1;artifactsv1";
+option java_multiple_files = true;
+option java_package = "dev.minerec.artifacts.v1";
+
+// SceneExtractionJob is the complete private request consumed by the extractor process.
+message SceneExtractionJob {
+  string job_id = 1;
+  string session_id = 2;
+  string player_uuid = 3;
+  string connection_id = 4;
+  TickRange ticks = 5;
+  string scope = 6;
+  string metadata_policy = 7;
+  string flashback_capture_contract = 8;
+  repeated SceneSourceReplay source_replays = 9;
+  ArtifactFile subject_poses = 10;
+  ArtifactFile source_events = 11;
+  string output_path = 12;
+  bool stop_when_done = 13;
+}
+
+message SceneSourceReplay {
+  string segment_id = 1;
+  uint32 segment_ordinal = 2;
+  string path = 3;
+  string sha256 = 4;
+  uint64 size_bytes = 5;
+  string format = 6;
+}
+
+message SubjectPose {
+  int64 server_tick = 1;
+  string session_id = 2;
+  string player_uuid = 3;
+  string connection_id = 4;
+  int32 entity_id = 5;
+  string dimension = 6;
+  Vector3 position = 7;
+  Vector3 velocity = 8;
+  Rotation rotation = 9;
+  bool on_ground = 10;
+}
+
+message SceneExtractionResult {
+  enum Status {
+    STATUS_UNSPECIFIED = 0;
+    STATUS_COMPLETE = 1;
+    STATUS_FAILED = 2;
+  }
+  Status status = 1;
+  string error = 2;
+  string job_id = 3;
+  string session_id = 4;
+  string player_uuid = 5;
+  string connection_id = 6;
+  TickRange ticks = 7;
+  string scope = 8;
+  string metadata_policy = 9;
+  repeated SceneSourceReplay source_replays = 10;
+  SceneStreamResult stream = 11;
+  map<string, uint64> ignored_packet_counts = 12;
+  uint64 covered_tick_count = 13;
+}
+
+message SceneStreamResult {
+  string path = 1;
+  string frames = 2;
+  string changes = 3;
+  string blobs_directory = 4;
+  uint64 frame_count = 5;
+  uint64 change_count = 6;
+  uint64 blob_count = 7;
+  uint64 blob_bytes = 8;
+  string frames_sha256 = 9;
+  uint64 frames_size_bytes = 10;
+  string changes_sha256 = 11;
+  uint64 changes_size_bytes = 12;
+}
+
+message SceneFrameRecord {
+  int64 server_tick = 1;
+  string frame_id = 2;
+  int64 replay_tick = 3;
+  string dimension = 4;
+  Vector3 subject_position = 5;
+  bool coverage_complete = 6;
+  string segment_id = 7;
+  uint32 segment_ordinal = 8;
+  uint64 event_sequence = 9;
+  int32 entity_count = 10;
+  int32 loaded_section_count = 11;
+  string metadata_policy = 12;
+  string scene_snapshot_sha256 = 13;
+  string scope = 14;
+  int32 subject_entity_id = 15;
+  repeated string incomplete_reasons = 16;
+}
+
+message SceneChangeRecord {
+  uint64 sequence = 1;
+  int64 server_tick = 2;
+  int64 replay_tick = 3;
+  string segment_id = 4;
+  uint32 segment_ordinal = 5;
+  oneof change {
+    SegmentBegin segment_begin = 20;
+    SectionChange section_set = 21;
+    SectionChange section_unload = 22;
+    EntityChange entity_set = 23;
+    EntityChange entity_remove = 24;
+    BlockEntityChange block_entity_set = 25;
+    BlockEntityChange block_entity_remove = 26;
+  }
+}
+
+message SegmentBegin {
+  string sha256 = 1;
+  uint64 size_bytes = 2;
+}
+
+message SectionChange {
+  string dimension = 1;
+  int32 x = 2;
+  int32 y = 3;
+  int32 z = 4;
+  string blob_sha256 = 5;
+}
+
+message EntityChange {
+  string instance_id = 1;
+  string blob_sha256 = 2;
+}
+
+message BlockEntityChange {
+  string dimension = 1;
+  int32 x = 2;
+  int32 y = 3;
+  int32 z = 4;
+  string blob_sha256 = 5;
+}
+
+message SceneBlobPayload {
+  oneof value {
+    SectionBlob section = 1;
+    EntityBlob entity = 2;
+    BlockEntityBlob block_entity = 3;
+    SceneFrameRecord frame = 4;
+    CaptureEvent player_state = 5;
+  }
+}
+
+message SectionBlob {
+  repeated BlockState palette = 1;
+  bytes indices_le_u16 = 2;
+}
+
+message BlockState {
+  string name = 1;
+  map<string, string> properties = 2;
+}
+
+message EncodedValue {
+  string logical_type = 1;
+  int32 codec_id = 2;
+  string encoding = 3;
+  bytes data = 4;
+}
+
+message EntityBlob {
+  Bounds bounds = 1;
+  string dimension = 2;
+  int32 network_id = 3;
+  optional string uuid = 4;
+  string type_id = 5;
+  Vector3 position = 6;
+  Vector3 velocity = 7;
+  Rotation rotation = 8;
+  double width = 9;
+  double height = 10;
+  bool on_ground = 11;
+  bool subject = 12;
+  int32 spawn_data = 13;
+  optional int32 leash_destination_network_id = 14;
+  repeated int32 passengers = 15;
+  repeated EntityMetadata metadata = 16;
+  repeated Equipment equipment = 17;
+  repeated EntityAttribute attributes = 18;
+  repeated EntityEffect effects = 19;
+  PlayerListInfo player_info = 20;
+}
+
+message Bounds {
+  double min_x = 1;
+  double min_y = 2;
+  double min_z = 3;
+  double max_x = 4;
+  double max_y = 5;
+  double max_z = 6;
+}
+
+message EntityMetadata {
+  int32 index = 1;
+  EncodedValue value = 2;
+}
+
+message Equipment {
+  string slot = 1;
+  string item_id = 2;
+  int32 count = 3;
+  EncodedValue encoded_stack = 4;
+}
+
+message EntityAttribute {
+  string attribute_id = 1;
+  double base = 2;
+  repeated AttributeModifier modifiers = 3;
+}
+
+message AttributeModifier {
+  string id = 1;
+  double amount = 2;
+  string operation = 3;
+}
+
+message EntityEffect {
+  string effect_id = 1;
+  int32 amplifier = 2;
+  int32 duration_ticks = 3;
+  bool ambient = 4;
+  bool visible = 5;
+  bool show_icon = 6;
+  bool blend = 7;
+}
+
+message PlayerListInfo {
+  repeated string actions = 1;
+  EncodedValue packet = 2;
+}
+
+message BlockEntityBlob {
+  string dimension = 1;
+  int32 x = 2;
+  int32 y = 3;
+  int32 z = 4;
+  string type_id = 5;
+  EncodedValue nbt = 6;
+}

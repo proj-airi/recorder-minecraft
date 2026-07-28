@@ -1,6 +1,11 @@
 openjdk = "21"
 gradle = "9.6.1"
+go = "1.26.4"
+buf = "1.71.0"
+golangci-lint = "2.12.2"
 
 [plugins.tools]
 openjdk = "https://github.com/eplightning/openjdk-adoptium-proto-plugin/releases/download/v0.2.0/openjdk_adoptium_tool.wasm"
 gradle = "https://raw.githubusercontent.com/eplightning/openjdk-adoptium-proto-plugin/v0.2.0/build-plugins/gradle.toml"
+buf = "https://raw.githubusercontent.com/stk0vrfl0w/proto-toml-plugins/main/plugins/buf.toml"
+golangci-lint = "https://raw.githubusercontent.com/b4nst/proto-plugins/refs/heads/main/toml/golangci-lint.toml"

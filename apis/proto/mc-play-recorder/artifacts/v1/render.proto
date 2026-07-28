@@ -1,0 +1,140 @@
+syntax = "proto3";
+
+package mc_play_recorder.artifacts.v1;
+
+import "google/protobuf/timestamp.proto";
+import "mc-play-recorder/artifacts/v1/common.proto";
+
+option go_package = "github.com/proj-airi/mc-play-recorder/apis/sdk/go/mc-play-recorder/artifacts/v1;artifactsv1";
+option java_multiple_files = true;
+option java_outer_classname = "RenderProtocol";
+option java_package = "dev.minerec.artifacts.v1";
+
+enum RenderJobStatus {
+  RENDER_JOB_STATUS_UNSPECIFIED = 0;
+  RENDER_JOB_STATUS_PREPARED = 1;
+}
+
+enum RenderRangePolicy {
+  RENDER_RANGE_POLICY_UNSPECIFIED = 0;
+  RENDER_RANGE_POLICY_INTERSECTION = 1;
+}
+
+enum RenderResultStatus {
+  RENDER_RESULT_STATUS_UNSPECIFIED = 0;
+  RENDER_RESULT_STATUS_COMPLETE = 1;
+  RENDER_RESULT_STATUS_NO_COVERAGE = 2;
+  RENDER_RESULT_STATUS_FAILED = 3;
+}
+
+enum RenderProgressStatus {
+  RENDER_PROGRESS_STATUS_UNSPECIFIED = 0;
+  RENDER_PROGRESS_STATUS_PREPARED = 1;
+  RENDER_PROGRESS_STATUS_OPENING_REPLAY = 2;
+  RENDER_PROGRESS_STATUS_FINDING_COVERAGE = 3;
+  RENDER_PROGRESS_STATUS_RENDERING = 4;
+  RENDER_PROGRESS_STATUS_COMPLETE = 5;
+  RENDER_PROGRESS_STATUS_FAILED = 6;
+  RENDER_PROGRESS_STATUS_NO_COVERAGE = 7;
+}
+
+message RenderReplaySource {
+  string replay_id = 1;
+  string path = 2;
+  string format = 3;
+  string sha256 = 4;
+  uint64 size_bytes = 5;
+}
+
+message RenderArtifact {
+  string path = 1;
+  string sha256 = 2;
+  uint64 size_bytes = 3;
+  string media_type = 4;
+}
+
+// RenderJob is serialized as ProtoJSON at renders/render-job.json.
+message RenderJob {
+  uint32 schema_version = 1;
+  string owner = 2;
+  string job_type = 3;
+  google.protobuf.Timestamp created_at = 4;
+  RenderJobStatus status = 5;
+  string session_id = 6;
+  string connection_id = 7;
+  string player_uuid = 8;
+  RenderReplaySource replay = 9;
+  TickRange global_ticks = 10;
+  RenderRangePolicy range_policy = 11;
+  uint32 width = 12;
+  uint32 height = 13;
+  double frames_per_second = 14;
+  bool no_gui = 15;
+  bool stop_when_done = 16;
+  string output_path = 17;
+  string result_path = 18;
+  string progress_path = 19;
+  string source_metadata_path = 20;
+  RenderArtifact source_events = 21;
+  uint64 source_event_count = 22;
+}
+
+// RenderFrameIndex records one ProtoJSON line in fpv_frames/frames.jsonl.
+message RenderFrameIndex {
+  uint64 ordinal = 1;
+  int64 server_tick = 2;
+  int64 replay_tick = 3;
+  double partial_tick = 4;
+  string session_id = 5;
+  string connection_id = 6;
+  string player_uuid = 7;
+  string replay_id = 8;
+  string path = 9;
+}
+
+message UnsupportedPacketCount {
+  string packet_type = 1;
+  uint64 count = 2;
+}
+
+message UnsupportedPackets {
+  string policy = 1;
+  uint64 total_count = 2;
+  repeated UnsupportedPacketCount types = 3;
+}
+
+// RenderResult is atomically published after the frame index is durable.
+message RenderResult {
+  uint32 schema_version = 1;
+  RenderResultStatus status = 2;
+  string session_id = 3;
+  string connection_id = 4;
+  string player_uuid = 5;
+  RenderReplaySource replay = 6;
+  string output_path = 7;
+  TickRange requested_global_ticks = 8;
+  TickRange global_ticks = 9;
+  TickRange replay_ticks = 10;
+  int64 global_tick_offset = 11;
+  TickRange segment_coverage_ticks = 12;
+  double frames_per_second = 13;
+  uint32 width = 14;
+  uint32 height = 15;
+  bool no_gui = 16;
+  uint64 frame_count = 17;
+  RenderArtifact frame_index = 18;
+  UnsupportedPackets unsupported_packets = 19;
+  optional string error = 20;
+}
+
+message RenderProgress {
+  uint32 schema_version = 1;
+  RenderProgressStatus status = 2;
+  string session_id = 3;
+  string connection_id = 4;
+  string player_uuid = 5;
+  string replay_id = 6;
+  uint64 completed_units = 7;
+  uint64 total_units = 8;
+  google.protobuf.Timestamp updated_at = 9;
+}

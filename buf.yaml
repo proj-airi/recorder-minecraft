@@ -1,0 +1,12 @@
+version: v2
+modules:
+  - path: apis/proto
+lint:
+  use:
+    - STANDARD
+  except:
+    # Keep the language-neutral source path aligned with the repository name.
+    - PACKAGE_DIRECTORY_MATCH
+breaking:
+  use:
+    - FILE
