@@ -31,30 +31,29 @@ val flashbackDownload = configurations.detachedConfiguration(
 val flashbackJar = layout.file(providers.provider {
     if (localFlashbackJar.isNullOrBlank()) flashbackDownload.singleFile else file(localFlashbackJar)
 })
-val nestedJarDirectory = layout.buildDirectory.dir("flashback-nested")
+val nestedJarDirectory = layout.buildDirectory.dir("flashback-nested").get().asFile
 val requiredFlashbackNestedJars = listOf(
     "lattice-1.3.1.jar",
     "mixinconstraints-1.0.8.jar",
     "mixinsquared-fabric-0.3.7-beta.1.jar",
 )
-val extractFlashbackNested = tasks.register<Sync>("extractFlashbackNested") {
+// NOTICE: Loom computes checksums for file dependencies while configuring the
+// project, before task dependencies can produce their outputs. Materialize
+// Flashback's nested runtime jars now so clean checkouts are resolvable.
+// `https://github.com/FabricMC/fabric-loom/blob/ad89ffdb4e3c6fb1647e45cb5b3ca87ff1e77803/src/main/java/net/fabricmc/loom/configuration/mods/ModConfigurationRemapper.java#L288-L297`
+project.sync {
     from(flashbackJar.map { zipTree(it.asFile) })
     include("META-INF/jars/*.jar")
     eachFile { path = name }
     includeEmptyDirs = false
     into(nestedJarDirectory)
-    doLast {
-        val extractedNames = fileTree(nestedJarDirectory).matching { include("*.jar") }.files.map { it.name }.sorted()
-        check(extractedNames == requiredFlashbackNestedJars.sorted()) {
-            "Flashback nested runtime libraries changed: $extractedNames"
-        }
-    }
 }
-// Loom resolves local-runtime dependencies before Sync executes. A fileTree is
-// empty at that point on a clean checkout, so declare the pinned nested outputs
-// individually and attach their producing task.
+val extractedNames = fileTree(nestedJarDirectory).matching { include("*.jar") }.files.map { it.name }.sorted()
+check(extractedNames == requiredFlashbackNestedJars.sorted()) {
+    "Flashback nested runtime libraries changed: $extractedNames"
+}
 val nestedFlashbackJars = requiredFlashbackNestedJars.map { name ->
-    files(nestedJarDirectory.map { it.file(name) }).builtBy(extractFlashbackNested)
+    files(nestedJarDirectory.resolve(name))
 }
 
 // Resolve every prerequisite of runClient without launching Minecraft. Remote
