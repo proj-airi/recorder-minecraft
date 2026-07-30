@@ -29,7 +29,10 @@ jobs:
           cache: true
 
       - name: Install pinned toolchains
-        run: proto install --config-mode local
+        run: |
+          proto install --config-mode local
+          java_bin="$(proto --reporter text bin openjdk)"
+          echo "JAVA_HOME=$(dirname "$(dirname "$java_bin")")" >> "$GITHUB_ENV"
 
       - name: Build renderer and scene extractor
         run: |

@@ -26,7 +26,10 @@ jobs:
           cache: true
 
       - name: Install pinned toolchains
-        run: proto install --config-mode local
+        run: |
+          proto install --config-mode local
+          java_bin="$(proto --reporter text bin openjdk)"
+          echo "JAVA_HOME=$(dirname "$(dirname "$java_bin")")" >> "$GITHUB_ENV"
 
       - name: Check Go formatting
         run: test -z "$(find cmd internal databases apis/sdk/go -name '*.go' -type f -exec gofmt -l {} +)"
