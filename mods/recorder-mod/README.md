@@ -51,5 +51,5 @@ client-visible; unloaded cells and unopened-container contents may be unknown.
 Build with:
 
 ```sh
-pixi run build-recorder-mod
+gradle --project-dir mods/recorder-mod build
 ```

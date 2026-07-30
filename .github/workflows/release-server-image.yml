@@ -36,15 +36,8 @@ jobs:
       - name: Install pinned toolchains
         run: proto install --config-mode local
 
-      - name: Set up Pixi
-        uses: prefix-dev/setup-pixi@v0.10.0
-        with:
-          pixi-version: v0.73.0
-          cache: true
-          locked: true
-
       - name: Stage recorder server mod
-        run: pixi run --locked stage-recorder-server-mod
+        run: gradle --project-dir mods/recorder-mod stageServerImage
 
       - name: Resolve paired image version
         id: version

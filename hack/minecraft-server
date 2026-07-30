@@ -71,10 +71,11 @@ json_string_escape() {
 
 prepare() {
   require_env_file
-  require_command pixi
+  require_command gradle
+  require_command go
 
   cd "${ROOT}"
-  pixi run build-recorder-mod
+  gradle --project-dir mods/recorder-mod build
 
   local mods_dir config_dir config_file jar level_name eula server_name server_instance_id
   mods_dir="$(env_path MC_LOCAL_MODS_HOST_DIR)"
@@ -82,7 +83,7 @@ prepare() {
   config_file="$(env_path MC_CONFIG_FILE)"
   mkdir -p "${mods_dir}" "${config_dir}/server-replay"
   if [[ ! -f "${config_file}" ]]; then
-    echo "missing recorder config: ${config_file}; run 'pixi run recorder-minecraft init' first" >&2
+    echo "missing recorder config: ${config_file}; run 'go run ./cmd/recorder-minecraft init' first" >&2
     exit 2
   fi
 
@@ -108,8 +109,8 @@ prepare() {
   level_name="$(env_value MC_LEVEL_NAME)"
   : "${level_name:=world}"
   level_name="$(json_string_escape "${level_name}")"
-  server_name="$(pixi run recorder-minecraft --config "${config_file}" config get server.name)"
-  server_instance_id="$(pixi run recorder-minecraft --config "${config_file}" config get server.instance_id)"
+  server_name="$(go run ./cmd/recorder-minecraft --config "${config_file}" config get server.name)"
+  server_instance_id="$(go run ./cmd/recorder-minecraft --config "${config_file}" config get server.instance_id)"
   server_name="$(json_string_escape "${server_name}")"
 
   cat > "${config_dir}/server-replay/config.json" <<EOF

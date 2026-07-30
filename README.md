@@ -1,8 +1,120 @@
 # Minecraft gameplay recorder
 
-This repository records per-player Minecraft 1.21.8 connections into a small
-primitive capture, then post-processes explicit files into actions,
-random-access scene/state data, and optional first-person frames.
+This repository records each Minecraft 1.21.8 player connection as a primitive
+capture, then turns explicit capture files into actions, random-access scene
+state, and optional first-person frames.
+
+## Development workflow
+
+Install the versions of Go, Buf, OpenJDK, Gradle, and golangci-lint pinned in
+`.prototools`:
+
+```sh
+proto install --config-mode local
+```
+
+Run the CLI directly while developing:
+
+```sh
+go run ./cmd/recorder-minecraft --help
+go run ./cmd/recorder-minecraft init --accept-eula
+```
+
+After changing Go code, format the affected files and run the Go checks:
+
+```sh
+gofmt -w path/to/changed.go
+go test ./...
+golangci-lint run ./...
+```
+
+After changing files under `apis/proto/`, update and verify the generated SDKs
+before testing their consumers:
+
+```sh
+buf format -w
+buf lint
+buf generate
+git diff -- apis/sdk/go apis/sdk/jvm
+go test ./...
+gradle --project-dir mods/recorder-mod build
+gradle --project-dir processors/scene-extractor build installDist
+gradle --project-dir mods/renderer-mod build
+```
+
+Build only the component you changed:
+
+```sh
+# Go CLI
+mkdir -p .recorder/minecraft/bin
+go build -o .recorder/minecraft/bin/recorder-minecraft ./cmd/recorder-minecraft
+
+# Recorder server mod
+gradle --project-dir mods/recorder-mod build
+
+# Headless scene extractor and its installed distribution
+gradle --project-dir processors/scene-extractor build installDist
+
+# Client renderer mod
+gradle --project-dir mods/renderer-mod build
+
+# Both Fabric mods
+gradle --project-dir mods/recorder-mod build
+gradle --project-dir mods/renderer-mod build
+
+# Recorder mod staged for the release server image
+gradle --project-dir mods/recorder-mod stageServerImage
+
+# Local server image; build the extractor distribution first
+gradle --project-dir processors/scene-extractor build installDist
+docker buildx build --platform linux/amd64 -f cmd/recorder-minecraft/Dockerfile . \
+  --tag recorder-minecraft:local --load
+```
+
+Renderer builds normally fetch the pinned Flashback release. If Modrinth is
+unavailable, set `MC_RECORDER_FLASHBACK_JAR` to a local Flashback 0.39.5 JAR.
+
+Include the generated SDK changes in the same change as the contract. After
+reviewing and staging the intended generated updates, run the same checks as
+CI before submitting:
+
+```sh
+test -z "$(find cmd internal databases apis/sdk/go -name '*.go' -type f -exec gofmt -l {} +)"
+buf format --diff --exit-code
+buf lint
+buf generate
+git diff --exit-code -- apis/sdk/go apis/sdk/jvm
+go test ./...
+golangci-lint run ./...
+gradle --project-dir mods/recorder-mod build
+gradle --project-dir processors/scene-extractor build installDist
+gradle --project-dir mods/renderer-mod build
+git diff --check
+```
+
+## Record and process a play
+
+Initialize local configuration once, accept the Minecraft EULA in
+`deploy/.env`, and start the development server:
+
+```sh
+./hack/install
+./hack/minecraft-server start
+# join localhost:25565
+./hack/minecraft-server stop
+```
+
+Process one completed play directory with every stage:
+
+```sh
+./hack/process-play PLAY
+```
+
+The stages can also be run independently with `go run
+./cmd/recorder-minecraft`: `actions extract`, `scene extract`, and `render` each
+accept explicit input and output paths.
+
+## Artifact layout
 
 ```text
 artifacts/v1/<server>--<instance>/players/<player>--<uuid>/plays/<start>--<connection>/
@@ -16,87 +128,25 @@ artifacts/v1/<server>--<instance>/players/<player>--<uuid>/plays/<start>--<conne
     fpv_frames/
 ```
 
-There are no epochs, replay segments, seal files, bundle archives, custom
-extensions, publishers, downloaders, dashboard viewers, or compatibility
-readers.
-
-## Setup and checks
-
-```sh
-proto install --config-mode local
-pixi install --locked
-pixi run --locked check
-```
-
-Initialize one stable server instance identity:
-
-```sh
-pixi run recorder-minecraft init --accept-eula
-cp deploy/.env.example deploy/.env
-```
-
-## Record
-
-```sh
-hack/minecraft-server start
-# join localhost:25565
-hack/minecraft-server stop
-```
-
-At join, the recorder creates a play and streams one generated ProtoJSON line file plus one
-unrotated Flashback replay directly into `capture/`. At disconnect it writes
-the metadata end tick last. That completed directory can be copied with normal
-SSH/rsync and passed to independent processors.
-
-## Post-process
-
-```sh
-# Run every stage for one play directory:
-hack/process-play PLAY
-
-# Or run the processors independently:
-pixi run recorder-minecraft actions extract \
-  --metadata PLAY/metadata.json \
-  --events PLAY/capture/events.jsonl \
-  --output PLAY/actions.jsonl
-
-pixi run recorder-minecraft scene extract \
-  --metadata PLAY/metadata.json \
-  --events PLAY/capture/events.jsonl \
-  --replay PLAY/capture/replay.zip \
-  --output PLAY/scene.sqlite3
-
-pixi run recorder-minecraft render \
-  --metadata PLAY/metadata.json \
-  --events PLAY/capture/events.jsonl \
-  --replay PLAY/capture/replay.zip \
-  --output PLAY/renders
-```
-
-Processors know only the files and output supplied on the command line. Their
-temporary jobs and locks live under `.recorder/minecraft/runtime`; durable results can
-be placed back in the play as shown above.
-
-Each `scene.sqlite3` is a self-contained, immutable per-play datastore. Ent
-opens that explicit file read-only; writable command-scoped stores are created
-and closed through `samber/do`. The repository has no shared base database.
-
-See [Artifacts V1 Pipeline](docs/specs/artifacts-v1.md),
-[Primitive Capture V1](docs/specs/capture-v1.md),
-[Terms and Concepts](docs/TERMS_AND_CONCEPTS.md), and
-[the recorder-minecraft CLI](cmd/recorder-minecraft/README.md).
+Each play is self-contained. Recorder-owned capture inputs are not mutated by
+post-processing, and generated runtime directories must not be committed.
 
 ## Modules
 
 ```text
-mods/recorder-mod/         server recorder and canonical capture writer
-mods/renderer-mod/        client-only FPV frame renderer
+mods/recorder-mod/          server recorder and canonical capture writer
+mods/renderer-mod/          client-only first-person frame renderer
 processors/scene-extractor/ headless Flashback scene reducer
-cmd/recorder-minecraft/    Go file-to-file processor CLI
-apis/proto/               Protobuf artifact contracts
-databases/scene/           Ent model for per-play scene.sqlite3 files
-deploy/                   recorder server Compose configuration
+cmd/recorder-minecraft/     Go file-to-file processor CLI
+apis/proto/                 Protobuf artifact contracts
+databases/scene/            Ent model for per-play scene.sqlite3 files
+deploy/                     recorder server Compose configuration
 ```
 
-Record only players who have consented. Metadata, inventory, actions, replay
-archives, and scene databases can contain sensitive gameplay data.
+See [Artifacts V1 Pipeline](docs/specs/artifacts-v1.md),
+[Primitive Capture V1](docs/specs/capture-v1.md),
+[Terms and Concepts](docs/TERMS_AND_CONCEPTS.md), and
+[the CLI reference](cmd/recorder-minecraft/README.md).
+
+Record only players who have consented. Captures and derived artifacts can
+contain sensitive gameplay data.

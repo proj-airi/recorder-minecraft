@@ -16,20 +16,29 @@ Install the pinned Go, Buf, and JVM toolchains:
 
 ```sh
 proto install --config-mode local
-pixi install --locked
 ```
 
-Run the automated checks:
+Choose checks from the files changed:
 
-```sh
-pixi run test-go
-pixi run buf-lint
-pixi run build-recorder-mod
-pixi run build-scene-extractor
-pixi run build-renderer-mod
-```
+- Go changes: run `gofmt` on changed files, then `go test ./...` and
+  `golangci-lint run ./...`.
+- `apis/proto/` changes: run `buf format -w`, `buf lint`, and `buf generate`;
+  inspect changes under `apis/sdk/go` and `apis/sdk/jvm`, then test every Go or
+  JVM consumer affected by the contract.
+- `mods/recorder-mod/` changes: run
+  `gradle --project-dir mods/recorder-mod build`.
+- `processors/scene-extractor/` changes: run
+  `gradle --project-dir processors/scene-extractor build installDist`.
+- `mods/renderer-mod/` changes: run
+  `gradle --project-dir mods/renderer-mod build`.
+- Server image changes: run
+  `gradle --project-dir mods/recorder-mod stageServerImage`; when the extractor
+  or Docker build context changes, also build the extractor distribution and
+  run the `docker buildx build` command documented in `README.md`.
+- CI, toolchain, generated-code, or cross-module changes: run the complete
+  pre-submit command sequence in `README.md`.
 
-Use `MC_RECORDER_FLASHBACK_JAR=/path/to/Flashback-0.39.5.jar` for renderer builds when Modrinth is unavailable. For an end-to-end capture, use `pixi run recorder-minecraft server start --wait`, join `localhost:25565`, then run `pixi run recorder-minecraft server stop` and `pixi run recorder-minecraft episodes validate SESSION_ID`.
+Use `MC_RECORDER_FLASHBACK_JAR=/path/to/Flashback-0.39.5.jar` for renderer builds when Modrinth is unavailable. For an end-to-end capture, run `./hack/minecraft-server start`, join `localhost:25565`, stop it with `./hack/minecraft-server stop`, and exercise processors against the completed play without mutating its capture inputs.
 
 ## Coding Style & Naming Conventions
 

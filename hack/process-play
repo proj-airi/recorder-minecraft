@@ -27,18 +27,18 @@ done
 
 cd "${ROOT}"
 
-pixi run recorder-minecraft --config "${CONFIG}" actions extract \
+go run ./cmd/recorder-minecraft --config "${CONFIG}" actions extract \
   --metadata "${METADATA}" \
   --events "${EVENTS}" \
   --output "${PLAY}/actions.jsonl"
 
-pixi run recorder-minecraft --config "${CONFIG}" scene extract \
+go run ./cmd/recorder-minecraft --config "${CONFIG}" scene extract \
   --metadata "${METADATA}" \
   --events "${EVENTS}" \
   --replay "${REPLAY}" \
   --output "${PLAY}/scene.sqlite3"
 
-pixi run recorder-minecraft --config "${CONFIG}" render \
+go run ./cmd/recorder-minecraft --config "${CONFIG}" render \
   --metadata "${METADATA}" \
   --events "${EVENTS}" \
   --replay "${REPLAY}" \

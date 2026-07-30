@@ -180,7 +180,7 @@ func (extractor *Extractor) Launch(ctx context.Context, job Job) (*artifactsv1.S
 	}
 	info, err := os.Stat(executable) // #nosec G703
 	if err != nil || !info.Mode().IsRegular() || info.Mode()&0o111 == 0 {
-		return nil, fmt.Errorf("scene extractor executable not found or not executable: %s; run 'pixi run build-scene-extractor'", executable)
+		return nil, fmt.Errorf("scene extractor executable not found or not executable: %s; run 'gradle --project-dir processors/scene-extractor build installDist'", executable)
 	}
 	command := exec.CommandContext(ctx, executable, "--job", job.Manifest) // #nosec G702
 	command.Dir = job.Directory

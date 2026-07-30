@@ -1,13 +1,13 @@
 # recorder-minecraft
 
 `recorder-minecraft` is the Go command-line processor for recorder artifacts. Run it
-through the repository task boundary:
+directly from the repository root during development:
 
 ```sh
-pixi run recorder-minecraft --help
-pixi run recorder-minecraft actions extract --help
-pixi run recorder-minecraft scene extract --help
-pixi run recorder-minecraft render --help
+go run ./cmd/recorder-minecraft --help
+go run ./cmd/recorder-minecraft actions extract --help
+go run ./cmd/recorder-minecraft scene extract --help
+go run ./cmd/recorder-minecraft render --help
 ```
 
 Every processor accepts explicit input and output paths. Scene extraction uses

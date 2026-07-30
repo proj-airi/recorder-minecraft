@@ -72,18 +72,18 @@ same play:
 ```sh
 PLAY='artifacts/v1/<server>--<instance>/players/<player>--<uuid>/plays/<start>--<connection>'
 
-pixi run recorder-minecraft actions extract \
+go run ./cmd/recorder-minecraft actions extract \
   --metadata "$PLAY/metadata.json" \
   --events "$PLAY/capture/events.jsonl" \
   --output "$PLAY/actions.jsonl"
 
-pixi run recorder-minecraft scene extract \
+go run ./cmd/recorder-minecraft scene extract \
   --metadata "$PLAY/metadata.json" \
   --events "$PLAY/capture/events.jsonl" \
   --replay "$PLAY/capture/replay.zip" \
   --output "$PLAY/scene.sqlite3"
 
-pixi run recorder-minecraft render \
+go run ./cmd/recorder-minecraft render \
   --metadata "$PLAY/metadata.json" \
   --events "$PLAY/capture/events.jsonl" \
   --replay "$PLAY/capture/replay.zip" \
