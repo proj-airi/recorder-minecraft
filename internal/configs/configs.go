@@ -14,9 +14,12 @@ import (
 )
 
 const (
-	Version            = 1
-	DefaultPath        = "recorder.toml"
-	defaultRuntimePath = ".recorder/minecraft/runtime"
+	Version                       = 1
+	DefaultPath                   = "recorder.toml"
+	defaultRuntimePath            = ".recorder/minecraft/runtime"
+	defaultSceneExtractor         = "processors/scene-extractor/build/install/mc-recorder-scene-extractor/bin/mc-recorder-scene-extractor"
+	legacyDefaultSceneExtractor   = "mods/scene-extractor-mod/build/install/mc-recorder-scene-extractor/bin/mc-recorder-scene-extractor"
+	legacyGeneratedSceneExtractor = "mods/scene-extractor-mod/build/install/recorder-minecraft-scene-extractor/bin/recorder-minecraft-scene-extractor"
 )
 
 type Server struct {
@@ -31,24 +34,36 @@ type Paths struct {
 }
 
 type Mods struct {
-	RecorderProject          string `toml:"recorder_project" json:"recorder_project"`
-	RendererProject          string `toml:"renderer_project" json:"renderer_project"`
-	SceneExtractorProject    string `toml:"scene_extractor_project" json:"scene_extractor_project"`
+	RecorderProject string `toml:"recorder_project" json:"recorder_project"`
+	RendererProject string `toml:"renderer_project" json:"renderer_project"`
+}
+
+type Processors struct {
 	SceneExtractorExecutable string `toml:"scene_extractor_executable" json:"scene_extractor_executable"`
 }
 
+type modsFile struct {
+	RecorderProject string `toml:"recorder_project"`
+	RendererProject string `toml:"renderer_project"`
+	// Keep accepting the old processor fields so existing version 1 configurations remain loadable.
+	LegacySceneExtractorProject    string `toml:"scene_extractor_project"`
+	LegacySceneExtractorExecutable string `toml:"scene_extractor_executable"`
+}
+
 type fileConfig struct {
-	Version int    `toml:"version"`
-	Server  Server `toml:"server"`
-	Paths   Paths  `toml:"paths"`
-	Mods    Mods   `toml:"mods"`
+	Version    int        `toml:"version"`
+	Server     Server     `toml:"server"`
+	Paths      Paths      `toml:"paths"`
+	Mods       modsFile   `toml:"mods"`
+	Processors Processors `toml:"processors"`
 }
 
 type Config struct {
-	Source string `json:"source"`
-	Server Server `json:"server"`
-	Paths  Paths  `json:"paths"`
-	Mods   Mods   `json:"mods"`
+	Source     string     `json:"source"`
+	Server     Server     `json:"server"`
+	Paths      Paths      `json:"paths"`
+	Mods       Mods       `json:"mods"`
+	Processors Processors `json:"processors"`
 }
 
 func Package(path string) func(do.Injector) {
@@ -109,13 +124,23 @@ func Load(path string) (*Config, error) {
 	}
 	file.Mods.RecorderProject, _ = resolve(base, defaultString(file.Mods.RecorderProject, "mods/recorder-mod"))
 	file.Mods.RendererProject, _ = resolve(base, defaultString(file.Mods.RendererProject, "mods/renderer-mod"))
-	file.Mods.SceneExtractorProject, _ = resolve(base, defaultString(file.Mods.SceneExtractorProject, "mods/scene-extractor-mod"))
-	file.Mods.SceneExtractorExecutable, _ = resolve(base, defaultString(file.Mods.SceneExtractorExecutable, "mods/scene-extractor-mod/build/install/recorder-minecraft-scene-extractor/bin/recorder-minecraft-scene-extractor"))
+	if file.Processors.SceneExtractorExecutable != "" && file.Mods.LegacySceneExtractorExecutable != "" {
+		return nil, errors.New("configure scene_extractor_executable under [processors], not both [processors] and [mods]")
+	}
+	executable := defaultString(file.Processors.SceneExtractorExecutable, file.Mods.LegacySceneExtractorExecutable)
+	if executable == legacyDefaultSceneExtractor || executable == legacyGeneratedSceneExtractor {
+		executable = defaultSceneExtractor
+	}
+	file.Processors.SceneExtractorExecutable, _ = resolve(base, defaultString(executable, defaultSceneExtractor))
 	return &Config{
 		Source: source,
 		Server: file.Server,
 		Paths:  file.Paths,
-		Mods:   file.Mods,
+		Mods: Mods{
+			RecorderProject: file.Mods.RecorderProject,
+			RendererProject: file.Mods.RendererProject,
+		},
+		Processors: file.Processors,
 	}, nil
 }
 
@@ -193,8 +218,9 @@ runtime = ".recorder/minecraft/runtime"
 [mods]
 recorder_project = "mods/recorder-mod"
 renderer_project = "mods/renderer-mod"
-scene_extractor_project = "mods/scene-extractor-mod"
-scene_extractor_executable = "mods/scene-extractor-mod/build/install/recorder-minecraft-scene-extractor/bin/recorder-minecraft-scene-extractor"
+
+[processors]
+scene_extractor_executable = "processors/scene-extractor/build/install/mc-recorder-scene-extractor/bin/mc-recorder-scene-extractor"
 `, instanceID, acceptEULA)
 }
 

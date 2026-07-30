@@ -173,14 +173,14 @@ func (extractor *Extractor) Prepare(options Options) (Job, error) {
 func (extractor *Extractor) Launch(ctx context.Context, job Job) (*artifactsv1.SceneExtractionResult, error) {
 	executable := os.Getenv("MC_RECORDER_SCENE_EXTRACTOR")
 	if executable == "" {
-		executable = extractor.config.Mods.SceneExtractorExecutable
+		executable = extractor.config.Processors.SceneExtractorExecutable
 	}
 	if !filepath.IsAbs(executable) {
 		return nil, errors.New("MC_RECORDER_SCENE_EXTRACTOR must be an absolute executable path")
 	}
 	info, err := os.Stat(executable) // #nosec G703
 	if err != nil || !info.Mode().IsRegular() || info.Mode()&0o111 == 0 {
-		return nil, fmt.Errorf("scene extractor executable not found or not executable: %s; run 'pixi run build-scene-extractor-mod'", executable)
+		return nil, fmt.Errorf("scene extractor executable not found or not executable: %s; run 'pixi run build-scene-extractor'", executable)
 	}
 	command := exec.CommandContext(ctx, executable, "--job", job.Manifest) // #nosec G702
 	command.Dir = job.Directory

@@ -19,7 +19,7 @@ func NewCommand() *cobra.Command {
 		Use:   "prepare",
 		Short: "Prepare one scene extraction job",
 		Long: `Prepare the strict SceneExtractionJob ProtoJSON and subject pose stream consumed by
-the dedicated-server scene extractor. Capture and replay identities are
+the headless Java scene extractor. Capture and replay identities are
 verified before the owned runtime directory is published.`,
 		Example: `  recorder-minecraft scene prepare \
     --metadata PLAY/metadata.json \

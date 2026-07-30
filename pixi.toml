@@ -24,14 +24,13 @@ buf-lint = "buf lint"
 buf-generate = "buf generate"
 buf-generate-check = "buf generate && git diff --exit-code -- apis/sdk/go apis/sdk/jvm"
 build-recorder-mod = "gradle --project-dir mods/recorder-mod build"
-build-scene-extractor-mod = "gradle --project-dir mods/scene-extractor-mod build installDist"
+build-scene-extractor = "gradle --project-dir processors/scene-extractor build installDist"
 build-renderer-mod = "gradle --project-dir mods/renderer-mod build"
 build-recorder-minecraft-image = { cmd = "docker buildx build --platform linux/amd64 -f cmd/recorder-minecraft/Dockerfile . --tag recorder-minecraft:local --load", depends-on = [
-  "build-scene-extractor-mod",
+  "build-scene-extractor",
 ] }
 build-mods = { depends-on = [
   "build-recorder-mod",
-  "build-scene-extractor-mod",
   "build-renderer-mod"
 ] }
 check = { depends-on = [
@@ -41,5 +40,6 @@ check = { depends-on = [
   "buf-generate-check",
   "test-go",
   "lint-go",
+  "build-scene-extractor",
   "build-mods",
 ] }

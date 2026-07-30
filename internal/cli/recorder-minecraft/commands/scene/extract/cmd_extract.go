@@ -22,8 +22,8 @@ func NewCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "extract",
 		Short: "Write a random-access Scene Store V2",
-		Long: `Validate a completed capture and Flashback replay, run the dedicated
-server extractor, and atomically compact its private stream into scene.sqlite3.
+		Long: `Validate a completed capture and Flashback replay, run the headless Java
+extractor, and atomically compact its private stream into scene.sqlite3.
 Private job data is removed after a successful extraction.`,
 		Example: `  recorder-minecraft scene extract \
     --metadata PLAY/metadata.json \

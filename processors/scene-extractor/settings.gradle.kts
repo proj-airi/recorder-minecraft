@@ -6,4 +6,4 @@ pluginManagement {
     }
 }
 
-rootProject.name = "mc-recorder-scene-extractor"
+rootProject.name = "scene-extractor"

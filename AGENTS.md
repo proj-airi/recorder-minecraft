@@ -5,7 +5,7 @@
 - `cmd/recorder-minecraft/` and `internal/` contain the Go provisioning, validation, export, scene, and render-job CLI. Go tests live beside the affected packages.
 - `apis/proto/` defines artifact contracts; generated Go types live under `apis/sdk/go/`. `databases/scene/` models each play-local Scene Store V2 with Ent.
 - `mods/recorder-mod/` is the Kotlin/Java Fabric server mod; production code is under `src/main/` and JUnit tests under `src/test/`.
-- `mods/scene-extractor-mod/` is the Java Fabric dedicated-server extractor for random-access block/entity scene stores; `mods/renderer-mod/` is the client-only first-person RGB renderer.
+- `processors/scene-extractor/` is the headless Java CLI that uses Minecraft, Fabric, and Arcade Replay APIs to build random-access block/entity scene stores. `mods/renderer-mod/` is the client-only first-person RGB renderer.
 - `docs/specs/` defines the source JSONL and dataset contracts. Update these documents when changing persisted fields or invariants.
 - `deploy/` contains Docker Compose configuration. `ServerReplay/` is upstream source; avoid unrelated edits there.
 - `artifacts/`, `.recorder/minecraft/`, `runtime/`, and renderer `run/` directories are generated and must not be committed.
@@ -25,7 +25,7 @@ Run the automated checks:
 pixi run test-go
 pixi run buf-lint
 pixi run build-recorder-mod
-pixi run build-scene-extractor-mod
+pixi run build-scene-extractor
 pixi run build-renderer-mod
 ```
 
@@ -37,7 +37,7 @@ Use `gofmt` for Go. Follow standard Go naming, Java/Kotlin `UpperCamelCase` type
 
 ## Testing Guidelines
 
-Go tests use the standard `testing` package and files named `*_test.go`. Mod tests use JUnit 5/Kotlin Test and classes named `*Test`. Add regression coverage beside the affected module. Changes to capture alignment, rendering, or retention should also be exercised with a completed real replay; do not mutate source captures during verification.
+Go tests use the standard `testing` package and files named `*_test.go`. JVM module tests use JUnit 5/Kotlin Test and classes named `*Test`. Add regression coverage beside the affected module. Changes to capture alignment, rendering, or retention should also be exercised with a completed real replay; do not mutate source captures during verification.
 
 ## Readability, Naming, and Comments
 

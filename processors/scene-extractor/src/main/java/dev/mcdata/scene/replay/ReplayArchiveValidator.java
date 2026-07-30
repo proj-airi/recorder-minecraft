@@ -172,7 +172,7 @@ public final class ReplayArchiveValidator {
             String actual = loaded.get(required.getKey());
             if (!required.getValue().equals(actual)) {
                 throw new IOException(
-                    "extractor mod version mismatch for " + required.getKey()
+                    "extractor runtime version mismatch for " + required.getKey()
                         + ": source=" + required.getValue() + ", loaded=" + actual
                 );
             }

@@ -10,7 +10,7 @@ JVM toolchains. Gradle is installed by proto instead of the Gradle wrapper.
 | Reproducible root tasks | Pixi | `pixi.toml`, `pixi.lock` |
 | Go, Buf, OpenJDK 21, and Gradle 9.6.1 | proto | `.prototools` |
 | Artifact contracts and generated Go SDK | Buf | `buf.yaml`, `buf.gen.yaml`, `apis/` |
-| Fabric/Kotlin build logic and dependencies | Gradle projects | `mods/recorder-mod/`, `mods/scene-extractor-mod/`, `mods/renderer-mod/` |
+| Minecraft JVM build logic and dependencies | Gradle projects | `mods/recorder-mod/`, `mods/renderer-mod/`, `processors/scene-extractor/` |
 | Docker Compose runtime | Docker Compose | `deploy/docker-compose.yml`, `deploy/.env` copied from `deploy/.env.example` |
 | Pull request verification | GitHub Actions | `.github/workflows/ci.yml` |
 
@@ -50,7 +50,7 @@ repository.
 pixi run test-go
 pixi run buf-lint
 pixi run build-recorder-mod
-pixi run build-scene-extractor-mod
+pixi run build-scene-extractor
 pixi run build-renderer-mod
 pixi run check
 ```
@@ -61,14 +61,15 @@ Compose and `hack/minecraft-server prepare`. Use Docker Compose directly with
 container lifecycle control. Run `hack/minecraft-server prepare` after changing
 the local recorder mod or mod configuration inputs.
 
-`pixi run check` runs Go and Protobuf checks plus all three Gradle builds. Renderer
-builds normally resolve Flashback from the pinned Modrinth version ID in
+`pixi run check` runs Go and Protobuf checks plus both mod builds and the scene
+extractor build. Renderer builds normally resolve Flashback from the pinned
+Modrinth version ID in
 `mods/renderer-mod/gradle.properties`. If Modrinth is unavailable, set
 `MC_RECORDER_FLASHBACK_JAR` to the Flashback 0.39.5 JAR for Minecraft 1.21.8.
 
 Scene extraction launches the `mc-recorder-scene-extractor` CLI produced by
-`pixi run build-scene-extractor-mod`. By default the Go launcher uses
-`mods/scene-extractor-mod/build/install/mc-recorder-scene-extractor/bin/mc-recorder-scene-extractor`.
+`pixi run build-scene-extractor`. By default the Go launcher uses
+`processors/scene-extractor/build/install/mc-recorder-scene-extractor/bin/mc-recorder-scene-extractor`.
 Set `MC_RECORDER_SCENE_EXTRACTOR` to an absolute executable path when a service
 manager needs a different installed extractor. The launcher does not invoke a
 shell and rejects relative overrides.

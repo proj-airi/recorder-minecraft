@@ -4,7 +4,7 @@ plugins {
 }
 
 group = "dev.mcdata"
-version = property("mod_version") as String
+version = property("extractor_version") as String
 
 base {
     archivesName.set("mc-recorder-scene-extractor")
@@ -63,13 +63,6 @@ java {
 tasks.withType<JavaCompile>().configureEach {
     options.release.set(21)
     options.compilerArgs.add("-Xlint:all")
-}
-
-tasks.processResources {
-    inputs.property("version", project.version)
-    filesMatching("fabric.mod.json") {
-        expand("version" to project.version)
-    }
 }
 
 tasks.test {

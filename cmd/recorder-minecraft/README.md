@@ -11,5 +11,5 @@ pixi run recorder-minecraft render --help
 ```
 
 Every processor accepts explicit input and output paths. Scene extraction uses
-the dedicated-server extractor, writes only the final Scene Store V2 to the
+the headless Java extractor, writes only the final Scene Store V2 to the
 requested destination, and removes its private runtime job after success.

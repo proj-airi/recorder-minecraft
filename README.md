@@ -90,11 +90,11 @@ See [Artifacts V1 Pipeline](docs/specs/artifacts-v1.md),
 
 ```text
 mods/recorder-mod/         server recorder and canonical capture writer
-mods/scene-extractor-mod/ headless Flashback scene reducer
 mods/renderer-mod/        client-only FPV frame renderer
-cmd/recorder-minecraft/              Go file-to-file processor CLI
+processors/scene-extractor/ headless Flashback scene reducer
+cmd/recorder-minecraft/    Go file-to-file processor CLI
 apis/proto/               Protobuf artifact contracts
-databases/scene/  Ent model for per-play scene.sqlite3 files
+databases/scene/           Ent model for per-play scene.sqlite3 files
 deploy/                   recorder server Compose configuration
 ```
 
