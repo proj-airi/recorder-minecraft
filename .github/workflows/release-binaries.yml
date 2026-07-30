@@ -1,0 +1,293 @@
+name: Release recorder-minecraft binaries
+
+"on":
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  payload:
+    name: Build bundled JVM artifacts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up proto
+        uses: moonrepo/setup-toolchain@v0.6.4
+        with:
+          proto-version: 0.58.2
+          auto-install: false
+          cache: true
+
+      - name: Install pinned toolchains
+        run: proto install --config-mode local
+
+      - name: Set up Pixi
+        uses: prefix-dev/setup-pixi@v0.10.0
+        with:
+          pixi-version: v0.73.0
+          cache: true
+          locked: true
+
+      - name: Build renderer and scene extractor
+        run: |
+          set -euo pipefail
+          pixi run --locked build-renderer-mod
+          pixi run --locked build-scene-extractor
+
+      - name: Stage stable artifact names
+        run: |
+          set -euo pipefail
+          mkdir -p bundled-assets
+          mapfile -t renderer_jars < <(find mods/renderer-mod/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*-sources.jar' ! -name '*-dev.jar' | sort)
+          test "${#renderer_jars[@]}" -eq 1
+          mapfile -t extractor_zips < <(find processors/scene-extractor/build/distributions -maxdepth 1 -type f -name '*.zip' | sort)
+          test "${#extractor_zips[@]}" -eq 1
+          cp "${renderer_jars[0]}" bundled-assets/mc-recorder-renderer.jar
+          cp "${extractor_zips[0]}" bundled-assets/mc-recorder-scene-extractor.zip
+
+      - name: Upload bundled artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: bundled-assets
+          path: bundled-assets/
+          if-no-files-found: error
+          retention-days: 1
+
+  build:
+    name: Build ${{ matrix.target }}
+    needs: payload
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-26
+            target: aarch64-apple-darwin
+            goos: darwin
+            goarch: arm64
+            executable: recorder-minecraft
+            archive: recorder-minecraft-aarch64-apple-darwin.tar.gz
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+            goos: darwin
+            goarch: amd64
+            executable: recorder-minecraft
+            archive: recorder-minecraft-x86_64-apple-darwin.tar.gz
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            goos: linux
+            goarch: amd64
+            executable: recorder-minecraft
+            archive: recorder-minecraft-x86_64-unknown-linux-gnu.tar.gz
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            goos: linux
+            goarch: arm64
+            executable: recorder-minecraft
+            archive: recorder-minecraft-aarch64-unknown-linux-gnu.tar.gz
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            goos: windows
+            goarch: amd64
+            executable: recorder-minecraft.exe
+            archive: recorder-minecraft-x86_64-pc-windows-msvc.zip
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Download bundled artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: bundled-assets
+          path: internal/bundled/assets
+
+      - name: Build executable
+        shell: bash
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          mkdir -p "target/${{ matrix.target }}"
+          go build -tags bundled_artifacts -trimpath \
+            -ldflags "-s -w -X github.com/proj-airi/recorder-minecraft/internal/cli/recorder-minecraft/commands/version.Value=${version}" \
+            -o "target/${{ matrix.target }}/${{ matrix.executable }}" \
+            ./cmd/recorder-minecraft
+
+      # NOTICE: The ephemeral-keychain and notarization flow is adapted from
+      # `https://github.com/moeru-ai/alint/blob/4bd0fc9b6f9f482e8a5c102b2c7f9e108084ca10/.github/workflows/release-binaries.yaml#L78-L166`.
+      - name: Decode macOS signing certificate
+        if: runner.os == 'macOS'
+        env:
+          APPLE_DEVELOPER_ID_APPLICATION_CERTIFICATE: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION_CERTIFICATE }}
+        run: printf '%s' "$APPLE_DEVELOPER_ID_APPLICATION_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/developer-id-application.p12"
+
+      - name: Create macOS signing keychain
+        if: runner.os == 'macOS'
+        run: |
+          security create-keychain -p recorder-minecraft-signing "$RUNNER_TEMP/recorder-minecraft-signing.keychain-db"
+          security set-keychain-settings -lut 21600 "$RUNNER_TEMP/recorder-minecraft-signing.keychain-db"
+          security unlock-keychain -p recorder-minecraft-signing "$RUNNER_TEMP/recorder-minecraft-signing.keychain-db"
+
+      - name: Import macOS signing certificate
+        if: runner.os == 'macOS'
+        env:
+          APPLE_DEVELOPER_ID_APPLICATION_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION_CERTIFICATE_PASSWORD }}
+        run: |
+          security import "$RUNNER_TEMP/developer-id-application.p12" \
+            -P "$APPLE_DEVELOPER_ID_APPLICATION_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 \
+            -k "$RUNNER_TEMP/recorder-minecraft-signing.keychain-db"
+          security list-keychains -d user -s "$RUNNER_TEMP/recorder-minecraft-signing.keychain-db"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s \
+            -k recorder-minecraft-signing "$RUNNER_TEMP/recorder-minecraft-signing.keychain-db"
+
+      - name: Sign macOS executable
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          identity="$(security find-identity -v -p codesigning "$RUNNER_TEMP/recorder-minecraft-signing.keychain-db" | sed -n 's/.*"\(Developer ID Application:.*\)".*/\1/p' | head -n 1)"
+          test -n "$identity"
+          codesign --force --timestamp --options runtime --sign "$identity" \
+            "target/${{ matrix.target }}/${{ matrix.executable }}"
+          codesign --verify --strict --verbose=2 "target/${{ matrix.target }}/${{ matrix.executable }}"
+
+      - name: Clean up macOS signing keychain
+        if: runner.os == 'macOS' && always()
+        run: security delete-keychain "$RUNNER_TEMP/recorder-minecraft-signing.keychain-db" || true
+
+      - name: Verify executable and embedded payload
+        if: runner.os != 'Windows'
+        run: |
+          set -euo pipefail
+          "target/${{ matrix.target }}/${{ matrix.executable }}" version
+          "target/${{ matrix.target }}/${{ matrix.executable }}" export-assets exported
+          test -s exported/mc-recorder-renderer.jar
+          test -s exported/mc-recorder-scene-extractor.zip
+
+      - name: Verify executable and embedded payload
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          & "target/${{ matrix.target }}/${{ matrix.executable }}" version
+          & "target/${{ matrix.target }}/${{ matrix.executable }}" export-assets exported
+          if (!(Test-Path "exported/mc-recorder-renderer.jar") -or !(Test-Path "exported/mc-recorder-scene-extractor.zip")) { exit 1 }
+
+      - name: Create archive
+        if: runner.os != 'Windows'
+        run: tar -czf "${{ matrix.archive }}" -C "target/${{ matrix.target }}" "${{ matrix.executable }}"
+
+      - name: Create archive
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Compress-Archive -Path "target/${{ matrix.target }}/${{ matrix.executable }}" -DestinationPath "${{ matrix.archive }}"
+
+      - name: Calculate archive hash
+        if: runner.os != 'Windows'
+        run: shasum -a 256 "${{ matrix.archive }}" | awk '{ print $1 }' > "${{ matrix.archive }}.sha256"
+
+      - name: Calculate archive hash
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Set-Content -Path "${{ matrix.archive }}.sha256" -Value (Get-FileHash -Algorithm SHA256 "${{ matrix.archive }}").Hash.ToLower()
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.archive }}
+          path: |
+            ${{ matrix.archive }}
+            ${{ matrix.archive }}.sha256
+          if-no-files-found: error
+
+  notarize-macos:
+    name: Notarize ${{ matrix.archive }}
+    needs: build
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - archive: recorder-minecraft-aarch64-apple-darwin.tar.gz
+          - archive: recorder-minecraft-x86_64-apple-darwin.tar.gz
+    steps:
+      - name: Download signed archive
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ matrix.archive }}
+
+      - name: Set up notarization credentials
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: |
+          xcrun notarytool store-credentials recorder-minecraft-notary \
+            --apple-id "$APPLE_ID" \
+            --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD"
+
+      - name: Submit executable for notarization
+        run: |
+          set -euo pipefail
+          tar -xzf "${{ matrix.archive }}"
+          ditto -c -k --keepParent recorder-minecraft recorder-minecraft-notary.zip
+          xcrun notarytool submit recorder-minecraft-notary.zip \
+            --keychain-profile recorder-minecraft-notary --wait
+          ./recorder-minecraft version
+          tar -czf "${{ matrix.archive }}" recorder-minecraft
+          shasum -a 256 "${{ matrix.archive }}" | awk '{ print $1 }' > "${{ matrix.archive }}.sha256"
+
+      - name: Upload notarized archive
+        uses: actions/upload-artifact@v7
+        with:
+          name: notarized-${{ matrix.archive }}
+          path: |
+            ${{ matrix.archive }}
+            ${{ matrix.archive }}.sha256
+          if-no-files-found: error
+
+  publish:
+    name: Attach binaries to GitHub Release
+    needs: [build, notarize-macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+
+      - name: Select notarized macOS archives
+        run: |
+          set -euo pipefail
+          mkdir release
+          find artifacts -mindepth 2 -maxdepth 2 -type f ! -path 'artifacts/bundled-assets/*' ! -path 'artifacts/*apple-darwin*/*' -exec cp {} release/ \;
+          find artifacts -mindepth 2 -maxdepth 2 -type f -path 'artifacts/notarized-*/*' -exec cp {} release/ \;
+          test "$(find release -type f | wc -l)" -eq 10
+
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name }}" release/* --clobber --repo "$GITHUB_REPOSITORY"

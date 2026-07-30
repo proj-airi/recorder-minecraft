@@ -7,6 +7,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var Value = "dev"
+
 func NewCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:     "version",
@@ -14,7 +16,7 @@ func NewCommand() *cobra.Command {
 		GroupID: command.OtherGroup,
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			_, err := fmt.Fprintln(cmd.OutOrStdout(), "recorder-minecraft v0.1.0")
+			_, err := fmt.Fprintf(cmd.OutOrStdout(), "recorder-minecraft %s\n", Value)
 			return err
 		},
 	}

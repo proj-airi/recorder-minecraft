@@ -1,0 +1,107 @@
+name: Release Minecraft recorder server image
+
+"on":
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish server image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      attestations: write
+      id-token: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up proto
+        uses: moonrepo/setup-toolchain@v0.6.4
+        with:
+          proto-version: 0.58.2
+          auto-install: false
+          cache: true
+
+      - name: Install pinned toolchains
+        run: proto install --config-mode local
+
+      - name: Set up Pixi
+        uses: prefix-dev/setup-pixi@v0.10.0
+        with:
+          pixi-version: v0.73.0
+          cache: true
+          locked: true
+
+      - name: Stage recorder server mod
+        run: pixi run --locked stage-recorder-server-mod
+
+      - name: Resolve paired image version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          mod_metadata="$(unzip -p mods/recorder-mod/build/server-image/mc-recorder-mod.jar fabric.mod.json)"
+          minecraft_version="$(jq -er '.depends.minecraft' <<<"$mod_metadata")"
+          recorder_version="${GITHUB_REF_NAME#v}"
+          image_version="${minecraft_version}-${recorder_version}"
+          if [[ ! "$image_version" =~ ^[[:alnum:]_][[:alnum:]_.-]{0,127}$ ]]; then
+            echo "invalid paired image version: $image_version" >&2
+            exit 2
+          fi
+          echo "minecraft=$minecraft_version" >> "$GITHUB_OUTPUT"
+          echo "recorder=$recorder_version" >> "$GITHUB_OUTPUT"
+          echo "image=$image_version" >> "$GITHUB_OUTPUT"
+
+      # NOTICE: The GHCR metadata and multi-platform publication structure is
+      # adapted from `https://github.com/moeru-ai/unspeech/blob/718b7c2bd7b5f9a9e6134bd5f01c4fc4e118d14f/.github/workflows/release.yaml#L25-L62`.
+      - name: Generate image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}/minecraft-server
+          tags: type=raw,value=${{ steps.version.outputs.image }}
+          labels: |
+            dev.mcdata.minecraft.version=${{ steps.version.outputs.minecraft }}
+            dev.mcdata.recorder.version=${{ steps.version.outputs.recorder }}
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ github.token }}
+
+      - name: Build and push server image
+        id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/minecraft-server.Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Attest image provenance
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-name: ghcr.io/${{ github.repository }}/minecraft-server
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true

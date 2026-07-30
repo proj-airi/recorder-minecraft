@@ -65,3 +65,12 @@ tasks.processResources {
 tasks.test {
     useJUnitPlatform()
 }
+
+tasks.register<Copy>("stageServerImage") {
+    group = "distribution"
+    description = "Stage the remapped recorder mod under a stable server-image filename"
+    dependsOn(tasks.remapJar)
+    from(tasks.remapJar)
+    into(layout.buildDirectory.dir("server-image"))
+    rename { "mc-recorder-mod.jar" }
+}

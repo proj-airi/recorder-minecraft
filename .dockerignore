@@ -9,6 +9,9 @@ runtime
 !processors/scene-extractor/build/install/
 !processors/scene-extractor/build/install/mc-recorder-scene-extractor/
 !processors/scene-extractor/build/install/mc-recorder-scene-extractor/**
+!mods/recorder-mod/build/
+!mods/recorder-mod/build/server-image/
+!mods/recorder-mod/build/server-image/mc-recorder-mod.jar
 **/run
 **/__pycache__
 **/*.pyc

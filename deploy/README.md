@@ -8,6 +8,14 @@ cp deploy/.env.example deploy/.env
 hack/minecraft-server start
 ```
 
+Release builds publish `ghcr.io/proj-airi/recorder-minecraft/minecraft-server`
+with the recorder mod already installed. Image tags pair the Minecraft and
+recorder release versions, such as `1.21.8-0.2.0` for recorder release `v0.2.0`.
+Set `MC_SERVER_IMAGE` to one of these tags to use it; `/mods` remains available
+for additional local mods. The image keeps ServerReplay pinned through
+`MODRINTH_PROJECTS`, so startup still resolves that runtime dependency from
+Modrinth.
+
 The helper builds the recorder mod and stages both mod configurations. It reads
 the stable server instance UUID and either the configured `server.name` or the
 machine hostname from `recorder.toml`.

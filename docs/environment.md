@@ -74,6 +74,17 @@ Set `MC_RECORDER_SCENE_EXTRACTOR` to an absolute executable path when a service
 manager needs a different installed extractor. The launcher does not invoke a
 shell and rejects relative overrides.
 
+GitHub Release binaries embed the renderer mod JAR and the complete scene
+extractor ZIP distribution. Export both payloads with:
+
+```sh
+recorder-minecraft export-assets ./recorder-minecraft-artifacts
+```
+
+Use `--overwrite` only when replacing files from an earlier export. Ordinary
+development builds omit generated payloads; the release workflow stages them
+and enables the `bundled_artifacts` Go build tag.
+
 ## macOS Notes
 
 The proto-managed OpenJDK replaces the previous Homebrew/jenv setup for this

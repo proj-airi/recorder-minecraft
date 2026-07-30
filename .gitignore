@@ -38,3 +38,4 @@ pnpm-debug.log*
 /server/
 /recorder.toml
 /deploy/.env
+/internal/bundled/assets/
