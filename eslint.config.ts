@@ -7,8 +7,8 @@ export default defineConfig({
   sonarjs: false,
   sortPackageJsonScripts: false,
   typescript: true,
-  unocss: false,
-  vue: false,
+  unocss: true,
+  vue: true,
 }, {
   ignores: [
     'cspell.config.yaml',
@@ -18,6 +18,10 @@ export default defineConfig({
     '.agents/**',
     '.worktrees/**',
     '.github/**',
+    '.mc-recorder/**',
+    '.golangci-lint.yaml',
+    // NOTICE: Preserve the upstream source formatting so the renderer port remains reviewable against its pinned commit.
+    'packages/canvas-timeline-renderer/src/**',
     'docs/superpowers/**',
     'CLAUDE.md', // Skip the symbolic link
   ],

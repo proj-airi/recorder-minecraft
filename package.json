@@ -1,0 +1,29 @@
+{
+  "name": "@proj-airi/recorder-minecraft-root",
+  "type": "module",
+  "private": true,
+  "packageManager": "pnpm@11.13.0",
+  "license": "MIT",
+  "scripts": {
+    "build": "pnpm run build:packages",
+    "build:packages": "pnpm -F=\"./packages/*\" -F=\"./apps/*\" run --if-present build",
+    "dev": "pnpm --filter @proj-airi/recorder-minecraft-dashboard run dev",
+    "lint": "pnpm run lint:eslint && pnpm run lint:oxc",
+    "lint:eslint": "eslint --cache .",
+    "lint:fix": "eslint --cache . --fix && oxlint . --fix",
+    "lint:oxc": "oxlint .",
+    "typecheck": "pnpm -r --if-present run typecheck"
+  },
+  "devDependencies": {
+    "@moeru/eslint-config": "catalog:",
+    "@types/node": "catalog:",
+    "@unocss/eslint-plugin": "catalog:",
+    "@unocss/preset-web-fonts": "catalog:",
+    "eslint": "catalog:",
+    "eslint-plugin-oxlint": "catalog:",
+    "oxlint": "catalog:",
+    "typescript": "catalog:",
+    "unocss": "catalog:",
+    "vite": "catalog:"
+  }
+}

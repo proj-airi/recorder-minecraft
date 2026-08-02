@@ -1,0 +1,22 @@
+{
+  "name": "@proj-airi/canvas-timeline-vue",
+  "type": "module",
+  "private": true,
+  "license": "MPL-2.0",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "vue-tsc --noEmit"
+  },
+  "dependencies": {
+    "@proj-airi/canvas-timeline-renderer": "workspace:*",
+    "@techsquidtv/canvas-timeline-core": "catalog:",
+    "@techsquidtv/canvas-timeline-utils": "catalog:",
+    "vue": "catalog:"
+  },
+  "devDependencies": {
+    "typescript": "catalog:",
+    "vue-tsc": "catalog:"
+  }
+}

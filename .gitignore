@@ -21,11 +21,13 @@
 
 node_modules/
 **/dist/
+**/typed-router.d.ts
 **/viewer_dist/
 **/.turbo/
 **/.vite/
 **/.vite-inspect/
 **/.vite-inspect*/
+**/.vitest-attachments/
 **/*.tsbuildinfo
 .eslintcache
 pnpm-debug.log*

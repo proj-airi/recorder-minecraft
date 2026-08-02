@@ -1,0 +1,5 @@
+export type { CanvasRendererRenderReason, CanvasRendererStats } from './CanvasRenderer'
+export { createRendererWorker } from './createRendererWorker'
+export type { TimelineRenderOptions, TimelineRulerOptions } from './render/types'
+export { renderTimeline } from './renderTimeline'
+export * from './theme'

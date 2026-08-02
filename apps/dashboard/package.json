@@ -1,0 +1,42 @@
+{
+  "name": "@proj-airi/recorder-minecraft-dashboard",
+  "type": "module",
+  "private": true,
+  "description": "Dashboard for recorder-minecraft",
+  "license": "MIT",
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite --host",
+    "lint": "eslint .",
+    "preview": "vite preview",
+    "test": "pnpm run test:browser",
+    "test:browser": "vitest run --config vitest.config.ts",
+    "typecheck": "vue-tsc --noEmit"
+  },
+  "dependencies": {
+    "@proj-airi/canvas-timeline-renderer": "workspace:*",
+    "@proj-airi/canvas-timeline-vue": "workspace:*",
+    "@techsquidtv/canvas-timeline-core": "catalog:",
+    "animejs": "catalog:",
+    "pinia": "catalog:",
+    "splitpanes": "catalog:",
+    "virtua": "catalog:",
+    "vue": "catalog:",
+    "vue-router": "catalog:"
+  },
+  "devDependencies": {
+    "@iconify-json/mingcute": "catalog:",
+    "@unocss/reset": "catalog:",
+    "@vitejs/plugin-vue": "catalog:",
+    "@vitest/browser-playwright": "catalog:",
+    "@vue-macros/volar": "catalog:",
+    "playwright": "catalog:",
+    "typescript": "catalog:",
+    "unocss": "catalog:",
+    "vite": "catalog:",
+    "vitest": "catalog:",
+    "vitest-browser-vue": "catalog:",
+    "vue-macros": "catalog:",
+    "vue-tsc": "catalog:"
+  }
+}

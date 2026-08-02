@@ -1,0 +1,23 @@
+{
+  "name": "@proj-airi/canvas-timeline-renderer",
+  "type": "module",
+  "private": true,
+  "license": "MPL-2.0",
+  "imports": {
+    "#renderer/*": "./src/*.ts"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./theme": "./src/theme.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@techsquidtv/canvas-timeline-core": "catalog:",
+    "@techsquidtv/canvas-timeline-utils": "catalog:"
+  },
+  "devDependencies": {
+    "typescript": "catalog:"
+  }
+}
