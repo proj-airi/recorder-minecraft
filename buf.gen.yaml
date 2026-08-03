@@ -7,7 +7,27 @@ plugins:
     out: apis/sdk/go
     opt:
       - paths=source_relative
+  - remote: buf.build/grpc/go:v1.6.0
+    out: apis/sdk/go
+    opt:
+      - paths=source_relative
+  - remote: buf.build/grpc-ecosystem/gateway:v2.29.0
+    out: apis/sdk/go
+    opt:
+      - paths=source_relative
+  - remote: buf.build/grpc-ecosystem/openapiv2:v2.29.0
+    out: apis/openapi/v2
+    opt:
+      - allow_merge=true
+      - merge_file_name=recorder-minecraft
+      - openapi_naming_strategy=fqn
   - remote: buf.build/protocolbuffers/java:v33.2
     out: apis/sdk/jvm
+    # NOTICE: The HTTP/gRPC catalog is a backend boundary. Excluding its package keeps gateway,
+    # validation, and Google API annotation descriptors out of the Minecraft JVM source sets.
+    exclude_types:
+      - recorder_minecraft.api.v1
   - remote: buf.build/protocolbuffers/kotlin:v33.2
     out: apis/sdk/jvm
+    exclude_types:
+      - recorder_minecraft.api.v1

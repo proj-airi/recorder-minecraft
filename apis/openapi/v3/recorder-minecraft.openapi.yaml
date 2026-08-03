@@ -1,0 +1,339 @@
+components:
+  schemas:
+    google.protobuf.Any:
+      additionalProperties: {}
+      properties:
+        '@type':
+          type: string
+      type: object
+    google.rpc.Status:
+      properties:
+        code:
+          format: int32
+          type: integer
+        details:
+          items:
+            $ref: '#/components/schemas/google.protobuf.Any'
+          type: array
+        message:
+          type: string
+      type: object
+    recorder_minecraft.api.v1.GetReplayResponse:
+      properties:
+        replay:
+          $ref: '#/components/schemas/recorder_minecraft.api.v1.Replay'
+      type: object
+    recorder_minecraft.api.v1.ListArtifactsResponse:
+      properties:
+        serverInstances:
+          items:
+            $ref: '#/components/schemas/recorder_minecraft.api.v1.ServerInstance'
+          type: array
+      type: object
+    recorder_minecraft.api.v1.ListPlayersResponse:
+      properties:
+        players:
+          items:
+            $ref: '#/components/schemas/recorder_minecraft.api.v1.PlayerSummary'
+          type: array
+      type: object
+    recorder_minecraft.api.v1.ListReplaysResponse:
+      properties:
+        replays:
+          items:
+            $ref: '#/components/schemas/recorder_minecraft.api.v1.Replay'
+          type: array
+      type: object
+    recorder_minecraft.api.v1.ListServerInstancesResponse:
+      properties:
+        serverInstances:
+          items:
+            $ref: '#/components/schemas/recorder_minecraft.api.v1.ServerInstanceSummary'
+          type: array
+      type: object
+    recorder_minecraft.api.v1.Player:
+      properties:
+        name:
+          type: string
+        replays:
+          items:
+            $ref: '#/components/schemas/recorder_minecraft.api.v1.Replay'
+          type: array
+        uuid:
+          type: string
+      type: object
+    recorder_minecraft.api.v1.PlayerSummary:
+      properties:
+        name:
+          type: string
+        replayCount:
+          format: uint64
+          type: string
+        serverInstanceId:
+          type: string
+        serverName:
+          type: string
+        uuid:
+          type: string
+      type: object
+    recorder_minecraft.api.v1.Replay:
+      properties:
+        captureFailure:
+          type: string
+        connectionId:
+          type: string
+        endServerTick:
+          format: int64
+          type: string
+        endedAt:
+          format: date-time
+          type: string
+        eventsUrl:
+          type: string
+        playerName:
+          type: string
+        playerUuid:
+          type: string
+        replayFormat:
+          type: string
+        replayUrl:
+          type: string
+        serverInstanceId:
+          type: string
+        serverName:
+          type: string
+        sessionId:
+          type: string
+        startServerTick:
+          format: int64
+          type: string
+        startedAt:
+          format: date-time
+          type: string
+        terminalReason:
+          type: string
+        validationError:
+          type: string
+        video:
+          $ref: '#/components/schemas/recorder_minecraft.api.v1.VideoAsset'
+      type: object
+    recorder_minecraft.api.v1.ServerInstance:
+      properties:
+        instanceId:
+          type: string
+        name:
+          type: string
+        players:
+          items:
+            $ref: '#/components/schemas/recorder_minecraft.api.v1.Player'
+          type: array
+      type: object
+    recorder_minecraft.api.v1.ServerInstanceSummary:
+      properties:
+        instanceId:
+          type: string
+        name:
+          type: string
+        playerCount:
+          format: uint64
+          type: string
+        replayCount:
+          format: uint64
+          type: string
+      type: object
+    recorder_minecraft.api.v1.VideoAsset:
+      properties:
+        frameCount:
+          format: uint64
+          type: string
+        framesPerSecond:
+          format: double
+          type: number
+        height:
+          format: int64
+          type: integer
+        mediaType:
+          type: string
+        sizeBytes:
+          format: uint64
+          type: string
+        url:
+          type: string
+        width:
+          format: int64
+          type: integer
+      type: object
+info:
+  title: recorder-minecraft/api/v1/artifacts.proto
+  version: version not set
+openapi: 3.0.3
+paths:
+  /api/v1/artifacts:
+    get:
+      description: Returns the complete readable server, player, and replay hierarchy after applying optional filters.
+      operationId: artifacts_list
+      parameters:
+        - description: Restrict results to one recorder installation UUID.
+          in: query
+          name: serverInstanceId
+          schema:
+            type: string
+        - description: Restrict results to one Minecraft player UUID.
+          in: query
+          name: playerUuid
+          schema:
+            type: string
+        - description: Include replays whose connection started at or after this instant.
+          in: query
+          name: startedAtOrAfter
+          schema:
+            format: date-time
+            type: string
+        - description: Include replays whose connection started before this instant.
+          in: query
+          name: startedBefore
+          schema:
+            format: date-time
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/recorder_minecraft.api.v1.ListArtifactsResponse'
+          description: A successful response.
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/google.rpc.Status'
+          description: An unexpected error response.
+      summary: List the artifact catalog.
+      tags:
+        - Artifacts
+  /api/v1/players:
+    get:
+      operationId: players_list
+      parameters:
+        - description: Restrict results to one recorder installation UUID.
+          in: query
+          name: serverInstanceId
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/recorder_minecraft.api.v1.ListPlayersResponse'
+          description: A successful response.
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/google.rpc.Status'
+          description: An unexpected error response.
+      summary: List players.
+      tags:
+        - Artifacts
+  /api/v1/replays:
+    get:
+      operationId: replays_list
+      parameters:
+        - description: Restrict results to one recorder installation UUID.
+          in: query
+          name: serverInstanceId
+          schema:
+            type: string
+        - description: Restrict results to one Minecraft player UUID.
+          in: query
+          name: playerUuid
+          schema:
+            type: string
+        - description: Include replays whose connection started at or after this instant.
+          in: query
+          name: startedAtOrAfter
+          schema:
+            format: date-time
+            type: string
+        - description: Include replays whose connection started before this instant.
+          in: query
+          name: startedBefore
+          schema:
+            format: date-time
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/recorder_minecraft.api.v1.ListReplaysResponse'
+          description: A successful response.
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/google.rpc.Status'
+          description: An unexpected error response.
+      summary: List replay resources.
+      tags:
+        - Artifacts
+  /api/v1/server-instances:
+    get:
+      operationId: server_instances_list
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/recorder_minecraft.api.v1.ListServerInstancesResponse'
+          description: A successful response.
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/google.rpc.Status'
+          description: An unexpected error response.
+      summary: List server instances.
+      tags:
+        - Artifacts
+  /api/v1/server-instances/{serverInstanceId}/players/{playerUuid}/replays/{connectionId}:
+    get:
+      operationId: replays_get
+      parameters:
+        - description: Recorder installation UUID.
+          in: path
+          name: serverInstanceId
+          required: true
+          schema:
+            type: string
+        - description: Minecraft player UUID.
+          in: path
+          name: playerUuid
+          required: true
+          schema:
+            type: string
+        - description: Replay connection UUID.
+          in: path
+          name: connectionId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/recorder_minecraft.api.v1.GetReplayResponse'
+          description: A successful response.
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/google.rpc.Status'
+          description: An unexpected error response.
+      summary: Get one replay resource.
+      tags:
+        - Artifacts
+tags:
+  - name: ArtifactCatalogService

@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# NOTICE: The OpenAPI v2-to-v3 stage is adapted from
+# `https://github.com/nekomeowww/factorio-rcon-api/blob/7d2e03b91e26ec5e6fe302eeab001f1a44ae8cf4/hack/proto-gen#L1-L25`.
+proto run buf -- generate --template buf.gen.yaml
+proto run go -- run ./cmd/tools/openapiv2conv \
+  --input apis/openapi/v2/recorder-minecraft.swagger.json \
+  --input-format json \
+  --output apis/openapi/v3/recorder-minecraft.openapi.yaml \
+  --output-format yaml
+pnpm --filter @proj-airi/recorder-minecraft-api run generate

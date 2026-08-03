@@ -5,18 +5,23 @@ shellEmulator: true
 trustPolicy: no-downgrade
 
 packages:
+  - apis/sdk/typescript
   - apps/**
   - packages/**
   - '!**/dist/**'
 
 allowBuilds:
   esbuild: true
+  vue-demi: true
 
 overrides:
   typescript: ^6.0.3
 
 catalog:
+  '@ark-ui/vue': 5.37.2
+  '@hey-api/openapi-ts': 0.99.0
   '@iconify-json/mingcute': ^1.2.8
+  '@internationalized/date': 3.12.2
   '@moeru/eslint-config': ^0.1.0-beta.18
   '@techsquidtv/canvas-timeline-core': 0.1.0
   '@techsquidtv/canvas-timeline-utils': 0.1.0
@@ -27,12 +32,16 @@ catalog:
   '@vitejs/plugin-vue': ^6.0.6
   '@vitest/browser-playwright': ^4.1.10
   '@vue-macros/volar': 3.1.2
+  '@vueuse/core': ^14.4.0
   animejs: ^4.5.0
+  dockview-vue: 7.0.4
   eslint: ^10.5.0
   eslint-plugin-oxlint: ^1.73.0
+  mediabunny: 1.52.2
   oxlint: ^1.74.0
   pinia: ^3.0.4
   playwright: ^1.62.1
+  reka-ui: 2.9.6
   splitpanes: ^4.1.2
   typescript: ^6.0.3
   unocss: ^66.6.8

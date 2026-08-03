@@ -1,0 +1,188 @@
+syntax = "proto3";
+
+package recorder_minecraft.api.v1;
+
+import "buf/validate/validate.proto";
+import "google/api/annotations.proto";
+import "google/protobuf/timestamp.proto";
+import "protoc-gen-openapiv2/options/annotations.proto";
+
+option go_package = "github.com/proj-airi/recorder-minecraft/apis/sdk/go/recorder-minecraft/api/v1;apiv1";
+option java_multiple_files = true;
+option java_package = "dev.recorderminecraft.api.v1";
+
+// ArtifactCatalogService exposes the read-only Artifacts V1 hierarchy.
+service ArtifactCatalogService {
+  rpc ListArtifacts(ListArtifactsRequest) returns (ListArtifactsResponse) {
+    option (google.api.http) = {get: "/api/v1/artifacts"};
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      operation_id: "artifacts_list"
+      summary: "List the artifact catalog."
+      description: "Returns the complete readable server, player, and replay hierarchy after applying optional filters."
+      tags: "Artifacts"
+    };
+  }
+
+  rpc ListServerInstances(ListServerInstancesRequest) returns (ListServerInstancesResponse) {
+    option (google.api.http) = {get: "/api/v1/server-instances"};
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      operation_id: "server_instances_list"
+      summary: "List server instances."
+      tags: "Artifacts"
+    };
+  }
+
+  rpc ListPlayers(ListPlayersRequest) returns (ListPlayersResponse) {
+    option (google.api.http) = {get: "/api/v1/players"};
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      operation_id: "players_list"
+      summary: "List players."
+      tags: "Artifacts"
+    };
+  }
+
+  rpc ListReplays(ListReplaysRequest) returns (ListReplaysResponse) {
+    option (google.api.http) = {get: "/api/v1/replays"};
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      operation_id: "replays_list"
+      summary: "List replay resources."
+      tags: "Artifacts"
+    };
+  }
+
+  rpc GetReplay(GetReplayRequest) returns (GetReplayResponse) {
+    option (google.api.http) = {get: "/api/v1/server-instances/{server_instance_id}/players/{player_uuid}/replays/{connection_id}"};
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      operation_id: "replays_get"
+      summary: "Get one replay resource."
+      tags: "Artifacts"
+    };
+  }
+}
+
+message ListArtifactsRequest {
+  optional string server_instance_id = 1 [
+    (buf.validate.field).string.uuid = true,
+    (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {description: "Restrict results to one recorder installation UUID."}
+  ];
+  optional string player_uuid = 2 [
+    (buf.validate.field).string.uuid = true,
+    (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {description: "Restrict results to one Minecraft player UUID."}
+  ];
+  optional google.protobuf.Timestamp started_at_or_after = 3 [(grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {description: "Include replays whose connection started at or after this instant."}];
+  optional google.protobuf.Timestamp started_before = 4 [(grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {description: "Include replays whose connection started before this instant."}];
+}
+
+message ListArtifactsResponse {
+  repeated ServerInstance server_instances = 1;
+}
+
+message ListServerInstancesRequest {}
+
+message ListServerInstancesResponse {
+  repeated ServerInstanceSummary server_instances = 1;
+}
+
+message ListPlayersRequest {
+  optional string server_instance_id = 1 [
+    (buf.validate.field).string.uuid = true,
+    (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {description: "Restrict results to one recorder installation UUID."}
+  ];
+}
+
+message ListPlayersResponse {
+  repeated PlayerSummary players = 1;
+}
+
+message ListReplaysRequest {
+  optional string server_instance_id = 1 [
+    (buf.validate.field).string.uuid = true,
+    (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {description: "Restrict results to one recorder installation UUID."}
+  ];
+  optional string player_uuid = 2 [
+    (buf.validate.field).string.uuid = true,
+    (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {description: "Restrict results to one Minecraft player UUID."}
+  ];
+  optional google.protobuf.Timestamp started_at_or_after = 3 [(grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {description: "Include replays whose connection started at or after this instant."}];
+  optional google.protobuf.Timestamp started_before = 4 [(grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {description: "Include replays whose connection started before this instant."}];
+}
+
+message ListReplaysResponse {
+  repeated Replay replays = 1;
+}
+
+message GetReplayRequest {
+  string server_instance_id = 1 [
+    (buf.validate.field).string.uuid = true,
+    (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {description: "Recorder installation UUID."}
+  ];
+  string player_uuid = 2 [
+    (buf.validate.field).string.uuid = true,
+    (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {description: "Minecraft player UUID."}
+  ];
+  string connection_id = 3 [
+    (buf.validate.field).string.uuid = true,
+    (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {description: "Replay connection UUID."}
+  ];
+}
+
+message GetReplayResponse {
+  Replay replay = 1;
+}
+
+message ServerInstanceSummary {
+  string name = 1;
+  string instance_id = 2;
+  uint64 player_count = 3;
+  uint64 replay_count = 4;
+}
+
+message PlayerSummary {
+  string name = 1;
+  string uuid = 2;
+  string server_name = 3;
+  string server_instance_id = 4;
+  uint64 replay_count = 5;
+}
+
+message ServerInstance {
+  string name = 1;
+  string instance_id = 2;
+  repeated Player players = 3;
+}
+
+message Player {
+  string name = 1;
+  string uuid = 2;
+  repeated Replay replays = 3;
+}
+
+message Replay {
+  string connection_id = 1;
+  string session_id = 2;
+  string server_name = 3;
+  string server_instance_id = 4;
+  string player_name = 5;
+  string player_uuid = 6;
+  google.protobuf.Timestamp started_at = 7;
+  google.protobuf.Timestamp ended_at = 8;
+  int64 start_server_tick = 9;
+  optional int64 end_server_tick = 10;
+  optional string terminal_reason = 11;
+  optional string capture_failure = 12;
+  string replay_format = 13;
+  string replay_url = 14;
+  optional VideoAsset video = 15;
+  string events_url = 16;
+  optional string validation_error = 17;
+}
+
+message VideoAsset {
+  string url = 1;
+  string media_type = 2;
+  uint64 size_bytes = 3;
+  uint32 width = 4;
+  uint32 height = 5;
+  double frames_per_second = 6;
+  uint64 frame_count = 7;
+}

@@ -1,0 +1,485 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "recorder-minecraft/api/v1/artifacts.proto",
+    "version": "version not set"
+  },
+  "tags": [
+    {
+      "name": "ArtifactCatalogService"
+    }
+  ],
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "paths": {
+    "/api/v1/artifacts": {
+      "get": {
+        "summary": "List the artifact catalog.",
+        "description": "Returns the complete readable server, player, and replay hierarchy after applying optional filters.",
+        "operationId": "artifacts_list",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/recorder_minecraft.api.v1.ListArtifactsResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/google.rpc.Status"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "serverInstanceId",
+            "description": "Restrict results to one recorder installation UUID.",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "playerUuid",
+            "description": "Restrict results to one Minecraft player UUID.",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "startedAtOrAfter",
+            "description": "Include replays whose connection started at or after this instant.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "date-time"
+          },
+          {
+            "name": "startedBefore",
+            "description": "Include replays whose connection started before this instant.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "date-time"
+          }
+        ],
+        "tags": [
+          "Artifacts"
+        ]
+      }
+    },
+    "/api/v1/players": {
+      "get": {
+        "summary": "List players.",
+        "operationId": "players_list",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/recorder_minecraft.api.v1.ListPlayersResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/google.rpc.Status"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "serverInstanceId",
+            "description": "Restrict results to one recorder installation UUID.",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "Artifacts"
+        ]
+      }
+    },
+    "/api/v1/replays": {
+      "get": {
+        "summary": "List replay resources.",
+        "operationId": "replays_list",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/recorder_minecraft.api.v1.ListReplaysResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/google.rpc.Status"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "serverInstanceId",
+            "description": "Restrict results to one recorder installation UUID.",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "playerUuid",
+            "description": "Restrict results to one Minecraft player UUID.",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "startedAtOrAfter",
+            "description": "Include replays whose connection started at or after this instant.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "date-time"
+          },
+          {
+            "name": "startedBefore",
+            "description": "Include replays whose connection started before this instant.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "date-time"
+          }
+        ],
+        "tags": [
+          "Artifacts"
+        ]
+      }
+    },
+    "/api/v1/server-instances": {
+      "get": {
+        "summary": "List server instances.",
+        "operationId": "server_instances_list",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/recorder_minecraft.api.v1.ListServerInstancesResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/google.rpc.Status"
+            }
+          }
+        },
+        "tags": [
+          "Artifacts"
+        ]
+      }
+    },
+    "/api/v1/server-instances/{serverInstanceId}/players/{playerUuid}/replays/{connectionId}": {
+      "get": {
+        "summary": "Get one replay resource.",
+        "operationId": "replays_get",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/recorder_minecraft.api.v1.GetReplayResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/google.rpc.Status"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "serverInstanceId",
+            "description": "Recorder installation UUID.",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "playerUuid",
+            "description": "Minecraft player UUID.",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "connectionId",
+            "description": "Replay connection UUID.",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "Artifacts"
+        ]
+      }
+    }
+  },
+  "definitions": {
+    "google.protobuf.Any": {
+      "type": "object",
+      "properties": {
+        "@type": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": {}
+    },
+    "google.rpc.Status": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "message": {
+          "type": "string"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/google.protobuf.Any"
+          }
+        }
+      }
+    },
+    "recorder_minecraft.api.v1.GetReplayResponse": {
+      "type": "object",
+      "properties": {
+        "replay": {
+          "$ref": "#/definitions/recorder_minecraft.api.v1.Replay"
+        }
+      }
+    },
+    "recorder_minecraft.api.v1.ListArtifactsResponse": {
+      "type": "object",
+      "properties": {
+        "serverInstances": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/recorder_minecraft.api.v1.ServerInstance"
+          }
+        }
+      }
+    },
+    "recorder_minecraft.api.v1.ListPlayersResponse": {
+      "type": "object",
+      "properties": {
+        "players": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/recorder_minecraft.api.v1.PlayerSummary"
+          }
+        }
+      }
+    },
+    "recorder_minecraft.api.v1.ListReplaysResponse": {
+      "type": "object",
+      "properties": {
+        "replays": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/recorder_minecraft.api.v1.Replay"
+          }
+        }
+      }
+    },
+    "recorder_minecraft.api.v1.ListServerInstancesResponse": {
+      "type": "object",
+      "properties": {
+        "serverInstances": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/recorder_minecraft.api.v1.ServerInstanceSummary"
+          }
+        }
+      }
+    },
+    "recorder_minecraft.api.v1.Player": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "uuid": {
+          "type": "string"
+        },
+        "replays": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/recorder_minecraft.api.v1.Replay"
+          }
+        }
+      }
+    },
+    "recorder_minecraft.api.v1.PlayerSummary": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "uuid": {
+          "type": "string"
+        },
+        "serverName": {
+          "type": "string"
+        },
+        "serverInstanceId": {
+          "type": "string"
+        },
+        "replayCount": {
+          "type": "string",
+          "format": "uint64"
+        }
+      }
+    },
+    "recorder_minecraft.api.v1.Replay": {
+      "type": "object",
+      "properties": {
+        "connectionId": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "serverName": {
+          "type": "string"
+        },
+        "serverInstanceId": {
+          "type": "string"
+        },
+        "playerName": {
+          "type": "string"
+        },
+        "playerUuid": {
+          "type": "string"
+        },
+        "startedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "endedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "startServerTick": {
+          "type": "string",
+          "format": "int64"
+        },
+        "endServerTick": {
+          "type": "string",
+          "format": "int64"
+        },
+        "terminalReason": {
+          "type": "string"
+        },
+        "captureFailure": {
+          "type": "string"
+        },
+        "replayFormat": {
+          "type": "string"
+        },
+        "replayUrl": {
+          "type": "string"
+        },
+        "video": {
+          "$ref": "#/definitions/recorder_minecraft.api.v1.VideoAsset"
+        },
+        "eventsUrl": {
+          "type": "string"
+        },
+        "validationError": {
+          "type": "string"
+        }
+      }
+    },
+    "recorder_minecraft.api.v1.ServerInstance": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "instanceId": {
+          "type": "string"
+        },
+        "players": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/recorder_minecraft.api.v1.Player"
+          }
+        }
+      }
+    },
+    "recorder_minecraft.api.v1.ServerInstanceSummary": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "instanceId": {
+          "type": "string"
+        },
+        "playerCount": {
+          "type": "string",
+          "format": "uint64"
+        },
+        "replayCount": {
+          "type": "string",
+          "format": "uint64"
+        }
+      }
+    },
+    "recorder_minecraft.api.v1.VideoAsset": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string"
+        },
+        "mediaType": {
+          "type": "string"
+        },
+        "sizeBytes": {
+          "type": "string",
+          "format": "uint64"
+        },
+        "width": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "height": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "framesPerSecond": {
+          "type": "number",
+          "format": "double"
+        },
+        "frameCount": {
+          "type": "string",
+          "format": "uint64"
+        }
+      }
+    }
+  }
+}

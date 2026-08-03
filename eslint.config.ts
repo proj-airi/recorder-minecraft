@@ -22,6 +22,12 @@ export default defineConfig({
     '.golangci-lint.yaml',
     // NOTICE: Preserve the upstream source formatting so the renderer port remains reviewable against its pinned commit.
     'packages/canvas-timeline-renderer/src/**',
+    // NOTICE: Hey API owns this generated tree; linting or rewriting it makes regeneration noisy.
+    // See `https://github.com/hey-api/openapi-ts/blob/c9dc0b94b0bfd53b8614e31f450607e1db4d3c05/packages/openapi-ts/README.md#L337-L340`.
+    'apis/sdk/typescript/src/**',
+    // NOTICE: The OpenAPI converter owns this generated document; linting its encoder output
+    // would make `hack/proto-gen` non-deterministic.
+    'apis/openapi/v3/**',
     'docs/superpowers/**',
     'CLAUDE.md', // Skip the symbolic link
   ],

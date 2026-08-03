@@ -10,3 +10,7 @@ lint:
 breaking:
   use:
     - FILE
+deps:
+  - buf.build/bufbuild/protovalidate
+  - buf.build/googleapis/googleapis
+  - buf.build/grpc-ecosystem/grpc-gateway

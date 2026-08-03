@@ -1,0 +1,17 @@
+{
+  "name": "@proj-airi/recorder-minecraft-api",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "generate": "openapi-ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@hey-api/openapi-ts": "catalog:",
+    "typescript": "catalog:"
+  }
+}
