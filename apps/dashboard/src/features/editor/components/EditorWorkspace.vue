@@ -35,8 +35,6 @@ interface EditorViewDefinition {
   showTitle: boolean
 }
 
-type DockviewLayoutNode = ReturnType<DockviewApi['toJSON']>['grid']['root']
-
 const props = defineProps<{
   canRedo: boolean
   canUndo: boolean
@@ -58,12 +56,14 @@ const viewDefinitions: EditorViewDefinition[] = [
   { component: 'resourceBrowser', icon: 'i-mingcute-folder-open-line', id: 'resources', label: 'Resources', showTitle: true },
   { component: 'mediaPreview', icon: 'i-mingcute-video-line', id: 'preview', label: 'Preview', showTitle: true },
   { component: 'multiViewMonitor', icon: 'i-mingcute-grid-line', id: 'monitor', label: 'Monitor', showTitle: true },
+  { component: 'inputMonitor', icon: 'i-mingcute-keyboard-line', id: 'inputs', label: 'Inputs', showTitle: true },
   { component: 'timeline', icon: 'i-mingcute-timeline-line', id: 'timeline', label: 'Timeline', showTitle: false },
 ]
 
 const catalog = useArtifactCatalog()
 const replayPlayback = useReplayPlayback(catalog.selectedReplay)
 const components: Record<string, VueComponent> = markRaw({
+  inputMonitor: InputMonitorPanel as unknown as VueComponent,
   mediaPreview: MediaPreviewPanel as unknown as VueComponent,
   multiViewMonitor: MultiViewMonitorPanel as unknown as VueComponent,
   resourceBrowser: ResourceBrowserPanel as unknown as VueComponent,
@@ -113,7 +113,7 @@ function panelOptions(definition: EditorViewDefinition): AddPanelOptions<EditorP
     options.minimumWidth = 160
   }
   else if (definition.id === 'preview') {
-    options.minimumHeight = 72
+    options.minimumHeight = 40
     options.minimumWidth = 160
   }
   else if (definition.id === 'monitor') {
@@ -165,6 +165,7 @@ function addView(viewId: EditorViewId, initialSize?: number): IDockviewPanel | u
       options.position = { direction: 'left', referencePanel: monitor }
   }
   else if (viewId === 'monitor') {
+    options.initialWidth = initialSize
     const resources = firstOpenPanel(api, ['resources'])
     const preview = firstOpenPanel(api, ['preview'])
     const inputs = firstOpenPanel(api, ['inputs'])
@@ -179,7 +180,10 @@ function addView(viewId: EditorViewId, initialSize?: number): IDockviewPanel | u
       options.position = { direction: 'above', referencePanel: below }
   }
   else if (viewId === 'inputs') {
-    return
+    options.initialWidth = initialSize
+    const reference = firstOpenPanel(api, ['monitor', 'timeline', 'preview', 'resources'])
+    if (reference)
+      options.position = { direction: 'right', referencePanel: reference }
   }
   else {
     options.initialHeight = initialSize
@@ -208,54 +212,44 @@ function activateView(viewId: EditorViewId): void {
   publishViews()
 }
 
-function containsView(node: DockviewLayoutNode, viewId: EditorViewId): boolean {
-  if (!Array.isArray(node.data))
-    return node.data.views.includes(viewId)
-  return node.data.some(child => containsView(child, viewId))
-}
-
-function setSiblingRatio(node: DockviewLayoutNode, firstId: EditorViewId, secondId: EditorViewId, firstRatio: number, availableSize: number): boolean {
-  if (!Array.isArray(node.data))
-    return false
-
-  const first = node.data.find(child => containsView(child, firstId))
-  const second = node.data.find(child => containsView(child, secondId))
-  if (first && second && first !== second) {
-    first.size = Math.round(availableSize * firstRatio)
-    second.size = availableSize - first.size
-    return true
-  }
-
-  return node.data.some(child => setSiblingRatio(child, firstId, secondId, firstRatio, availableSize))
-}
-
 function applyInitialLayout(api: DockviewApi, width: number, height: number): void {
-  if (initialLayoutApplied || height < 360)
+  const layoutWidth = api.width || width
+  const layoutHeight = api.height || height
+  if (initialLayoutApplied || layoutHeight < 360)
     return
 
   initialLayoutApplied = true
-  const layout = api.toJSON()
-  const editorWidth = workspaceElement.value?.parentElement?.getBoundingClientRect().width ?? width
-  const resourceWidth = Math.min(width, Math.max(160, Math.round(editorWidth * 0.125)))
-  layout.grid.width = width
-  layout.grid.height = height
-  setSiblingRatio(layout.grid.root, 'resources', 'monitor', resourceWidth / width, width)
-  setSiblingRatio(layout.grid.root, 'resources', 'preview', 5 / 6, height)
-  setSiblingRatio(layout.grid.root, 'monitor', 'timeline', 0.7, height)
-  api.fromJSON(layout)
+
+  const sideWidth = Math.max(160, Math.round(layoutWidth * 0.125))
+  const resources = addView('resources')
+  // Adding the center at the remaining width first leaves the requested resource width on the
+  // left. The input column is then carved out of the center without rebuilding Dockview's grid.
+  addView('monitor', layoutWidth - sideWidth)
+  const inputs = addView('inputs', sideWidth)
+  const preview = addView('preview', Math.round(layoutHeight / 6))
+  const timeline = addView('timeline', Math.round(layoutHeight * 0.3))
+
+  resources?.group.api.setSize({ width: sideWidth })
+  inputs?.group.api.setSize({ width: sideWidth })
+  preview?.group.api.setSize({ height: Math.round(layoutHeight / 6) })
+  timeline?.group.api.setSize({ height: Math.round(layoutHeight * 0.3) })
+  inputs?.api.setActive()
+  publishViews()
 }
 
 const initialLayoutObserver = useResizeObserver(workspaceElement, ([entry]) => {
-  if (entry && dockApi)
-    applyInitialLayout(dockApi, entry.contentRect.width, entry.contentRect.height)
+  if (!entry || !dockApi || initialLayoutApplied)
+    return
+
+  cancelAnimationFrame(initialLayoutFrame)
+  initialLayoutFrame = requestAnimationFrame(() => {
+    if (dockApi)
+      applyInitialLayout(dockApi, entry.contentRect.width, entry.contentRect.height)
+  })
 })
 
 function onReady({ api }: DockviewReadyEvent): void {
   dockApi = api
-  addView('resources', 160)
-  addView('monitor')
-  addView('preview', 72)
-  addView('timeline', 100)
 
   workspaceListeners = [
     api.onDidActivePanelChange(publishViews),
@@ -264,8 +258,8 @@ function onReady({ api }: DockviewReadyEvent): void {
   ]
   publishViews()
 
-  // Dockview's ready event fires with bootstrap dimensions. Correct the serialized branch sizes
-  // after the workspace receives its real DOM size, then keep later user resizing untouched.
+  // Dockview's ready event fires with bootstrap dimensions. Create the initial groups only after
+  // the workspace receives its real DOM size so initial widths and heights are interpreted once.
   initialLayoutFrame = requestAnimationFrame(() => {
     const bounds = workspaceElement.value?.getBoundingClientRect()
     if (bounds)
@@ -289,35 +283,22 @@ defineExpose({ activateView })
   <!-- NOTICE: Dockview's Vue adapter teleports dynamic panels inside the caller's Vue app, which
        preserves the typed workspace provide/inject boundary. See
        `https://github.com/mathuo/dockview/blob/08097bd22495af8db171698355dffde93b9f5a88/packages/dockview-vue/src/dockview/dockview.vue#L73-L80`. -->
-  <div class="editor-workspace-grid grid h-full min-h-0 w-full">
-    <div ref="workspace" aria-label="Dockable editor views" class="h-full min-h-0 min-w-0">
-      <DockviewVue
-        class="editor-dockview h-full min-h-0 w-full"
-        :components="components"
-        default-renderer="always"
-        dnd-strategy="pointer"
-        :get-tab-context-menu-items="contextMenuItems"
-        single-tab-mode="fullwidth"
-        :tab-components="tabComponents"
-        :theme="themeDark"
-        @ready="onReady"
-      />
-    </div>
-    <aside class="h-full min-h-0 flex flex-col border-l border-[var(--dashboard-border-color)] bg-neutral-950" aria-label="Inputs pane">
-      <div class="h-[22px] flex shrink-0 items-center border-b border-[var(--dashboard-border-color)] bg-neutral-900 px-2 text-[10px] text-neutral-300">
-        Inputs
-      </div>
-      <InputMonitorPanel class="min-h-0 flex-1" />
-    </aside>
+  <div ref="workspace" aria-label="Dockable editor views" class="h-full min-h-0 min-w-0 w-full">
+    <DockviewVue
+      class="editor-dockview h-full min-h-0 w-full"
+      :components="components"
+      default-renderer="always"
+      dnd-strategy="pointer"
+      :get-tab-context-menu-items="contextMenuItems"
+      single-tab-mode="fullwidth"
+      :tab-components="tabComponents"
+      :theme="themeDark"
+      @ready="onReady"
+    />
   </div>
 </template>
 
 <style scoped>
-.editor-workspace-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 7fr) minmax(160px, 1fr);
-}
-
 .editor-dockview {
   --dv-tabs-and-actions-container-background-color: #18181b;
   --dv-tabs-and-actions-container-font-size: 10px;

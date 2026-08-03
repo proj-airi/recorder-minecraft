@@ -36,34 +36,34 @@ it('renders the stress fixture before the browser-test timeout', async () => {
     await expect.element(screen.getByRole('tab', { exact: true, name: 'Resources' })).toBeVisible()
     await expect.element(screen.getByRole('tab', { exact: true, name: 'Preview' })).toBeVisible()
     await expect.element(screen.getByRole('tab', { exact: true, name: 'Monitor' })).toBeVisible()
+    await expect.element(screen.getByRole('tab', { exact: true, name: 'Inputs' })).toBeVisible()
     await expect.element(screen.getByRole('tab', { exact: true, name: 'Timeline' })).toBeVisible()
     await expect.element(screen.getByRole('region', { exact: true, name: 'Input monitor' })).toBeVisible()
     await expect.element(screen.getByText('Select a replay track in the timeline to inspect its inputs.')).toBeVisible()
     await expect.element(screen.getByText('No recordings available')).toBeVisible()
     expect(screen.container.querySelector('[role="separator"][aria-orientation="vertical"]')).not.toBeNull()
-    expect(screen.container.querySelectorAll('[role="tab"]')).toHaveLength(4)
+    expect(screen.container.querySelectorAll('[role="tab"]')).toHaveLength(5)
+    expect(screen.container.querySelector('[role="tab"][aria-label="Inputs"]')?.getAttribute('aria-selected')).toBe('true')
     await expect.poll(() => {
-      const resources = dockGroupBounds(screen.container, 'Resources')
-      const preview = dockGroupBounds(screen.container, 'Preview')
+      const resources = dockGridMetrics(screen.container, 'Resources')
+      const preview = dockGridMetrics(screen.container, 'Preview')
       return resources.height / (resources.height + preview.height)
     }).toBeCloseTo(5 / 6, 1)
-    const resourcesBounds = dockGroupBounds(screen.container, 'Resources')
-    const monitorBounds = dockGroupBounds(screen.container, 'Monitor')
-    const inputBounds = inputPaneBounds(screen.container)
-    const timelineBounds = dockGroupBounds(screen.container, 'Timeline')
+    const resourcesBounds = dockGridMetrics(screen.container, 'Resources')
+    const monitorBounds = dockGridMetrics(screen.container, 'Monitor')
+    const inputBounds = dockGridMetrics(screen.container, 'Inputs')
+    const timelineBounds = dockGridMetrics(screen.container, 'Timeline')
     expect(monitorBounds.height / (monitorBounds.height + timelineBounds.height)).toBeCloseTo(0.7, 1)
     const totalWidth = resourcesBounds.width + monitorBounds.width + inputBounds.width
     expect(resourcesBounds.width / totalWidth).toBeCloseTo(0.125, 2)
     expect(inputBounds.width / totalWidth).toBeCloseTo(0.125, 2)
-    const dockBounds = dockArea(screen.container).getBoundingClientRect()
-    expect(inputBounds.left).toBeGreaterThanOrEqual(dockBounds.right - 1)
-    expect(inputBounds.height).toBeCloseTo(dockBounds.height, 0)
+    expect(inputBounds.left).toBeGreaterThanOrEqual(monitorBounds.right - 1)
+    expect(inputBounds.right).toBeCloseTo(totalWidth, 0)
     await expect.element(screen.getByRole('application')).toBeVisible()
     expect(screen.container.querySelector('[aria-label="Reorder Video 1"]')).toBeNull()
     await expect.poll(() => screen.container.querySelectorAll('canvas').length).toBeGreaterThanOrEqual(2)
 
-    const mountedTrackCount = screen.container.querySelectorAll('[data-track-id]').length
-    expect(mountedTrackCount).toBe(stressOptions.trackCount)
+    await expect.poll(() => screen.container.querySelectorAll('[data-track-id]').length).toBe(stressOptions.trackCount)
 
     const playbackItems = Array.from(screen.container.querySelector('[aria-label="Timeline toolbar"] [aria-label="Current timecode"]')?.parentElement?.children ?? [])
       .map(element => element.getAttribute('aria-label'))
@@ -191,6 +191,13 @@ it('renders the stress fixture before the browser-test timeout', async () => {
   }
 })
 
+interface DockGridMetrics {
+  height: number
+  left: number
+  right: number
+  width: number
+}
+
 function displayedTick(container: HTMLElement): number {
   const current = container.querySelector('[aria-label="Timeline toolbar"] [aria-label="Current timecode"]')?.textContent?.split('/')[0]?.trim()
   const values = current?.split(':').map(Number)
@@ -199,26 +206,29 @@ function displayedTick(container: HTMLElement): number {
   return (((values[0]! * 60 + values[1]!) * 60 + values[2]!) * 20) + values[3]!
 }
 
-function dockArea(container: HTMLElement): HTMLElement {
-  const area = container.querySelector<HTMLElement>('[aria-label="Dockable editor views"]')
-  if (!area)
-    throw new Error('Dockable editor area did not mount')
-  return area
-}
-
-function dockGroupBounds(container: HTMLElement, viewLabel: string): DOMRect {
+function dockGridMetrics(container: HTMLElement, viewLabel: string): DockGridMetrics {
   const tab = container.querySelector(`[role="tab"][aria-label="${viewLabel}"]`)
   const group = tab?.closest<HTMLElement>('.dv-groupview')
   if (!group)
     throw new Error(`Dockview group for "${viewLabel}" did not mount`)
-  return group.getBoundingClientRect()
-}
 
-function inputPaneBounds(container: HTMLElement): DOMRect {
-  const pane = container.querySelector<HTMLElement>('[aria-label="Inputs pane"]')
-  if (!pane)
-    throw new Error('Inputs pane did not mount')
-  return pane.getBoundingClientRect()
+  // NOTICE: Browser component tests mount the route without `main.ts`, so Dockview's global CSS
+  // is absent. Its inline grid sizes and offsets remain authoritative and let this regression test
+  // verify nesting and ratios without substituting a second layout implementation.
+  const gridViews: HTMLElement[] = []
+  let ancestor = group.parentElement
+  while (ancestor && ancestor !== container) {
+    if (ancestor.classList.contains('dv-view'))
+      gridViews.push(ancestor)
+    ancestor = ancestor.parentElement
+  }
+  if (gridViews.length === 0)
+    throw new Error(`Dockview grid view for "${viewLabel}" did not mount`)
+
+  const left = gridViews.reduce((sum, view) => sum + Number.parseFloat(view.style.left || '0'), 0)
+  const width = gridViews.map(view => Number.parseFloat(view.style.width)).find(Number.isFinite) ?? 0
+  const height = gridViews.map(view => Number.parseFloat(view.style.height)).find(Number.isFinite) ?? 0
+  return { height, left, right: left + width, width }
 }
 
 it('shows a recoverable artifact service error', async () => {
