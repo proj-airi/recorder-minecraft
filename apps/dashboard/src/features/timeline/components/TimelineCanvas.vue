@@ -20,6 +20,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   cancelEdit: []
   commitEdit: [edit: CommitSegmentEdit]
+  seek: [tick: number]
   selectSegment: [segmentId: string | null]
 }>()
 
@@ -205,7 +206,7 @@ function onPointerDown(event: PointerEvent): void {
   if (point.y <= RULER_HEIGHT) {
     gesture = { mode: 'scrub', pointerId: event.pointerId, startPointerTick: pointerTick(point.x) }
     pointerCursor.value = 'col-resize'
-    props.engine.updatePlayhead(toTickTime(pointerTick(point.x)))
+    emit('seek', pointerTick(point.x))
     return
   }
 
@@ -215,6 +216,9 @@ function onPointerDown(event: PointerEvent): void {
 
   if (!hit) {
     emit('selectSegment', null)
+    gesture = { mode: 'scrub', pointerId: event.pointerId, startPointerTick: pointerTick(point.x) }
+    pointerCursor.value = 'col-resize'
+    emit('seek', pointerTick(point.x))
     return
   }
 
@@ -249,7 +253,7 @@ function onPointerMove(event: PointerEvent): void {
   const point = canvasPoint(event)
   const currentTick = pointerTick(point.x)
   if (gesture.mode === 'scrub') {
-    props.engine.updatePlayhead(toTickTime(currentTick))
+    emit('seek', currentTick)
     return
   }
 

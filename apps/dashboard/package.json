@@ -14,11 +14,18 @@
     "typecheck": "vue-tsc --noEmit"
   },
   "dependencies": {
+    "@ark-ui/vue": "catalog:",
+    "@internationalized/date": "catalog:",
     "@proj-airi/canvas-timeline-renderer": "workspace:*",
     "@proj-airi/canvas-timeline-vue": "workspace:*",
+    "@proj-airi/recorder-minecraft-api": "workspace:*",
     "@techsquidtv/canvas-timeline-core": "catalog:",
+    "@vueuse/core": "catalog:",
     "animejs": "catalog:",
+    "dockview-vue": "catalog:",
+    "mediabunny": "catalog:",
     "pinia": "catalog:",
+    "reka-ui": "catalog:",
     "splitpanes": "catalog:",
     "virtua": "catalog:",
     "vue": "catalog:",

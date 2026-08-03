@@ -19,6 +19,8 @@ export interface TimelineSession {
   playheadTick: Readonly<ShallowRef<number>>
   rebuild: () => void
   renderRevision: Readonly<ShallowRef<number>>
+  seekByTicks: (deltaTick: number) => void
+  seekToTick: (tick: number) => void
   selectedSegmentId: Readonly<ShallowRef<null | string>>
   selectSegment: (segmentId: null | string) => void
   zoomBy: (factor: number) => void
@@ -128,6 +130,24 @@ export function useTimelineSession(episode: Ref<EpisodeDraft>, commitEdit: (edit
     engine.value.updatePlayhead(toTickTime(0))
   }
 
+  function seekByTicks(deltaTick: number): void {
+    if (isPlaying.value)
+      pause()
+
+    seekToTick(playheadTick.value + deltaTick)
+  }
+
+  function seekToTick(tick: number): void {
+    const nextTick = Math.min(episode.value.durationTicks, Math.max(0, Math.round(tick)))
+    if (isPlaying.value) {
+      // A manual seek changes the origin of the external playback clock. Without rebasing both
+      // values, the next animation frame would snap the playhead back to the pre-seek position.
+      playbackStartTick = nextTick
+      playbackStartedAt = performance.now()
+    }
+    engine.value.updatePlayhead(toTickTime(nextTick))
+  }
+
   function zoomBy(factor: number): void {
     engine.value.setZoomScale(engine.value.zoomScale * factor)
   }
@@ -150,6 +170,8 @@ export function useTimelineSession(episode: Ref<EpisodeDraft>, commitEdit: (edit
     playheadTick: readonly(playheadTick),
     rebuild,
     renderRevision: readonly(renderRevision),
+    seekByTicks,
+    seekToTick,
     selectedSegmentId: readonly(selectedSegmentId),
     selectSegment,
     zoomBy,

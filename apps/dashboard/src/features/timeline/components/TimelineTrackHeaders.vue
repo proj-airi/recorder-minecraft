@@ -42,11 +42,6 @@ const keptMountedIndexes = computed(() => activeIndex.value === null ? undefined
     <!-- NOTICE: `Virtualizer` is used instead of `VList` because the canvas and headers share an
          external scroll parent. Its `startMargin` and `scrollRef` contracts are documented at
          `https://github.com/inokawa/virtua/blob/be3b7db9186be035e25b8560b8e4f393b3bd9ac6/src/vue/Virtualizer.tsx#L60-L71`. -->
-    <!-- NOTICE: Splitpanes invokes its default slot from a render-function bridge; see
-         `https://github.com/antoniandre/splitpanes/blob/c13526b5d751ad188e19c6b6797466a7559a88d4/src/components/splitpanes/splitpanes.vue#L730-L735`.
-         Waiting for the external scroll element avoids mounting Virtua's internal element ref in
-         the bridge's initial ownerless vnode, which otherwise triggers Vue's missing-ref-owner
-         warning during the first render. -->
     <Virtualizer
       v-if="scrollContainer"
       :buffer-size="TIMELINE_TRACK_HEIGHT * 3"

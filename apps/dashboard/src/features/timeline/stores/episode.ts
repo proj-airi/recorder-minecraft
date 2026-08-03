@@ -13,6 +13,7 @@ interface SegmentHistory {
 interface SegmentPatch {
   after: EpisodeSegment[]
   before: EpisodeSegment[]
+  index: number
   type: 'segments'
 }
 
@@ -55,7 +56,9 @@ export const useEpisodeStore = defineStore('episode', () => {
     const affectedIds = new Set([...patch.before, ...patch.after].map(segment => segment.id))
     const anchor = episode.value.segments.findIndex(segment => removed.some(candidate => candidate.id === segment.id))
     const segments = episode.value.segments.filter(segment => !affectedIds.has(segment.id))
-    segments.splice(anchor < 0 ? segments.length : anchor, 0, ...inserted)
+    // A deletion has no `after` segment to locate when undoing. Preserve the source index in the
+    // patch so restoration does not append the clip to an unrelated point in the episode array.
+    segments.splice(anchor < 0 ? Math.min(patch.index, segments.length) : anchor, 0, ...inserted)
 
     episode.value = {
       ...episode.value,
@@ -88,6 +91,7 @@ export const useEpisodeStore = defineStore('episode', () => {
     commitPatch({
       after: [{ ...segment, endTick, startTick, trackId: edit.trackId }],
       before: [segment],
+      index: episode.value.segments.indexOf(segment),
       type: 'segments',
     })
   }
@@ -105,8 +109,19 @@ export const useEpisodeStore = defineStore('episode', () => {
         { ...segment, id: rightSegmentId, startTick: cutTick },
       ],
       before: [segment],
+      index: episode.value.segments.indexOf(segment),
       type: 'segments',
     })
+    return true
+  }
+
+  function deleteSegment(segmentId: string): boolean {
+    const index = episode.value.segments.findIndex(segment => segment.id === segmentId)
+    const segment = episode.value.segments[index]
+    if (!segment)
+      return false
+
+    commitPatch({ after: [], before: [segment], index, type: 'segments' })
     return true
   }
 
@@ -162,6 +177,7 @@ export const useEpisodeStore = defineStore('episode', () => {
     canUndo,
     commitSegmentEdit,
     cutSegment,
+    deleteSegment,
     episode,
     history,
     redo,
