@@ -11,7 +11,13 @@ export default defineConfig({
   plugins: [
     VueMacros({
       plugins: {
-        vue: Vue(),
+        vue: Vue({
+          template: {
+            compilerOptions: {
+              isCustomElement: tag => tag.startsWith('media-'),
+            },
+          },
+        }),
         vueJsx: false,
       },
     }),

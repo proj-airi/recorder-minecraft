@@ -11,6 +11,7 @@ import { readSegmentEdit, toServerTick, toTickTime } from '../core/adapter'
 import { SERVER_TICK_RATE } from '../domain'
 
 const props = defineProps<{
+  editable: boolean
   engine: TimelineEngine
   renderRevision: number
   scrollTop: number
@@ -91,7 +92,8 @@ function draw(): void {
 
   context.setTransform(ratio, 0, 0, ratio, 0, 0)
   context.clearRect(0, 0, width, height)
-  drawInteractionOverlay(context, width, height)
+  if (props.editable)
+    drawInteractionOverlay(context, width, height)
   drawPlayhead(context, height)
 }
 
@@ -117,7 +119,6 @@ function drawInteractionOverlay(context: CanvasRenderingContext2D, width: number
 function drawTrimHandles(context: CanvasRenderingContext2D, entry: VisibleTimelineClip, selected: boolean): void {
   const rect = entry.rect
   const handleWidth = 6
-  const handleY = rect.y
   const radius = Math.min(6, rect.width / 2, rect.height / 2)
   const color = selected
     ? defaultTimelineRendererTheme.colors.clip.borderSelected
@@ -127,9 +128,8 @@ function drawTrimHandles(context: CanvasRenderingContext2D, entry: VisibleTimeli
 
   // NOTICE: The upstream React adapter exposes two 12px DOM trim handles and an ew-resize cursor.
   // This Canvas affordance follows `https://github.com/techsquidtv/canvas-timeline/blob/1536a2dbc54e3a333ace360894a2e4508b295cf1/packages/react/src/components/interactions/ClipInteractionLayer.tsx#L471-L531`.
-
   context.beginPath()
-  context.roundRect(rect.x, handleY, Math.max(1, rect.width), rect.height, radius)
+  context.roundRect(rect.x, rect.y, Math.max(1, rect.width), rect.height, radius)
   context.clip()
 
   context.fillStyle = color
@@ -137,12 +137,10 @@ function drawTrimHandles(context: CanvasRenderingContext2D, entry: VisibleTimeli
     context.globalAlpha = hoveredClipId.value === entry.clip.id && hoveredRegion.value === 'start-edge' ? 1 : 0.75
     context.fillRect(rect.x, rect.y, handleWidth, rect.height)
   }
-
   if (rect.x + rect.width <= context.canvas.clientWidth + handleWidth) {
     context.globalAlpha = hoveredClipId.value === entry.clip.id && hoveredRegion.value === 'end-edge' ? 1 : 0.75
     context.fillRect(rect.x + rect.width - handleWidth, rect.y, handleWidth, rect.height)
   }
-
   context.restore()
 }
 
@@ -188,7 +186,7 @@ function updateHover(event: PointerEvent): void {
   const hit = hitAtPoint(point, event.pointerType)
   hoveredClipId.value = hit?.clip.id ?? null
   hoveredRegion.value = hit?.region ?? 'body'
-  pointerCursor.value = !hit ? 'default' : hit.region === 'body' ? 'grab' : 'ew-resize'
+  pointerCursor.value = hit?.canMove || hit?.canTrim ? (hit.region === 'body' ? 'grab' : 'ew-resize') : 'default'
   scheduleDraw()
 }
 
@@ -389,7 +387,9 @@ onBeforeUnmount(() => {
     <CanvasRenderer :engine="engine" :ruler="{ format: 'seconds' }" :theme="{ metrics: { clipRadius: 6 } }" />
     <canvas
       ref="canvas"
-      aria-label="Video editing timeline. Drag clips between compatible tracks, or drag clip edges to trim and extend."
+      :aria-label="editable
+        ? 'Video editing timeline. Drag clips between compatible tracks, or drag clip edges to trim and extend.'
+        : 'Dataset timeline. Scroll to inspect synchronized replay clips and drag the ruler to seek.'"
       class="absolute inset-0 block h-full w-full touch-none"
       role="application"
       :style="{ cursor: pointerCursor }"

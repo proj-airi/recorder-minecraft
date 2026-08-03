@@ -10,6 +10,7 @@
     "useDefineForClassFields": true,
     "types": [
       "vite/client",
+      "vidstack/vue",
       "vue-macros/macros-global"
     ],
     "strict": true

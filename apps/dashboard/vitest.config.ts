@@ -9,10 +9,23 @@ import { defineConfig } from 'vitest/config'
 // and Chromium instance:
 // `https://github.com/vitest-dev/vitest/blob/ec367cf2a6c955da8304e8cea935d1f3dc034a98/docs/guide/browser/index.md#L98-L118`.
 export default defineConfig({
+  // NOTICE: Vidstack registers the player, default layout, and UI controls through separate entry
+  // points. Pre-bundle all three so Browser Mode does not reload midway through a test run. The
+  // upstream integration emits the same registrations together:
+  // `https://github.com/vidstack/player/blob/04143af0634c5c9633dbd05423d0ee62f99754fd/packages/vidstack/src/plugins.ts#L312-L317`.
+  optimizeDeps: {
+    include: ['vidstack/player', 'vidstack/player/layouts/default', 'vidstack/player/ui'],
+  },
   plugins: [
     VueMacros({
       plugins: {
-        vue: Vue(),
+        vue: Vue({
+          template: {
+            compilerOptions: {
+              isCustomElement: tag => tag.startsWith('media-'),
+            },
+          },
+        }),
         vueJsx: false,
       },
     }),

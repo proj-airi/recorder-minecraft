@@ -5,6 +5,7 @@ import { computed, watch } from 'vue'
 
 interface EditorKeyboardControlsOptions {
   deleteSelected: () => void
+  editable?: () => boolean
   redo: () => void
   session: TimelineSession
   undo: () => void
@@ -35,11 +36,11 @@ export function useEditorKeyboardControls(options: EditorKeyboardControlsOptions
   })
   const editingText = computed(() => isTextEntry(activeElement.value ?? null))
   const primaryModifier = computed(() => keys.ctrl.value || keys.meta.value)
-  const undoPressed = computed(() => !editingText.value && !keys.shift.value && keys.z.value && primaryModifier.value)
-  const redoPressed = computed(() => !editingText.value && keys.shift.value && keys.z.value && primaryModifier.value)
+  const undoPressed = computed(() => isEditable() && !editingText.value && !keys.shift.value && keys.z.value && primaryModifier.value)
+  const redoPressed = computed(() => isEditable() && !editingText.value && keys.shift.value && keys.z.value && primaryModifier.value)
   const goToStartPressed = computed(() => !editingText.value && keys.shift.value && keys.arrowleft.value && primaryModifier.value)
   const goToEndPressed = computed(() => !editingText.value && keys.shift.value && keys.arrowright.value && primaryModifier.value)
-  const deletePressed = computed(() => !editingText.value && (keys.delete.value || keys.backspace.value))
+  const deletePressed = computed(() => isEditable() && !editingText.value && (keys.delete.value || keys.backspace.value))
   const { pause: pauseSeeking, resume: resumeSeeking } = useIntervalFn(
     () => options.session.seekByTicks(activeDirection * seekTickCount()),
     SEEK_INTERVAL_MS,
@@ -50,6 +51,10 @@ export function useEditorKeyboardControls(options: EditorKeyboardControlsOptions
     options.session.seekByTicks(activeDirection * seekTickCount())
     resumeSeeking()
   }, HOLD_DELAY_MS, { immediate: false })
+
+  function isEditable(): boolean {
+    return options.editable?.() ?? true
+  }
 
   function clearDirection(): void {
     stopHoldTimer()

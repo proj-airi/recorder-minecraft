@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { storeToRefs } from 'pinia'
-import { shallowRef } from 'vue'
+import type { EditorViewId, EditorViewOption } from '../features/editor/views'
 
-import Button from '../features/basic/components/Button.vue'
+import { storeToRefs } from 'pinia'
+import { nextTick, shallowRef, useTemplateRef } from 'vue'
+
+import EditorViewSelector from '../features/editor/components/EditorViewSelector.vue'
 import EditorWorkspace from '../features/editor/components/EditorWorkspace.vue'
 
 import { useEditorKeyboardControls } from '../features/editor/composables/useEditorKeyboardControls'
@@ -11,8 +13,10 @@ import { useEpisodeStore } from '../features/timeline/stores/episode'
 
 const episodeStore = useEpisodeStore()
 const { episode } = storeToRefs(episodeStore)
-const session = useTimelineSession(episode, episodeStore.commitSegmentEdit)
+const session = useTimelineSession(episode, episodeStore.commitSegmentEdit, false)
 const editorOpen = shallowRef(true)
+const editorViews = shallowRef<EditorViewOption[]>([])
+const editorWorkspace = useTemplateRef<InstanceType<typeof EditorWorkspace>>('editorWorkspace')
 
 function deleteSelectedSegment(): void {
   const selectedId = session.selectedSegmentId.value
@@ -20,8 +24,17 @@ function deleteSelectedSegment(): void {
     session.selectSegment(null)
 }
 
+async function activateEditorView(viewId: EditorViewId): Promise<void> {
+  if (!editorOpen.value) {
+    editorOpen.value = true
+    await nextTick()
+  }
+  editorWorkspace.value?.activateView(viewId)
+}
+
 useEditorKeyboardControls({
   deleteSelected: deleteSelectedSegment,
+  editable: () => session.editable,
   redo: episodeStore.redo,
   session,
   undo: episodeStore.undo,
@@ -30,33 +43,31 @@ useEditorKeyboardControls({
 
 <template>
   <main class="h-full max-h-100dvh flex flex-col bg-neutral-900 text-neutral-50">
-    <nav aria-label="Global navigation" class="h-12 flex shrink-0 items-center justify-between border-b border-white/8 px-4">
+    <nav aria-label="Global navigation" class="h-12 flex shrink-0 items-center justify-between border-b border-[var(--dashboard-border-color)] px-4">
       <span class="text-sm text-neutral-300 font-medium tracking-wide">Recorder</span>
-      <Button
-        :active="editorOpen"
-        :label="editorOpen ? 'Collapse timeline editor' : 'Open timeline editor'"
-        :title="editorOpen ? 'Collapse timeline editor' : 'Open timeline editor'"
-        @click="editorOpen = !editorOpen"
-      >
-        <span
-          aria-hidden="true"
-          :class="editorOpen ? 'i-mingcute-layout-bottom-open-fill' : 'i-mingcute-layout-bottom-open-line'"
-          class="text-base"
+      <div class="flex items-center gap-2">
+        <EditorViewSelector
+          v-if="editorOpen && editorViews.length"
+          :views="editorViews"
+          @select-view="activateEditorView"
         />
-      </Button>
+      </div>
     </nav>
 
     <div v-if="editorOpen" class="min-h-0 flex-1 overflow-hidden">
       <EditorWorkspace
+        ref="editorWorkspace"
         :can-redo="episodeStore.canRedo"
         :can-undo="episodeStore.canUndo"
         :episode="episode"
         :session="session"
+        @add-replay="episodeStore.addReplay"
         @close="editorOpen = false"
         @cut-segment="episodeStore.cutSegment"
         @redo="episodeStore.redo"
         @reorder-track="episodeStore.reorderTrack"
         @undo="episodeStore.undo"
+        @views-change="editorViews = $event"
       />
     </div>
   </main>

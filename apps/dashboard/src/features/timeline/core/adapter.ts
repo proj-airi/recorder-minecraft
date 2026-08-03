@@ -11,7 +11,7 @@ export interface TickTime {
   v: number
 }
 
-export function createTimelineEngine(episode: EpisodeDraft, selectedSegmentId: null | string, previous?: TimelineEngine): TimelineEngine {
+export function createTimelineEngine(episode: EpisodeDraft, selectedSegmentId: null | string, previous?: TimelineEngine, editable = true): TimelineEngine {
   const tracks: Track<TimelineTrackKind>[] = episode.tracks.map(track => ({
     clips: episode.segments
       .filter(segment => segment.trackId === track.id)
@@ -21,8 +21,8 @@ export function createTimelineEngine(episode: EpisodeDraft, selectedSegmentId: n
         id: segment.id,
         label: segment.label,
         metadata: { episodeRevision: episode.revision },
-        movable: true,
-        resizable: true,
+        movable: editable,
+        resizable: editable,
         selected: segment.id === selectedSegmentId,
         sourceId: segment.id,
         sourceStart: toTickTime(0),
@@ -45,7 +45,7 @@ export function createTimelineEngine(episode: EpisodeDraft, selectedSegmentId: n
     playheadTime: previous?.playheadTime ?? toTickTime(0),
     scrollLeft: previous?.scrollLeft ?? 0,
     scrollTop: previous?.scrollTop ?? 0,
-    snapEnabled: previous?.isSnappingEnabled ?? true,
+    snapEnabled: editable && (previous?.isSnappingEnabled ?? true),
     snapThresholdPixels: 8,
     tracks,
     zoomConstraints: { frameRate: SERVER_TICK_RATE, minZoomScale: 8 },

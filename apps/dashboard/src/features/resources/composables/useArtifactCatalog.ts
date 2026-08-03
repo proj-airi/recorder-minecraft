@@ -29,9 +29,6 @@ export function useArtifactCatalog(): ArtifactCatalog {
     try {
       const response = await artifactsList()
       servers.value = response.data.serverInstances ?? []
-      const validReplays = replays.value.filter(replay => !replay.validationError)
-      const firstPlayable = validReplays.find(replay => replay.video?.url)
-      selectedReplay.value ??= firstPlayable ?? validReplays[0] ?? replays.value[0] ?? null
     }
     catch (caught) {
       error.value = formatError(caught)

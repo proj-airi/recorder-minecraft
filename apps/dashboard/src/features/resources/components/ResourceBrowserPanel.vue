@@ -74,13 +74,13 @@ watch(serverFilter, () => {
 
 <template>
   <section aria-label="Replay resources" class="h-full min-h-0 flex flex-col bg-neutral-900">
-    <div class="grid grid-cols-2 gap-2 border-b border-white/8 p-2">
+    <div class="grid grid-cols-2 gap-2 border-b border-[var(--dashboard-border-color)] p-2">
       <div class="min-w-0">
         <span class="mb-1 block text-xs text-neutral-500 uppercase">Server</span>
         <ComboboxSelect v-model="serverFilter" :disabled="filtersDisabled" label="Server filter" :options="serverOptions" placeholder="Filter servers">
           <template #option="{ option }">
             <span class="min-w-0 flex items-center gap-2">
-              <span aria-hidden="true" class="i-mingcute-server-line shrink-0 text-base text-sky-300" />
+              <span aria-hidden="true" class="i-mingcute-server-line shrink-0 text-base text-neutral-300" />
               <span class="min-w-0 flex flex-col">
                 <span class="truncate">{{ option.label }}</span>
                 <span class="truncate text-xs text-neutral-500">{{ option.description }}</span>
@@ -94,7 +94,7 @@ watch(serverFilter, () => {
         <ComboboxSelect v-model="playerFilter" :disabled="filtersDisabled" label="Player filter" :options="playerOptions" placeholder="Filter players">
           <template #option="{ option }">
             <span class="min-w-0 flex items-center gap-2">
-              <span aria-hidden="true" class="i-mingcute-user-3-line shrink-0 text-base text-violet-300" />
+              <span aria-hidden="true" class="i-mingcute-user-3-line shrink-0 text-base text-neutral-300" />
               <span class="min-w-0 flex flex-col">
                 <span class="truncate">{{ option.label }}</span>
                 <span class="truncate text-xs text-neutral-500">{{ option.description }}</span>

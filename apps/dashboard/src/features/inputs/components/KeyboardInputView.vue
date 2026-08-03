@@ -27,11 +27,11 @@ const keys = [
         v-for="key in keys"
         :key="key.field"
         class="min-h-10 flex items-center justify-center border rounded px-2 text-xs font-medium transition-colors"
-        :class="sample[key.field] ? 'border-amber-300 bg-amber-300 text-neutral-950' : 'border-white/12 bg-white/4 text-neutral-400'"
+        :class="sample[key.field] ? 'border-amber-300 bg-amber-300 text-neutral-950' : 'border-[var(--dashboard-border-color)] bg-white/4 text-neutral-400'"
       >
         {{ key.label }}
       </span>
-      <span class="min-h-10 flex items-center justify-center border border-white/12 rounded bg-white/4 px-2 text-xs text-neutral-400">
+      <span class="min-h-10 flex items-center justify-center border border-[var(--dashboard-border-color)] rounded bg-white/4 px-2 text-xs text-neutral-400">
         Slot {{ sample.selectedSlot + 1 }}
       </span>
     </div>

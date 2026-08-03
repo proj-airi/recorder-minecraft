@@ -10,6 +10,7 @@ export interface TimelineDockContext {
   canRedo: Readonly<Ref<boolean>>
   canUndo: Readonly<Ref<boolean>>
   cutAtPlayhead: () => void
+  editable: Readonly<Ref<boolean>>
   episode: Readonly<Ref<EpisodeDraft>>
   redo: () => void
   reorderTrack: (sourceIndex: number, targetIndex: number) => void

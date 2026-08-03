@@ -8,12 +8,15 @@ import TimelineEditorPanel from './TimelineEditorPanel.vue'
 
 import { timelineDockContextKey } from './timelineDockContext'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   canRedo: boolean
   canUndo: boolean
+  editable?: boolean
   episode: EpisodeDraft
   session: TimelineSession
-}>()
+}>(), {
+  editable: true,
+})
 
 const emit = defineEmits<{
   close: []
@@ -26,6 +29,8 @@ const emit = defineEmits<{
 const episode = toRef(props, 'episode')
 const verticalScrollTop = shallowRef(props.session.engine.value.scrollTop)
 const canCut = computed(() => {
+  if (!props.editable)
+    return false
   const selectedId = props.session.selectedSegmentId.value
   const selected = props.episode.segments.find(segment => segment.id === selectedId)
   return selected !== undefined
@@ -51,6 +56,7 @@ provide(timelineDockContextKey, {
   canRedo: readonly(toRef(props, 'canRedo')),
   canUndo: readonly(toRef(props, 'canUndo')),
   cutAtPlayhead,
+  editable: readonly(toRef(props, 'editable')),
   episode,
   redo: () => emit('redo'),
   reorderTrack: (sourceIndex, targetIndex) => emit('reorderTrack', sourceIndex, targetIndex),

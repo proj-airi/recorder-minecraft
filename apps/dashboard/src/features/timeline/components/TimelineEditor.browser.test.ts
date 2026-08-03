@@ -30,43 +30,62 @@ it('renders the stress fixture before the browser-test timeout', async () => {
   })
 
   try {
-    await expect.element(screen.getByRole('button', { exact: true, name: 'Play' })).toBeVisible()
+    const timelineToolbar = screen.getByLabelText('Timeline toolbar')
+    await expect.element(timelineToolbar.getByRole('button', { exact: true, name: 'Play' })).toBeVisible()
     await expect.element(screen.getByRole('region', { exact: true, name: 'Tracks' })).toBeVisible()
     await expect.element(screen.getByRole('tab', { exact: true, name: 'Resources' })).toBeVisible()
     await expect.element(screen.getByRole('tab', { exact: true, name: 'Preview' })).toBeVisible()
+    await expect.element(screen.getByRole('tab', { exact: true, name: 'Monitor' })).toBeVisible()
     await expect.element(screen.getByRole('tab', { exact: true, name: 'Timeline' })).toBeVisible()
+    await expect.element(screen.getByRole('region', { exact: true, name: 'Input monitor' })).toBeVisible()
+    await expect.element(screen.getByText('Select a replay track in the timeline to inspect its inputs.')).toBeVisible()
     await expect.element(screen.getByText('No recordings available')).toBeVisible()
     expect(screen.container.querySelector('[role="separator"][aria-orientation="vertical"]')).not.toBeNull()
     expect(screen.container.querySelectorAll('[role="tab"]')).toHaveLength(4)
+    await expect.poll(() => {
+      const resources = dockGroupBounds(screen.container, 'Resources')
+      const preview = dockGroupBounds(screen.container, 'Preview')
+      return resources.height / (resources.height + preview.height)
+    }).toBeCloseTo(5 / 6, 1)
+    const resourcesBounds = dockGroupBounds(screen.container, 'Resources')
+    const monitorBounds = dockGroupBounds(screen.container, 'Monitor')
+    const inputBounds = inputPaneBounds(screen.container)
+    const timelineBounds = dockGroupBounds(screen.container, 'Timeline')
+    expect(monitorBounds.height / (monitorBounds.height + timelineBounds.height)).toBeCloseTo(0.7, 1)
+    const totalWidth = resourcesBounds.width + monitorBounds.width + inputBounds.width
+    expect(resourcesBounds.width / totalWidth).toBeCloseTo(0.125, 2)
+    expect(inputBounds.width / totalWidth).toBeCloseTo(0.125, 2)
+    const dockBounds = dockArea(screen.container).getBoundingClientRect()
+    expect(inputBounds.left).toBeGreaterThanOrEqual(dockBounds.right - 1)
+    expect(inputBounds.height).toBeCloseTo(dockBounds.height, 0)
     await expect.element(screen.getByRole('application')).toBeVisible()
-    await expect.element(screen.getByRole('button', { exact: true, name: 'Reorder Video 1' })).toBeVisible()
+    expect(screen.container.querySelector('[aria-label="Reorder Video 1"]')).toBeNull()
     await expect.poll(() => screen.container.querySelectorAll('canvas').length).toBeGreaterThanOrEqual(2)
 
     const mountedTrackCount = screen.container.querySelectorAll('[data-track-id]').length
     expect(mountedTrackCount).toBe(stressOptions.trackCount)
 
-    const playbackItems = Array.from(screen.container.querySelector('[aria-label="Current timecode"]')?.parentElement?.children ?? [])
+    const playbackItems = Array.from(screen.container.querySelector('[aria-label="Timeline toolbar"] [aria-label="Current timecode"]')?.parentElement?.children ?? [])
       .map(element => element.getAttribute('aria-label'))
     expect(playbackItems).toEqual([
       'Go to start',
       'Step backward',
       'Play',
-      'Pause',
       'Current timecode',
       'Step forward',
       'Go to end',
     ])
-    const playbackControls = screen.container.querySelector('[aria-label="Timeline playback controls"]')
+    const playbackControls = screen.container.querySelector('[aria-label="Timeline toolbar"] [aria-label="Timeline playback controls"]')
     expect(playbackControls).not.toBeNull()
-    expect(playbackControls?.parentElement?.querySelector('[aria-label="Timeline editing tools"]')).not.toBeNull()
-    expect(playbackControls?.parentElement?.querySelector('.splitpanes')).not.toBeNull()
+    expect(playbackControls?.parentElement?.getAttribute('aria-label')).toBe('Timeline toolbar')
+    expect(playbackControls?.parentElement?.parentElement?.querySelector('.splitpanes')).not.toBeNull()
     expect(screen.container.querySelector('main > [aria-label="Timeline playback controls"]')).toBeNull()
     const buttonsMissingAccessibleText = Array.from(screen.container.querySelectorAll('button'))
       .filter(button => !button.getAttribute('aria-label') || !button.getAttribute('title'))
     expect(buttonsMissingAccessibleText).toHaveLength(0)
 
     window.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, code: 'Space', key: ' ' }))
-    await expect.element(screen.getByRole('button', { exact: true, name: 'Pause' })).toBeEnabled()
+    await expect.element(timelineToolbar.getByRole('button', { exact: true, name: 'Pause' })).toBeEnabled()
     const playbackCanvas = screen.container.querySelector<HTMLCanvasElement>('[role="application"]')
     if (!playbackCanvas)
       throw new Error('Timeline interaction canvas did not mount')
@@ -93,21 +112,21 @@ it('renders the stress fixture before the browser-test timeout', async () => {
     expect(displayedTick(screen.container)).toBeGreaterThan(100)
     window.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, code: 'Space', key: ' ' }))
     window.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, code: 'Space', key: ' ' }))
-    await expect.element(screen.getByRole('button', { exact: true, name: 'Play' })).toBeEnabled()
+    await expect.element(timelineToolbar.getByRole('button', { exact: true, name: 'Play' })).toBeEnabled()
     window.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, code: 'Space', key: ' ' }))
-    screen.container.querySelector<HTMLButtonElement>('button[aria-label="Go to start"]')?.click()
+    screen.container.querySelector<HTMLButtonElement>('[aria-label="Timeline toolbar"] button[aria-label="Go to start"]')?.click()
     await expect.poll(() => displayedTick(screen.container)).toBe(0)
 
     window.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'ArrowRight' }))
     await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
     window.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: 'ArrowRight' }))
-    await expect.element(screen.getByLabelText('Current timecode')).toHaveTextContent('00:00:00:01')
+    await expect.element(timelineToolbar.getByLabelText('Current timecode')).toHaveTextContent('00:00:00:01')
 
     window.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'ArrowRight' }))
     await new Promise(resolve => setTimeout(resolve, 380))
     window.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: 'ArrowRight' }))
     await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
-    expect(screen.container.querySelector('[aria-label="Current timecode"]')?.textContent).not.toContain('00:00:00:01')
+    expect(screen.container.querySelector('[aria-label="Timeline toolbar"] [aria-label="Current timecode"]')?.textContent).not.toContain('00:00:00:01')
 
     window.dispatchEvent(new KeyboardEvent('keydown', { altKey: true, bubbles: true, code: 'AltLeft', key: 'Alt' }))
     window.dispatchEvent(new KeyboardEvent('keydown', { altKey: true, bubbles: true, key: 'ArrowRight' }))
@@ -115,12 +134,12 @@ it('renders the stress fixture before the browser-test timeout', async () => {
     window.dispatchEvent(new KeyboardEvent('keyup', { altKey: true, bubbles: true, key: 'ArrowRight' }))
     window.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, code: 'AltLeft', key: 'Alt' }))
     await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
-    expect(screen.container.querySelector('[aria-label="Current timecode"]')?.textContent).not.toContain('00:00:00:01')
+    expect(screen.container.querySelector('[aria-label="Timeline toolbar"] [aria-label="Current timecode"]')?.textContent).not.toContain('00:00:00:01')
 
     window.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, code: 'ControlLeft', ctrlKey: true, key: 'Control' }))
     window.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, code: 'ShiftLeft', ctrlKey: true, key: 'Shift', shiftKey: true }))
     window.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, ctrlKey: true, key: 'ArrowRight', shiftKey: true }))
-    await expect.element(screen.getByLabelText('Current timecode')).toHaveTextContent('00:20:00:00')
+    await expect.element(timelineToolbar.getByLabelText('Current timecode')).toHaveTextContent('00:20:00:00')
     window.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, ctrlKey: true, key: 'ArrowRight', shiftKey: true }))
     window.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, code: 'ShiftLeft', ctrlKey: true, key: 'Shift' }))
     window.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, code: 'ControlLeft', key: 'Control' }))
@@ -128,7 +147,7 @@ it('renders the stress fixture before the browser-test timeout', async () => {
     window.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, code: 'ControlLeft', ctrlKey: true, key: 'Control' }))
     window.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, code: 'ShiftLeft', ctrlKey: true, key: 'Shift', shiftKey: true }))
     window.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, ctrlKey: true, key: 'ArrowLeft', shiftKey: true }))
-    await expect.element(screen.getByLabelText('Current timecode')).toHaveTextContent('00:00:00:00')
+    await expect.element(timelineToolbar.getByLabelText('Current timecode')).toHaveTextContent('00:00:00:00')
     window.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, ctrlKey: true, key: 'ArrowLeft', shiftKey: true }))
     window.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, code: 'ShiftLeft', ctrlKey: true, key: 'Shift' }))
     window.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, code: 'ControlLeft', key: 'Control' }))
@@ -158,23 +177,12 @@ it('renders the stress fixture before the browser-test timeout', async () => {
     }))
     await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
     window.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Delete' }))
-    await expect.poll(() => episodeStore.episode.segments.length).toBe(segmentCount - 1)
+    await expect.poll(() => episodeStore.episode.segments.length).toBe(segmentCount)
     window.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: 'Delete' }))
     episodeStore.undo()
     await expect.poll(() => episodeStore.episode.segments.length).toBe(segmentCount)
 
-    const timelineTab = Array.from(screen.container.querySelectorAll<HTMLElement>('[role="tab"]'))
-      .find(tab => tab.textContent?.trim() === 'Timeline')
-    expect(timelineTab).not.toBeNull()
-    timelineTab?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, button: 2 }))
-    await screen.getByText('Close editor workspace').click()
-    await expect.element(screen.getByRole('button', { exact: true, name: 'Open timeline editor' })).toBeVisible()
-    expect(screen.container.querySelector('[role="region"][aria-label="Tracks"]')).toBeNull()
-    expect(screen.container.querySelector('[role="region"][aria-label="Timeline"]')).toBeNull()
-
-    await screen.getByRole('button', { exact: true, name: 'Open timeline editor' }).click()
-    await expect.element(screen.getByRole('region', { exact: true, name: 'Tracks' })).toBeVisible()
-    await expect.element(screen.getByRole('application')).toBeVisible()
+    await expect.element(screen.getByRole('region', { exact: true, name: 'Input monitor' })).toBeVisible()
   }
   finally {
     await screen.unmount()
@@ -184,11 +192,33 @@ it('renders the stress fixture before the browser-test timeout', async () => {
 })
 
 function displayedTick(container: HTMLElement): number {
-  const current = container.querySelector('[aria-label="Current timecode"]')?.textContent?.split('/')[0]?.trim()
+  const current = container.querySelector('[aria-label="Timeline toolbar"] [aria-label="Current timecode"]')?.textContent?.split('/')[0]?.trim()
   const values = current?.split(':').map(Number)
   if (!values || values.length !== 4 || values.some(value => !Number.isFinite(value)))
     throw new Error(`Invalid timecode: ${current ?? 'missing'}`)
   return (((values[0]! * 60 + values[1]!) * 60 + values[2]!) * 20) + values[3]!
+}
+
+function dockArea(container: HTMLElement): HTMLElement {
+  const area = container.querySelector<HTMLElement>('[aria-label="Dockable editor views"]')
+  if (!area)
+    throw new Error('Dockable editor area did not mount')
+  return area
+}
+
+function dockGroupBounds(container: HTMLElement, viewLabel: string): DOMRect {
+  const tab = container.querySelector(`[role="tab"][aria-label="${viewLabel}"]`)
+  const group = tab?.closest<HTMLElement>('.dv-groupview')
+  if (!group)
+    throw new Error(`Dockview group for "${viewLabel}" did not mount`)
+  return group.getBoundingClientRect()
+}
+
+function inputPaneBounds(container: HTMLElement): DOMRect {
+  const pane = container.querySelector<HTMLElement>('[aria-label="Inputs pane"]')
+  if (!pane)
+    throw new Error('Inputs pane did not mount')
+  return pane.getBoundingClientRect()
 }
 
 it('shows a recoverable artifact service error', async () => {

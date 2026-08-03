@@ -3,7 +3,7 @@ import type { DateValue } from '@ark-ui/vue/date-picker'
 import type { RecorderMinecraftApiV1Replay } from '@proj-airi/recorder-minecraft-api'
 
 import { DatePicker } from '@ark-ui/vue/date-picker'
-import { computed, toRef } from 'vue'
+import { toRef } from 'vue'
 
 import { dayKey, useRecordingCalendar } from '../composables/useRecordingCalendar'
 
@@ -12,8 +12,7 @@ const props = defineProps<{
 }>()
 
 const timeRange = defineModel<null | number[]>({ required: true })
-const { clear, focusedDate, recordingDay, recordingDays, selectedDates, selectionLabel, selectDates } = useRecordingCalendar(toRef(props, 'replays'), timeRange)
-const markerSummary = computed(() => `${recordingDays.value.size} recording ${recordingDays.value.size === 1 ? 'day' : 'days'}`)
+const { clear, focusedDate, recordingDay, selectedDates, selectionLabel, selectDates } = useRecordingCalendar(toRef(props, 'replays'), timeRange)
 
 function label(date: DateValue): string {
   const recording = recordingDay(date)
@@ -42,14 +41,11 @@ function label(date: DateValue): string {
     time-zone="UTC"
     @update:model-value="selectDates"
   >
-    <div class="border border-white/8 rounded bg-neutral-950/35 p-2">
+    <div class="rounded border-none bg-neutral-950/35 p-2">
       <div class="mb-1 flex items-center justify-between gap-2 px-1">
         <div class="min-w-0">
           <p class="m-0 truncate text-[10px] text-neutral-300 font-medium">
             {{ selectionLabel() }}
-          </p>
-          <p class="m-0 mt-0.5 text-[9px] text-neutral-600">
-            {{ markerSummary }} · UTC
           </p>
         </div>
         <button
@@ -102,7 +98,12 @@ function label(date: DateValue): string {
                 <DatePicker.TableCell v-for="day in week" :key="dayKey(day)" class="p-0.5" :value="day">
                   <DatePicker.TableCellTrigger
                     :aria-label="label(day)"
-                    class="relative h-8 w-full flex items-center justify-center border-0 rounded bg-transparent text-[10px] text-neutral-400 outline-none transition-colors data-[in-range]:bg-amber-400/12 data-[range-end]:bg-amber-400/28 data-[range-start]:bg-amber-400/28 data-[selected]:bg-amber-400/28 hover:bg-white/7 data-[outside-range]:text-neutral-700 data-[today]:text-amber-300 hover:text-neutral-100 data-[focus]:ring-1 data-[focus]:ring-amber-300/70"
+                    :class="[
+                      'relative h-8 w-full border-0 rounded bg-transparent text-[10px] text-neutral-400 outline-none transition-colors',
+                      'flex items-center justify-center',
+                      'data-[in-range]:bg-amber-400/12 data-[range-end]:bg-amber-400/28 data-[range-start]:bg-amber-400/28 data-[selected]:bg-amber-400/28 hover:bg-white/7 data-[outside-range]:text-neutral-700 data-[today]:text-amber-300 hover:text-neutral-100',
+                      'data-[focus]:bg-amber-300/25',
+                    ]"
                     :title="label(day)"
                   >
                     <span>{{ day.day }}</span>
@@ -110,11 +111,11 @@ function label(date: DateValue): string {
                       <span
                         v-if="recordingDay(day)!.count > 1"
                         aria-hidden="true"
-                        class="absolute right-0.5 top-0 text-[7px] text-emerald-300 font-semibold leading-none"
+                        class="absolute right-0.5 top-0 text-[12px] text-emerald-300 font-semibold leading-none"
                       >
                         {{ recordingDay(day)!.count }}
                       </span>
-                      <span aria-hidden="true" class="absolute bottom-0.5 h-1 w-1 rounded-full bg-emerald-400 shadow-[0_0_4px_rgba(52,211,153,0.75)]" />
+                      <span aria-hidden="true" class="absolute bottom-0.5 h-1 w-1 rounded-full bg-emerald-400" />
                     </template>
                   </DatePicker.TableCellTrigger>
                 </DatePicker.TableCell>

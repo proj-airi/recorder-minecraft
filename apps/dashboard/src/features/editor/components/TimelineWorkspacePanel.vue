@@ -10,6 +10,7 @@ const context = useEditorWorkspaceContext()
   <TimelineEditor
     :can-redo="context.canRedo.value"
     :can-undo="context.canUndo.value"
+    :editable="context.session.editable"
     :episode="context.episode()"
     :session="context.session"
     @close="context.close"

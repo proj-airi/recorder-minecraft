@@ -10,14 +10,6 @@ export interface EpisodeOptions {
   trackCount: number
 }
 
-export const demoOptions = {
-  clipsPerTrack: 6,
-  durationTicks: SERVER_TICK_RATE * 60 * 5,
-  id: 'timeline-demo',
-  title: 'Timeline demo',
-  trackCount: 8,
-} satisfies EpisodeOptions
-
 export const stressOptions = {
   clipsPerTrack: 25,
   durationTicks: SERVER_TICK_RATE * 60 * 20,

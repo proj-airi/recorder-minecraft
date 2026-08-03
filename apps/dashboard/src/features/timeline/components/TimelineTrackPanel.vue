@@ -35,6 +35,7 @@ watch(context.verticalScrollTop, syncScrollTop)
     <TimelineTrackHeaders
       :scroll-container="scrollViewport"
       :tracks="context.episode.value.tracks"
+      :editable="context.editable.value"
       @reorder="context.reorderTrack"
     />
   </div>

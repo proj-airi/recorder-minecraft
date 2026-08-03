@@ -7,6 +7,11 @@ import { RouterView } from 'vue-router'
 </template>
 
 <style>
+:root {
+  --dashboard-border-color: rgb(255 255 255 / 8%);
+  --dashboard-border-color-strong: rgb(255 255 255 / 24%);
+}
+
 html,
 body,
 #app {

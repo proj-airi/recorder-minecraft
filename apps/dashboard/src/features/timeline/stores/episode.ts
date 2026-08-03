@@ -1,9 +1,11 @@
+import type { RecorderMinecraftApiV1Replay } from '@proj-airi/recorder-minecraft-api'
+
 import type { CommitSegmentEdit, EpisodeSegment, EpisodeTrack } from '../domain'
 
 import { defineStore } from 'pinia'
 import { computed, shallowRef } from 'vue'
 
-import { createEpisode, demoOptions } from '../fixtures/episode'
+import { addReplayToEpisode, createEmptyEpisode } from '../replay'
 
 interface SegmentHistory {
   redo: TimelinePatch[]
@@ -26,11 +28,20 @@ interface TrackOrderPatch {
 }
 
 export const useEpisodeStore = defineStore('episode', () => {
-  // Demo project state is replaced as one immutable revision. The timeline engine only receives projections of it.
-  const episode = shallowRef(createEpisode(demoOptions))
+  const episode = shallowRef(createEmptyEpisode())
   const history = shallowRef<SegmentHistory>({ redo: [], undo: [] })
   const canRedo = computed(() => history.value.redo.length > 0)
   const canUndo = computed(() => history.value.undo.length > 0)
+
+  function addReplay(replay: RecorderMinecraftApiV1Replay): boolean {
+    const nextEpisode = addReplayToEpisode(episode.value, replay)
+    if (!nextEpisode)
+      return false
+
+    episode.value = nextEpisode
+    history.value = { redo: [], undo: [] }
+    return true
+  }
 
   function applyPatch(patch: TimelinePatch, direction: 'redo' | 'undo'): void {
     if (patch.type === 'track-order') {
@@ -173,6 +184,7 @@ export const useEpisodeStore = defineStore('episode', () => {
   }
 
   return {
+    addReplay,
     canRedo,
     canUndo,
     commitSegmentEdit,

@@ -23,10 +23,10 @@
     "@vueuse/core": "catalog:",
     "animejs": "catalog:",
     "dockview-vue": "catalog:",
-    "mediabunny": "catalog:",
     "pinia": "catalog:",
     "reka-ui": "catalog:",
     "splitpanes": "catalog:",
+    "vidstack": "catalog:",
     "virtua": "catalog:",
     "vue": "catalog:",
     "vue-router": "catalog:"

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Pane, Splitpanes } from 'splitpanes'
+import { computed } from 'vue'
 
 import KeyboardInputView from './KeyboardInputView.vue'
 import MouseInputView from './MouseInputView.vue'
@@ -7,8 +8,14 @@ import MouseInputView from './MouseInputView.vue'
 import { useEditorWorkspaceContext } from '../../editor/composables/useEditorWorkspaceContext'
 import { useReplayControlState } from '../composables/useReplayControlState'
 
-const { catalog, session } = useEditorWorkspaceContext()
-const controls = useReplayControlState(catalog.selectedReplay, session.playheadTick)
+const { episode, session } = useEditorWorkspaceContext()
+const selectedSegment = computed(() => episode().segments.find(segment => segment.id === session.selectedSegmentId.value) ?? null)
+const selectedReplay = computed(() => {
+  const trackId = selectedSegment.value?.trackId
+  return trackId ? episode().tracks.find(track => track.id === trackId)?.replay ?? null : null
+})
+const replayPlayheadTick = computed(() => Math.max(0, session.playheadTick.value - (selectedSegment.value?.startTick ?? 0)))
+const controls = useReplayControlState(selectedReplay, replayPlayheadTick)
 </script>
 
 <template>
@@ -19,14 +26,13 @@ const controls = useReplayControlState(catalog.selectedReplay, session.playheadT
     <div v-else-if="controls.error.value" class="m-auto max-w-xs p-4 text-center text-sm text-red-300">
       {{ controls.error.value }}
     </div>
-    <div v-else-if="!catalog.selectedReplay.value?.eventsUrl" class="m-auto max-w-xs p-4 text-center text-sm text-neutral-500">
-      This replay does not expose an events stream.
+    <div v-else-if="!selectedReplay" class="m-auto max-w-xs p-4 text-center text-sm text-neutral-500">
+      Select a replay track in the timeline to inspect its inputs.
+    </div>
+    <div v-else-if="!selectedReplay.eventsUrl" class="m-auto max-w-xs p-4 text-center text-sm text-neutral-500">
+      The selected replay does not expose an events stream.
     </div>
     <template v-else>
-      <p class="m-0 border-b border-white/8 px-3 py-2 text-xs text-neutral-500 leading-5">
-        Reconstructed controls · {{ controls.sampleCount.value.toLocaleString() }} samples<br>
-        Not raw keyboard or mouse telemetry.
-      </p>
       <Splitpanes horizontal class="input-monitor-split min-h-0 flex-1">
         <Pane :min-size="25" :size="50">
           <MouseInputView :sample="controls.current.value" />

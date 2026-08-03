@@ -16,6 +16,7 @@ const AUTO_SCROLL_THRESHOLD = 50
 
 interface UseTrackSortableOptions {
   container: Readonly<ShallowRef<HTMLElement | null>>
+  enabled?: () => boolean
   itemIds: () => string[]
   onReorder: (sourceIndex: number, targetIndex: number) => void
   rowHeight: number
@@ -227,6 +228,12 @@ export function useTrackSortable(options: UseTrackSortableOptions): TrackSortabl
     if (!container)
       return
 
+    if (options.enabled?.() === false) {
+      draggables.forEach(draggable => draggable.revert())
+      draggables.clear()
+      return
+    }
+
     const mountedIds = new Set<string>()
     container.querySelectorAll<HTMLElement>('[data-track-id]').forEach((element) => {
       const id = element.dataset.trackId
@@ -262,7 +269,7 @@ export function useTrackSortable(options: UseTrackSortableOptions): TrackSortabl
 
   onMounted(initialize)
 
-  watch(options.itemIds, async () => {
+  watch([options.itemIds, () => options.enabled?.() ?? true], async () => {
     await nextTick()
     resetMountedRows(true)
     syncMountedRows()

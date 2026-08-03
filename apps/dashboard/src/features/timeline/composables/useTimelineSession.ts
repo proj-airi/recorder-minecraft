@@ -10,6 +10,7 @@ import { SERVER_TICK_RATE } from '../domain'
 
 export interface TimelineSession {
   commitEdit: (edit: CommitSegmentEdit) => void
+  editable: boolean
   engine: ShallowRef<TimelineEngine>
   goToEnd: () => void
   goToStart: () => void
@@ -26,11 +27,11 @@ export interface TimelineSession {
   zoomBy: (factor: number) => void
 }
 
-export function useTimelineSession(episode: Ref<EpisodeDraft>, commitEdit: (edit: CommitSegmentEdit) => void): TimelineSession {
+export function useTimelineSession(episode: Ref<EpisodeDraft>, commitEdit: (edit: CommitSegmentEdit) => void, editable = true): TimelineSession {
   const selectedSegmentId = shallowRef<null | string>(null)
   const renderRevision = shallowRef(0)
   const isPlaying = shallowRef(false)
-  const engine = shallowRef(markRaw(createTimelineEngine(episode.value, null)))
+  const engine = shallowRef(markRaw(createTimelineEngine(episode.value, null, undefined, editable)))
   const playheadTick = shallowRef(toServerTick(engine.value.playheadTime))
   let playbackFrame = 0
   let playbackStartTick = 0
@@ -65,7 +66,7 @@ export function useTimelineSession(episode: Ref<EpisodeDraft>, commitEdit: (edit
     stopPlaybackFrame()
     const previous = engine.value
     previous.pause()
-    engine.value = markRaw(createTimelineEngine(episode.value, selectedSegmentId.value, previous))
+    engine.value = markRaw(createTimelineEngine(episode.value, selectedSegmentId.value, previous, editable))
     playheadTick.value = toServerTick(engine.value.playheadTime)
     bindEngineEvents()
     requestRender()
@@ -161,6 +162,7 @@ export function useTimelineSession(episode: Ref<EpisodeDraft>, commitEdit: (edit
 
   return {
     commitEdit,
+    editable,
     engine,
     goToEnd,
     goToStart,
