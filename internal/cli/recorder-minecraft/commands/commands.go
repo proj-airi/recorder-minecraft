@@ -9,6 +9,7 @@ import (
 	"github.com/proj-airi/recorder-minecraft/internal/cli/recorder-minecraft/commands/options"
 	"github.com/proj-airi/recorder-minecraft/internal/cli/recorder-minecraft/commands/render"
 	"github.com/proj-airi/recorder-minecraft/internal/cli/recorder-minecraft/commands/scene"
+	"github.com/proj-airi/recorder-minecraft/internal/cli/recorder-minecraft/commands/serve"
 	"github.com/proj-airi/recorder-minecraft/internal/cli/recorder-minecraft/commands/version"
 	"github.com/spf13/cobra"
 )
@@ -19,5 +20,5 @@ func Register(root *cobra.Command) {
 	actions.Register(root)
 	config.Register(root)
 	scene.Register(root)
-	command.Register(root, exportassets.NewCommand, initialize.NewCommand, options.NewCommand, render.NewCommand, version.NewCommand)
+	command.Register(root, exportassets.NewCommand, initialize.NewCommand, options.NewCommand, render.NewCommand, serve.NewCommand, version.NewCommand)
 }

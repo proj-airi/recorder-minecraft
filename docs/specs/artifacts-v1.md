@@ -117,6 +117,21 @@ result binds the frame-index digest, byte size, frame count, replay integrity,
 identity, requested/actual tick ranges, resolution, and frame rate. Renders are
 optional; absence means not rendered.
 
+`renders/fpv.mp4` is the optional H.264/YUV420p playback derivative composed
+from a complete `fpv_frames/` result. The render command publishes it atomically
+after `ffmpeg` succeeds; `--frames-only` retains the image-sequence-only
+workflow. The video is derived and may be regenerated without mutating the
+capture inputs.
+
+## Read API and media serving
+
+`recorder-minecraft serve` exposes the read-only Artifacts V1 catalog over gRPC
+and a grpc-gateway HTTP API. Catalog traversal validates the server, player, and
+play directory identities against their metadata before returning them.
+`/assets/` serves only regular files contained below the configured artifacts
+root and supports HTTP byte ranges so browser decoders can seek in MP4 files.
+Symlinks and path traversal outside that root are rejected.
+
 `scene.sqlite3` is Scene Store V2. It requires exact frame/player-state tick
 coverage and contains typed player state plus the full inventory/effect/ability
 payload in compressed content-addressed blobs. Its portable SQLAlchemy Core

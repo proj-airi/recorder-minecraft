@@ -182,6 +182,59 @@ func (service *Service) Launch(ctx context.Context, job Job, offline bool) (*art
 	return result, nil
 }
 
+// ComposeVideo converts the verified image sequence to a browser-seekable MP4. The temporary file
+// stays beside the final output so the rename is atomic on the artifact filesystem.
+func (service *Service) ComposeVideo(ctx context.Context, job Job, result *artifactsv1.RenderResult, executable string) (string, error) {
+	if result.GetStatus() != artifactsv1.RenderResultStatus_RENDER_RESULT_STATUS_COMPLETE || result.GetFrameCount() == 0 {
+		return "", errors.New("cannot compose video without a completed non-empty render")
+	}
+	if result.GetWidth()%2 != 0 || result.GetHeight()%2 != 0 {
+		return "", errors.New("MP4 composition requires even render dimensions")
+	}
+	if executable == "" {
+		executable = "ffmpeg"
+	}
+	output := filepath.Join(job.Directory, "fpv.mp4")
+	staging := output + ".inprogress"
+	if err := os.Remove(staging); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return "", fmt.Errorf("remove stale video staging file: %w", err)
+	}
+	defer func() { _ = os.Remove(staging) }()
+	arguments := []string{
+		"-hide_banner", "-loglevel", "error", "-y",
+		"-framerate", fmt.Sprintf("%g", result.GetFramesPerSecond()),
+		"-start_number", "1",
+		"-i", filepath.Join(job.Spec.GetOutputPath(), "frame_%06d.png"),
+		"-frames:v", fmt.Sprintf("%d", result.GetFrameCount()),
+		"-c:v", "libx264", "-crf", "18", "-preset", "medium",
+		"-pix_fmt", "yuv420p", "-movflags", "+faststart",
+		"-f", "mp4",
+		staging,
+	}
+	// The executable is passed directly to exec without a shell. Every media argument is derived
+	// from the already verified RenderResult and the renderer-owned output directory.
+	command := exec.CommandContext(ctx, executable, arguments...) // #nosec G702
+	command.Stdout = os.Stdout
+	command.Stderr = os.Stderr
+	if err := command.Run(); err != nil {
+		return "", fmt.Errorf("compose MP4 with ffmpeg: %w", err)
+	}
+	file, err := os.OpenFile(staging, os.O_RDONLY, 0)
+	if err != nil {
+		return "", fmt.Errorf("open composed MP4: %w", err)
+	}
+	info, statErr := file.Stat()
+	syncErr := file.Sync()
+	closeErr := file.Close()
+	if statErr != nil || syncErr != nil || closeErr != nil || info.Size() == 0 {
+		return "", errors.Join(errors.New("ffmpeg did not produce a durable non-empty MP4"), statErr, syncErr, closeErr)
+	}
+	if err := os.Rename(staging, output); err != nil {
+		return "", fmt.Errorf("publish composed MP4: %w", err)
+	}
+	return output, nil
+}
+
 func (service *Service) validateResult(job Job, result *artifactsv1.RenderResult) error {
 	spec := job.Spec
 	if spec == nil || spec.GetReplay() == nil || spec.GetGlobalTicks() == nil {
@@ -274,7 +327,7 @@ func ownedDirectory(path string) bool {
 	}
 	for _, entry := range entries {
 		switch entry.Name() {
-		case "render-job.json", "result.json", "result.json.inprogress", "progress.json", "progress.json.inprogress":
+		case "render-job.json", "result.json", "result.json.inprogress", "progress.json", "progress.json.inprogress", "fpv.mp4", "fpv.mp4.inprogress":
 			if entry.Type()&os.ModeSymlink != 0 || entry.IsDir() {
 				return false
 			}

@@ -66,6 +66,12 @@ type Config struct {
 	Processors Processors `json:"processors"`
 }
 
+func NewConfig(path string) func() (*Config, error) {
+	return func() (*Config, error) {
+		return Load(path)
+	}
+}
+
 func Package(path string) func(do.Injector) {
 	return func(injector do.Injector) {
 		do.Provide(injector, func(do.Injector) (*Config, error) { return Load(path) })

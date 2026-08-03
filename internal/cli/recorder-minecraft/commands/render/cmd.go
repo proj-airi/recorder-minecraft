@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 
+	artifactsv1 "github.com/proj-airi/recorder-minecraft/apis/sdk/go/recorder-minecraft/artifacts/v1"
 	"github.com/proj-airi/recorder-minecraft/internal/cli/recorder-minecraft/command"
 	"github.com/proj-airi/recorder-minecraft/internal/configs"
 	"github.com/proj-airi/recorder-minecraft/internal/models"
@@ -18,6 +19,8 @@ func NewCommand() *cobra.Command {
 	var fromTick int64
 	var toTick int64
 	var offline bool
+	var framesOnly bool
+	var ffmpeg string
 	cmd := &cobra.Command{
 		Use:     "render",
 		Short:   "Render a Flashback replay into first-person RGB frames",
@@ -46,7 +49,7 @@ then launches the renderer unless --prepare-only is set.`,
 			if err != nil {
 				return err
 			}
-			return command.Run(cmd.Context(), run(cmd, options, offline), configs.Package(configPath), models.Package)
+			return command.Run(cmd.Context(), run(cmd, options, offline, framesOnly, ffmpeg), configs.Package(configPath), models.Package)
 		},
 	}
 	cmd.Flags().StringVar(&options.Metadata, "metadata", "", "Completed ServerMetadata ProtoJSON input")
@@ -62,13 +65,15 @@ then launches the renderer unless --prepare-only is set.`,
 	cmd.Flags().BoolVar(&options.Overwrite, "overwrite", false, "Replace a renderer-owned output directory")
 	cmd.Flags().BoolVar(&options.PrepareOnly, "prepare-only", false, "Write the job without launching Minecraft")
 	cmd.Flags().BoolVar(&offline, "offline", false, "Run Gradle without network access")
+	cmd.Flags().BoolVar(&framesOnly, "frames-only", false, "Keep the verified PNG sequence without composing fpv.mp4")
+	cmd.Flags().StringVar(&ffmpeg, "ffmpeg", "ffmpeg", "FFmpeg executable used to compose fpv.mp4")
 	for _, name := range []string{"metadata", "events", "replay", "output"} {
 		_ = cmd.MarkFlagRequired(name)
 	}
 	return cmd
 }
 
-func run(cmd *cobra.Command, options renderjob.Options, offline bool) func(do.Injector) error {
+func run(cmd *cobra.Command, options renderjob.Options, offline, framesOnly bool, ffmpeg string) func(do.Injector) error {
 	return func(injector do.Injector) error {
 		config, err := do.Invoke[*configs.Config](injector)
 		if err != nil {
@@ -92,6 +97,15 @@ func run(cmd *cobra.Command, options renderjob.Options, offline bool) func(do.In
 			result, err := service.Launch(cmd.Context(), job, offline)
 			if err != nil {
 				return err
+			}
+			if !framesOnly && result.GetStatus() == artifactsv1.RenderResultStatus_RENDER_RESULT_STATUS_COMPLETE {
+				video, err := service.ComposeVideo(cmd.Context(), job, result, ffmpeg)
+				if err != nil {
+					return err
+				}
+				if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Composed video %s\n", video); err != nil {
+					return err
+				}
 			}
 			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Rendered ticks %d..%d to %s\n", result.GetGlobalTicks().GetFirstTick(), result.GetGlobalTicks().GetLastTick(), result.GetOutputPath())
 			return err
