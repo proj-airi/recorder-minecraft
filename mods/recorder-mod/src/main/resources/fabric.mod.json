@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "id": "mc-recorder",
+  "id": "recorder-minecraft",
   "version": "${version}",
   "name": "Minecraft Play Recorder",
   "description": "Synchronized server-side action and state capture companion for ServerReplay.",

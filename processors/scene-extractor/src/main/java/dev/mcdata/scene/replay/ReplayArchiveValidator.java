@@ -23,12 +23,15 @@ import java.util.zip.ZipFile;
 /** Verifies immutable bytes, embedded provenance, and source-compatible mod versions. */
 public final class ReplayArchiveValidator {
     private static final long MAX_METADATA_BYTES = 1_048_576;
+    // NOTICE: Replays recorded before the Fabric mod ID was aligned with the product name contain
+    // mc-recorder. Both IDs describe capture infrastructure replaced by this headless extractor,
+    // so neither should be required in the extractor runtime.
     private static final Set<String> REPLACED_CAPTURE_INFRASTRUCTURE_IDS = Set.of(
-        "recorder-minecraft", "server-replay"
+        "mc-recorder", "recorder-minecraft", "server-replay"
     );
     private static final Set<String> INFRASTRUCTURE_IDS = Set.of(
         "minecraft", "java", "fabricloader", "fabric-api", "fabric-language-kotlin",
-        "recorder-minecraft", "server-replay", "recorder-minecraft-scene-extractor", "mixinextras", "inject"
+        "mc-recorder", "recorder-minecraft", "server-replay", "recorder-minecraft-scene-extractor", "mixinextras", "inject"
     );
     private final Map<String, String> loadedMods;
 

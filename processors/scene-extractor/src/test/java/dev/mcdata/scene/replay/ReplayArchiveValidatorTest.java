@@ -26,6 +26,17 @@ final class ReplayArchiveValidatorTest {
     }
 
     @Test
+    void permitsLegacyRecorderModIdInExistingReplays() {
+        assertDoesNotThrow(() -> ReplayArchiveValidator.verifyModCompatibility(
+            Map.of(
+                "mc-recorder", "0.1.0+1.21.8",
+                "server-replay", "3.0.1+1.21.8"
+            ),
+            Map.of("recorder-minecraft-scene-extractor", "0.1.0")
+        ));
+    }
+
+    @Test
     void stillRequiresExactContentModVersions() {
         assertThrows(IOException.class, () -> ReplayArchiveValidator.verifyModCompatibility(
             Map.of("example-content", "1.0.0"),
