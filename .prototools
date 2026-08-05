@@ -1,5 +1,6 @@
 openjdk = "21"
 gradle = "9.6.1"
+node = "22.18.0"
 go = "1.26.4"
 buf = "1.71.0"
 golangci-lint = "2.12.2"
