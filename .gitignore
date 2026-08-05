@@ -42,3 +42,4 @@ __screenshots__/
 /recorder.toml
 /deploy/.env
 /internal/bundled/assets/
+.tours/
