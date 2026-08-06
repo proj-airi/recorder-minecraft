@@ -6,6 +6,23 @@ ubiquitous language. Record every resolved domain term here.
 The normative persisted contracts are [Artifacts V1](specs/artifacts-v1.md)
 and [Primitive Capture V1](specs/capture-v1.md).
 
+## Canonical naming rules
+
+- Use **Play** for the persisted join-to-disconnect aggregate. **Recording** is
+  the activity that produces a play, and **Replay archive** is only the
+  `capture/replay.zip` inside it. Existing catalog API types and routes named
+  `Replay`, and dashboard labels that use “recording,” refer to a cataloged play;
+  they are compatibility names, not additional domain concepts. Do not
+  introduce new uses of those aliases.
+- Use **Server tick** for the recorder timeline. Existing scene and render names
+  such as `global_tick`, `global_ticks`, and “global tick” mean the same server
+  tick coordinate; they are compatibility names, not a separate clock. New
+  contracts and prose must use `server_tick` or Server tick.
+- Use **Replay source** for a reference to a replay archive consumed by a
+  processor or dashboard. Scene extraction additionally carries the existing
+  `segment_id` and `segment_ordinal` compatibility fields, but that does not
+  create another kind of replay.
+
 ## System model
 
 The system has two independent stages joined by ordinary files:
@@ -26,6 +43,8 @@ rsync.
 | Action processor | Reconstruction of a semantic action stream from one completed capture | Capture discovery, hierarchy creation, or replay mutation |
 | Scene processor | Headless replay reduction, private Scene Store V1 staging, and durable Scene Store V2 output | GUI rendering or omniscient server-world recovery |
 | Renderer | Flashback playback and optional first-person PNG generation | Scene extraction, artifact discovery, or capture mutation |
+| Catalog API | Read-only discovery and media serving for validated Artifacts V1 plays | Capture, processing, rendering, or artifact mutation |
+| Dashboard | Read-side browsing and timeline composition over cataloged plays and derived media | Capture validation, scene extraction, rendering, or processor orchestration |
 | Operator or external orchestrator | Copying plays, choosing inputs and outputs, scheduling processors, and assembling later datasets | Recorder-internal lifecycle state |
 
 ## Canonical artifact hierarchy
@@ -50,6 +69,7 @@ artifacts/v1/
               fpv_frames/
                 frames.jsonl
                 frame_*.png
+              fpv.mp4                          # optional
 ```
 
 The hierarchy is part of the recorder contract. A processor receives exact
@@ -156,6 +176,7 @@ actions between adjacent authoritative states without relying on arrival time.
 | Actions extraction | Transformation from metadata plus events into `actions.jsonl` |
 | Scene extraction | Transformation from metadata, events, and replay into `scene.sqlite3` |
 | Rendering | Transformation from metadata, events, and replay into a `renders/` directory |
+| Replay source | Reference to a replay archive used as processor input or dashboard media; it retains the replay identity and may also bind its path, digest, size, format, event stream, or display metadata |
 | Tick selection | Optional inclusive `--from-tick` and `--to-tick` interval applied by a processor |
 | Prepared job | Private scene or render job created under the runtime root for validation or execution |
 | Owned output | Existing result that passes the processor's identity/format checks and may therefore be replaced with `--overwrite` |
@@ -184,6 +205,7 @@ inputs are contained in the play itself.
 | Scene Store V1 | Private extractor spool/intermediate under the runtime root; not an Artifacts V1 output or compatibility format |
 | Scene frame | Random-access client-visible world snapshot aligned to one selected server tick |
 | Player state row | Exactly one typed subject-state row linked to every scene frame |
+| Subject pose | Private scene-extraction projection of a `player_state` event containing the recorded player's identity, dimension, transform, velocity, and grounded state at one server tick; it is not a second authoritative state stream |
 | Section version | Time-bounded version of a client-visible chunk section |
 | Entity version | Time-bounded instance of a client-visible entity with an explicit application-assigned ID |
 | Block-entity version | Time-bounded client-visible block-entity payload at a world position |
@@ -191,10 +213,10 @@ inputs are contained in the play itself.
 | Unknown cell | World location for which the replay provides no client-visible state at the requested tick |
 
 Scene Store V2 uses SQLite as the portable file format. Its logical base schema
-is defined with SQLAlchemy Core and avoids dependence on SQLite `rowid`, so a
-future PostgreSQL adapter can preserve the model. SQLite R-tree indexes,
-triggers, PRAGMAs, immutable reads, and atomic replacement remain adapter
-details.
+uses explicit application-assigned identifiers and avoids dependence on SQLite
+`rowid`, so a future storage adapter can preserve the model. SQLite R-tree
+indexes, triggers, PRAGMAs, immutable reads, and atomic replacement remain
+adapter details.
 
 The scene is reconstructed from what the recorded client could see. An unknown
 cell is not air, and missing unopened-container contents are not an empty
@@ -209,13 +231,15 @@ inventory.
 | Render result | `result.json`, written only for a completed renderer invocation |
 | FPV frame | First-person PNG reconstructed by playing the Flashback archive in the client renderer |
 | Frame index | `fpv_frames/frames.jsonl`, mapping every PNG to server tick, replay tick, player, connection, and replay identity |
+| FPV video | Optional H.264/YUV420p `fpv.mp4` composed from a complete FPV frame sequence unless `--frames-only` is requested |
 | GUI presentation | First-person hand/item and Minecraft HUD presentation; enabled by default |
 | `no_gui` | Explicit request to omit the client HUD; it does not make the renderer headless |
 | Replay coverage | Tick interval for which matching timeline markers actually exist in the replay |
 
 Rendering is optional. A missing `renders/` directory means not rendered, not a
-failed or incomplete primitive capture. The current output is PNG frames, not
-MP4 and not pixels captured from the original player's computer.
+failed or incomplete primitive capture. The renderer produces PNG frames, and
+the render command normally derives an MP4 from them. Neither output contains
+pixels captured from the original player's computer.
 
 When requested ticks and replay coverage differ, the renderer reports and uses
 their explicit intersection. It does not interpolate absent ticks or compress
@@ -232,6 +256,18 @@ These limitations are declared in capture metadata and scene provenance. A
 future processor may add derived modalities without changing recorder
 ownership of the primitive capture.
 
+## Dashboard composition terms
+
+The dashboard has a separate read-side composition model. These terms do not
+change recorder ownership or add persisted objects to Artifacts V1.
+
+| Term | Definition |
+| --- | --- |
+| Episode draft | Editable dashboard composition with a title, revision, duration, tracks, and timeline segments; it is not a recorder play or capture identity |
+| Timeline track | Ordered dashboard lane for audio or video composition; a replay-backed track may reference one cataloged play |
+| Timeline segment | Editable tick interval placed on a timeline track; it is not a replay archive, recorder rotation, or Replay source |
+| Trajectory | Dashboard read-side projection of a player's ordered positions over time; it is derived from player state and is not another capture modality |
+
 ## Obsolete terms and components
 
 The following concepts belong to the removed architecture and must not be used
@@ -239,12 +275,16 @@ to describe Artifacts V1:
 
 - Recorder epochs, epoch rotation, epoch manifests, and seal files.
 - Session directories as persisted artifact containers.
-- Independently rotated replay segments or segment ordinals.
-- Dataset V1/V2 exports, modality attachment manifests, and dataset viewers.
+- Recorder-owned replay rotation, independently persisted replay segments, and
+  segment artifacts. Scene extraction retains `segment_id` and
+  `segment_ordinal` only as compatibility fields on a Replay source.
+- Dataset V1/V2 exports, modality attachment manifests, and their associated
+  viewers.
 - `.mcplay`, bundle ZIPs, bundle IDs, bundle publishers, importers, and
   in-place bundle rendering.
-- Dashboard services, browser viewers, render queues, RabbitMQ dispatch, RPC
-  workers, leases, and render attachment publication.
+- Dashboard-owned orchestration services, render queues, RabbitMQ dispatch,
+  RPC workers, leases, and render attachment publication. The current read-side
+  dashboard and catalog API are active components.
 - Recorder-side download, post-processing, or dataset assembly.
 
 `session_id` remains a valid in-memory recorder-run identity. `Scene Store V1`

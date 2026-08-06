@@ -134,13 +134,13 @@ Symlinks and path traversal outside that root are rejected.
 
 `scene.sqlite3` is Scene Store V2. It requires exact frame/player-state tick
 coverage and contains typed player state plus the full inventory/effect/ability
-payload in compressed content-addressed blobs. Its portable SQLAlchemy Core
-base tables are `schema_info`, `scene_meta`, `blobs`, `frames`,
-`player_states`, `section_versions`, `entity_versions`, and
-`block_entity_versions`. Explicit application-assigned `BIGINT` version IDs
-avoid SQLite `rowid` dependence. SQLite-only R-tree tables, triggers, PRAGMAs,
-immutable reads, and atomic replacement stay in the SQLite adapter so the
-logical schema can later target PostgreSQL.
+payload in compressed content-addressed blobs. Its logical base tables are
+`schema_info`, `scene_meta`, `blobs`, `frames`, `player_states`,
+`section_versions`, `entity_versions`, and `block_entity_versions`. Explicit
+application-assigned `BIGINT` version IDs avoid SQLite `rowid` dependence.
+SQLite-only R-tree tables, triggers, PRAGMAs, immutable reads, and atomic
+replacement stay in the SQLite adapter so a future storage adapter can preserve
+the logical model.
 
 Scene data has the same client-visible limits as the replay. Unknown cells and
 unopened-container contents remain unknown; they are never fabricated as air
