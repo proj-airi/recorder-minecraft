@@ -1,5 +1,8 @@
 # Terms and Concepts
 
+This document is the repository's single-context glossary and canonical
+ubiquitous language. Record every resolved domain term here.
+
 The normative persisted contracts are [Artifacts V1](specs/artifacts-v1.md)
 and [Primitive Capture V1](specs/capture-v1.md).
 

@@ -88,3 +88,17 @@ Go tests use the standard `testing` package and files named `*_test.go`. JVM mod
 - Improve legacy you touch; avoid one-off patterns.
 - Keep changes scoped; use workspace filters (`pnpm -F <package> <script>`).
 - Use Conventional Commits for commit messages (e.g., `feat(<package name>): added something`).
+
+## Agent skills
+
+### Issue tracker
+
+Issues are tracked in this repository's GitHub Issues. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The canonical triage roles use their default GitHub label names. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Use `docs/TERMS_AND_CONCEPTS.md` as the canonical ubiquitous language. See `docs/agents/domain.md` before naming or changing domain concepts.
