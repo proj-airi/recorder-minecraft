@@ -4,6 +4,11 @@ Primitive Capture V1 is the recorder-owned input to every later processor. One
 player connection produces one top-level ProtoJSON metadata message, one
 connection-local ProtoJSON-lines stream, and one unrotated Flashback archive.
 
+The producing Minecraft server may be dedicated or integrated into a game
+client. Both deployments use authoritative server ticks and produce this same
+contract. Joining a remote server without hosting an integrated server does not
+produce a local primitive capture.
+
 ## Files
 
 ```text

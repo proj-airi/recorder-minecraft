@@ -11,6 +11,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Instant
 import java.util.UUID
+import java.util.concurrent.CompletableFuture
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -87,6 +88,33 @@ class ReplayCaptureTrackerTest {
                 temporary.resolve("other/2026-07-25--10-20-30")
             )
         }
+    }
+
+    @Test
+    fun `server shutdown finalizes a stopped recorder before deferred close events`() {
+        val play = playFiles()
+        val tracker = ReplayCaptureTracker(SESSION) { play }
+        val recorder = Any()
+        val working = play.paths.replayWorking.resolve("2026-07-25--10-20-30")
+        tracker.captureStarted(recorder, UUID.fromString(PLAYER), "flashback", working)
+
+        Files.writeString(play.paths.events, "{}\n")
+        play.eventsClosed(Instant.parse("2026-07-25T10:21:00Z"), 20, "disconnect")
+        Files.createDirectories(working)
+        val serverReplayOutput = working.resolveSibling(working.fileName.toString() + ".zip")
+        Files.write(serverReplayOutput, byteArrayOf(1, 2, 3, 4))
+        Files.delete(working)
+        tracker.captureStopping(recorder, CompletableFuture.completedFuture(4))
+
+        tracker.finishStoppingRecorders()
+
+        val metadata = readMetadata(play.paths.metadata)
+        assertEquals(20, metadata.connection.endServerTick)
+        assertTrue(Files.isRegularFile(play.paths.replay))
+        assertFalse(Files.exists(play.paths.replayWorking))
+
+        tracker.captureSaved(recorder, serverReplayOutput)
+        tracker.captureClosed(recorder)
     }
 
     @Test

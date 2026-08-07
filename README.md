@@ -4,6 +4,10 @@ This repository records each Minecraft 1.21.8 player connection as a primitive
 capture, then turns explicit capture files into actions, random-access scene
 state, and optional first-person frames.
 
+The same Recorder mod captures a dedicated server or an integrated server
+hosted by a game client. Both produce the same server-authoritative Play;
+joining a remote server does not create a local Play.
+
 ## Development workflow
 
 Install the versions of Go, Buf, OpenJDK, Gradle, and golangci-lint pinned in
@@ -134,7 +138,7 @@ post-processing, and generated runtime directories must not be committed.
 ## Modules
 
 ```text
-mods/recorder-mod/          server recorder and canonical capture writer
+mods/recorder-mod/          server-authoritative recorder and canonical capture writer
 mods/renderer-mod/          client-only first-person frame renderer
 processors/scene-extractor/ headless Flashback scene reducer
 cmd/recorder-minecraft/     Go file-to-file processor CLI

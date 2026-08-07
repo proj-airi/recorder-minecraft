@@ -7,6 +7,7 @@ import net.casual.arcade.replay.recorder.player.ReplayPlayerRecorder
 import java.nio.file.Path
 import java.util.IdentityHashMap
 import java.util.UUID
+import java.util.concurrent.CompletableFuture
 
 /** Binds one ServerReplay player recorder to one connection-local capture. */
 class ReplayCaptureTracker(
@@ -14,6 +15,7 @@ class ReplayCaptureTracker(
     private val captureForPlayer: (UUID) -> PlayFiles?
 ) {
     private val capturesByRecorder = IdentityHashMap<Any, ReplayCapture>()
+    private val finalizedAtShutdown = IdentityHashMap<Any, Unit>()
 
     @Synchronized
     fun recorderStarted(recorder: ReplayRecorder) {
@@ -64,7 +66,21 @@ class ReplayCaptureTracker(
     }
 
     @Synchronized
+    fun recorderStopping(recorder: ReplayRecorder, future: CompletableFuture<Long>) {
+        captureStopping(recorder, future)
+    }
+
+    @Synchronized
+    internal fun captureStopping(recorderIdentity: Any, future: CompletableFuture<Long>) {
+        val capture = capturesByRecorder[recorderIdentity] ?: return
+        val existing = capture.stopFuture
+        check(existing == null || existing === future) { "recorder registered more than one stop future" }
+        capture.stopFuture = future
+    }
+
+    @Synchronized
     internal fun captureSaved(recorderIdentity: Any, output: Path) {
+        if (finalizedAtShutdown.containsKey(recorderIdentity)) return
         val capture = checkNotNull(capturesByRecorder[recorderIdentity]) {
             "completed recorder was not registered"
         }
@@ -85,11 +101,43 @@ class ReplayCaptureTracker(
 
     @Synchronized
     internal fun captureClosed(recorderIdentity: Any) {
+        if (finalizedAtShutdown.containsKey(recorderIdentity)) return
         val capture = checkNotNull(capturesByRecorder.remove(recorderIdentity)) {
             "closed recorder was not registered"
         }
         check(capture.saved) { "Flashback recorder closed without a saved replay" }
         capture.playFiles.replayWriterClosed()
+    }
+
+    fun finishStoppingRecorders() {
+        val stopping = synchronized(this) {
+            capturesByRecorder.mapNotNull { (identity, capture) ->
+                capture.stopFuture?.let { StoppingCapture(identity, it) }
+            }
+        }
+        for ((identity, future) in stopping) {
+            // NOTICE: Arcade's UUID convenience stop discards each recorder's close future,
+            // while that future is the completion signal for replay saving. Waiting only
+            // during server shutdown prevents the process from outrunning ZIP finalization.
+            // `https://github.com/CasualChampionships/arcade/blob/be8ebf4915509c0748ef76187e7e3c816500feec/arcade-replay/src/main/kotlin/net/casual/arcade/replay/recorder/player/ReplayPlayerRecorders.kt#L189-L214`
+            future.join()
+            finishStoppedRecorder(identity)
+        }
+    }
+
+    @Synchronized
+    private fun finishStoppedRecorder(recorderIdentity: Any) {
+        val capture = capturesByRecorder[recorderIdentity] ?: return
+        if (!capture.saved) {
+            val output = capture.workingDirectory.resolveSibling(
+                capture.workingDirectory.fileName.toString() + ".zip"
+            )
+            capture.playFiles.replaySaved(output)
+            capture.saved = true
+        }
+        capture.playFiles.replayWriterClosed()
+        capturesByRecorder.remove(recorderIdentity)
+        finalizedAtShutdown[recorderIdentity] = Unit
     }
 
     private fun addArchiveMetadata(capture: ReplayCapture, metadata: JsonObject) {
@@ -113,7 +161,13 @@ class ReplayCaptureTracker(
         val playerUuid: UUID,
         val playFiles: PlayFiles,
         val workingDirectory: Path,
-        var saved: Boolean = false
+        var saved: Boolean = false,
+        var stopFuture: CompletableFuture<Long>? = null
+    )
+
+    private data class StoppingCapture(
+        val recorderIdentity: Any,
+        val future: CompletableFuture<Long>
     )
 
     companion object {
