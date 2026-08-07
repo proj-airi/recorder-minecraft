@@ -6,9 +6,10 @@ import dev.mcdata.recorder.network.ReplayTimelinePayload
 import net.casual.arcade.events.GlobalEventHandler
 import net.casual.arcade.events.ListenerRegistry.Companion.register
 import net.casual.arcade.events.server.player.PlayerServerboundPacketEvent
-import net.casual.arcade.replay.events.ReplayRecorderStartEvent
 import net.casual.arcade.replay.events.ReplayRecorderCloseEvent
 import net.casual.arcade.replay.events.ReplayRecorderSaveEvent
+import net.casual.arcade.replay.events.ReplayRecorderStartEvent
+import net.casual.arcade.replay.events.ReplayRecorderStopEvent
 import net.casual.arcade.replay.recorder.player.ReplayPlayerRecorders
 import net.fabricmc.api.ModInitializer
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents
@@ -19,14 +20,15 @@ import org.slf4j.LoggerFactory
 
 object RecorderMod : ModInitializer {
     private val logger = LoggerFactory.getLogger("recorder-minecraft")
-    private lateinit var config: RecorderConfig
 
     override fun onInitialize() {
-        config = RecorderConfig.load(logger)
         CaptureRuntime.initialize(logger)
         PayloadTypeRegistry.playS2C().register(ReplayTimelinePayload.TYPE, ReplayTimelinePayload.STREAM_CODEC)
 
-        ServerLifecycleEvents.SERVER_STARTED.register { server -> CaptureRuntime.start(server, config) }
+        ServerLifecycleEvents.SERVER_STARTED.register { server ->
+            CaptureRuntime.start(server, RecorderConfig.load(logger))
+        }
+        ServerLifecycleEvents.SERVER_STOPPING.register { CaptureRuntime.finishStoppingReplays() }
         ServerLifecycleEvents.SERVER_STOPPED.register { CaptureRuntime.stop() }
         ServerTickEvents.START_SERVER_TICK.register { CaptureRuntime.startTick() }
         ServerTickEvents.END_SERVER_TICK.register { server -> CaptureRuntime.endTick(server) }
@@ -41,6 +43,9 @@ object RecorderMod : ModInitializer {
         }
         GlobalEventHandler.Server.register<ReplayRecorderStartEvent> { event ->
             CaptureRuntime.replayRecorderStarted(event.recorder)
+        }
+        GlobalEventHandler.Server.register<ReplayRecorderStopEvent> { event ->
+            CaptureRuntime.replayRecorderStopping(event.recorder, event.closeFuture)
         }
         GlobalEventHandler.Server.register<ReplayRecorderSaveEvent>(
             phase = ReplayRecorderSaveEvent.PHASE_POST

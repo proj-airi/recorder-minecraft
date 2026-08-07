@@ -3,15 +3,21 @@
   "id": "recorder-minecraft",
   "version": "${version}",
   "name": "Minecraft Play Recorder",
-  "description": "Synchronized server-side action and state capture companion for ServerReplay.",
+  "description": "Synchronized server-authoritative action and state capture companion for ServerReplay.",
   "authors": ["recorder-minecraft contributors"],
   "license": "MIT",
-  "environment": "server",
+  "environment": "*",
   "entrypoints": {
     "main": [
       {
         "adapter": "kotlin",
         "value": "dev.mcdata.recorder.RecorderMod"
+      }
+    ],
+    "client": [
+      {
+        "adapter": "kotlin",
+        "value": "dev.mcdata.recorder.RecorderClientMod"
       }
     ]
   },

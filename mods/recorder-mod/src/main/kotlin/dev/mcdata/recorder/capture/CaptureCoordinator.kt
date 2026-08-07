@@ -24,6 +24,7 @@ import java.nio.file.Path
 import java.time.Instant
 import java.util.IdentityHashMap
 import java.util.UUID
+import java.util.concurrent.CompletableFuture
 
 class CaptureCoordinator(
     private val config: RecorderConfig,
@@ -122,10 +123,16 @@ class CaptureCoordinator(
     fun replayRecorderStarted(recorder: ReplayRecorder) = replays.recorderStarted(recorder)
 
     @Synchronized
+    fun replayRecorderStopping(recorder: ReplayRecorder, future: CompletableFuture<Long>) =
+        replays.recorderStopping(recorder, future)
+
+    @Synchronized
     fun replayRecorderSaved(recorder: ReplayRecorder, output: Path) = replays.recorderSaved(recorder, output)
 
     @Synchronized
     fun replayRecorderClosed(recorder: ReplayRecorder) = replays.recorderClosed(recorder)
+
+    fun finishStoppingReplays() = replays.finishStoppingRecorders()
 
     @Synchronized
     fun playerJoin(player: ServerPlayer) {

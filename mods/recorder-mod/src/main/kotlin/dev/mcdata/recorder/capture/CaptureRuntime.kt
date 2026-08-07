@@ -9,6 +9,7 @@ import net.minecraft.server.level.ServerPlayer
 import org.slf4j.Logger
 import java.nio.file.Path
 import java.util.UUID
+import java.util.concurrent.CompletableFuture
 
 object CaptureRuntime {
     @Volatile
@@ -42,8 +43,11 @@ object CaptureRuntime {
     fun playerLeave(player: ServerPlayer) = safely { it.playerLeave(player) }
     fun packetArrival(player: ServerPlayer, packet: Packet<*>) = safely { it.packetArrival(player, packet) }
     fun replayRecorderStarted(recorder: ReplayRecorder) = safely { it.replayRecorderStarted(recorder) }
+    fun replayRecorderStopping(recorder: ReplayRecorder, future: CompletableFuture<Long>) =
+        safely { it.replayRecorderStopping(recorder, future) }
     fun replayRecorderSaved(recorder: ReplayRecorder, output: Path) = safely { it.replayRecorderSaved(recorder, output) }
     fun replayRecorderClosed(recorder: ReplayRecorder) = safely { it.replayRecorderClosed(recorder) }
+    fun finishStoppingReplays() = safely { it.finishStoppingReplays() }
 
     @JvmStatic
     fun packetApply(player: ServerPlayer, packet: Packet<*>) = safely { it.packetApply(player, packet) }
@@ -51,6 +55,9 @@ object CaptureRuntime {
     @Synchronized
     fun stop() {
         val current = coordinator ?: return
+        runCatching { current.finishStoppingReplays() }.onFailure {
+            logger.error("Failed to finish ServerReplay archives during server shutdown", it)
+        }
         runCatching { current.close() }.onFailure {
             logger.error("Failed to close recorder captures", it)
         }

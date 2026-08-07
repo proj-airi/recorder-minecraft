@@ -5,6 +5,11 @@ processors operate on the same play directory, but have separate ownership.
 It is not a ZIP bundle, publisher, importer, dataset format, or custom file
 extension.
 
+The Recorder mod may run with a dedicated server or with an integrated server
+hosted by a game client. Server deployment does not change the hierarchy,
+authority, metadata, event stream, or processor inputs. A client connected only
+to a remote server does not create local artifacts.
+
 ## Canonical hierarchy
 
 ```text
@@ -34,18 +39,19 @@ NFC Unicode without separators or control characters. UUIDs use canonical
 lowercase spelling. Start time uses `YYYYMMDDTHHMMSS[.fraction]Z`. No alternate
 nesting is valid.
 
-The instance UUID is generated once by `recorder-minecraft init`. The optional
-`server.name` value in `recorder.toml` is an editable display label; when it is
-omitted, `recorder-minecraft` uses the machine hostname. A new connection UUID is
-generated for every join. Multiple players and overlapping connections create
-independent plays.
+The instance UUID is generated once when recorder configuration is initialized
+and reused across restarts. The server name is an editable display label. An
+integrated-server recording profile retains the same instance identity when it
+opens different save worlds. A new connection UUID is generated for every
+join. Multiple players and overlapping connections create independent plays.
 
 `world/` is reserved for future server-instance-wide inputs such as a world
 save or seed. It is not required in V1 and processors must not infer it.
 
 ## Stage 1: recorder
 
-At player join the recorder creates the play and starts writing only:
+At player join on either server deployment, the recorder creates the play and
+starts writing only:
 
 ```text
 metadata.json

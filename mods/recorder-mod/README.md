@@ -1,14 +1,21 @@
 # Minecraft recorder mod
 
-Fabric 1.21.8 server-side companion for ServerReplay. It records decoded
-serverbound actions, authoritative main-thread application order,
-reconstructed controls, and end-of-tick player state.
+Fabric 1.21.8 server-authoritative companion for ServerReplay. The same mod jar
+runs with a dedicated server or the integrated server hosted by a game client.
+It records decoded serverbound actions, authoritative main-thread application
+order, reconstructed controls, and end-of-tick player state.
 
-`config/mc-recorder.json`:
+Recording starts automatically when a local Minecraft server starts. Merely
+launching the client or joining a remote server does not load recorder
+configuration or create a play. If an integrated server is opened to LAN, every
+connected player is recorded under the existing one-play-per-connection
+contract.
+
+Both deployments use `config/recorder-minecraft.json`:
 
 ```json
 {
-  "artifacts_root": "/artifacts",
+  "artifacts_root": "artifacts",
   "server_name": "minecraft",
   "server_instance_id": "00000000-0000-4000-8000-000000000000",
   "record_all_players": true,
@@ -18,6 +25,31 @@ reconstructed controls, and end-of-tick player state.
 ```
 
 Unknown and removed configuration keys are rejected.
+Relative `artifacts_root` values resolve from the Minecraft game directory, so
+the generated default writes below `<game-directory>/artifacts`. Existing
+absolute paths such as `/artifacts` retain their meaning.
+
+The recording profile owns ServerReplay configuration; this mod does not
+rewrite it. The effective ServerReplay settings must enable automatic recording
+for all players, use Flashback encoding, retain custom payloads, and disable
+rotation. In particular:
+
+```json
+{
+  "automatically_record": true,
+  "default_encoding": "flashback",
+  "ignore_custom_payloads": false,
+  "max_duration": "0s",
+  "max_file_size": "0 B",
+  "player_predicate": {"type": "all"},
+  "restart_after_max_duration": false,
+  "restart_after_max_file_size": false
+}
+```
+
+This is a settings excerpt, not a complete ServerReplay configuration file.
+If ServerReplay fails to provide an archive, the play remains incomplete and
+processors reject it.
 
 At player join the mod creates:
 

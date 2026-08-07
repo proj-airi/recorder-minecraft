@@ -35,6 +35,16 @@ There is no publication service between the stages. Operators and external
 systems may copy a completed play with normal filesystem tools such as SSH or
 rsync.
 
+The Minecraft server may run as a dedicated server or as an integrated server
+hosted by a game client. Joining a remote server from client does not create a Play.
+
+| Deployment term | Definition |
+| --- | --- |
+| Dedicated server | Minecraft server running as a standalone server process |
+| Integrated server | Authoritative Minecraft server hosted in the game client process for a singleplayer or LAN world |
+| Recording profile | Fabric installation containing the Recorder mod, ServerReplay, and their operator-owned configuration; installing it is the opt-in to automatic recording |
+| Remote server | Minecraft server hosted outside the local game client process; a locally installed Recorder mod does not capture it |
+
 | Domain | Owns | Does not own |
 | --- | --- | --- |
 | Minecraft server | Server ticks, player entities, connection lifecycle, and authoritative game state | Post-processing outputs or worker coordination |
@@ -80,8 +90,8 @@ hierarchy on the caller's behalf.
 
 | Term | Definition |
 | --- | --- |
-| Artifacts root | Durable root configured by `paths.artifacts`; Artifacts V1 lives under its `v1/` child |
-| Server instance | One stable recorder-server identity represented by an editable display name plus a generated UUID |
+| Artifacts root | Durable root configured for the recorder deployment; Artifacts V1 lives under its `v1/` child |
+| Server instance | One stable recorder-installation identity represented by an editable display name plus a generated UUID; an integrated-server recording profile retains it across save worlds |
 | Player directory | Display name plus stable Minecraft player UUID; the name is descriptive, while the UUID is identity |
 | Play | One join-to-disconnect player connection and all primitive or derived files associated with it |
 | Capture directory | Recorder-owned primitive inputs inside one play |
@@ -93,8 +103,8 @@ hierarchy on the caller's behalf.
 
 | Identity or coordinate | Scope | Meaning |
 | --- | --- | --- |
-| `server.name` | Human-facing server label | Configurable display name; defaults to the machine hostname when omitted |
-| `server.instance_id` | Recorder server instance | UUID generated once by `recorder-minecraft init` and reused across restarts |
+| `server.name` | Human-facing server label | Configurable display name; initialization chooses a deployment-appropriate default |
+| `server.instance_id` | Recorder server instance | UUID generated once when recorder configuration is initialized and reused across restarts |
 | `session_id` | One recorder process run | In-memory run identity embedded in metadata, events, and replay metadata; it does not create a session directory |
 | `player_uuid` | Minecraft player | Stable player identity across reconnects and display-name changes |
 | `connection_id` | One play | UUID generated for every join-to-disconnect interval |
@@ -111,8 +121,9 @@ timestamps are not substitutes for UUID identity.
 
 ### Open play
 
-At player join, the recorder allocates a connection UUID, creates the canonical
-play directory, writes `metadata.json` with null end fields, opens
+At player join on a dedicated or integrated server, the recorder allocates a
+connection UUID, creates the canonical play directory, writes `metadata.json`
+with null end fields, opens
 `capture/events.jsonl`, and associates the player's ServerReplay writer with
 that play.
 

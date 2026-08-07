@@ -13,7 +13,7 @@ import kotlin.io.path.exists
 
 data class RecorderConfig(
     @SerializedName("artifacts_root")
-    val artifactsRoot: String = "/artifacts",
+    val artifactsRoot: String = "artifacts",
     @SerializedName("server_name")
     val serverName: String = "minecraft",
     @SerializedName("server_instance_id")
@@ -47,7 +47,15 @@ data class RecorderConfig(
         require(writerQueueCapacity >= 1_024) { "writer_queue_capacity must be at least 1024" }
     }
 
-    fun artifactsPath(): Path = Path.of(artifactsRoot).toAbsolutePath().normalize()
+    fun artifactsPath(): Path {
+        val configured = Path.of(artifactsRoot)
+        if (configured.isAbsolute) return configured.normalize()
+        return artifactsPath(FabricLoader.getInstance().gameDir)
+    }
+
+    internal fun artifactsPath(gameDirectory: Path): Path {
+        return gameDirectory.resolve(artifactsRoot).toAbsolutePath().normalize()
+    }
 
     fun serverInstanceUuid(): UUID = UUID.fromString(serverInstanceId)
 
