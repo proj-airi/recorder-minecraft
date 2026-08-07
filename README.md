@@ -69,6 +69,9 @@ gradle --project-dir mods/renderer-mod build
 # Recorder mod staged for the release server image
 gradle --project-dir mods/recorder-mod stageServerImage
 
+# Self-contained recording profile for Airicraft evaluation
+gradle --project-dir mods/recorder-mod stageRecordingProfile
+
 # Local server image; build the extractor distribution first
 gradle --project-dir processors/scene-extractor build installDist
 docker buildx build --platform linux/amd64 -f cmd/recorder-minecraft/Dockerfile . \
@@ -77,6 +80,11 @@ docker buildx build --platform linux/amd64 -f cmd/recorder-minecraft/Dockerfile 
 
 Renderer builds normally fetch the pinned Flashback release. If Modrinth is
 unavailable, set `MC_RECORDER_FLASHBACK_JAR` to a local Flashback 0.39.5 JAR.
+
+The recording profile is `mods/recorder-mod/build/recording-profile/recorder-profile.jar`.
+It contains the recorder mod, ServerReplay 3.0.1 for Minecraft 1.21.8, and
+Fabric Language Kotlin 1.13.13 with Kotlin 2.4.10. Verify the production
+profile with `gradle --project-dir mods/recorder-mod verifyRecordingProfile`.
 
 Include the generated SDK changes in the same change as the contract. After
 reviewing and staging the intended generated updates, run the same checks as

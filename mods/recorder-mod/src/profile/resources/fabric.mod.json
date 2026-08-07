@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "recorder-profile",
+  "version": "${version}",
+  "name": "Minecraft Recording Profile",
+  "description": "Self-contained Fabric profile for Recorder Plays.",
+  "authors": ["recorder-minecraft contributors"],
+  "license": "MIT",
+  "environment": "*",
+  "jars": [
+    { "file": "META-INF/jars/recorder-minecraft.jar" },
+    { "file": "META-INF/jars/server-replay.jar" },
+    { "file": "META-INF/jars/fabric-language-kotlin.jar" }
+  ],
+  "depends": {
+    "fabricloader": ">=${fabric_loader_version}",
+    "minecraft": "${minecraft_version}",
+    "fabric-api": ">=${fabric_api_version}"
+  }
+}
