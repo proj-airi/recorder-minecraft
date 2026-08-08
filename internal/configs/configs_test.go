@@ -47,6 +47,28 @@ func TestLoadAcceptsLegacySceneExtractorConfig(t *testing.T) {
 	}
 }
 
+func TestLoadReportsUnknownConfigurationFields(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "recorder.toml")
+	text := strings.Replace(
+		DefaultText(false, "00000000-0000-0000-0000-000000000000"),
+		"eula = false\n",
+		"eula = false\nimage = \"example/minecraft\"\n",
+		1,
+	) + `
+[capture]
+epoch_ticks = 6000
+
+[storage]
+quota_gib = 10.0
+`
+	require.NoError(t, os.WriteFile(path, []byte(text), 0o600))
+
+	_, err := Load(path)
+	require.ErrorContains(t, err, "unsupported configuration fields: server.image (line ")
+	assert.ErrorContains(t, err, "capture (line ")
+	assert.ErrorContains(t, err, "storage (line ")
+}
+
 func TestResolveConvertsPortablePathSeparators(t *testing.T) {
 	base := t.TempDir()
 

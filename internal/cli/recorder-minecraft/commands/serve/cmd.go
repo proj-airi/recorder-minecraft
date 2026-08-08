@@ -26,6 +26,10 @@ func NewCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			config, err := configs.Load(configPath)
+			if err != nil {
+				return err
+			}
 
 			// NOTICE: The serve command selects broad Fx modules and runtime invokes following
 			// `https://github.com/proj-airi/kbv-extractor-memes/blob/73329d340faf18834990b64b2d17d222e43bb8ea/cmd/api-server/main.go#L32-L45`.
@@ -34,7 +38,7 @@ func NewCommand() *cobra.Command {
 			app := fx.New(
 				fx.NopLogger,
 				fx.Supply(options),
-				fx.Provide(configs.NewConfig(configPath)),
+				fx.Supply(config),
 				fx.Options(catalog.Modules()),
 				fx.Options(grpcservices.Modules()),
 				fx.Options(grpcservers.Modules()),

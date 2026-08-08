@@ -66,12 +66,6 @@ type Config struct {
 	Processors Processors `json:"processors"`
 }
 
-func NewConfig(path string) func() (*Config, error) {
-	return func() (*Config, error) {
-		return Load(path)
-	}
-}
-
 func Package(path string) func(do.Injector) {
 	return func(injector do.Injector) {
 		do.Provide(injector, func(do.Injector) (*Config, error) { return Load(path) })
@@ -101,7 +95,7 @@ func Load(path string) (*Config, error) {
 	decoder := toml.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&file); err != nil {
-		return nil, fmt.Errorf("decode configuration: %w", err)
+		return nil, fmt.Errorf("decode configuration: %w", describeUnknownFields(err))
 	}
 	if file.Version != Version {
 		return nil, fmt.Errorf("unsupported recorder.toml version %d; expected %d", file.Version, Version)
@@ -148,6 +142,20 @@ func Load(path string) (*Config, error) {
 		},
 		Processors: file.Processors,
 	}, nil
+}
+
+func describeUnknownFields(err error) error {
+	var missing *toml.StrictMissingError
+	if !errors.As(err, &missing) {
+		return err
+	}
+
+	fields := make([]string, 0, len(missing.Errors))
+	for _, detail := range missing.Errors {
+		line, _ := detail.Position()
+		fields = append(fields, fmt.Sprintf("%s (line %d)", strings.Join(detail.Key(), "."), line))
+	}
+	return fmt.Errorf("unsupported configuration fields: %s", strings.Join(fields, ", "))
 }
 
 func Initialize(path string, acceptEULA bool, overwrite bool) (string, error) {
