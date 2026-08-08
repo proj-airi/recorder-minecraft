@@ -25,7 +25,7 @@ export interface EpisodeReplaySource {
   serverName: string
   startedAt?: string
   startServerTick?: string
-  videoUrl: string
+  videoUrl?: string
 }
 
 export interface EpisodeSegment {
@@ -44,4 +44,4 @@ export interface EpisodeTrack {
   replay?: EpisodeReplaySource
 }
 
-export type TimelineTrackKind = 'audio' | 'video'
+export type TimelineTrackKind = 'audio' | 'data' | 'video'

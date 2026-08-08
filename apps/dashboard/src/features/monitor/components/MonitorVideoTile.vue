@@ -13,7 +13,7 @@ const props = defineProps<{
 }>()
 
 const video = useTemplateRef<HTMLVideoElement>('video')
-const sourceUrl = computed(() => new URL(props.source.videoUrl, window.location.href).toString())
+const sourceUrl = computed(() => props.source.videoUrl ? new URL(props.source.videoUrl, window.location.href).toString() : undefined)
 const relativeTick = computed(() => props.session.playheadTick.value - props.segment.startTick)
 const active = computed(() => relativeTick.value >= 0 && props.session.playheadTick.value < props.segment.endTick)
 

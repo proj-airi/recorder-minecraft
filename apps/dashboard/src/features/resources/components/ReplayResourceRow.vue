@@ -19,7 +19,7 @@ function formatInstant(value?: string): string {
 }
 
 function onDragStart(event: DragEvent): void {
-  if (!event.dataTransfer || !props.replay.connectionId || !props.replay.video?.url || props.replay.validationError) {
+  if (!event.dataTransfer || !props.replay.connectionId || (!props.replay.video?.url && !props.replay.eventsUrl) || props.replay.validationError) {
     event.preventDefault()
     return
   }
@@ -32,11 +32,11 @@ function onDragStart(event: DragEvent): void {
     :aria-pressed="active"
     class="h-17 w-full flex items-center gap-3 border-0 border-b border-[var(--dashboard-border-color)] bg-transparent px-3 text-left hover:bg-white/5"
     :class="active ? 'bg-amber-400/10 text-amber-100' : 'text-neutral-200'"
-    :draggable="Boolean(replay.connectionId && replay.video?.url && !replay.validationError)"
+    :draggable="Boolean(replay.connectionId && (replay.video?.url || replay.eventsUrl) && !replay.validationError)"
     :title="`Preview replay from ${replay.playerName ?? 'unknown player'}`"
     type="button"
-    @click="emit('select')"
     @dragstart="onDragStart"
+    @click="emit('select')"
   >
     <span aria-hidden="true" class="i-mingcute-video-line shrink-0 text-sm text-neutral-600" />
     <span class="min-w-0 flex-1">
@@ -44,6 +44,6 @@ function onDragStart(event: DragEvent): void {
       <span class="mt-1 block truncate text-[10px] text-neutral-500">{{ formatInstant(replay.startedAt) }}</span>
     </span>
     <span v-if="replay.validationError" class="i-mingcute-warning-line shrink-0 text-lg text-red-300" aria-hidden="true" />
-    <span v-else-if="replay.video?.url" aria-hidden="true" class="i-mingcute-dots-line shrink-0 cursor-grab text-base text-neutral-600" />
+    <span v-else-if="replay.video?.url || replay.eventsUrl" aria-hidden="true" class="i-mingcute-dots-line shrink-0 cursor-grab text-base text-neutral-600" />
   </button>
 </template>
