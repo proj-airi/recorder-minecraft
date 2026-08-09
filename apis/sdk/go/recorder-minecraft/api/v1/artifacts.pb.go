@@ -9,6 +9,7 @@ package apiv1
 import (
 	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	_ "github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-openapiv2/options"
+	v1 "github.com/proj-airi/recorder-minecraft/apis/sdk/go/recorder-minecraft/catalog/v1"
 	_ "google.golang.org/genproto/googleapis/api/annotations"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
@@ -311,6 +312,7 @@ type ListReplaysRequest struct {
 	PlayerUuid       *string                `protobuf:"bytes,2,opt,name=player_uuid,json=playerUuid,proto3,oneof" json:"player_uuid,omitempty"`
 	StartedAtOrAfter *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=started_at_or_after,json=startedAtOrAfter,proto3,oneof" json:"started_at_or_after,omitempty"`
 	StartedBefore    *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=started_before,json=startedBefore,proto3,oneof" json:"started_before,omitempty"`
+	IncludeSummary   bool                   `protobuf:"varint,5,opt,name=include_summary,json=includeSummary,proto3" json:"include_summary,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -371,6 +373,13 @@ func (x *ListReplaysRequest) GetStartedBefore() *timestamppb.Timestamp {
 		return x.StartedBefore
 	}
 	return nil
+}
+
+func (x *ListReplaysRequest) GetIncludeSummary() bool {
+	if x != nil {
+		return x.IncludeSummary
+	}
+	return false
 }
 
 type ListReplaysResponse struct {
@@ -804,6 +813,7 @@ type Replay struct {
 	Video            *VideoAsset            `protobuf:"bytes,15,opt,name=video,proto3,oneof" json:"video,omitempty"`
 	EventsUrl        string                 `protobuf:"bytes,16,opt,name=events_url,json=eventsUrl,proto3" json:"events_url,omitempty"`
 	ValidationError  *string                `protobuf:"bytes,17,opt,name=validation_error,json=validationError,proto3,oneof" json:"validation_error,omitempty"`
+	Summary          *v1.PlaySummary        `protobuf:"bytes,18,opt,name=summary,proto3,oneof" json:"summary,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -957,6 +967,13 @@ func (x *Replay) GetValidationError() string {
 	return ""
 }
 
+func (x *Replay) GetSummary() *v1.PlaySummary {
+	if x != nil {
+		return x.Summary
+	}
+	return nil
+}
+
 type VideoAsset struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	Url             string                 `protobuf:"bytes,1,opt,name=url,proto3" json:"url,omitempty"`
@@ -1053,7 +1070,7 @@ var File_recorder_minecraft_api_v1_artifacts_proto protoreflect.FileDescriptor
 
 const file_recorder_minecraft_api_v1_artifacts_proto_rawDesc = "" +
 	"\n" +
-	")recorder-minecraft/api/v1/artifacts.proto\x12\x19recorder_minecraft.api.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1cgoogle/api/annotations.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a.protoc-gen-openapiv2/options/annotations.proto\"\xe7\x04\n" +
+	")recorder-minecraft/api/v1/artifacts.proto\x12\x19recorder_minecraft.api.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1cgoogle/api/annotations.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a.protoc-gen-openapiv2/options/annotations.proto\x1a)recorder-minecraft/catalog/v1/plays.proto\"\xe7\x04\n" +
 	"\x14ListArtifactsRequest\x12s\n" +
 	"\x12server_instance_id\x18\x01 \x01(\tB@\x92A523Restrict results to one recorder installation UUID.\xbaH\x05r\x03\xb0\x01\x01H\x00R\x10serverInstanceId\x88\x01\x01\x12a\n" +
 	"\vplayer_uuid\x18\x02 \x01(\tB;\x92A02.Restrict results to one Minecraft player UUID.\xbaH\x05r\x03\xb0\x01\x01H\x01R\n" +
@@ -1073,13 +1090,14 @@ const file_recorder_minecraft_api_v1_artifacts_proto_rawDesc = "" +
 	"\x12server_instance_id\x18\x01 \x01(\tB@\x92A523Restrict results to one recorder installation UUID.\xbaH\x05r\x03\xb0\x01\x01H\x00R\x10serverInstanceId\x88\x01\x01B\x15\n" +
 	"\x13_server_instance_id\"Y\n" +
 	"\x13ListPlayersResponse\x12B\n" +
-	"\aplayers\x18\x01 \x03(\v2(.recorder_minecraft.api.v1.PlayerSummaryR\aplayers\"\xe5\x04\n" +
+	"\aplayers\x18\x01 \x03(\v2(.recorder_minecraft.api.v1.PlayerSummaryR\aplayers\"\xe6\x05\n" +
 	"\x12ListReplaysRequest\x12s\n" +
 	"\x12server_instance_id\x18\x01 \x01(\tB@\x92A523Restrict results to one recorder installation UUID.\xbaH\x05r\x03\xb0\x01\x01H\x00R\x10serverInstanceId\x88\x01\x01\x12a\n" +
 	"\vplayer_uuid\x18\x02 \x01(\tB;\x92A02.Restrict results to one Minecraft player UUID.\xbaH\x05r\x03\xb0\x01\x01H\x01R\n" +
 	"playerUuid\x88\x01\x01\x12\x97\x01\n" +
 	"\x13started_at_or_after\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampBG\x92AD2BInclude replays whose connection started at or after this instant.H\x02R\x10startedAtOrAfter\x88\x01\x01\x12\x8a\x01\n" +
-	"\x0estarted_before\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampBB\x92A?2=Include replays whose connection started before this instant.H\x03R\rstartedBefore\x88\x01\x01B\x15\n" +
+	"\x0estarted_before\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampBB\x92A?2=Include replays whose connection started before this instant.H\x03R\rstartedBefore\x88\x01\x01\x12\x7f\n" +
+	"\x0finclude_summary\x18\x05 \x01(\bBV\x92AS2QCalculate a transient summary for each completed Play after applying the filters.R\x0eincludeSummaryB\x15\n" +
 	"\x13_server_instance_idB\x0e\n" +
 	"\f_player_uuidB\x16\n" +
 	"\x14_started_at_or_afterB\x11\n" +
@@ -1114,7 +1132,7 @@ const file_recorder_minecraft_api_v1_artifacts_proto_rawDesc = "" +
 	"\x06Player\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
 	"\x04uuid\x18\x02 \x01(\tR\x04uuid\x12;\n" +
-	"\areplays\x18\x03 \x03(\v2!.recorder_minecraft.api.v1.ReplayR\areplays\"\xb4\x06\n" +
+	"\areplays\x18\x03 \x03(\v2!.recorder_minecraft.api.v1.ReplayR\areplays\"\x8b\a\n" +
 	"\x06Replay\x12#\n" +
 	"\rconnection_id\x18\x01 \x01(\tR\fconnectionId\x12\x1d\n" +
 	"\n" +
@@ -1140,12 +1158,15 @@ const file_recorder_minecraft_api_v1_artifacts_proto_rawDesc = "" +
 	"\x05video\x18\x0f \x01(\v2%.recorder_minecraft.api.v1.VideoAssetH\x03R\x05video\x88\x01\x01\x12\x1d\n" +
 	"\n" +
 	"events_url\x18\x10 \x01(\tR\teventsUrl\x12.\n" +
-	"\x10validation_error\x18\x11 \x01(\tH\x04R\x0fvalidationError\x88\x01\x01B\x12\n" +
+	"\x10validation_error\x18\x11 \x01(\tH\x04R\x0fvalidationError\x88\x01\x01\x12I\n" +
+	"\asummary\x18\x12 \x01(\v2*.recorder_minecraft.catalog.v1.PlaySummaryH\x05R\asummary\x88\x01\x01B\x12\n" +
 	"\x10_end_server_tickB\x12\n" +
 	"\x10_terminal_reasonB\x12\n" +
 	"\x10_capture_failureB\b\n" +
 	"\x06_videoB\x13\n" +
-	"\x11_validation_error\"\xd7\x01\n" +
+	"\x11_validation_errorB\n" +
+	"\n" +
+	"\b_summary\"\xd7\x01\n" +
 	"\n" +
 	"VideoAsset\x12\x10\n" +
 	"\x03url\x18\x01 \x01(\tR\x03url\x12\x1d\n" +
@@ -1202,6 +1223,7 @@ var file_recorder_minecraft_api_v1_artifacts_proto_goTypes = []any{
 	(*Replay)(nil),                      // 14: recorder_minecraft.api.v1.Replay
 	(*VideoAsset)(nil),                  // 15: recorder_minecraft.api.v1.VideoAsset
 	(*timestamppb.Timestamp)(nil),       // 16: google.protobuf.Timestamp
+	(*v1.PlaySummary)(nil),              // 17: recorder_minecraft.catalog.v1.PlaySummary
 }
 var file_recorder_minecraft_api_v1_artifacts_proto_depIdxs = []int32{
 	16, // 0: recorder_minecraft.api.v1.ListArtifactsRequest.started_at_or_after:type_name -> google.protobuf.Timestamp
@@ -1218,21 +1240,22 @@ var file_recorder_minecraft_api_v1_artifacts_proto_depIdxs = []int32{
 	16, // 11: recorder_minecraft.api.v1.Replay.started_at:type_name -> google.protobuf.Timestamp
 	16, // 12: recorder_minecraft.api.v1.Replay.ended_at:type_name -> google.protobuf.Timestamp
 	15, // 13: recorder_minecraft.api.v1.Replay.video:type_name -> recorder_minecraft.api.v1.VideoAsset
-	0,  // 14: recorder_minecraft.api.v1.ArtifactCatalogService.ListArtifacts:input_type -> recorder_minecraft.api.v1.ListArtifactsRequest
-	2,  // 15: recorder_minecraft.api.v1.ArtifactCatalogService.ListServerInstances:input_type -> recorder_minecraft.api.v1.ListServerInstancesRequest
-	4,  // 16: recorder_minecraft.api.v1.ArtifactCatalogService.ListPlayers:input_type -> recorder_minecraft.api.v1.ListPlayersRequest
-	6,  // 17: recorder_minecraft.api.v1.ArtifactCatalogService.ListReplays:input_type -> recorder_minecraft.api.v1.ListReplaysRequest
-	8,  // 18: recorder_minecraft.api.v1.ArtifactCatalogService.GetReplay:input_type -> recorder_minecraft.api.v1.GetReplayRequest
-	1,  // 19: recorder_minecraft.api.v1.ArtifactCatalogService.ListArtifacts:output_type -> recorder_minecraft.api.v1.ListArtifactsResponse
-	3,  // 20: recorder_minecraft.api.v1.ArtifactCatalogService.ListServerInstances:output_type -> recorder_minecraft.api.v1.ListServerInstancesResponse
-	5,  // 21: recorder_minecraft.api.v1.ArtifactCatalogService.ListPlayers:output_type -> recorder_minecraft.api.v1.ListPlayersResponse
-	7,  // 22: recorder_minecraft.api.v1.ArtifactCatalogService.ListReplays:output_type -> recorder_minecraft.api.v1.ListReplaysResponse
-	9,  // 23: recorder_minecraft.api.v1.ArtifactCatalogService.GetReplay:output_type -> recorder_minecraft.api.v1.GetReplayResponse
-	19, // [19:24] is the sub-list for method output_type
-	14, // [14:19] is the sub-list for method input_type
-	14, // [14:14] is the sub-list for extension type_name
-	14, // [14:14] is the sub-list for extension extendee
-	0,  // [0:14] is the sub-list for field type_name
+	17, // 14: recorder_minecraft.api.v1.Replay.summary:type_name -> recorder_minecraft.catalog.v1.PlaySummary
+	0,  // 15: recorder_minecraft.api.v1.ArtifactCatalogService.ListArtifacts:input_type -> recorder_minecraft.api.v1.ListArtifactsRequest
+	2,  // 16: recorder_minecraft.api.v1.ArtifactCatalogService.ListServerInstances:input_type -> recorder_minecraft.api.v1.ListServerInstancesRequest
+	4,  // 17: recorder_minecraft.api.v1.ArtifactCatalogService.ListPlayers:input_type -> recorder_minecraft.api.v1.ListPlayersRequest
+	6,  // 18: recorder_minecraft.api.v1.ArtifactCatalogService.ListReplays:input_type -> recorder_minecraft.api.v1.ListReplaysRequest
+	8,  // 19: recorder_minecraft.api.v1.ArtifactCatalogService.GetReplay:input_type -> recorder_minecraft.api.v1.GetReplayRequest
+	1,  // 20: recorder_minecraft.api.v1.ArtifactCatalogService.ListArtifacts:output_type -> recorder_minecraft.api.v1.ListArtifactsResponse
+	3,  // 21: recorder_minecraft.api.v1.ArtifactCatalogService.ListServerInstances:output_type -> recorder_minecraft.api.v1.ListServerInstancesResponse
+	5,  // 22: recorder_minecraft.api.v1.ArtifactCatalogService.ListPlayers:output_type -> recorder_minecraft.api.v1.ListPlayersResponse
+	7,  // 23: recorder_minecraft.api.v1.ArtifactCatalogService.ListReplays:output_type -> recorder_minecraft.api.v1.ListReplaysResponse
+	9,  // 24: recorder_minecraft.api.v1.ArtifactCatalogService.GetReplay:output_type -> recorder_minecraft.api.v1.GetReplayResponse
+	20, // [20:25] is the sub-list for method output_type
+	15, // [15:20] is the sub-list for method input_type
+	15, // [15:15] is the sub-list for extension type_name
+	15, // [15:15] is the sub-list for extension extendee
+	0,  // [0:15] is the sub-list for field type_name
 }
 
 func init() { file_recorder_minecraft_api_v1_artifacts_proto_init() }

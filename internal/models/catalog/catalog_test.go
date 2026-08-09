@@ -93,6 +93,96 @@ func TestSnapshotKeepsInvalidReplayAsErrorResource(t *testing.T) {
 	assert.Nil(t, replay.Video)
 }
 
+func TestSnapshotWithSummariesEnrichesCompletedPlay(t *testing.T) {
+	t.Parallel()
+
+	const (
+		serverID     = "e9fe419a-022b-451d-8598-806887b987b5"
+		playerID     = "25ec515b-aea2-4d35-a305-873d5cfe849d"
+		connectionID = "63af3daf-27a7-4b0d-a225-ee909c34fd22"
+	)
+	startedAt := time.Date(2026, time.August, 9, 5, 0, 0, 0, time.UTC)
+	root := t.TempDir()
+	play := filepath.Join(root, "v1", "server--"+serverID, "players", "player--"+playerID, "plays", "20260809T050000Z--"+connectionID)
+	require.NoError(t, os.MkdirAll(filepath.Join(play, "capture"), 0o750))
+	endTick := int64(100)
+	metadata := &artifactsv1.ServerMetadata{
+		SchemaVersion: 1, LayoutVersion: "v1", SessionId: "session",
+		Server: &artifactsv1.ServerIdentity{Name: "server", InstanceId: serverID},
+		Player: &artifactsv1.PlayerIdentity{Name: "player", Uuid: playerID},
+		Connection: &artifactsv1.Connection{
+			Id: connectionID, StartedAt: timestamppb.New(startedAt), StartServerTick: 100, EndServerTick: &endTick,
+		},
+		Capture: &artifactsv1.CaptureMetadata{Events: "capture/events.jsonl", Replay: "capture/replay.zip", ReplayFormat: "flashback"},
+	}
+	raw, err := protojson.Marshal(metadata)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(play, "metadata.json"), raw, 0o600))
+	writeReplay(t, filepath.Join(play, "capture", "replay.zip"), "c9ed6af1-bf8d-4700-8e77-a04056be0932", playerID, connectionID)
+	events := []*artifactsv1.CaptureEvent{
+		{
+			Identity: &artifactsv1.EventIdentity{SchemaVersion: 1, SessionId: "session", ServerTick: 100, Sequence: 1, PlayerUuid: playerID, ConnectionId: connectionID},
+			Record: &artifactsv1.CaptureEvent_PlayerState{PlayerState: &artifactsv1.PlayerStateEvent{
+				Dimension: "minecraft:overworld", Position: &artifactsv1.Vector3{}, Rotation: &artifactsv1.Rotation{},
+				Velocity: &artifactsv1.Vector3{}, Abilities: &artifactsv1.Abilities{}, ReplayCoverage: &artifactsv1.ReplayCoverage{},
+			}},
+		},
+		{
+			Identity: &artifactsv1.EventIdentity{SchemaVersion: 1, SessionId: "session", ServerTick: 100, Sequence: 2, PlayerUuid: playerID, ConnectionId: connectionID},
+			Record:   &artifactsv1.CaptureEvent_ControlState{ControlState: &artifactsv1.ControlStateEvent{State: &artifactsv1.ControlState{}}},
+		},
+	}
+	eventFile, err := os.Create(filepath.Join(play, "capture", "events.jsonl"))
+	require.NoError(t, err)
+	for _, event := range events {
+		raw, err := protojson.Marshal(event)
+		require.NoError(t, err)
+		_, err = eventFile.Write(append(raw, '\n'))
+		require.NoError(t, err)
+	}
+	require.NoError(t, eventFile.Close())
+
+	service, err := New(root)
+	require.NoError(t, err)
+	servers, err := service.SnapshotWithSummaries(context.Background(), Filter{})
+	require.NoError(t, err)
+	replay := servers[0].GetPlayers()[0].GetReplays()[0]
+	require.NotNil(t, replay.GetSummary())
+	assert.Equal(t, uint64(1), replay.GetSummary().GetDurationTicks())
+	assert.Equal(t, 100.0, replay.GetSummary().GetIdlePercentage())
+}
+
+func TestSnapshotWithSummariesDoesNotOpenIncompletePlayEvents(t *testing.T) {
+	t.Parallel()
+
+	const (
+		serverID     = "e9fe419a-022b-451d-8598-806887b987b5"
+		playerID     = "25ec515b-aea2-4d35-a305-873d5cfe849d"
+		connectionID = "63af3daf-27a7-4b0d-a225-ee909c34fd22"
+	)
+	startedAt := time.Date(2026, time.August, 9, 6, 0, 0, 0, time.UTC)
+	root := t.TempDir()
+	play := filepath.Join(root, "v1", "server--"+serverID, "players", "player--"+playerID, "plays", "20260809T060000Z--"+connectionID)
+	require.NoError(t, os.MkdirAll(play, 0o750))
+	metadata := &artifactsv1.ServerMetadata{
+		SchemaVersion: 1, LayoutVersion: "v1", SessionId: "session",
+		Server:     &artifactsv1.ServerIdentity{Name: "server", InstanceId: serverID},
+		Player:     &artifactsv1.PlayerIdentity{Name: "player", Uuid: playerID},
+		Connection: &artifactsv1.Connection{Id: connectionID, StartedAt: timestamppb.New(startedAt), StartServerTick: 100},
+		Capture:    &artifactsv1.CaptureMetadata{Events: "capture/events.jsonl", Replay: "capture/replay.zip", ReplayFormat: "flashback"},
+	}
+	raw, err := protojson.Marshal(metadata)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(play, "metadata.json"), raw, 0o600))
+
+	service, err := New(root)
+	require.NoError(t, err)
+	servers, err := service.SnapshotWithSummaries(context.Background(), Filter{})
+	require.NoError(t, err)
+	replay := servers[0].GetPlayers()[0].GetReplays()[0]
+	assert.Nil(t, replay.GetSummary())
+}
+
 func writeReplay(t *testing.T, path, replayID, playerID, connectionID string) {
 	t.Helper()
 	file, err := os.Create(path)

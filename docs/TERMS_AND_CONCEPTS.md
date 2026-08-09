@@ -57,6 +57,19 @@ hosted by a game client. Joining a remote server from client does not create a P
 | Dashboard | Read-side browsing and timeline composition over cataloged plays and derived media | Capture validation, scene extraction, rendering, or processor orchestration |
 | Operator or external orchestrator | Copying plays, choosing inputs and outputs, scheduling processors, and assembling later datasets | Recorder-internal lifecycle state |
 
+### Play summary terms
+
+These catalog read-side projections do not change recorder ownership or add
+persisted objects to Artifacts V1.
+
+| Term | Definition |
+| --- | --- |
+| Play summary | Transient, read-only projection of one completed Play's metadata and primitive event stream; it is never persisted in the Play |
+| Play duration | Inclusive number of Server ticks from the Play's start tick through its end tick; time presentation is derived from this tick count rather than wall-clock timestamps |
+| Observed path distance | Three-dimensional length of successive same-dimension Player state positions; cross-dimension transitions are excluded and same-dimension teleports are included |
+| Final inventory snapshot | Slot-preserving inventory from the final Player state in the primitive event stream |
+| Idle percentage | Percentage of the Play's inclusive Server ticks with no recorded player input; held movement controls, camera changes, selected-slot changes, and semantic applied actions make a tick active, while continuous movement packets and protocol records do not |
+
 ## Canonical artifact hierarchy
 
 ```text

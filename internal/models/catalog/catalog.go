@@ -12,7 +12,10 @@ import (
 
 	apiv1 "github.com/proj-airi/recorder-minecraft/apis/sdk/go/recorder-minecraft/api/v1"
 	artifactsv1 "github.com/proj-airi/recorder-minecraft/apis/sdk/go/recorder-minecraft/artifacts/v1"
+	catalogv1 "github.com/proj-airi/recorder-minecraft/apis/sdk/go/recorder-minecraft/catalog/v1"
 	"github.com/proj-airi/recorder-minecraft/internal/configs"
+	"github.com/proj-airi/recorder-minecraft/internal/models/captures"
+	"github.com/proj-airi/recorder-minecraft/internal/models/plays"
 	"github.com/proj-airi/recorder-minecraft/internal/models/replays"
 	"github.com/samber/do/v2"
 	"go.uber.org/fx"
@@ -33,6 +36,30 @@ type Filter struct {
 type Service struct {
 	root      string
 	inspector *replays.Service
+	summaries *plays.Service
+}
+
+type SummaryError struct {
+	ServerInstanceID string
+	PlayerUUID       string
+	ConnectionID     string
+	PlayPath         string
+	Cause            error
+}
+
+func (err *SummaryError) Error() string {
+	return fmt.Sprintf("summarize Play %s: %v", err.PlayPath, err.Cause)
+}
+
+func (err *SummaryError) Unwrap() error {
+	return err.Cause
+}
+
+func (err *SummaryError) PublicMessage() string {
+	return fmt.Sprintf(
+		"summarize Play server_instance_id=%s player_uuid=%s connection_id=%s: %s",
+		err.ServerInstanceID, err.PlayerUUID, err.ConnectionID, publicValidationError(err.PlayPath, err.Cause),
+	)
 }
 
 func NewService(injector do.Injector) (*Service, error) {
@@ -64,7 +91,7 @@ func New(root string) (*Service, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve artifacts root: %w", err)
 	}
-	return &Service{root: resolved, inspector: &replays.Service{}}, nil
+	return &Service{root: resolved, inspector: &replays.Service{}, summaries: plays.New(&captures.Service{})}, nil
 }
 
 func (service *Service) Root() string {
@@ -74,6 +101,16 @@ func (service *Service) Root() string {
 // Snapshot derives a catalog from the canonical V1 hierarchy. Directory names locate candidates,
 // while metadata.json remains authoritative for identity and time values.
 func (service *Service) Snapshot(ctx context.Context, filter Filter) ([]*apiv1.ServerInstance, error) {
+	return service.snapshot(ctx, filter, false)
+}
+
+// SnapshotWithSummaries calculates summaries for selected completed Plays. Unlike Snapshot,
+// this operation fails atomically when a completed Play violates capture invariants.
+func (service *Service) SnapshotWithSummaries(ctx context.Context, filter Filter) ([]*apiv1.ServerInstance, error) {
+	return service.snapshot(ctx, filter, true)
+}
+
+func (service *Service) snapshot(ctx context.Context, filter Filter, includeSummaries bool) ([]*apiv1.ServerInstance, error) {
 	root := filepath.Join(service.root, "v1")
 	serverEntries, err := readDirectory(root)
 	if errors.Is(err, os.ErrNotExist) {
@@ -96,7 +133,7 @@ func (service *Service) Snapshot(ctx context.Context, filter Filter) ([]*apiv1.S
 		if !safeDirectory(serverPath, serverEntry) {
 			continue
 		}
-		players, err := service.players(ctx, serverPath, serverName, serverID, filter)
+		players, err := service.players(ctx, serverPath, serverName, serverID, filter, includeSummaries)
 		if err != nil {
 			return nil, err
 		}
@@ -107,7 +144,7 @@ func (service *Service) Snapshot(ctx context.Context, filter Filter) ([]*apiv1.S
 	return servers, nil
 }
 
-func (service *Service) players(ctx context.Context, serverPath, serverName, serverID string, filter Filter) ([]*apiv1.Player, error) {
+func (service *Service) players(ctx context.Context, serverPath, serverName, serverID string, filter Filter, includeSummaries bool) ([]*apiv1.Player, error) {
 	root := filepath.Join(serverPath, "players")
 	entries, err := readDirectory(root)
 	if errors.Is(err, os.ErrNotExist) {
@@ -129,7 +166,7 @@ func (service *Service) players(ctx context.Context, serverPath, serverName, ser
 		if !safeDirectory(playerPath, entry) {
 			continue
 		}
-		replays, err := service.replays(playerPath, serverName, serverID, name, id, filter)
+		replays, err := service.replays(ctx, playerPath, serverName, serverID, name, id, filter, includeSummaries)
 		if err != nil {
 			return nil, err
 		}
@@ -140,7 +177,7 @@ func (service *Service) players(ctx context.Context, serverPath, serverName, ser
 	return players, nil
 }
 
-func (service *Service) replays(playerPath, serverName, serverID, playerName, playerID string, filter Filter) ([]*apiv1.Replay, error) {
+func (service *Service) replays(ctx context.Context, playerPath, serverName, serverID, playerName, playerID string, filter Filter, includeSummaries bool) ([]*apiv1.Replay, error) {
 	root := filepath.Join(playerPath, "plays")
 	entries, err := readDirectory(root)
 	if errors.Is(err, os.ErrNotExist) {
@@ -151,6 +188,9 @@ func (service *Service) replays(playerPath, serverName, serverID, playerName, pl
 	}
 	replays := make([]*apiv1.Replay, 0, len(entries))
 	for _, entry := range entries {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		startedName, connectionID, ok := splitIdentity(entry.Name())
 		if !ok {
 			continue
@@ -165,11 +205,50 @@ func (service *Service) replays(playerPath, serverName, serverID, playerName, pl
 		}
 		replay, err := service.readReplay(playPath, serverName, serverID, playerName, playerID, connectionID, startedAt)
 		if err != nil {
+			if includeSummaries {
+				return nil, summaryError(playPath, serverID, playerID, connectionID, err)
+			}
 			replay = service.invalidReplay(playPath, serverName, serverID, playerName, playerID, connectionID, startedAt, err)
+		}
+		if includeSummaries && replay.EndServerTick != nil {
+			summary, err := service.summaries.Summarize(ctx, playPath)
+			if err != nil {
+				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+					return nil, err
+				}
+				return nil, summaryError(playPath, serverID, playerID, connectionID, err)
+			}
+			replay.Summary = toPlaySummary(summary)
 		}
 		replays = append(replays, replay)
 	}
 	return replays, nil
+}
+
+func summaryError(playPath, serverID, playerID, connectionID string, cause error) *SummaryError {
+	return &SummaryError{
+		ServerInstanceID: serverID,
+		PlayerUUID:       playerID,
+		ConnectionID:     connectionID,
+		PlayPath:         playPath,
+		Cause:            cause,
+	}
+}
+
+func toPlaySummary(summary plays.Summary) *catalogv1.PlaySummary {
+	result := &catalogv1.PlaySummary{
+		DurationTicks:              uint64(summary.DurationTicks),
+		ObservedPathDistanceBlocks: summary.ObservedPathDistanceBlocks,
+		IdlePercentage:             summary.IdlePercentage,
+		PlayerStateCount:           summary.PlayerStateCount,
+		FinalInventory:             make([]*catalogv1.FinalInventoryItem, 0, len(summary.FinalInventory)),
+	}
+	for _, item := range summary.FinalInventory {
+		result.FinalInventory = append(result.FinalInventory, &catalogv1.FinalInventoryItem{
+			Slot: item.Slot, ItemId: item.ItemID, Count: item.Count, Damage: item.Damage, MaxDamage: item.MaxDamage,
+		})
+	}
+	return result
 }
 
 func (service *Service) readReplay(playPath, serverName, serverID, playerName, playerID, connectionID string, directoryStartedAt time.Time) (*apiv1.Replay, error) {

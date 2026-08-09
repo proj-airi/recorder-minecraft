@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package recorder_minecraft.catalog.v1;
+
+option go_package = "github.com/proj-airi/recorder-minecraft/apis/sdk/go/recorder-minecraft/catalog/v1;catalogv1";
+option java_multiple_files = true;
+option java_package = "dev.recorderminecraft.catalog.v1";
+
+// PlaySummary is a transient read-only projection of completed Play inputs.
+message PlaySummary {
+  // Inclusive Server tick count from the metadata start tick through the end tick.
+  uint64 duration_ticks = 1;
+  // Sum in blocks of three-dimensional displacement between successive same-dimension Player states.
+  double observed_path_distance_blocks = 2;
+  // Percentage from 0 through 100 of duration ticks without recorded player activity.
+  double idle_percentage = 3;
+  // Number of Player state snapshots used by this summary.
+  uint64 player_state_count = 4;
+  // Slot-preserving inventory from the final Player state.
+  repeated FinalInventoryItem final_inventory = 5;
+}
+
+message FinalInventoryItem {
+  // Player inventory slot number.
+  int32 slot = 1;
+  // Namespaced Minecraft item identifier.
+  string item_id = 2;
+  int32 count = 3;
+  int32 damage = 4;
+  int32 max_damage = 5;
+}

@@ -64,6 +64,7 @@ export type RecorderMinecraftApiV1Replay = {
     sessionId?: string;
     startServerTick?: string;
     startedAt?: string;
+    summary?: RecorderMinecraftCatalogV1PlaySummary;
     terminalReason?: string;
     validationError?: string;
     video?: RecorderMinecraftApiV1VideoAsset;
@@ -90,6 +91,46 @@ export type RecorderMinecraftApiV1VideoAsset = {
     sizeBytes?: string;
     url?: string;
     width?: number;
+};
+
+export type RecorderMinecraftCatalogV1FinalInventoryItem = {
+    count?: number;
+    damage?: number;
+    /**
+     * Namespaced Minecraft item identifier.
+     */
+    itemId?: string;
+    maxDamage?: number;
+    /**
+     * Player inventory slot number.
+     */
+    slot?: number;
+};
+
+/**
+ * PlaySummary is a transient read-only projection of completed Play inputs.
+ */
+export type RecorderMinecraftCatalogV1PlaySummary = {
+    /**
+     * Inclusive Server tick count from the metadata start tick through the end tick.
+     */
+    durationTicks?: string;
+    /**
+     * Slot-preserving inventory from the final Player state.
+     */
+    finalInventory?: Array<RecorderMinecraftCatalogV1FinalInventoryItem>;
+    /**
+     * Percentage from 0 through 100 of duration ticks without recorded player activity.
+     */
+    idlePercentage?: number;
+    /**
+     * Sum in blocks of three-dimensional displacement between successive same-dimension Player states.
+     */
+    observedPathDistanceBlocks?: number;
+    /**
+     * Number of Player state snapshots used by this summary.
+     */
+    playerStateCount?: string;
 };
 
 export type ArtifactsListData = {
@@ -184,6 +225,10 @@ export type ReplaysListData = {
          * Include replays whose connection started before this instant.
          */
         startedBefore?: string;
+        /**
+         * Calculate a transient summary for each completed Play after applying the filters.
+         */
+        includeSummary?: boolean;
     };
     url: '/api/v1/replays';
 };

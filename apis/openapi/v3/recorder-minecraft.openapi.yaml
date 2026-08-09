@@ -110,6 +110,8 @@ components:
         startedAt:
           format: date-time
           type: string
+        summary:
+          $ref: '#/components/schemas/recorder_minecraft.catalog.v1.PlaySummary'
         terminalReason:
           type: string
         validationError:
@@ -163,8 +165,52 @@ components:
           format: int64
           type: integer
       type: object
+    recorder_minecraft.catalog.v1.FinalInventoryItem:
+      properties:
+        count:
+          format: int32
+          type: integer
+        damage:
+          format: int32
+          type: integer
+        itemId:
+          description: Namespaced Minecraft item identifier.
+          type: string
+        maxDamage:
+          format: int32
+          type: integer
+        slot:
+          description: Player inventory slot number.
+          format: int32
+          type: integer
+      type: object
+    recorder_minecraft.catalog.v1.PlaySummary:
+      description: PlaySummary is a transient read-only projection of completed Play inputs.
+      properties:
+        durationTicks:
+          description: Inclusive Server tick count from the metadata start tick through the end tick.
+          format: uint64
+          type: string
+        finalInventory:
+          description: Slot-preserving inventory from the final Player state.
+          items:
+            $ref: '#/components/schemas/recorder_minecraft.catalog.v1.FinalInventoryItem'
+          type: array
+        idlePercentage:
+          description: Percentage from 0 through 100 of duration ticks without recorded player activity.
+          format: double
+          type: number
+        observedPathDistanceBlocks:
+          description: Sum in blocks of three-dimensional displacement between successive same-dimension Player states.
+          format: double
+          type: number
+        playerStateCount:
+          description: Number of Player state snapshots used by this summary.
+          format: uint64
+          type: string
+      type: object
 info:
-  title: recorder-minecraft/api/v1/artifacts.proto
+  title: recorder-minecraft/catalog/v1/plays.proto
   version: version not set
 openapi: 3.0.3
 paths:
@@ -262,6 +308,11 @@ paths:
           schema:
             format: date-time
             type: string
+        - description: Calculate a transient summary for each completed Play after applying the filters.
+          in: query
+          name: includeSummary
+          schema:
+            type: boolean
       responses:
         "200":
           content:

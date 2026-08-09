@@ -108,6 +108,13 @@ watch(serverFilter, () => {
       </div>
     </div>
 
+    <p v-if="catalog.summaryError.value" class="m-0 border-b border-red-400/20 bg-red-400/8 px-3 py-2 text-[10px] text-red-200" role="status">
+      Play summaries could not load: {{ catalog.summaryError.value }}
+    </p>
+    <p v-else-if="catalog.isSummaryLoading.value && !catalog.isLoading.value" class="m-0 border-b border-[var(--dashboard-border-color)] px-3 py-2 text-[10px] text-neutral-500" role="status">
+      Loading Play summaries…
+    </p>
+
     <ResourceBrowserState
       v-if="catalog.isLoading.value"
       kind="loading"
@@ -133,7 +140,7 @@ watch(serverFilter, () => {
     />
     <!-- NOTICE: Virtua's Vue binding derives its stable item identity from the single slot root's
          key. See `https://github.com/inokawa/virtua/blob/dc92d9d6485df2578e10f5acb06875c69d1bda3b/src/vue/utils.ts#L7-L16`. -->
-    <VList v-else-if="filteredReplays.length" :data="filteredReplays" :item-size="68" class="min-h-0 flex-1">
+    <VList v-else-if="filteredReplays.length" :data="filteredReplays" :item-size="80" class="min-h-0 flex-1">
       <template #default="{ item: replay }">
         <ReplayResourceRow
           :key="replay.connectionId"

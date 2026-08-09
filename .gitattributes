@@ -1,4 +1,5 @@
 *.jsonl text eol=lf
 *.toml text eol=lf
 *.md text eol=lf
-
+# The pinned Protobuf JVM generators emit trailing spaces and one extra EOF line.
+apis/sdk/jvm/** -whitespace

@@ -1,7 +1,7 @@
 {
   "swagger": "2.0",
   "info": {
-    "title": "recorder-minecraft/api/v1/artifacts.proto",
+    "title": "recorder-minecraft/catalog/v1/plays.proto",
     "version": "version not set"
   },
   "tags": [
@@ -152,6 +152,13 @@
             "required": false,
             "type": "string",
             "format": "date-time"
+          },
+          {
+            "name": "includeSummary",
+            "description": "Calculate a transient summary for each completed Play after applying the filters.",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
           }
         ],
         "tags": [
@@ -410,6 +417,9 @@
         },
         "validationError": {
           "type": "string"
+        },
+        "summary": {
+          "$ref": "#/definitions/recorder_minecraft.catalog.v1.PlaySummary"
         }
       }
     },
@@ -480,6 +490,66 @@
           "format": "uint64"
         }
       }
+    },
+    "recorder_minecraft.catalog.v1.FinalInventoryItem": {
+      "type": "object",
+      "properties": {
+        "slot": {
+          "type": "integer",
+          "format": "int32",
+          "description": "Player inventory slot number."
+        },
+        "itemId": {
+          "type": "string",
+          "description": "Namespaced Minecraft item identifier."
+        },
+        "count": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "damage": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "maxDamage": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    },
+    "recorder_minecraft.catalog.v1.PlaySummary": {
+      "type": "object",
+      "properties": {
+        "durationTicks": {
+          "type": "string",
+          "format": "uint64",
+          "description": "Inclusive Server tick count from the metadata start tick through the end tick."
+        },
+        "observedPathDistanceBlocks": {
+          "type": "number",
+          "format": "double",
+          "description": "Sum in blocks of three-dimensional displacement between successive same-dimension Player states."
+        },
+        "idlePercentage": {
+          "type": "number",
+          "format": "double",
+          "description": "Percentage from 0 through 100 of duration ticks without recorded player activity."
+        },
+        "playerStateCount": {
+          "type": "string",
+          "format": "uint64",
+          "description": "Number of Player state snapshots used by this summary."
+        },
+        "finalInventory": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/recorder_minecraft.catalog.v1.FinalInventoryItem"
+          },
+          "description": "Slot-preserving inventory from the final Player state."
+        }
+      },
+      "description": "PlaySummary is a transient read-only projection of completed Play inputs."
     }
   }
 }

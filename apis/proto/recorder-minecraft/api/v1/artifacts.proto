@@ -6,6 +6,7 @@ import "buf/validate/validate.proto";
 import "google/api/annotations.proto";
 import "google/protobuf/timestamp.proto";
 import "protoc-gen-openapiv2/options/annotations.proto";
+import "recorder-minecraft/catalog/v1/plays.proto";
 
 option go_package = "github.com/proj-airi/recorder-minecraft/apis/sdk/go/recorder-minecraft/api/v1;apiv1";
 option java_multiple_files = true;
@@ -105,6 +106,7 @@ message ListReplaysRequest {
   ];
   optional google.protobuf.Timestamp started_at_or_after = 3 [(grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {description: "Include replays whose connection started at or after this instant."}];
   optional google.protobuf.Timestamp started_before = 4 [(grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {description: "Include replays whose connection started before this instant."}];
+  bool include_summary = 5 [(grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {description: "Calculate a transient summary for each completed Play after applying the filters."}];
 }
 
 message ListReplaysResponse {
@@ -175,6 +177,7 @@ message Replay {
   optional VideoAsset video = 15;
   string events_url = 16;
   optional string validation_error = 17;
+  optional recorder_minecraft.catalog.v1.PlaySummary summary = 18;
 }
 
 message VideoAsset {

@@ -2,6 +2,7 @@ package artifactsv1
 
 import (
 	"context"
+	"errors"
 
 	apiv1 "github.com/proj-airi/recorder-minecraft/apis/sdk/go/recorder-minecraft/api/v1"
 	"github.com/proj-airi/recorder-minecraft/internal/models/catalog"
@@ -88,8 +89,22 @@ func (service *Service) ListPlayers(ctx context.Context, request *apiv1.ListPlay
 }
 
 func (service *Service) ListReplays(ctx context.Context, request *apiv1.ListReplaysRequest) (*apiv1.ListReplaysResponse, error) {
-	servers, err := service.catalog.Snapshot(ctx, filter(request.GetServerInstanceId(), request.GetPlayerUuid(), request.GetStartedAtOrAfter(), request.GetStartedBefore()))
+	catalogFilter := filter(request.GetServerInstanceId(), request.GetPlayerUuid(), request.GetStartedAtOrAfter(), request.GetStartedBefore())
+	var servers []*apiv1.ServerInstance
+	var err error
+	if request.GetIncludeSummary() {
+		servers, err = service.catalog.SnapshotWithSummaries(ctx, catalogFilter)
+	} else {
+		servers, err = service.catalog.Snapshot(ctx, catalogFilter)
+	}
 	if err != nil {
+		var summaryError *catalog.SummaryError
+		if errors.As(err, &summaryError) {
+			return nil, status.Error(codes.DataLoss, summaryError.PublicMessage())
+		}
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return nil, status.FromContextError(err).Err()
+		}
 		return nil, status.Errorf(codes.Internal, "read artifact catalog: %v", err)
 	}
 	response := &apiv1.ListReplaysResponse{}
