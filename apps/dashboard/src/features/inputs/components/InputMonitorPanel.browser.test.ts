@@ -29,7 +29,7 @@ it('shows inputs only for the selected replay track at its timeline-local tick',
     tracks: [
       {
         id: 'replay:alice',
-        kind: 'video',
+        kind: 'data',
         label: 'Alice',
         replay: {
           connectionId: 'alice',
@@ -37,7 +37,6 @@ it('shows inputs only for the selected replay track at its timeline-local tick',
           playerName: 'Alice',
           serverName: 'Test server',
           startServerTick: '100',
-          videoUrl: '/video/alice.mp4',
         },
       },
       { id: 'video:plain', kind: 'video', label: 'Plain video' },

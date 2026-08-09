@@ -10,7 +10,8 @@ const replayColors = ['#31b899', '#3d8bd9', '#7d6ee7', '#df6b63', '#d89b45', '#b
 export function addReplayToEpisode(episode: EpisodeDraft, replay: RecorderMinecraftApiV1Replay): EpisodeDraft | null {
   const connectionId = replay.connectionId
   const videoUrl = replay.video?.url
-  if (!connectionId || !videoUrl || replay.validationError || episode.tracks.some(track => track.replay?.connectionId === connectionId))
+  const eventsUrl = replay.eventsUrl
+  if (!connectionId || (!videoUrl && !eventsUrl) || replay.validationError || episode.tracks.some(track => track.replay?.connectionId === connectionId))
     return null
 
   const durationTicks = replayDurationTicks(replay)
@@ -39,11 +40,11 @@ export function addReplayToEpisode(episode: EpisodeDraft, replay: RecorderMinecr
   const label = [replay.playerName, replay.serverName].filter(Boolean).join(' · ') || 'Replay'
   const track: EpisodeTrack = {
     id: trackId,
-    kind: 'video',
+    kind: videoUrl ? 'video' : 'data',
     label,
     replay: {
       connectionId,
-      eventsUrl: replay.eventsUrl,
+      eventsUrl,
       playerName: replay.playerName ?? 'Unknown player',
       serverName: replay.serverName ?? 'Unknown server',
       startedAt: replay.startedAt,

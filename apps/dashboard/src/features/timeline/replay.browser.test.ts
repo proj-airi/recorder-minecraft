@@ -53,6 +53,30 @@ describe('replay timeline projection', () => {
     expect(addReplayToEpisode(episode, replay('alice', '2026-08-03T10:00:00.000Z'))).toBeNull()
   })
 
+  it('adds a replay with events but no first-person video as a data track', () => {
+    const eventOnly = replay('client', '2026-08-03T10:00:00.000Z')
+    delete eventOnly.video
+
+    const episode = addReplayToEpisode(createEmptyEpisode(), eventOnly)!
+
+    expect(episode.tracks[0]).toMatchObject({
+      kind: 'data',
+      replay: {
+        eventsUrl: '/events/client.jsonl',
+        videoUrl: undefined,
+      },
+    })
+    expect(episode.segments[0]).toMatchObject({ endTick: 200, startTick: 0 })
+  })
+
+  it('rejects a replay without video or events', () => {
+    const empty = replay('empty', '2026-08-03T10:00:00.000Z')
+    delete empty.eventsUrl
+    delete empty.video
+
+    expect(addReplayToEpisode(createEmptyEpisode(), empty)).toBeNull()
+  })
+
   it('keeps editing behavior behind the editable projection flag', () => {
     const episode = addReplayToEpisode(createEmptyEpisode(), replay('alice', '2026-08-03T10:00:00.000Z'))!
 

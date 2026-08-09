@@ -8,7 +8,7 @@ import { useEditorWorkspaceContext } from '../../editor/composables/useEditorWor
 const context = useEditorWorkspaceContext()
 const views = computed(() => context.episode().tracks.flatMap((track) => {
   const segment = context.episode().segments.find(candidate => candidate.trackId === track.id)
-  return track.replay && segment ? [{ segment, source: track.replay, trackId: track.id }] : []
+  return track.replay?.videoUrl && segment ? [{ segment, source: track.replay, trackId: track.id }] : []
 }))
 </script>
 
