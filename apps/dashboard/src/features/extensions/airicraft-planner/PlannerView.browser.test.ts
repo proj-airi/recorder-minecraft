@@ -26,7 +26,7 @@ it('shows the selected planner call request, result, and timeline anchors', asyn
     plannerAttempt: { attempt: 2, generation: '7', phase: 'REPAIR' },
     request: {
       messages: [
-        { content: 'You control a Minecraft agent.', role: 'system' },
+        { content: 'You control a Minecraft agent.\nFollow the current goal.\nUse available tools safely.\nReport the result when the action is complete.', role: 'system' },
         { content: 'Continue the active goal.', role: 'user' },
         { content: null, role: 'assistant', tool_calls: [{ function: { arguments: '{"radius":4}', name: 'inspect_world' }, id: 'tool-1' }] },
         { content: 'Stone is at 10, 64, 12.', role: 'tool', tool_call_id: 'tool-1' },
@@ -70,7 +70,12 @@ it('shows the selected planner call request, result, and timeline anchors', asyn
     await expect.element(screen.getByText('test-provider / planner-model · generation 7 · attempt 2 · REPAIR')).toBeVisible()
     await expect.element(screen.getByText('125', { exact: true })).toBeVisible()
     await expect.element(screen.getByText('450 ms')).toBeVisible()
-    await expect.element(screen.getByText('You control a Minecraft agent.')).toBeVisible()
+    const systemMessage = screen.getByText(/You control a Minecraft agent/)
+    await expect.element(systemMessage).toHaveClass(/line-clamp-3/)
+    await expect.element(screen.getByRole('button', { name: 'Show more' })).toBeVisible()
+    await screen.getByRole('button', { name: 'Show more' }).click()
+    await expect.element(systemMessage).not.toHaveClass(/line-clamp-3/)
+    await expect.element(screen.getByRole('button', { name: 'Show less' })).toBeVisible()
     await expect.element(screen.getByText('Continue the active goal.')).toBeVisible()
     await expect.element(screen.getByText('inspect_world')).toBeVisible()
     await expect.element(screen.getByText('Stone is at 10, 64, 12.')).toBeVisible()
@@ -78,7 +83,14 @@ it('shows the selected planner call request, result, and timeline anchors', asyn
     await expect.element(screen.getByText('mine', { exact: true })).toBeVisible()
     await expect.element(screen.getByText(/minecraft:stone/)).toBeVisible()
     await expect.element(screen.getByText('Reasoning')).toBeVisible()
+    await expect.element(screen.getByText(/totalTokens/)).not.toBeInTheDocument()
+    await screen.getByRole('button', { name: 'Details' }).click()
+    await expect.element(screen.getByRole('dialog', { name: 'Call details' })).toBeVisible()
     await expect.element(screen.getByText(/totalTokens/)).toBeVisible()
+    await expect.element(screen.getByText('Request tools')).toBeVisible()
+    await expect.element(screen.getByText('Timeline anchors')).toBeVisible()
+    await screen.getByRole('button', { name: 'Close call details' }).click()
+    await expect.element(screen.getByText(/totalTokens/)).not.toBeInTheDocument()
   }
   finally {
     await screen.unmount()

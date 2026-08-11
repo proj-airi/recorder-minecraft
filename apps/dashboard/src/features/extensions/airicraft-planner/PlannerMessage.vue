@@ -1,12 +1,18 @@
 <script setup lang="ts">
 import type { PlannerTranscriptEntry } from './transcript'
 
-import { computed } from 'vue'
+import { computed, shallowRef } from 'vue'
 
 const props = defineProps<{
   entry: PlannerTranscriptEntry
 }>()
 
+const expanded = shallowRef(false)
+const hasLongText = computed(() => props.entry.content.some((block) => {
+  if (block.kind !== 'text' || !block.text)
+    return false
+  return block.text.length > 160 || block.text.split('\n').length > 3
+}))
 const roleLabel = computed(() => props.entry.source === 'response' ? 'Model response' : props.entry.role)
 const roleClass = computed(() => ({
   assistant: 'border-violet-400/20 bg-violet-400/6',
@@ -31,7 +37,11 @@ const roleClass = computed(() => ({
 
       <div class="flex flex-col gap-2">
         <template v-for="(block, index) in entry.content" :key="index">
-          <p v-if="block.kind === 'text'" class="m-0 whitespace-pre-wrap break-words text-xs text-neutral-200 leading-5">
+          <p
+            v-if="block.kind === 'text'"
+            class="m-0 whitespace-pre-wrap break-words text-xs text-neutral-200 leading-5"
+            :class="hasLongText && !expanded ? 'line-clamp-3' : ''"
+          >
             {{ block.text }}
           </p>
           <div v-else-if="block.kind === 'image'" class="flex items-center gap-2 rounded bg-black/20 px-2 py-1.5 text-xs text-neutral-400">
@@ -40,6 +50,17 @@ const roleClass = computed(() => ({
           </div>
           <pre v-else class="m-0 overflow-auto whitespace-pre-wrap break-words rounded bg-black/25 p-2 text-[11px] text-neutral-300 leading-5 font-mono">{{ JSON.stringify(block.value, null, 2) }}</pre>
         </template>
+
+        <button
+          v-if="hasLongText"
+          type="button"
+          class="w-max flex items-center gap-1 border-0 rounded bg-transparent px-1 py-0.5 text-[11px] text-neutral-400 hover:bg-white/5 hover:text-neutral-200"
+          :aria-expanded="expanded"
+          @click="expanded = !expanded"
+        >
+          <span aria-hidden="true" :class="expanded ? 'i-mingcute-up-line' : 'i-mingcute-down-line'" />
+          {{ expanded ? 'Show less' : 'Show more' }}
+        </button>
 
         <section v-for="(toolCall, index) in entry.toolCalls" :key="toolCall.id ?? `${toolCall.name}-${index}`" class="overflow-hidden border border-amber-400/15 rounded bg-black/20">
           <header class="flex items-center gap-2 border-b border-white/6 px-2 py-1.5 text-xs">

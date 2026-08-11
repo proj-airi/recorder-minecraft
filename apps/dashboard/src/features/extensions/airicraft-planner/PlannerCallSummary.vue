@@ -8,6 +8,10 @@ const props = defineProps<{
   playServerTick: null | number
 }>()
 
+const emit = defineEmits<{
+  showDetails: []
+}>()
+
 const modelLabel = computed(() => [props.call.model?.provider, props.call.model?.name].filter(Boolean).join(' / ') || 'Unknown model')
 const attemptLabel = computed(() => [
   props.call.plannerAttempt?.generation && `generation ${props.call.plannerAttempt.generation}`,
@@ -30,9 +34,19 @@ const attemptLabel = computed(() => [
           {{ modelLabel }} · {{ attemptLabel }}
         </p>
       </div>
-      <span class="rounded bg-violet-400/10 px-2 py-1 text-[10px] text-violet-200 uppercase">
-        {{ call.outcome?.status ?? 'incomplete' }}
-      </span>
+      <div class="flex items-center gap-2">
+        <button
+          type="button"
+          class="flex items-center gap-1.5 border border-white/10 rounded bg-white/4 px-2 py-1 text-[11px] text-neutral-300 hover:border-white/20 hover:bg-white/8 hover:text-white"
+          @click="emit('showDetails')"
+        >
+          <span aria-hidden="true" class="i-mingcute-information-line" />
+          Details
+        </button>
+        <span class="rounded bg-violet-400/10 px-2 py-1 text-[10px] text-violet-200 uppercase">
+          {{ call.outcome?.status ?? 'incomplete' }}
+        </span>
+      </div>
     </header>
 
     <dl class="grid grid-cols-[max-content_1fr] m-0 gap-x-3 gap-y-1 border border-white/8 rounded bg-white/2 p-3 text-xs">
