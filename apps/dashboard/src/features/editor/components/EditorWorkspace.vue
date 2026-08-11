@@ -21,8 +21,7 @@ import { browserExtensionAssetAccess } from '../../extensions/domain'
 import { playExtensionModules } from '../../extensions/registry'
 import { useReplayPlayback } from '../../media/composables/useReplayPlayback'
 import { useArtifactCatalog } from '../../resources/composables/useArtifactCatalog'
-import { playServerTickAt } from '../../timeline/replay'
-import { editorWorkspaceContextKey } from '../workspaceContext'
+import { editorWorkspaceContextKey, findPlayExtensionAt, findSelectedPlayExtension } from '../workspaceContext'
 
 interface EditorPanelParams {
   tab: {
@@ -93,21 +92,11 @@ let workspaceListeners: DockviewIDisposable[] = []
 let initialLayoutFrame = 0
 let initialLayoutApplied = false
 const workspaceElement = useTemplateRef<HTMLDivElement>('workspace')
-const selectedExtension = computed(() => {
-  const segmentId = props.session.selectedSegmentId.value
-  const segment = props.episode.segments.find(candidate => candidate.id === segmentId)
-  const track = props.episode.tracks.find(candidate => candidate.id === segment?.trackId)
-  const placement = props.episode.placements.find(candidate => candidate.id === segment?.placementId)
-  const item = track?.extension?.items.find(candidate => candidate.id === segment?.sourceItemId)
-  if (!track?.extension || !placement || !item)
-    return null
-
-  const episodeTick = props.session.playheadTick.value
-  const playServerTick = episodeTick < placement.startTick || episodeTick > placement.endTick
-    ? null
-    : playServerTickAt(placement, episodeTick)
-  return { descriptor: track.extension.descriptor, item, placement, playServerTick }
-})
+const selectedExtension = computed(() => findSelectedPlayExtension(
+  props.episode,
+  props.session.selectedSegmentId.value,
+  props.session.playheadTick.value,
+))
 
 provide(editorWorkspaceContextKey, {
   addReplay: (replay) => {
@@ -119,6 +108,7 @@ provide(editorWorkspaceContextKey, {
   close: () => emit('close'),
   cutSegment: (segmentId, atTick) => emit('cutSegment', segmentId, atTick),
   episode: () => props.episode,
+  extensionAtPlayhead: extensionType => findPlayExtensionAt(props.episode, extensionType, props.session.playheadTick.value),
   extensionAssets: browserExtensionAssetAccess,
   redo: () => emit('redo'),
   reorderTrack: (sourceIndex, targetIndex) => emit('reorderTrack', sourceIndex, targetIndex),

@@ -1,6 +1,6 @@
 import type { EditorWorkspaceContext, SelectedPlayExtension } from '../../editor/workspaceContext'
 
-import { expect, it } from 'vitest'
+import { expect, it, vi } from 'vitest'
 import { render } from 'vitest-browser-vue'
 import { defineComponent, h, provide, shallowRef } from 'vue'
 
@@ -129,3 +129,68 @@ it('keeps multimodal inputs and open-ended response objects visible', () => {
     },
   ])
 })
+
+it('follows the planner call at the playhead and smoothly scrolls between calls', async () => {
+  const firstCall = {
+    callId: 'call-1',
+    outcome: { assistantContent: { content: 'First answer.', role: 'assistant' }, status: 'completed' },
+    request: { messages: [{ content: 'Shared system prompt.', role: 'system' }] },
+    sequence: '1',
+    timeline: { completed: { serverTick: '110' }, submitted: { serverTick: '100' } },
+  }
+  const secondCall = {
+    callId: 'call-2',
+    outcome: { assistantContent: { content: 'Second answer.', role: 'assistant' }, status: 'completed' },
+    request: { messages: [{ content: 'Shared system prompt.', role: 'system' }, { content: 'Next turn.', role: 'user' }] },
+    sequence: '2',
+    timeline: { completed: { serverTick: '130' }, submitted: { serverTick: '120' } },
+  }
+  const selectedExtension = shallowRef<null | SelectedPlayExtension>(null)
+  const currentExtension = shallowRef<null | SelectedPlayExtension>(plannerSelection(firstCall, 105))
+  const context = {
+    extensionAtPlayhead: (extensionType: string) => extensionType === 'airicraft.planner' ? currentExtension.value : null,
+    selectedExtension,
+  } as unknown as EditorWorkspaceContext
+  const Host = defineComponent({
+    setup() {
+      provide(editorWorkspaceContextKey, context)
+      return () => h(PlannerView)
+    },
+  })
+  const scrollTo = vi.spyOn(Element.prototype, 'scrollTo').mockImplementation(() => {})
+  const screen = await render(Host)
+
+  try {
+    await expect.element(screen.getByText('Airicraft planner call 1')).toBeVisible()
+    await expect.poll(() => scrollTo.mock.calls.at(-1)?.[0]).toMatchObject({ behavior: 'auto' })
+
+    scrollTo.mockClear()
+    currentExtension.value = plannerSelection(secondCall, 125)
+
+    await expect.element(screen.getByText('Airicraft planner call 2')).toBeVisible()
+    await expect.element(screen.getByText('Next turn.')).toBeVisible()
+    await expect.poll(() => scrollTo.mock.calls.at(-1)?.[0]).toMatchObject({ behavior: 'smooth' })
+  }
+  finally {
+    scrollTo.mockRestore()
+    await screen.unmount()
+  }
+})
+
+function plannerSelection(data: object, playServerTick: number): SelectedPlayExtension {
+  return {
+    descriptor: { extensionType: 'airicraft.planner' },
+    item: { color: '#8b5cf6', data, endServerTick: 130, id: String('callId' in data ? data.callId : 'call'), kind: 'interval', label: 'Planner call', startServerTick: 100 },
+    placement: {
+      connectionId: 'connection',
+      endTick: 200,
+      id: 'play:connection',
+      playEndServerTick: 300,
+      playStartServerTick: 100,
+      sourceEndServerTick: 300,
+      sourceStartServerTick: 100,
+      startTick: 0,
+    },
+    playServerTick,
+  }
+}

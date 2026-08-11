@@ -5,8 +5,9 @@ import type { ExtensionAssetAccess, ExtensionTrackProjection, PlayExtensionModul
 
 import PlannerView from './PlannerView.vue'
 
-export const AIRICRAFT_PLANNER_TYPE = 'airicraft.planner'
-export const AIRICRAFT_PLANNER_SCHEMA = 'airicraft.planner-call.v1'
+import { AIRICRAFT_PLANNER_SCHEMA, AIRICRAFT_PLANNER_TYPE } from './constants'
+
+export { AIRICRAFT_PLANNER_SCHEMA, AIRICRAFT_PLANNER_TYPE } from './constants'
 
 export interface PlannerCallRecord {
   callId: string
