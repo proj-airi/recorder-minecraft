@@ -2,7 +2,7 @@ import type { EditorWorkspaceContext, SelectedPlayExtension } from '../../editor
 
 import { expect, it, vi } from 'vitest'
 import { render } from 'vitest-browser-vue'
-import { defineComponent, h, provide, shallowRef } from 'vue'
+import { defineComponent, h, nextTick, provide, shallowRef } from 'vue'
 
 import PlannerView from './PlannerView.vue'
 
@@ -165,11 +165,23 @@ it('follows the planner call at the playhead and smoothly scrolls between calls'
     await expect.poll(() => scrollTo.mock.calls.at(-1)?.[0]).toMatchObject({ behavior: 'auto' })
 
     scrollTo.mockClear()
-    currentExtension.value = plannerSelection(secondCall, 125)
+    vi.useFakeTimers()
 
-    await expect.element(screen.getByText('Airicraft planner call 2')).toBeVisible()
-    await expect.element(screen.getByText('Next turn.')).toBeVisible()
-    await expect.poll(() => scrollTo.mock.calls.at(-1)?.[0]).toMatchObject({ behavior: 'smooth' })
+    try {
+      currentExtension.value = plannerSelection(secondCall, 125)
+      await nextTick()
+      await nextTick()
+
+      await expect.element(screen.getByText('Airicraft planner call 2')).toBeVisible()
+      await expect.element(screen.getByText('Next turn.')).toBeVisible()
+      expect(scrollTo).not.toHaveBeenCalled()
+
+      await vi.advanceTimersByTimeAsync(250)
+      expect(scrollTo).toHaveBeenLastCalledWith(expect.objectContaining({ behavior: 'smooth' }))
+    }
+    finally {
+      vi.useRealTimers()
+    }
   }
   finally {
     scrollTo.mockRestore()

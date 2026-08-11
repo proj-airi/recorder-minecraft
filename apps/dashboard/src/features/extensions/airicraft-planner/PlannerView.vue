@@ -20,21 +20,33 @@ const selection = computed(() => {
 })
 const call = computed(() => selection.value?.item.data as PlannerCallRecord | undefined)
 const detailsOpen = shallowRef(false)
+const FOLLOW_SCROLL_GRACE_MS = 250
 
-watch(() => call.value?.callId, async (callId, previousCallId) => {
+watch(() => call.value?.callId, async (callId, previousCallId, onCleanup) => {
   if (!callId)
     return
 
   await nextTick()
-  scroller.value?.scrollTo({
-    behavior: previousCallId ? 'smooth' : 'auto',
-    top: scroller.value.scrollHeight,
-  })
+
+  if (!previousCallId) {
+    scrollToBottom('auto')
+    return
+  }
+
+  const scrollTimer = window.setTimeout(scrollToBottom, FOLLOW_SCROLL_GRACE_MS, 'smooth')
+  onCleanup(() => window.clearTimeout(scrollTimer))
 }, { flush: 'post', immediate: true })
 
 watch(() => selection.value?.item.id, () => {
   detailsOpen.value = false
 })
+
+function scrollToBottom(behavior: ScrollBehavior) {
+  scroller.value?.scrollTo({
+    behavior,
+    top: scroller.value.scrollHeight,
+  })
+}
 </script>
 
 <template>
