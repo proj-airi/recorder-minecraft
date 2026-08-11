@@ -32,6 +32,10 @@ artifacts/v1/
               fpv_frames/
                 frames.jsonl
                 frame_*.png
+            extensions/                         # optional producer-owned data
+              <extension-type>/
+                manifest.json
+                <extension-assets>
 ```
 
 Every player connection has exactly one play directory. Names are non-empty
@@ -108,6 +112,44 @@ part of Artifacts V1. Durable results alone are written to the explicit output.
 Independent workers can copy complete plays with SSH/rsync, process them, and
 copy back only `actions.jsonl`, `scene.sqlite3`, or `renders/`. Coordination and
 dataset assembly are deliberately outside V1.
+
+## Play extensions
+
+A Play extension is optional producer-owned typed data attached to one Play.
+It does not change `metadata.json` or files under `capture/`. Each extension
+type has zero or one directory. The type is a lowercase dot-separated
+identifier and is also the directory name.
+
+The extension manifest is `extensions/<extension-type>/manifest.json`. It is
+`PlayExtensionManifest` ProtoJSON with manifest version `1`. Its Play identity
+must match the server instance, player, and connection that own the directory.
+Its time domain must be `PLAY_EXTENSION_TIME_DOMAIN_SERVER_TICK`.
+
+Each listed asset has a producer-owned role and schema, a media type, and a path
+relative to the extension directory. The asset path must name a regular file
+inside that directory. The catalog treats role and schema values as opaque.
+
+The initial extension type is `airicraft.planner`:
+
+```text
+extensions/airicraft.planner/
+  manifest.json
+  planner-calls.jsonl
+```
+
+Its planner call asset uses role `planner_calls`, media type
+`application/x-ndjson`, and schema `airicraft.planner-call.v1`. Each line is a
+final planner-call record. Decimal strings represent 64-bit ticks, sequences,
+and Unix times. A record contains stable call identity and sequence, planner
+attempt information, model identity, canonical request messages and tools,
+outcome data, and these timeline anchors:
+
+- `timeline.submitted.serverTick` is required.
+- `timeline.completed.serverTick` closes a completed, failed, or cancelled call.
+- `timeline.applied.serverTick` is optional and marks application to runtime state.
+
+The planner-call payload schema belongs to Airicraft. Recorder-minecraft only
+owns the generic manifest and catalog descriptor.
 
 ## Derived outputs
 
