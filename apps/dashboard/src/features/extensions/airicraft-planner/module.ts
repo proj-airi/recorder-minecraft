@@ -16,9 +16,13 @@ export interface PlannerCallRecord {
   }
   outcome?: {
     assistantContent?: unknown
+    failure?: {
+      message?: string
+      type?: string
+    }
     status?: string
-    toolCalls?: unknown[]
-    usage?: unknown
+    toolCalls?: Record<string, unknown>[]
+    usage?: Record<string, unknown>
   }
   plannerAttempt?: {
     attempt?: number
@@ -26,8 +30,8 @@ export interface PlannerCallRecord {
     phase?: string
   }
   request?: {
-    messages?: unknown[]
-    tools?: unknown[]
+    messages?: Record<string, unknown>[]
+    tools?: Record<string, unknown>[]
   }
   schemaVersion?: number
   sequence: string

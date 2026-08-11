@@ -7,19 +7,32 @@ import { defineComponent, h, provide, shallowRef } from 'vue'
 import PlannerView from './PlannerView.vue'
 
 import { editorWorkspaceContextKey } from '../../editor/workspaceContext'
+import { plannerTranscript } from './transcript'
 
 it('shows the selected planner call request, result, and timeline anchors', async () => {
   const call = {
     callId: 'call-1',
     model: { name: 'planner-model', provider: 'test-provider' },
     outcome: {
-      assistantContent: { text: 'Mine stone' },
+      assistantContent: {
+        content: 'I will mine the nearby stone.',
+        reasoning_content: 'The stone is within reach.',
+        role: 'assistant',
+      },
       status: 'completed',
-      toolCalls: [{ name: 'mine' }],
+      toolCalls: [{ function: { arguments: '{"block":"minecraft:stone"}', name: 'mine' }, id: 'tool-2', type: 'function' }],
       usage: { totalTokens: 42 },
     },
     plannerAttempt: { attempt: 2, generation: '7', phase: 'REPAIR' },
-    request: { messages: [{ content: 'Continue', role: 'user' }], tools: [{ name: 'mine' }] },
+    request: {
+      messages: [
+        { content: 'You control a Minecraft agent.', role: 'system' },
+        { content: 'Continue the active goal.', role: 'user' },
+        { content: null, role: 'assistant', tool_calls: [{ function: { arguments: '{"radius":4}', name: 'inspect_world' }, id: 'tool-1' }] },
+        { content: 'Stone is at 10, 64, 12.', role: 'tool', tool_call_id: 'tool-1' },
+      ],
+      tools: [{ name: 'mine' }],
+    },
     sequence: '3',
     timeline: {
       applied: { serverTick: '130' },
@@ -57,10 +70,50 @@ it('shows the selected planner call request, result, and timeline anchors', asyn
     await expect.element(screen.getByText('test-provider / planner-model · generation 7 · attempt 2 · REPAIR')).toBeVisible()
     await expect.element(screen.getByText('125', { exact: true })).toBeVisible()
     await expect.element(screen.getByText('450 ms')).toBeVisible()
-    await expect.element(screen.getByText(/Mine stone/)).toBeVisible()
+    await expect.element(screen.getByText('You control a Minecraft agent.')).toBeVisible()
+    await expect.element(screen.getByText('Continue the active goal.')).toBeVisible()
+    await expect.element(screen.getByText('inspect_world')).toBeVisible()
+    await expect.element(screen.getByText('Stone is at 10, 64, 12.')).toBeVisible()
+    await expect.element(screen.getByText('I will mine the nearby stone.')).toBeVisible()
+    await expect.element(screen.getByText('mine', { exact: true })).toBeVisible()
+    await expect.element(screen.getByText(/minecraft:stone/)).toBeVisible()
+    await expect.element(screen.getByText('Reasoning')).toBeVisible()
     await expect.element(screen.getByText(/totalTokens/)).toBeVisible()
   }
   finally {
     await screen.unmount()
   }
+})
+
+it('keeps multimodal inputs and open-ended response objects visible', () => {
+  const entries = plannerTranscript({
+    callId: 'call-2',
+    outcome: { assistantContent: { action: 'mine', target: 'minecraft:stone' } },
+    request: {
+      messages: [{
+        content: [
+          { text: 'What is ahead?', type: 'text' },
+          { image_url: { detail: 'high', url: 'data:image/png;base64,hidden' }, type: 'image_url' },
+        ],
+        role: 'user',
+      }],
+    },
+    sequence: '4',
+    timeline: { submitted: { serverTick: '140' } },
+  })
+
+  expect(entries).toMatchObject([
+    {
+      content: [
+        { kind: 'text', text: 'What is ahead?' },
+        { detail: 'high', kind: 'image' },
+      ],
+      role: 'user',
+    },
+    {
+      content: [{ kind: 'json', value: { action: 'mine', target: 'minecraft:stone' } }],
+      role: 'assistant',
+      source: 'response',
+    },
+  ])
 })
