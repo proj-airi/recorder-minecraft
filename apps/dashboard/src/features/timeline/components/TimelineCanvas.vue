@@ -260,15 +260,9 @@ function onPointerMove(event: PointerEvent): void {
     return
 
   if (gesture.mode === 'move') {
-    const target = props.engine.getTrackAtPoint({
-      rulerHeight: RULER_HEIGHT,
-      trackHeight: TRACK_HEIGHT,
-      y: point.y,
-    })
     props.engine.moveClip({
       clipId: gesture.clipId,
       startTime: toTickTime(gesture.originalStartTick + deltaTick),
-      targetTrackId: target?.track.id,
     })
     return
   }

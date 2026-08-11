@@ -69,7 +69,12 @@ const keptMountedIndexes = computed(() => activeIndex.value === null ? undefined
           >
             <span aria-hidden="true" class="i-mingcute-dot-grid-line" />
           </button>
-          <span v-else aria-hidden="true" class="i-mingcute-video-line mr-2 shrink-0 text-base text-neutral-500" />
+          <span
+            v-else
+            aria-hidden="true"
+            class="mr-2 shrink-0 text-base text-neutral-500"
+            :class="track.role === 'extension' ? 'i-mingcute-ai-line' : 'i-mingcute-video-line'"
+          />
           <div class="min-w-0">
             <p class="m-0 truncate text-sm text-neutral-200">
               {{ track.label }}

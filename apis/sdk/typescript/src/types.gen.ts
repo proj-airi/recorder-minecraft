@@ -35,6 +35,25 @@ export type RecorderMinecraftApiV1ListServerInstancesResponse = {
     serverInstances?: Array<RecorderMinecraftApiV1ServerInstanceSummary>;
 };
 
+/**
+ * PlayExtension describes optional producer-owned data attached to one Play.
+ */
+export type RecorderMinecraftApiV1PlayExtension = {
+    assets?: Array<RecorderMinecraftApiV1PlayExtensionAsset>;
+    extensionType?: string;
+};
+
+/**
+ * PlayExtensionAsset is one browser-readable extension asset. Role and schema
+ * are interpreted by the dashboard module for the extension type.
+ */
+export type RecorderMinecraftApiV1PlayExtensionAsset = {
+    mediaType?: string;
+    role?: string;
+    schema?: string;
+    url?: string;
+};
+
 export type RecorderMinecraftApiV1Player = {
     name?: string;
     replays?: Array<RecorderMinecraftApiV1Replay>;
@@ -55,6 +74,7 @@ export type RecorderMinecraftApiV1Replay = {
     endServerTick?: string;
     endedAt?: string;
     eventsUrl?: string;
+    extensions?: Array<RecorderMinecraftApiV1PlayExtension>;
     playerName?: string;
     playerUuid?: string;
     replayFormat?: string;

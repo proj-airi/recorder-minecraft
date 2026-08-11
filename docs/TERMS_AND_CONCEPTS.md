@@ -93,6 +93,10 @@ artifacts/v1/
                 frames.jsonl
                 frame_*.png
               fpv.mp4                          # optional
+            extensions/                         # optional
+              <extension-type>/
+                manifest.json
+                <extension-assets>
 ```
 
 The hierarchy is part of the recorder contract. A processor receives exact
@@ -109,6 +113,7 @@ hierarchy on the caller's behalf.
 | Play | One join-to-disconnect player connection and all primitive or derived files associated with it |
 | Capture directory | Recorder-owned primitive inputs inside one play |
 | Derived output | Optional processor-owned result placed at an explicit caller-selected path, conventionally inside the play |
+| Play extension | Optional producer-owned typed data under `extensions/<extension-type>/` that is attached to one Play without changing its Primitive capture |
 | Runtime root | Private scratch and lock root configured by `paths.runtime`; it is not part of Artifacts V1 |
 | World directory | Reserved server-instance-wide location for possible future world saves, seeds, or related inputs; absent and unused in V1 |
 
@@ -204,6 +209,15 @@ actions between adjacent authoritative states without relying on arrival time.
 | Tick selection | Optional inclusive `--from-tick` and `--to-tick` interval applied by a processor |
 | Prepared job | Private scene or render job created under the runtime root for validation or execution |
 | Owned output | Existing result that passes the processor's identity/format checks and may therefore be replaced with `--overwrite` |
+
+### Play extension terms
+
+| Term | Definition |
+| --- | --- |
+| Extension type | Lowercase dot-separated identifier that names one Play extension contract and its directory; a Play has at most one extension of each type |
+| Extension manifest | `manifest.json` that binds an extension to a Play, declares the Server tick time domain, and lists its typed assets |
+| Extension asset | Producer-owned file named by a role, media type, and producer-owned schema in an Extension manifest |
+| Play placement | One occurrence of a cataloged Play in an Episode draft; it owns the source interval and the mapping from Play Server ticks to Episode ticks |
 
 Processors do not scan `artifacts/v1`, infer a replay from a player, create a
 play, download remote files, or mutate `metadata.json` and `capture/`.

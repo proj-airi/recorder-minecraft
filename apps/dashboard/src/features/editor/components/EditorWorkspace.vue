@@ -8,7 +8,7 @@ import type { EditorViewId, EditorViewOption } from '../views'
 
 import { useResizeObserver } from '@vueuse/core'
 import { DockviewVue, themeDark } from 'dockview-vue'
-import { markRaw, onBeforeUnmount, onMounted, provide, toRef, useTemplateRef } from 'vue'
+import { computed, markRaw, onBeforeUnmount, onMounted, provide, toRef, useTemplateRef, watch } from 'vue'
 
 import InputMonitorPanel from '../../inputs/components/InputMonitorPanel.vue'
 import MediaPreviewPanel from '../../media/components/MediaPreviewPanel.vue'
@@ -17,8 +17,11 @@ import ResourceBrowserPanel from '../../resources/components/ResourceBrowserPane
 import TimelineDockTab from '../../timeline/components/TimelineDockTab.vue'
 import TimelineWorkspacePanel from './TimelineWorkspacePanel.vue'
 
+import { browserExtensionAssetAccess } from '../../extensions/domain'
+import { playExtensionModules } from '../../extensions/registry'
 import { useReplayPlayback } from '../../media/composables/useReplayPlayback'
 import { useArtifactCatalog } from '../../resources/composables/useArtifactCatalog'
+import { playServerTickAt } from '../../timeline/replay'
 import { editorWorkspaceContextKey } from '../workspaceContext'
 
 interface EditorPanelParams {
@@ -32,6 +35,7 @@ interface EditorViewDefinition {
   icon: string
   id: EditorViewId
   label: string
+  source: 'built-in' | 'extension'
   showTitle: boolean
 }
 
@@ -53,11 +57,19 @@ const emit = defineEmits<{
 }>()
 
 const viewDefinitions: EditorViewDefinition[] = [
-  { component: 'resourceBrowser', icon: 'i-mingcute-folder-open-line', id: 'resources', label: 'Resources', showTitle: true },
-  { component: 'mediaPreview', icon: 'i-mingcute-video-line', id: 'preview', label: 'Preview', showTitle: true },
-  { component: 'multiViewMonitor', icon: 'i-mingcute-grid-line', id: 'monitor', label: 'Monitor', showTitle: true },
-  { component: 'inputMonitor', icon: 'i-mingcute-keyboard-line', id: 'inputs', label: 'Inputs', showTitle: true },
-  { component: 'timeline', icon: 'i-mingcute-timeline-line', id: 'timeline', label: 'Timeline', showTitle: false },
+  { component: 'resourceBrowser', icon: 'i-mingcute-folder-open-line', id: 'resources', label: 'Resources', showTitle: true, source: 'built-in' },
+  { component: 'mediaPreview', icon: 'i-mingcute-video-line', id: 'preview', label: 'Preview', showTitle: true, source: 'built-in' },
+  { component: 'multiViewMonitor', icon: 'i-mingcute-grid-line', id: 'monitor', label: 'Monitor', showTitle: true, source: 'built-in' },
+  { component: 'inputMonitor', icon: 'i-mingcute-keyboard-line', id: 'inputs', label: 'Inputs', showTitle: true, source: 'built-in' },
+  { component: 'timeline', icon: 'i-mingcute-timeline-line', id: 'timeline', label: 'Timeline', showTitle: false, source: 'built-in' },
+  ...playExtensionModules.map((module): EditorViewDefinition => ({
+    component: `extension:${module.extensionType}`,
+    icon: module.view.icon,
+    id: `extension:${module.extensionType}`,
+    label: module.view.label,
+    showTitle: true,
+    source: 'extension',
+  })),
 ]
 
 const catalog = useArtifactCatalog()
@@ -68,6 +80,10 @@ const components: Record<string, VueComponent> = markRaw({
   multiViewMonitor: MultiViewMonitorPanel as unknown as VueComponent,
   resourceBrowser: ResourceBrowserPanel as unknown as VueComponent,
   timeline: TimelineWorkspacePanel as unknown as VueComponent,
+  ...Object.fromEntries(playExtensionModules.map(module => [
+    `extension:${module.extensionType}`,
+    module.view.component as unknown as VueComponent,
+  ])),
 })
 const tabComponents: Record<string, VueComponent> = markRaw({
   editorTab: TimelineDockTab as unknown as VueComponent,
@@ -77,6 +93,21 @@ let workspaceListeners: DockviewIDisposable[] = []
 let initialLayoutFrame = 0
 let initialLayoutApplied = false
 const workspaceElement = useTemplateRef<HTMLDivElement>('workspace')
+const selectedExtension = computed(() => {
+  const segmentId = props.session.selectedSegmentId.value
+  const segment = props.episode.segments.find(candidate => candidate.id === segmentId)
+  const track = props.episode.tracks.find(candidate => candidate.id === segment?.trackId)
+  const placement = props.episode.placements.find(candidate => candidate.id === segment?.placementId)
+  const item = track?.extension?.items.find(candidate => candidate.id === segment?.sourceItemId)
+  if (!track?.extension || !placement || !item)
+    return null
+
+  const episodeTick = props.session.playheadTick.value
+  const playServerTick = episodeTick < placement.startTick || episodeTick > placement.endTick
+    ? null
+    : playServerTickAt(placement, episodeTick)
+  return { descriptor: track.extension.descriptor, item, placement, playServerTick }
+})
 
 provide(editorWorkspaceContextKey, {
   addReplay: (replay) => {
@@ -88,10 +119,12 @@ provide(editorWorkspaceContextKey, {
   close: () => emit('close'),
   cutSegment: (segmentId, atTick) => emit('cutSegment', segmentId, atTick),
   episode: () => props.episode,
+  extensionAssets: browserExtensionAssetAccess,
   redo: () => emit('redo'),
   reorderTrack: (sourceIndex, targetIndex) => emit('reorderTrack', sourceIndex, targetIndex),
   replayPlayback,
   session: props.session,
+  selectedExtension,
   undo: () => emit('undo'),
 })
 
@@ -122,6 +155,10 @@ function panelOptions(definition: EditorViewDefinition): AddPanelOptions<EditorP
   }
   else if (definition.id === 'inputs') {
     options.minimumWidth = 160
+  }
+  else if (definition.source === 'extension') {
+    options.minimumHeight = 160
+    options.minimumWidth = 320
   }
   else {
     options.minimumHeight = 100
@@ -185,6 +222,12 @@ function addView(viewId: EditorViewId, initialSize?: number): IDockviewPanel | u
     if (reference)
       options.position = { direction: 'right', referencePanel: reference }
   }
+  else if (definition.source === 'extension') {
+    options.initialWidth = initialSize
+    const reference = firstOpenPanel(api, ['monitor', 'preview', 'timeline'])
+    if (reference)
+      options.position = { direction: 'right', referencePanel: reference }
+  }
   else {
     options.initialHeight = initialSize
     const reference = firstOpenPanel(api, ['monitor', 'preview', 'resources', 'inputs'])
@@ -197,7 +240,10 @@ function addView(viewId: EditorViewId, initialSize?: number): IDockviewPanel | u
 
 function publishViews(): void {
   const api = dockApi
-  emit('viewsChange', viewDefinitions.map(view => ({
+  const availableViews = viewDefinitions.filter(view => view.source === 'built-in'
+    || Boolean(api?.getPanel(view.id))
+    || props.episode.tracks.some(track => track.extension?.viewId === view.id))
+  emit('viewsChange', availableViews.map(view => ({
     active: api?.activePanel?.id === view.id,
     icon: view.icon,
     id: view.id,
@@ -268,6 +314,13 @@ function onReady({ api }: DockviewReadyEvent): void {
 }
 
 onMounted(() => void catalog.load())
+watch(() => props.session.selectedSegmentId.value, (segmentId) => {
+  const segment = props.episode.segments.find(candidate => candidate.id === segmentId)
+  const viewId = props.episode.tracks.find(track => track.id === segment?.trackId)?.extension?.viewId
+  if (viewId)
+    activateView(viewId)
+})
+watch(() => props.episode.revision, publishViews)
 onBeforeUnmount(() => {
   cancelAnimationFrame(initialLayoutFrame)
   initialLayoutObserver.stop()

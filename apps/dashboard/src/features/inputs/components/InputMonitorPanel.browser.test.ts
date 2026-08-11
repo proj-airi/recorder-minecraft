@@ -20,10 +20,14 @@ it('shows inputs only for the selected replay track at its timeline-local tick',
   const episode: EpisodeDraft = {
     durationTicks: 200,
     id: 'input-selection',
+    placements: [
+      { connectionId: 'alice', endTick: 140, id: 'play:alice', playEndServerTick: 200, playStartServerTick: 100, sourceEndServerTick: 200, sourceStartServerTick: 100, startTick: 40 },
+      { connectionId: 'plain', endTick: 100, id: 'play:plain', playEndServerTick: 100, playStartServerTick: 0, sourceEndServerTick: 100, sourceStartServerTick: 0, startTick: 0 },
+    ],
     revision: 1,
     segments: [
-      { color: '#31b899', endTick: 140, id: 'clip:alice', label: 'Alice', startTick: 40, trackId: 'replay:alice' },
-      { color: '#3d8bd9', endTick: 100, id: 'clip:plain', label: 'Plain video', startTick: 0, trackId: 'video:plain' },
+      { color: '#31b899', editable: true, endTick: 140, id: 'clip:alice', label: 'Alice', placementId: 'play:alice', startTick: 40, trackId: 'replay:alice' },
+      { color: '#3d8bd9', editable: true, endTick: 100, id: 'clip:plain', label: 'Plain video', placementId: 'play:plain', startTick: 0, trackId: 'video:plain' },
     ],
     title: 'Input selection',
     tracks: [
@@ -31,6 +35,7 @@ it('shows inputs only for the selected replay track at its timeline-local tick',
         id: 'replay:alice',
         kind: 'data',
         label: 'Alice',
+        placementId: 'play:alice',
         replay: {
           connectionId: 'alice',
           eventsUrl: '/events/alice.jsonl',
@@ -38,8 +43,9 @@ it('shows inputs only for the selected replay track at its timeline-local tick',
           serverName: 'Test server',
           startServerTick: '100',
         },
+        role: 'primary',
       },
-      { id: 'video:plain', kind: 'video', label: 'Plain video' },
+      { id: 'video:plain', kind: 'video', label: 'Plain video', placementId: 'play:plain', role: 'primary' },
     ],
   }
   const context = {

@@ -51,6 +51,30 @@ components:
             $ref: '#/components/schemas/recorder_minecraft.api.v1.ServerInstanceSummary'
           type: array
       type: object
+    recorder_minecraft.api.v1.PlayExtension:
+      description: PlayExtension describes optional producer-owned data attached to one Play.
+      properties:
+        assets:
+          items:
+            $ref: '#/components/schemas/recorder_minecraft.api.v1.PlayExtensionAsset'
+          type: array
+        extensionType:
+          type: string
+      type: object
+    recorder_minecraft.api.v1.PlayExtensionAsset:
+      description: |-
+        PlayExtensionAsset is one browser-readable extension asset. Role and schema
+        are interpreted by the dashboard module for the extension type.
+      properties:
+        mediaType:
+          type: string
+        role:
+          type: string
+        schema:
+          type: string
+        url:
+          type: string
+      type: object
     recorder_minecraft.api.v1.Player:
       properties:
         name:
@@ -90,6 +114,10 @@ components:
           type: string
         eventsUrl:
           type: string
+        extensions:
+          items:
+            $ref: '#/components/schemas/recorder_minecraft.api.v1.PlayExtension'
+          type: array
         playerName:
           type: string
         playerUuid:

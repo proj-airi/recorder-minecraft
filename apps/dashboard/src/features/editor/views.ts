@@ -1,4 +1,4 @@
-export type EditorViewId = 'inputs' | 'monitor' | 'preview' | 'resources' | 'timeline'
+export type EditorViewId = 'inputs' | 'monitor' | 'preview' | 'resources' | 'timeline' | `extension:${string}`
 
 export interface EditorViewOption {
   active: boolean

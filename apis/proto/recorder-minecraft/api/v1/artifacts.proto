@@ -178,6 +178,22 @@ message Replay {
   string events_url = 16;
   optional string validation_error = 17;
   optional recorder_minecraft.catalog.v1.PlaySummary summary = 18;
+  repeated PlayExtension extensions = 19;
+}
+
+// PlayExtension describes optional producer-owned data attached to one Play.
+message PlayExtension {
+  string extension_type = 1;
+  repeated PlayExtensionAsset assets = 2;
+}
+
+// PlayExtensionAsset is one browser-readable extension asset. Role and schema
+// are interpreted by the dashboard module for the extension type.
+message PlayExtensionAsset {
+  string role = 1;
+  string url = 2;
+  string media_type = 3;
+  string schema = 4;
 }
 
 message VideoAsset {

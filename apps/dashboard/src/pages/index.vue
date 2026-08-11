@@ -13,7 +13,7 @@ import { useEpisodeStore } from '../features/timeline/stores/episode'
 
 const episodeStore = useEpisodeStore()
 const { episode } = storeToRefs(episodeStore)
-const session = useTimelineSession(episode, episodeStore.commitSegmentEdit, false)
+const session = useTimelineSession(episode, episodeStore.commitSegmentEdit)
 const editorOpen = shallowRef(true)
 const editorViews = shallowRef<EditorViewOption[]>([])
 const editorWorkspace = useTemplateRef<InstanceType<typeof EditorWorkspace>>('editorWorkspace')

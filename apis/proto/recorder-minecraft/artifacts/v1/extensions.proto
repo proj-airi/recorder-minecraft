@@ -1,0 +1,40 @@
+syntax = "proto3";
+
+package recorder_minecraft.artifacts.v1;
+
+option go_package = "github.com/proj-airi/recorder-minecraft/apis/sdk/go/recorder-minecraft/artifacts/v1;artifactsv1";
+option java_multiple_files = true;
+option java_package = "dev.recorderminecraft.artifacts.v1";
+
+// PlayExtensionManifest is serialized as ProtoJSON at
+// extensions/<extension-type>/manifest.json.
+message PlayExtensionManifest {
+  uint32 manifest_version = 1;
+  string extension_type = 2;
+  PlayExtensionIdentity play = 3;
+  PlayExtensionTimeDomain time_domain = 4;
+  repeated PlayExtensionAsset assets = 5;
+}
+
+// PlayExtensionIdentity binds producer-owned data to one Play.
+message PlayExtensionIdentity {
+  string server_instance_id = 1;
+  string player_uuid = 2;
+  string connection_id = 3;
+}
+
+// PlayExtensionTimeDomain identifies the coordinate used by time-bearing
+// extension records.
+enum PlayExtensionTimeDomain {
+  PLAY_EXTENSION_TIME_DOMAIN_UNSPECIFIED = 0;
+  PLAY_EXTENSION_TIME_DOMAIN_SERVER_TICK = 1;
+}
+
+// PlayExtensionAsset describes one producer-owned file relative to its
+// extension directory. Role and schema are producer-owned identifiers.
+message PlayExtensionAsset {
+  string role = 1;
+  string path = 2;
+  string media_type = 3;
+  string schema = 4;
+}
