@@ -97,7 +97,6 @@ async function loadPlannerTrack(
     descriptor,
     items: records.flatMap(plannerItems),
     label: 'Airicraft planner',
-    viewId: `extension:${AIRICRAFT_PLANNER_TYPE}`,
   }
 }
 

@@ -5,7 +5,7 @@ import type { ExtensionAssetAccess } from '../extensions/domain'
 import type { ReplayPlayback } from '../media/composables/useReplayPlayback'
 import type { ArtifactCatalog } from '../resources/composables/useArtifactCatalog'
 import type { TimelineSession } from '../timeline/composables/useTimelineSession'
-import type { EpisodeDraft, NormalizedTimelineItem, PlayPlacement } from '../timeline/domain'
+import type { EpisodeDraft, EpisodeSegment, NormalizedTimelineItem, PlayPlacement } from '../timeline/domain'
 
 import { playServerTickAt } from '../timeline/replay'
 
@@ -52,23 +52,14 @@ export function findPlayExtensionAt(
     return !current || candidate.startTick >= current.startTick ? candidate : current
   }, undefined)
 
-  return playExtensionFromSegment(episode, segment?.id ?? null, episodeTick)
+  return resolvePlayExtension(episode, segment, episodeTick)
 }
 
-export function findSelectedPlayExtension(
+export function resolvePlayExtension(
   episode: EpisodeDraft,
-  segmentId: null | string,
+  segment: EpisodeSegment | undefined,
   episodeTick: number,
 ): null | SelectedPlayExtension {
-  return playExtensionFromSegment(episode, segmentId, episodeTick)
-}
-
-function playExtensionFromSegment(
-  episode: EpisodeDraft,
-  segmentId: null | string,
-  episodeTick: number,
-): null | SelectedPlayExtension {
-  const segment = episode.segments.find(candidate => candidate.id === segmentId)
   const track = episode.tracks.find(candidate => candidate.id === segment?.trackId)
   const placement = episode.placements.find(candidate => candidate.id === segment?.placementId)
   const item = track?.extension?.items.find(candidate => candidate.id === segment?.sourceItemId)

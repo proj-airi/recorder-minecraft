@@ -9,7 +9,7 @@ const props = defineProps<{
 
 const expanded = shallowRef(false)
 const hasLongText = computed(() => props.entry.content.some((block) => {
-  if (block.kind !== 'text' || !block.text)
+  if (block.kind !== 'text')
     return false
   return block.text.length > 160 || block.text.split('\n').length > 3
 }))

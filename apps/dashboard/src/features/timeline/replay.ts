@@ -74,7 +74,6 @@ export function addReplayToEpisode(
     extension: {
       descriptor: extension.descriptor,
       items: extension.items,
-      viewId: extension.viewId,
     },
     id: `${placementId}:extension:${extension.descriptor.extensionType}`,
     kind: 'data',
@@ -238,7 +237,7 @@ function projectSegments(placements: PlayPlacement[], tracks: EpisodeTrack[]): E
       }]
     }
 
-    return (track.extension?.items ?? []).flatMap((item): EpisodeSegment[] => {
+    return track.extension.items.flatMap((item): EpisodeSegment[] => {
       const itemStart = item.kind === 'point' ? item.serverTick : item.startServerTick
       const itemEnd = item.kind === 'point' ? item.serverTick : item.endServerTick
       if (itemEnd < placement.sourceStartServerTick || itemStart > placement.sourceEndServerTick)
@@ -252,7 +251,7 @@ function projectSegments(placements: PlayPlacement[], tracks: EpisodeTrack[]): E
         color: item.color,
         editable: false,
         endTick,
-        id: `${placement.id}:extension:${track.extension?.descriptor.extensionType}:${item.id}`,
+        id: `${placement.id}:extension:${track.extension.descriptor.extensionType}:${item.id}`,
         label: item.label,
         placementId: placement.id,
         sourceItemId: item.id,

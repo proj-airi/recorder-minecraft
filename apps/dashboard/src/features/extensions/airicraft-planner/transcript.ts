@@ -1,11 +1,9 @@
 import type { PlannerCallRecord } from './module'
 
-export interface PlannerContentBlock {
-  detail?: string
-  kind: 'image' | 'json' | 'text'
-  text?: string
-  value?: unknown
-}
+export type PlannerContentBlock
+  = | { detail?: string, kind: 'image' }
+    | { kind: 'json', value: unknown }
+    | { kind: 'text', text: string }
 
 export type PlannerMessageRole = 'assistant' | 'system' | 'tool' | 'unknown' | 'user'
 

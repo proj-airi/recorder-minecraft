@@ -32,7 +32,6 @@ describe('playhead extension selection', () => {
             { color: '#8b5cf6', data: { callId: 'call-1' }, endServerTick: 125, id: 'call-1', kind: 'interval', label: 'Call 1', startServerTick: 110 },
             { color: '#8b5cf6', data: { callId: 'call-2' }, endServerTick: 130, id: 'call-2', kind: 'interval', label: 'Call 2', startServerTick: 120 },
           ],
-          viewId: 'extension:airicraft.planner',
         },
         id: 'track:planner',
         kind: 'data',

@@ -49,8 +49,8 @@ describe('airicraft planner extension', () => {
 
     expect(tracks).toHaveLength(1)
     expect(tracks[0]).toMatchObject({
+      descriptor: { extensionType: 'airicraft.planner' },
       label: 'Airicraft planner',
-      viewId: 'extension:airicraft.planner',
     })
     expect(tracks[0]?.items.map(item => item.kind)).toEqual(['interval', 'point'])
   })

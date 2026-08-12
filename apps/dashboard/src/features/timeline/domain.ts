@@ -19,10 +19,21 @@ export interface EpisodeDraft {
   tracks: EpisodeTrack[]
 }
 
+export interface EpisodeExtensionTrack extends EpisodeTrackBase {
+  extension: EpisodeExtensionTrackSource
+  replay?: never
+  role: 'extension'
+}
+
 export interface EpisodeExtensionTrackSource {
   descriptor: import('@proj-airi/recorder-minecraft-api').RecorderMinecraftApiV1PlayExtension
   items: NormalizedTimelineItem[]
-  viewId: `extension:${string}`
+}
+
+export interface EpisodePrimaryTrack extends EpisodeTrackBase {
+  extension?: never
+  replay?: EpisodeReplaySource
+  role: 'primary'
 }
 
 export interface EpisodeReplaySource {
@@ -47,15 +58,7 @@ export interface EpisodeSegment {
   trackId: string
 }
 
-export interface EpisodeTrack {
-  extension?: EpisodeExtensionTrackSource
-  id: string
-  kind: TimelineTrackKind
-  label: string
-  placementId: string
-  replay?: EpisodeReplaySource
-  role: 'extension' | 'primary'
-}
+export type EpisodeTrack = EpisodeExtensionTrack | EpisodePrimaryTrack
 
 export interface NormalizedTimelineInterval extends NormalizedTimelineItemBase {
   endServerTick: number
@@ -82,6 +85,13 @@ export interface PlayPlacement {
 }
 
 export type TimelineTrackKind = 'audio' | 'data' | 'video'
+
+interface EpisodeTrackBase {
+  id: string
+  kind: TimelineTrackKind
+  label: string
+  placementId: string
+}
 
 interface NormalizedTimelineItemBase {
   color: string

@@ -17,11 +17,11 @@ import ResourceBrowserPanel from '../../resources/components/ResourceBrowserPane
 import TimelineDockTab from '../../timeline/components/TimelineDockTab.vue'
 import TimelineWorkspacePanel from './TimelineWorkspacePanel.vue'
 
-import { browserExtensionAssetAccess } from '../../extensions/domain'
+import { browserExtensionAssetAccess, extensionViewId } from '../../extensions/domain'
 import { playExtensionModules } from '../../extensions/registry'
 import { useReplayPlayback } from '../../media/composables/useReplayPlayback'
 import { useArtifactCatalog } from '../../resources/composables/useArtifactCatalog'
-import { editorWorkspaceContextKey, findPlayExtensionAt, findSelectedPlayExtension } from '../workspaceContext'
+import { editorWorkspaceContextKey, findPlayExtensionAt, resolvePlayExtension } from '../workspaceContext'
 
 interface EditorPanelParams {
   tab: {
@@ -92,11 +92,10 @@ let workspaceListeners: DockviewIDisposable[] = []
 let initialLayoutFrame = 0
 let initialLayoutApplied = false
 const workspaceElement = useTemplateRef<HTMLDivElement>('workspace')
-const selectedExtension = computed(() => findSelectedPlayExtension(
-  props.episode,
-  props.session.selectedSegmentId.value,
-  props.session.playheadTick.value,
-))
+const selectedExtension = computed(() => {
+  const segment = props.episode.segments.find(candidate => candidate.id === props.session.selectedSegmentId.value)
+  return resolvePlayExtension(props.episode, segment, props.session.playheadTick.value)
+})
 
 provide(editorWorkspaceContextKey, {
   addReplay: (replay) => {
@@ -232,7 +231,7 @@ function publishViews(): void {
   const api = dockApi
   const availableViews = viewDefinitions.filter(view => view.source === 'built-in'
     || Boolean(api?.getPanel(view.id))
-    || props.episode.tracks.some(track => track.extension?.viewId === view.id))
+    || props.episode.tracks.some(track => track.role === 'extension' && extensionViewId(track.extension.descriptor.extensionType) === view.id))
   emit('viewsChange', availableViews.map(view => ({
     active: api?.activePanel?.id === view.id,
     icon: view.icon,
@@ -306,9 +305,9 @@ function onReady({ api }: DockviewReadyEvent): void {
 onMounted(() => void catalog.load())
 watch(() => props.session.selectedSegmentId.value, (segmentId) => {
   const segment = props.episode.segments.find(candidate => candidate.id === segmentId)
-  const viewId = props.episode.tracks.find(track => track.id === segment?.trackId)?.extension?.viewId
-  if (viewId)
-    activateView(viewId)
+  const track = props.episode.tracks.find(candidate => candidate.id === segment?.trackId)
+  if (track?.role === 'extension')
+    activateView(extensionViewId(track.extension.descriptor.extensionType))
 })
 watch(() => props.episode.revision, publishViews)
 onBeforeUnmount(() => {

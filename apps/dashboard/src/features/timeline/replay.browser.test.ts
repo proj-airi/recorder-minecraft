@@ -98,7 +98,6 @@ describe('replay timeline projection', () => {
         { color: '#f59e0b', data: {}, id: 'call-1:applied', kind: 'point', label: 'Applied 1', serverTick: 150 },
       ],
       label: 'Airicraft planner',
-      viewId: 'extension:airicraft.planner',
     }])!
 
     expect(episode.tracks.map(track => [track.role, track.label])).toEqual([
@@ -117,7 +116,6 @@ describe('replay timeline projection', () => {
       descriptor: { extensionType: 'airicraft.planner' },
       items: [{ color: '#8b5cf6', data: {}, endServerTick: 160, id: 'call-1', kind: 'interval', label: 'Call 1', startServerTick: 120 }],
       label: 'Airicraft planner',
-      viewId: 'extension:airicraft.planner',
     }])!
     const moved = commitPlacementEdit(added, 'play:alice:primary', 10, 210, 'play:alice:primary')!
 
@@ -133,7 +131,6 @@ describe('replay timeline projection', () => {
       descriptor: { extensionType: 'airicraft.planner' },
       items: [],
       label: 'Airicraft planner',
-      viewId: 'extension:airicraft.planner' as const,
     }]
     const first = addReplayToEpisode(createEmptyEpisode(), replay('alice', '2026-08-03T10:00:00.000Z'), extension)!
     const second = addReplayToEpisode(first, replay('bob', '2026-08-03T10:00:02.000Z'), extension)!
@@ -151,7 +148,6 @@ describe('replay timeline projection', () => {
       descriptor: { extensionType: 'airicraft.planner' },
       items: [{ color: '#8b5cf6', data: {}, endServerTick: 220, id: 'call-1', kind: 'interval', label: 'Call 1', startServerTick: 180 }],
       label: 'Airicraft planner',
-      viewId: 'extension:airicraft.planner',
     }])!
     const cut = cutPlacement(added, 'play:alice:primary', 100)!
 

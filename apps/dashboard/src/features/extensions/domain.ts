@@ -14,7 +14,6 @@ export interface ExtensionTrackProjection {
   descriptor: RecorderMinecraftApiV1PlayExtension
   items: NormalizedTimelineItem[]
   label: string
-  viewId: `extension:${string}`
 }
 
 export interface PlayExtensionModule {
@@ -40,4 +39,8 @@ export const browserExtensionAssetAccess: ExtensionAssetAccess = {
       throw new Error(`Extension asset request failed with status ${response.status}`)
     return response.text()
   },
+}
+
+export function extensionViewId(extensionType?: string): `extension:${string}` {
+  return `extension:${extensionType ?? 'unknown'}`
 }
