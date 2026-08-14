@@ -321,6 +321,40 @@
         }
       }
     },
+    "recorder_minecraft.api.v1.PlayExtension": {
+      "type": "object",
+      "properties": {
+        "extensionType": {
+          "type": "string"
+        },
+        "assets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/recorder_minecraft.api.v1.PlayExtensionAsset"
+          }
+        }
+      },
+      "description": "PlayExtension describes optional producer-owned data attached to one Play."
+    },
+    "recorder_minecraft.api.v1.PlayExtensionAsset": {
+      "type": "object",
+      "properties": {
+        "role": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        },
+        "mediaType": {
+          "type": "string"
+        },
+        "schema": {
+          "type": "string"
+        }
+      },
+      "description": "PlayExtensionAsset is one browser-readable extension asset. Role and schema\nare interpreted by the dashboard module for the extension type."
+    },
     "recorder_minecraft.api.v1.Player": {
       "type": "object",
       "properties": {
@@ -420,6 +454,13 @@
         },
         "summary": {
           "$ref": "#/definitions/recorder_minecraft.catalog.v1.PlaySummary"
+        },
+        "extensions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/recorder_minecraft.api.v1.PlayExtension"
+          }
         }
       }
     },

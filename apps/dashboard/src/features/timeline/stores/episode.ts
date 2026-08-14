@@ -1,40 +1,42 @@
 import type { RecorderMinecraftApiV1Replay } from '@proj-airi/recorder-minecraft-api'
 
-import type { CommitSegmentEdit, EpisodeSegment, EpisodeTrack } from '../domain'
+import type { CommitSegmentEdit, EpisodeDraft } from '../domain'
 
 import { defineStore } from 'pinia'
 import { computed, shallowRef } from 'vue'
 
-import { addReplayToEpisode, createEmptyEpisode } from '../replay'
+import { loadSupportedExtensionTracks } from '../../extensions/registry'
+import {
+  addReplayToEpisode,
+  commitPlacementEdit,
+  createEmptyEpisode,
+  cutPlacement,
+  deletePlacement,
+  reorderPlacementTracks,
+} from '../replay'
 
-interface SegmentHistory {
-  redo: TimelinePatch[]
-  undo: TimelinePatch[]
+interface EpisodeHistory {
+  redo: EpisodePatch[]
+  undo: EpisodePatch[]
 }
 
-interface SegmentPatch {
-  after: EpisodeSegment[]
-  before: EpisodeSegment[]
-  index: number
-  type: 'segments'
-}
-
-type TimelinePatch = SegmentPatch | TrackOrderPatch
-
-interface TrackOrderPatch {
-  after: string[]
-  before: string[]
-  type: 'track-order'
+interface EpisodePatch {
+  after: EpisodeDraft
+  before: EpisodeDraft
 }
 
 export const useEpisodeStore = defineStore('episode', () => {
   const episode = shallowRef(createEmptyEpisode())
-  const history = shallowRef<SegmentHistory>({ redo: [], undo: [] })
+  const history = shallowRef<EpisodeHistory>({ redo: [], undo: [] })
   const canRedo = computed(() => history.value.redo.length > 0)
   const canUndo = computed(() => history.value.undo.length > 0)
 
-  function addReplay(replay: RecorderMinecraftApiV1Replay): boolean {
-    const nextEpisode = addReplayToEpisode(episode.value, replay)
+  async function addReplay(replay: RecorderMinecraftApiV1Replay): Promise<boolean> {
+    if (!replay.connectionId || episode.value.placements.some(placement => placement.connectionId === replay.connectionId))
+      return false
+
+    const extensions = await loadSupportedExtensionTracks(replay.extensions)
+    const nextEpisode = addReplayToEpisode(episode.value, replay, extensions)
     if (!nextEpisode)
       return false
 
@@ -43,120 +45,29 @@ export const useEpisodeStore = defineStore('episode', () => {
     return true
   }
 
-  function applyPatch(patch: TimelinePatch, direction: 'redo' | 'undo'): void {
-    if (patch.type === 'track-order') {
-      const order = direction === 'redo' ? patch.after : patch.before
-      const tracksById = new Map(episode.value.tracks.map(track => [track.id, track]))
-      const tracks = order.map((trackId): EpisodeTrack => {
-        const track = tracksById.get(trackId)
-        if (!track)
-          throw new Error(`Cannot restore timeline track order: track "${trackId}" is missing`)
-        return track
-      })
-
-      episode.value = {
-        ...episode.value,
-        revision: episode.value.revision + 1,
-        tracks,
-      }
-      return
-    }
-
-    const removed = direction === 'redo' ? patch.before : patch.after
-    const inserted = direction === 'redo' ? patch.after : patch.before
-    const affectedIds = new Set([...patch.before, ...patch.after].map(segment => segment.id))
-    const anchor = episode.value.segments.findIndex(segment => removed.some(candidate => candidate.id === segment.id))
-    const segments = episode.value.segments.filter(segment => !affectedIds.has(segment.id))
-    // A deletion has no `after` segment to locate when undoing. Preserve the source index in the
-    // patch so restoration does not append the clip to an unrelated point in the episode array.
-    segments.splice(anchor < 0 ? Math.min(patch.index, segments.length) : anchor, 0, ...inserted)
-
-    episode.value = {
-      ...episode.value,
-      revision: episode.value.revision + 1,
-      segments,
-    }
-  }
-
-  function commitPatch(patch: TimelinePatch): void {
-    applyPatch(patch, 'redo')
-    history.value = {
-      redo: [],
-      undo: [...history.value.undo, patch],
-    }
+  function commit(nextEpisode: EpisodeDraft | null): boolean {
+    if (!nextEpisode)
+      return false
+    const patch = { after: nextEpisode, before: episode.value }
+    episode.value = nextEpisode
+    history.value = { redo: [], undo: [...history.value.undo, patch] }
+    return true
   }
 
   function commitSegmentEdit(edit: CommitSegmentEdit): void {
-    const segment = episode.value.segments.find(candidate => candidate.id === edit.segmentId)
-    const targetTrack = episode.value.tracks.find(track => track.id === edit.trackId)
-    const sourceTrack = episode.value.tracks.find(track => track.id === segment?.trackId)
-
-    if (!segment || !targetTrack || !sourceTrack || targetTrack.kind !== sourceTrack.kind)
-      return
-
-    const startTick = Math.max(0, Math.round(edit.startTick))
-    const endTick = Math.min(episode.value.durationTicks, Math.max(startTick + 1, Math.round(edit.endTick)))
-    if (segment.startTick === startTick && segment.endTick === endTick && segment.trackId === edit.trackId)
-      return
-
-    commitPatch({
-      after: [{ ...segment, endTick, startTick, trackId: edit.trackId }],
-      before: [segment],
-      index: episode.value.segments.indexOf(segment),
-      type: 'segments',
-    })
+    commit(commitPlacementEdit(episode.value, edit.segmentId, edit.startTick, edit.endTick, edit.trackId))
   }
 
   function cutSegment(segmentId: string, atTick: number): boolean {
-    const segment = episode.value.segments.find(candidate => candidate.id === segmentId)
-    const cutTick = Math.round(atTick)
-    if (!segment || cutTick <= segment.startTick || cutTick >= segment.endTick)
-      return false
-
-    const rightSegmentId = `${segment.id}:cut:${episode.value.revision + 1}`
-    commitPatch({
-      after: [
-        { ...segment, endTick: cutTick },
-        { ...segment, id: rightSegmentId, startTick: cutTick },
-      ],
-      before: [segment],
-      index: episode.value.segments.indexOf(segment),
-      type: 'segments',
-    })
-    return true
+    return commit(cutPlacement(episode.value, segmentId, atTick))
   }
 
   function deleteSegment(segmentId: string): boolean {
-    const index = episode.value.segments.findIndex(segment => segment.id === segmentId)
-    const segment = episode.value.segments[index]
-    if (!segment)
-      return false
-
-    commitPatch({ after: [], before: [segment], index, type: 'segments' })
-    return true
+    return commit(deletePlacement(episode.value, segmentId))
   }
 
   function reorderTrack(sourceIndex: number, targetIndex: number): void {
-    const trackCount = episode.value.tracks.length
-    if (!Number.isInteger(sourceIndex)
-      || !Number.isInteger(targetIndex)
-      || sourceIndex < 0
-      || sourceIndex >= trackCount
-      || targetIndex < 0
-      || targetIndex >= trackCount
-      || sourceIndex === targetIndex) {
-      return
-    }
-
-    const before = episode.value.tracks.map(track => track.id)
-    const after = [...before]
-    const moved = after.splice(sourceIndex, 1)[0]
-    if (!moved) {
-      return
-    }
-
-    after.splice(targetIndex, 0, moved)
-    commitPatch({ after, before, type: 'track-order' })
+    commit(reorderPlacementTracks(episode.value, sourceIndex, targetIndex))
   }
 
   function redo(): void {
@@ -164,7 +75,7 @@ export const useEpisodeStore = defineStore('episode', () => {
     if (!patch)
       return
 
-    applyPatch(patch, 'redo')
+    episode.value = patch.after
     history.value = {
       redo: history.value.redo.slice(0, -1),
       undo: [...history.value.undo, patch],
@@ -176,7 +87,7 @@ export const useEpisodeStore = defineStore('episode', () => {
     if (!patch)
       return
 
-    applyPatch(patch, 'undo')
+    episode.value = patch.before
     history.value = {
       redo: [...history.value.redo, patch],
       undo: history.value.undo.slice(0, -1),

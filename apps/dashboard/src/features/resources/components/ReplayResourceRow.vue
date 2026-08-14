@@ -3,6 +3,7 @@ import type { RecorderMinecraftApiV1Replay } from '@proj-airi/recorder-minecraft
 
 import { computed } from 'vue'
 
+import { extensionLabel, playExtensionModules } from '../../extensions/registry'
 import { writeDraggedReplayId } from '../replayDrag'
 
 const props = defineProps<{
@@ -15,6 +16,11 @@ const emit = defineEmits<{
 }>()
 
 const summaryText = computed(() => formatSummary(props.replay))
+const extensions = computed(() => (props.replay.extensions ?? []).map(extension => ({
+  label: extensionLabel(extension.extensionType ?? 'unknown'),
+  supported: playExtensionModules.some(module => module.extensionType === extension.extensionType),
+  type: extension.extensionType ?? 'unknown',
+})))
 
 function formatInstant(value?: string): string {
   if (!value)
@@ -45,7 +51,7 @@ function onDragStart(event: DragEvent): void {
 <template>
   <button
     :aria-pressed="active"
-    class="h-20 w-full flex items-center gap-3 border-0 border-b border-[var(--dashboard-border-color)] bg-transparent px-3 text-left hover:bg-white/5"
+    class="min-h-20 w-full flex items-center gap-3 border-0 border-b border-[var(--dashboard-border-color)] bg-transparent px-3 py-3 text-left hover:bg-white/5"
     :class="active ? 'bg-amber-400/10 text-amber-100' : 'text-neutral-200'"
     :draggable="Boolean(replay.connectionId && (replay.video?.url || replay.eventsUrl) && !replay.validationError)"
     :title="`Preview replay from ${replay.playerName ?? 'unknown player'}`"
@@ -58,6 +64,17 @@ function onDragStart(event: DragEvent): void {
       <span class="block truncate text-xs font-medium">{{ replay.playerName }} · {{ replay.serverName }}</span>
       <span class="mt-1 block truncate text-[10px] text-neutral-500">{{ formatInstant(replay.startedAt) }}</span>
       <span v-if="summaryText" class="mt-1 block truncate text-[10px] text-neutral-400">{{ summaryText }}</span>
+      <span v-if="extensions.length" class="mt-1 flex flex-wrap gap-1">
+        <span
+          v-for="extension in extensions"
+          :key="extension.type"
+          class="rounded px-1.5 py-0.5 text-[9px]"
+          :class="extension.supported ? 'bg-violet-400/10 text-violet-200' : 'bg-white/5 text-neutral-500'"
+          :title="extension.supported ? `Supported Play extension: ${extension.type}` : `Unsupported Play extension: ${extension.type}`"
+        >
+          {{ extension.label }}
+        </span>
+      </span>
     </span>
     <span v-if="replay.validationError" class="i-mingcute-warning-line shrink-0 text-lg text-red-300" aria-hidden="true" />
     <span v-else-if="replay.video?.url || replay.eventsUrl" aria-hidden="true" class="i-mingcute-dots-line shrink-0 cursor-grab text-base text-neutral-600" />

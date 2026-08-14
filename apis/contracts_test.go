@@ -19,6 +19,7 @@ func TestGeneratedPlaySummaryContracts(t *testing.T) {
 	assert.Equal(t, "includeSummary", requestFields.ByName("include_summary").JSONName())
 	replayFields := (&apiv1.Replay{}).ProtoReflect().Descriptor().Fields()
 	assert.Equal(t, "summary", replayFields.ByName("summary").JSONName())
+	assert.Equal(t, "extensions", replayFields.ByName("extensions").JSONName())
 	summaryFields := (&catalogv1.PlaySummary{}).ProtoReflect().Descriptor().Fields()
 	assert.Equal(t, "durationTicks", summaryFields.ByName("duration_ticks").JSONName())
 	assert.Equal(t, "observedPathDistanceBlocks", summaryFields.ByName("observed_path_distance_blocks").JSONName())
@@ -37,6 +38,7 @@ func TestGeneratedPlaySummaryContracts(t *testing.T) {
 		assert.Contains(t, document, "includeSummary")
 		assert.Contains(t, document, "Calculate a transient summary for each completed Play after applying the filters.")
 		assert.Contains(t, document, "recorder_minecraft.catalog.v1.PlaySummary")
+		assert.Contains(t, document, "recorder_minecraft.api.v1.PlayExtension")
 		assert.Contains(t, document, "Sum in blocks of three-dimensional displacement between successive same-dimension Player states.")
 	}
 
@@ -45,5 +47,11 @@ func TestGeneratedPlaySummaryContracts(t *testing.T) {
 	} {
 		_, err := os.Stat(filepath.Join(root, "sdk", "jvm", "dev", "recorderminecraft", "catalog", "v1", generated))
 		require.NoError(t, err, "missing generated JVM contract %s", generated)
+	}
+	for _, generated := range []string{
+		"PlayExtensionAsset.java", "PlayExtensionIdentity.java", "PlayExtensionManifest.java", "PlayExtensionTimeDomain.java",
+	} {
+		_, err := os.Stat(filepath.Join(root, "sdk", "jvm", "dev", "recorderminecraft", "artifacts", "v1", generated))
+		require.NoError(t, err, "missing generated JVM extension contract %s", generated)
 	}
 }

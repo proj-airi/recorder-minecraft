@@ -59,6 +59,73 @@ func TestSnapshotReadsCanonicalPlay(t *testing.T) {
 	assert.Nil(t, replay.ValidationError)
 }
 
+func TestSnapshotListsPlayExtensionAssets(t *testing.T) {
+	t.Parallel()
+
+	const (
+		serverID     = "e9fe419a-022b-451d-8598-806887b987b5"
+		playerID     = "25ec515b-aea2-4d35-a305-873d5cfe849d"
+		connectionID = "63af3daf-27a7-4b0d-a225-ee909c34fd22"
+	)
+	startedAt := time.Date(2026, time.August, 11, 8, 0, 0, 0, time.UTC)
+	root := t.TempDir()
+	play := filepath.Join(root, "v1", "server--"+serverID, "players", "player--"+playerID, "plays", "20260811T080000Z--"+connectionID)
+	require.NoError(t, os.MkdirAll(filepath.Join(play, "capture"), 0o750))
+	metadata := &artifactsv1.ServerMetadata{
+		SchemaVersion: 1, LayoutVersion: "v1", SessionId: "session",
+		Server:     &artifactsv1.ServerIdentity{Name: "server", InstanceId: serverID},
+		Player:     &artifactsv1.PlayerIdentity{Name: "player", Uuid: playerID},
+		Connection: &artifactsv1.Connection{Id: connectionID, StartedAt: timestamppb.New(startedAt), StartServerTick: 100},
+		Capture:    &artifactsv1.CaptureMetadata{Events: "capture/events.jsonl", Replay: "capture/replay.zip", ReplayFormat: "flashback"},
+	}
+	raw, err := protojson.Marshal(metadata)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(play, "metadata.json"), raw, 0o600))
+	writeReplay(t, filepath.Join(play, "capture", "replay.zip"), "c9ed6af1-bf8d-4700-8e77-a04056be0932", playerID, connectionID)
+
+	extensionPath := filepath.Join(play, "extensions", "airicraft.planner")
+	require.NoError(t, os.MkdirAll(extensionPath, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(extensionPath, "planner-calls.jsonl"), []byte("{}\n"), 0o600))
+	manifest := &artifactsv1.PlayExtensionManifest{
+		ManifestVersion: 1,
+		ExtensionType:   "airicraft.planner",
+		Play: &artifactsv1.PlayExtensionIdentity{
+			ServerInstanceId: serverID, PlayerUuid: playerID, ConnectionId: connectionID,
+		},
+		TimeDomain: artifactsv1.PlayExtensionTimeDomain_PLAY_EXTENSION_TIME_DOMAIN_SERVER_TICK,
+		Assets: []*artifactsv1.PlayExtensionAsset{{
+			Role: "planner_calls", Path: "planner-calls.jsonl", MediaType: "application/x-ndjson", Schema: "airicraft.planner-call.v1",
+		}},
+	}
+	raw, err = protojson.Marshal(manifest)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(extensionPath, "manifest.json"), raw, 0o600))
+	annotationPath := filepath.Join(play, "extensions", "llm.annotation")
+	require.NoError(t, os.MkdirAll(annotationPath, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(annotationPath, "annotations.jsonl"), []byte("{}\n"), 0o600))
+	manifest.ExtensionType = "llm.annotation"
+	manifest.Assets = []*artifactsv1.PlayExtensionAsset{{
+		Role: "annotations", Path: "annotations.jsonl", MediaType: "application/x-ndjson", Schema: "llm.annotation.v1",
+	}}
+	raw, err = protojson.Marshal(manifest)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(annotationPath, "manifest.json"), raw, 0o600))
+	invalidPath := filepath.Join(play, "extensions", "invalid.extension")
+	require.NoError(t, os.MkdirAll(invalidPath, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(invalidPath, "manifest.json"), []byte("not JSON"), 0o600))
+
+	service, err := New(root)
+	require.NoError(t, err)
+	servers, err := service.Snapshot(context.Background(), Filter{})
+	require.NoError(t, err)
+	replay := servers[0].GetPlayers()[0].GetReplays()[0]
+	require.Len(t, replay.GetExtensions(), 2)
+	assert.Equal(t, "airicraft.planner", replay.GetExtensions()[0].GetExtensionType())
+	require.Len(t, replay.GetExtensions()[0].GetAssets(), 1)
+	assert.Equal(t, "/assets/v1/server--"+serverID+"/players/player--"+playerID+"/plays/20260811T080000Z--"+connectionID+"/extensions/airicraft.planner/planner-calls.jsonl", replay.GetExtensions()[0].GetAssets()[0].GetUrl())
+	assert.Equal(t, "llm.annotation", replay.GetExtensions()[1].GetExtensionType(), "keep an unsupported but well-formed extension visible")
+}
+
 func TestSnapshotKeepsInvalidReplayAsErrorResource(t *testing.T) {
 	t.Parallel()
 

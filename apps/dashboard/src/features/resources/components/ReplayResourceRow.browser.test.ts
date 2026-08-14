@@ -9,6 +9,10 @@ it('shows the transient Play summary without final inventory details', async () 
       active: false,
       replay: {
         connectionId: 'connection-id',
+        extensions: [
+          { extensionType: 'airicraft.planner' },
+          { extensionType: 'llm.annotation' },
+        ],
         playerName: 'player',
         serverName: 'server',
         startedAt: '2026-08-09T05:00:00Z',
@@ -24,6 +28,8 @@ it('shows the transient Play summary without final inventory details', async () 
 
   try {
     await expect.element(screen.getByText('00:01 · 3.5 blocks · 50.0% idle')).toBeVisible()
+    await expect.element(screen.getByText('Planner', { exact: true })).toBeVisible()
+    await expect.element(screen.getByText('llm.annotation', { exact: true })).toBeVisible()
     expect(screen.getByText('minecraft:diamond')).not.toBeInTheDocument()
   }
   finally {

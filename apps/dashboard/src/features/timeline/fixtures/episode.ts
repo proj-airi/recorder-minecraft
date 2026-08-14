@@ -35,6 +35,8 @@ export function createEpisode(options: EpisodeOptions): EpisodeDraft {
     id: `video-${trackIndex + 1}`,
     kind: 'video',
     label: `Video ${trackIndex + 1}`,
+    placementId: `fixture-${trackIndex + 1}`,
+    role: 'primary',
   }))
   const slotTicks = Math.floor(options.durationTicks / options.clipsPerTrack)
   const segments = tracks.flatMap((track, trackIndex) => Array.from(
@@ -47,9 +49,11 @@ export function createEpisode(options: EpisodeOptions): EpisodeDraft {
       const startTick = clipIndex * slotTicks + offsetTicks
       return {
         color: clipColors[(trackIndex + clipIndex) % clipColors.length] ?? clipColors[0]!,
+        editable: true,
         endTick: Math.min(options.durationTicks, startTick + durationTicks),
         id: `${track.id}-clip-${clipIndex + 1}`,
         label: `V${trackIndex + 1} · Clip ${clipIndex + 1}`,
+        placementId: track.placementId,
         startTick,
         trackId: track.id,
       }
@@ -59,6 +63,16 @@ export function createEpisode(options: EpisodeOptions): EpisodeDraft {
   return {
     durationTicks: options.durationTicks,
     id: options.id,
+    placements: tracks.map((track, index) => ({
+      connectionId: `fixture-${index + 1}`,
+      endTick: options.durationTicks,
+      id: track.placementId,
+      playEndServerTick: options.durationTicks,
+      playStartServerTick: 0,
+      sourceEndServerTick: options.durationTicks,
+      sourceStartServerTick: 0,
+      startTick: 0,
+    })),
     revision: 1,
     segments,
     title: options.title,

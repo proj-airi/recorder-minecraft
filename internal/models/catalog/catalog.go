@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	pathpkg "path"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -25,6 +27,8 @@ import (
 )
 
 const maxMetadataBytes = 4 * 1024 * 1024
+
+var extensionTypePattern = regexp.MustCompile(`^[a-z][a-z0-9]*(?:\.[a-z][a-z0-9]*)+$`)
 
 type Filter struct {
 	ServerInstanceID string
@@ -285,12 +289,74 @@ func (service *Service) readReplay(playPath, serverName, serverID, playerName, p
 		replay.EndServerTick = &value
 	}
 	replay.Video = service.video(playPath)
+	replay.Extensions = service.extensions(playPath, serverID, playerID, connectionID)
 	if _, err := service.inspector.Inspect(filepath.Join(playPath, metadata.GetCapture().GetReplay()), playerID, connectionID); err != nil {
 		message := publicValidationError(playPath, err)
 		replay.ValidationError = &message
 		replay.Video = nil
 	}
 	return replay, nil
+}
+
+func (service *Service) extensions(playPath, serverID, playerID, connectionID string) []*apiv1.PlayExtension {
+	root := filepath.Join(playPath, "extensions")
+	entries, err := readDirectory(root)
+	if errors.Is(err, os.ErrNotExist) {
+		return []*apiv1.PlayExtension{}
+	}
+	if err != nil {
+		return []*apiv1.PlayExtension{}
+	}
+
+	extensions := make([]*apiv1.PlayExtension, 0, len(entries))
+	for _, entry := range entries {
+		extensionType := entry.Name()
+		extensionPath := filepath.Join(root, extensionType)
+		if !extensionTypePattern.MatchString(extensionType) || !safeDirectory(extensionPath, entry) {
+			continue
+		}
+
+		manifest := &artifactsv1.PlayExtensionManifest{}
+		if readProtoJSON(filepath.Join(extensionPath, "manifest.json"), manifest) != nil ||
+			manifest.GetManifestVersion() != 1 || manifest.GetExtensionType() != extensionType ||
+			len(manifest.GetAssets()) == 0 ||
+			manifest.GetTimeDomain() != artifactsv1.PlayExtensionTimeDomain_PLAY_EXTENSION_TIME_DOMAIN_SERVER_TICK ||
+			manifest.GetPlay().GetServerInstanceId() != serverID ||
+			manifest.GetPlay().GetPlayerUuid() != playerID ||
+			manifest.GetPlay().GetConnectionId() != connectionID {
+			continue
+		}
+
+		assets := extensionAssets(service, playPath, extensionPath, extensionType, manifest.GetAssets())
+		if assets == nil {
+			continue
+		}
+		extensions = append(extensions, &apiv1.PlayExtension{ExtensionType: extensionType, Assets: assets})
+	}
+	return extensions
+}
+
+func extensionAssets(service *Service, playPath, extensionPath, extensionType string, assets []*artifactsv1.PlayExtensionAsset) []*apiv1.PlayExtensionAsset {
+	result := make([]*apiv1.PlayExtensionAsset, 0, len(assets))
+	for _, asset := range assets {
+		relative := asset.GetPath()
+		clean := pathpkg.Clean(relative)
+		if asset.GetRole() == "" || asset.GetMediaType() == "" || asset.GetSchema() == "" ||
+			relative == "" || clean != relative || pathpkg.IsAbs(clean) || clean == "." || strings.HasPrefix(clean, "../") {
+			return nil
+		}
+
+		assetPath := filepath.Join(extensionPath, filepath.FromSlash(clean))
+		info, err := os.Lstat(assetPath)
+		if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			return nil
+		}
+		result = append(result, &apiv1.PlayExtensionAsset{
+			Role: asset.GetRole(), Url: service.assetURL(playPath, pathpkg.Join("extensions", extensionType, clean)),
+			MediaType: asset.GetMediaType(), Schema: asset.GetSchema(),
+		})
+	}
+	return result
 }
 
 func (service *Service) invalidReplay(playPath, serverName, serverID, playerName, playerID, connectionID string, startedAt time.Time, cause error) *apiv1.Replay {

@@ -60,7 +60,7 @@ it('renders the stress fixture before the browser-test timeout', async () => {
     expect(inputBounds.left).toBeGreaterThanOrEqual(monitorBounds.right - 1)
     expect(inputBounds.right).toBeCloseTo(totalWidth, 0)
     await expect.element(screen.getByRole('application')).toBeVisible()
-    expect(screen.container.querySelector('[aria-label="Reorder Video 1"]')).toBeNull()
+    expect(screen.container.querySelector('[aria-label="Reorder Video 1"]')).not.toBeNull()
     await expect.poll(() => screen.container.querySelectorAll('canvas').length).toBeGreaterThanOrEqual(2)
 
     await expect.poll(() => screen.container.querySelectorAll('[data-track-id]').length).toBe(stressOptions.trackCount)
@@ -177,7 +177,7 @@ it('renders the stress fixture before the browser-test timeout', async () => {
     }))
     await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
     window.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Delete' }))
-    await expect.poll(() => episodeStore.episode.segments.length).toBe(segmentCount)
+    await expect.poll(() => episodeStore.episode.segments.length).toBeLessThan(segmentCount)
     window.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: 'Delete' }))
     episodeStore.undo()
     await expect.poll(() => episodeStore.episode.segments.length).toBe(segmentCount)
