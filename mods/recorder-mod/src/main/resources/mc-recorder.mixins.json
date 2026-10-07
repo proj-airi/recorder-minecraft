@@ -5,12 +5,15 @@
   "mixins": [
     "BlockEntityChangedMixin",
     "ChunkMapAccessor",
+    "CompoundContainerAccessor",
     "FlashbackWriterScenePacketMixin",
     "LevelChunkLoadedMixin",
     "PacketUtilsMixin",
     "ReplayOptimizerScenePacketMixin",
     "ReplayPacketSnapshotMixin",
     "ReplayConfigCapturePathMixin",
+    "ServerCommonPacketListenerImplMixin",
+    "ServerPlayerMenuMixin",
     "ServerboundInteractPacketAccessor"
   ],
   "injectors": {

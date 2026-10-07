@@ -138,7 +138,13 @@ class PlayFiles private constructor(
          * chest minecarts, donkeys) are still outside that stream.
          */
         internal fun knownGaps(worldStreamActive: Boolean): List<String> {
-            val shared = listOf("audio_not_extracted", "particles_not_extracted", "lighting_not_persisted_in_scene_v2")
+            val shared = listOf(
+                "audio_not_extracted",
+                "particles_not_extracted",
+                "lighting_not_persisted_in_scene_v2",
+                "client_fov_gui_scale_aspect_unobservable_server_side",
+                "container_views_unlinked_for_ender_chests_and_entity_inventories"
+            )
             return shared + if (worldStreamActive) {
                 "world_entities_not_recorded"
             } else {

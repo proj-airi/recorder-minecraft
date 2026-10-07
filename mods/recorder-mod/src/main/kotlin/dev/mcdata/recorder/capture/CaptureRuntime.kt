@@ -8,6 +8,7 @@ import net.minecraft.core.BlockPos
 import net.minecraft.server.MinecraftServer
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.ServerPlayer
+import net.minecraft.world.MenuProvider
 import net.minecraft.world.level.block.entity.BlockEntity
 import org.slf4j.Logger
 import java.nio.file.Path
@@ -93,6 +94,15 @@ object CaptureRuntime {
             world.close(clock.eventTick(), terminalReason)
         }
     }
+
+    @JvmStatic
+    fun clientboundPacket(player: ServerPlayer, packet: Packet<*>) = safely { it.clientboundPacket(player, packet) }
+
+    @JvmStatic
+    fun menuOpening(player: ServerPlayer) = safely { it.menuOpening(player) }
+
+    @JvmStatic
+    fun menuOpened(player: ServerPlayer, provider: MenuProvider) = safely { it.menuOpened(player, provider) }
 
     @Synchronized
     fun stop() {

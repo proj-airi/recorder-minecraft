@@ -2,12 +2,9 @@ package dev.mcdata.recorder.capture
 
 import com.mojang.serialization.DynamicOps
 import dev.recorderminecraft.artifacts.v1.ContainerSnapshot
-import dev.recorderminecraft.artifacts.v1.InventorySlot
-import net.minecraft.core.registries.BuiltInRegistries
 import net.minecraft.nbt.Tag
 import net.minecraft.world.Container
 import net.minecraft.world.RandomizableContainer
-import net.minecraft.world.item.ItemStack
 
 object ContainerContents {
     /**
@@ -34,23 +31,7 @@ object ContainerContents {
         for (slot in 0 until container.containerSize) {
             val stack = container.getItem(slot)
             if (stack.isEmpty) continue
-            snapshot.addSlots(slot(slot, stack, componentOps))
+            snapshot.addSlots(InventorySlots.builder(slot, stack, componentOps))
         }
-    }
-
-    // REVIEW: Mirrors PlayerSnapshot's inventory slot encoding. Kept separate in this change to
-    // avoid colliding with concurrent PlayerSnapshot edits; fold into one helper when merged.
-    private fun slot(index: Int, stack: ItemStack, componentOps: DynamicOps<Tag>?): InventorySlot.Builder {
-        val value = InventorySlot.newBuilder()
-            .setSlot(index)
-            .setItemId(BuiltInRegistries.ITEM.getKey(stack.item).toString())
-            .setCount(stack.count)
-            .setDamage(stack.damageValue)
-            .setMaxDamage(stack.maxDamage)
-        if (componentOps != null) {
-            value.componentsDebug = stack.components.toString()
-            ItemStack.CODEC.encodeStart(componentOps, stack).result().ifPresent { value.componentsSnbt = it.toString() }
-        }
-        return value
     }
 }
