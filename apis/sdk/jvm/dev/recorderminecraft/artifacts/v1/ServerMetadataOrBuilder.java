@@ -136,4 +136,34 @@ public interface ServerMetadataOrBuilder extends
    * <code>.recorder_minecraft.artifacts.v1.CaptureMetadata capture = 9 [json_name = "capture"];</code>
    */
   dev.recorderminecraft.artifacts.v1.CaptureMetadataOrBuilder getCaptureOrBuilder();
+
+  /**
+   * <pre>
+   * Present when a world stream was healthy at connection start. It replaces
+   * the unopened-container known gap for block entity containers.
+   * </pre>
+   *
+   * <code>.recorder_minecraft.artifacts.v1.WorldTruthReference world_container_truth = 10 [json_name = "worldContainerTruth"];</code>
+   * @return Whether the worldContainerTruth field is set.
+   */
+  boolean hasWorldContainerTruth();
+  /**
+   * <pre>
+   * Present when a world stream was healthy at connection start. It replaces
+   * the unopened-container known gap for block entity containers.
+   * </pre>
+   *
+   * <code>.recorder_minecraft.artifacts.v1.WorldTruthReference world_container_truth = 10 [json_name = "worldContainerTruth"];</code>
+   * @return The worldContainerTruth.
+   */
+  dev.recorderminecraft.artifacts.v1.WorldTruthReference getWorldContainerTruth();
+  /**
+   * <pre>
+   * Present when a world stream was healthy at connection start. It replaces
+   * the unopened-container known gap for block entity containers.
+   * </pre>
+   *
+   * <code>.recorder_minecraft.artifacts.v1.WorldTruthReference world_container_truth = 10 [json_name = "worldContainerTruth"];</code>
+   */
+  dev.recorderminecraft.artifacts.v1.WorldTruthReferenceOrBuilder getWorldContainerTruthOrBuilder();
 }
