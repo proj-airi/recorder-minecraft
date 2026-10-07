@@ -100,5 +100,35 @@ public interface CaptureEventOrBuilder extends
    */
   dev.recorderminecraft.artifacts.v1.ReplayTimelineEventOrBuilder getReplayTimelineOrBuilder();
 
+  /**
+   * <code>.recorder_minecraft.artifacts.v1.ClientInformationEvent client_information = 25 [json_name = "clientInformation"];</code>
+   * @return Whether the clientInformation field is set.
+   */
+  boolean hasClientInformation();
+  /**
+   * <code>.recorder_minecraft.artifacts.v1.ClientInformationEvent client_information = 25 [json_name = "clientInformation"];</code>
+   * @return The clientInformation.
+   */
+  dev.recorderminecraft.artifacts.v1.ClientInformationEvent getClientInformation();
+  /**
+   * <code>.recorder_minecraft.artifacts.v1.ClientInformationEvent client_information = 25 [json_name = "clientInformation"];</code>
+   */
+  dev.recorderminecraft.artifacts.v1.ClientInformationEventOrBuilder getClientInformationOrBuilder();
+
+  /**
+   * <code>.recorder_minecraft.artifacts.v1.ContainerViewEvent container_view = 26 [json_name = "containerView"];</code>
+   * @return Whether the containerView field is set.
+   */
+  boolean hasContainerView();
+  /**
+   * <code>.recorder_minecraft.artifacts.v1.ContainerViewEvent container_view = 26 [json_name = "containerView"];</code>
+   * @return The containerView.
+   */
+  dev.recorderminecraft.artifacts.v1.ContainerViewEvent getContainerView();
+  /**
+   * <code>.recorder_minecraft.artifacts.v1.ContainerViewEvent container_view = 26 [json_name = "containerView"];</code>
+   */
+  dev.recorderminecraft.artifacts.v1.ContainerViewEventOrBuilder getContainerViewOrBuilder();
+
   dev.recorderminecraft.artifacts.v1.CaptureEvent.RecordCase getRecordCase();
 }

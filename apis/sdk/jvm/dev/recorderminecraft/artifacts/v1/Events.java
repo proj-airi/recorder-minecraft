@@ -106,6 +106,21 @@ public final class Events extends com.google.protobuf.GeneratedFile {
   static final 
     com.google.protobuf.GeneratedMessage.FieldAccessorTable
       internal_static_recorder_minecraft_artifacts_v1_ReplayCoverage_fieldAccessorTable;
+  static final com.google.protobuf.Descriptors.Descriptor
+    internal_static_recorder_minecraft_artifacts_v1_ClientInformationEvent_descriptor;
+  static final 
+    com.google.protobuf.GeneratedMessage.FieldAccessorTable
+      internal_static_recorder_minecraft_artifacts_v1_ClientInformationEvent_fieldAccessorTable;
+  static final com.google.protobuf.Descriptors.Descriptor
+    internal_static_recorder_minecraft_artifacts_v1_ContainerViewEvent_descriptor;
+  static final 
+    com.google.protobuf.GeneratedMessage.FieldAccessorTable
+      internal_static_recorder_minecraft_artifacts_v1_ContainerViewEvent_fieldAccessorTable;
+  static final com.google.protobuf.Descriptors.Descriptor
+    internal_static_recorder_minecraft_artifacts_v1_ContainerViewSource_descriptor;
+  static final 
+    com.google.protobuf.GeneratedMessage.FieldAccessorTable
+      internal_static_recorder_minecraft_artifacts_v1_ContainerViewSource_fieldAccessorTable;
 
   public static com.google.protobuf.Descriptors.FileDescriptor
       getDescriptor() {
@@ -119,7 +134,7 @@ public final class Events extends com.google.protobuf.GeneratedFile {
       ".proto\022\037recorder_minecraft.artifacts.v1\032" +
       "-recorder-minecraft/artifacts/v1/actions" +
       ".proto\032,recorder-minecraft/artifacts/v1/" +
-      "common.proto\"\256\004\n\014CaptureEvent\022J\n\010identit" +
+      "common.proto\"\366\005\n\014CaptureEvent\022J\n\010identit" +
       "y\030\001 \001(\0132..recorder_minecraft.artifacts.v" +
       "1.EventIdentityR\010identity\022Y\n\rcontrol_sta" +
       "te\030\024 \001(\01322.recorder_minecraft.artifacts." +
@@ -133,7 +148,12 @@ public final class Events extends com.google.protobuf.GeneratedFile {
       "rStateEventH\000R\013playerState\022_\n\017replay_tim" +
       "eline\030\030 \001(\01324.recorder_minecraft.artifac" +
       "ts.v1.ReplayTimelineEventH\000R\016replayTimel" +
-      "ineB\010\n\006record\"\254\003\n\rEventIdentity\022%\n\016schem" +
+      "ine\022h\n\022client_information\030\031 \001(\01327.record" +
+      "er_minecraft.artifacts.v1.ClientInformat" +
+      "ionEventH\000R\021clientInformation\022\\\n\016contain" +
+      "er_view\030\032 \001(\01323.recorder_minecraft.artif" +
+      "acts.v1.ContainerViewEventH\000R\rcontainerV" +
+      "iewB\010\n\006record\"\254\003\n\rEventIdentity\022%\n\016schem" +
       "a_version\030\001 \001(\rR\rschemaVersion\022\035\n\nsessio" +
       "n_id\030\002 \001(\tR\tsessionId\022\037\n\013server_tick\030\003 \001" +
       "(\003R\nserverTick\022\032\n\010sequence\030\004 \001(\004R\010sequen" +
@@ -269,10 +289,55 @@ public final class Events extends com.google.protobuf.GeneratedFile {
       "unkX\022$\n\016center_chunk_z\030\003 \001(\005R\014centerChun" +
       "kZ\0220\n\024view_distance_chunks\030\004 \001(\005R\022viewDi" +
       "stanceChunks\022\032\n\010complete\030\005 \001(\010R\010complete" +
-      "B\207\001\n\"dev.recorderminecraft.artifacts.v1P" +
-      "\001Z_github.com/proj-airi/recorder-minecra" +
-      "ft/apis/sdk/go/recorder-minecraft/artifa" +
-      "cts/v1;artifactsv1b\006proto3"
+      "\"\272\003\n\026ClientInformationEvent\022P\n\006source\030\001 " +
+      "\001(\01628.recorder_minecraft.artifacts.v1.Cl" +
+      "ientInformationSourceR\006source\022\032\n\010languag" +
+      "e\030\002 \001(\tR\010language\022#\n\rview_distance\030\003 \001(\005" +
+      "R\014viewDistance\022\'\n\017chat_visibility\030\004 \001(\tR" +
+      "\016chatVisibility\022\037\n\013chat_colors\030\005 \001(\010R\nch" +
+      "atColors\022/\n\023model_customisation\030\006 \001(\005R\022m" +
+      "odelCustomisation\022\033\n\tmain_hand\030\007 \001(\tR\010ma" +
+      "inHand\022%\n\016text_filtering\030\010 \001(\010R\rtextFilt" +
+      "ering\022%\n\016allows_listing\030\t \001(\010R\rallowsLis" +
+      "ting\022\'\n\017particle_status\030\n \001(\tR\016particleS" +
+      "tatus\"\316\004\n\022ContainerViewEvent\022F\n\004kind\030\001 \001" +
+      "(\01622.recorder_minecraft.artifacts.v1.Con" +
+      "tainerViewKindR\004kind\022L\n\006origin\030\002 \001(\01624.r" +
+      "ecorder_minecraft.artifacts.v1.Container" +
+      "ViewOriginR\006origin\022!\n\014container_id\030\003 \001(\005" +
+      "R\013containerId\022\036\n\010state_id\030\004 \001(\005H\000R\007state" +
+      "Id\210\001\001\022\033\n\tmenu_type\030\005 \001(\tR\010menuType\022L\n\006so" +
+      "urce\030\006 \001(\01324.recorder_minecraft.artifact" +
+      "s.v1.ContainerViewSourceR\006source\0225\n\024cont" +
+      "ainer_slot_count\030\007 \001(\005H\001R\022containerSlotC" +
+      "ount\210\001\001\022D\n\005slots\030\010 \003(\0132..recorder_minecr" +
+      "aft.artifacts.v1.InventorySlotR\005slots\022Q\n" +
+      "\014carried_item\030\t \001(\0132..recorder_minecraft" +
+      ".artifacts.v1.InventorySlotR\013carriedItem" +
+      "B\013\n\t_state_idB\027\n\025_container_slot_count\"\200" +
+      "\002\n\023ContainerViewSource\022\034\n\tdimension\030\001 \001(" +
+      "\tR\tdimension\022E\n\tblock_pos\030\002 \001(\0132(.record" +
+      "er_minecraft.artifacts.v1.Vector3R\010block" +
+      "Pos\022*\n\021block_entity_type\030\003 \001(\tR\017blockEnt" +
+      "ityType\022X\n\023secondary_block_pos\030\004 \001(\0132(.r" +
+      "ecorder_minecraft.artifacts.v1.Vector3R\021" +
+      "secondaryBlockPos*\227\001\n\027ClientInformationS" +
+      "ource\022)\n%CLIENT_INFORMATION_SOURCE_UNSPE" +
+      "CIFIED\020\000\022+\n\'CLIENT_INFORMATION_SOURCE_JO" +
+      "IN_SNAPSHOT\020\001\022$\n CLIENT_INFORMATION_SOUR" +
+      "CE_PACKET\020\002*\331\001\n\021ContainerViewKind\022#\n\037CON" +
+      "TAINER_VIEW_KIND_UNSPECIFIED\020\000\022\036\n\032CONTAI" +
+      "NER_VIEW_KIND_OPENED\020\001\022 \n\034CONTAINER_VIEW" +
+      "_KIND_CONTENTS\020\002\022\034\n\030CONTAINER_VIEW_KIND_" +
+      "SLOT\020\003\022\037\n\033CONTAINER_VIEW_KIND_CARRIED\020\004\022" +
+      "\036\n\032CONTAINER_VIEW_KIND_CLOSED\020\005*\212\001\n\023Cont" +
+      "ainerViewOrigin\022%\n!CONTAINER_VIEW_ORIGIN" +
+      "_UNSPECIFIED\020\000\022%\n!CONTAINER_VIEW_ORIGIN_" +
+      "CLIENTBOUND\020\001\022%\n!CONTAINER_VIEW_ORIGIN_S" +
+      "ERVERBOUND\020\002B\207\001\n\"dev.recorderminecraft.a" +
+      "rtifacts.v1P\001Z_github.com/proj-airi/reco" +
+      "rder-minecraft/apis/sdk/go/recorder-mine" +
+      "craft/artifacts/v1;artifactsv1b\006proto3"
     };
     descriptor = com.google.protobuf.Descriptors.FileDescriptor
       .internalBuildGeneratedFileFrom(descriptorData,
@@ -285,7 +350,7 @@ public final class Events extends com.google.protobuf.GeneratedFile {
     internal_static_recorder_minecraft_artifacts_v1_CaptureEvent_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_recorder_minecraft_artifacts_v1_CaptureEvent_descriptor,
-        new java.lang.String[] { "Identity", "ControlState", "PacketArrival", "PacketApply", "PlayerState", "ReplayTimeline", "Record", });
+        new java.lang.String[] { "Identity", "ControlState", "PacketArrival", "PacketApply", "PlayerState", "ReplayTimeline", "ClientInformation", "ContainerView", "Record", });
     internal_static_recorder_minecraft_artifacts_v1_EventIdentity_descriptor =
       getDescriptor().getMessageType(1);
     internal_static_recorder_minecraft_artifacts_v1_EventIdentity_fieldAccessorTable = new
@@ -376,6 +441,24 @@ public final class Events extends com.google.protobuf.GeneratedFile {
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_recorder_minecraft_artifacts_v1_ReplayCoverage_descriptor,
         new java.lang.String[] { "Kind", "CenterChunkX", "CenterChunkZ", "ViewDistanceChunks", "Complete", });
+    internal_static_recorder_minecraft_artifacts_v1_ClientInformationEvent_descriptor =
+      getDescriptor().getMessageType(16);
+    internal_static_recorder_minecraft_artifacts_v1_ClientInformationEvent_fieldAccessorTable = new
+      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
+        internal_static_recorder_minecraft_artifacts_v1_ClientInformationEvent_descriptor,
+        new java.lang.String[] { "Source", "Language", "ViewDistance", "ChatVisibility", "ChatColors", "ModelCustomisation", "MainHand", "TextFiltering", "AllowsListing", "ParticleStatus", });
+    internal_static_recorder_minecraft_artifacts_v1_ContainerViewEvent_descriptor =
+      getDescriptor().getMessageType(17);
+    internal_static_recorder_minecraft_artifacts_v1_ContainerViewEvent_fieldAccessorTable = new
+      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
+        internal_static_recorder_minecraft_artifacts_v1_ContainerViewEvent_descriptor,
+        new java.lang.String[] { "Kind", "Origin", "ContainerId", "StateId", "MenuType", "Source", "ContainerSlotCount", "Slots", "CarriedItem", });
+    internal_static_recorder_minecraft_artifacts_v1_ContainerViewSource_descriptor =
+      getDescriptor().getMessageType(18);
+    internal_static_recorder_minecraft_artifacts_v1_ContainerViewSource_fieldAccessorTable = new
+      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
+        internal_static_recorder_minecraft_artifacts_v1_ContainerViewSource_descriptor,
+        new java.lang.String[] { "Dimension", "BlockPos", "BlockEntityType", "SecondaryBlockPos", });
     descriptor.resolveAllFeaturesImmutable();
     dev.recorderminecraft.artifacts.v1.Actions.getDescriptor();
     dev.recorderminecraft.artifacts.v1.Common.getDescriptor();

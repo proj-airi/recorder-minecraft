@@ -104,6 +104,9 @@ func writeFixture(t *testing.T, metadata, events string) {
 		{Identity: identity(10, 1), Record: &artifactsv1.CaptureEvent_ControlState{ControlState: &artifactsv1.ControlStateEvent{State: &artifactsv1.ControlState{Forward: true}}}},
 		{Identity: identity(10, 2), Record: &artifactsv1.CaptureEvent_PacketApply{PacketApply: &artifactsv1.PacketApplyEvent{ApplySequence: 1, Packet: &artifactsv1.Packet{ActionKind: "swing"}}}},
 		{Identity: identity(11, 3), Record: &artifactsv1.CaptureEvent_PlayerState{PlayerState: &artifactsv1.PlayerStateEvent{}}},
+		// Actor perception records are valid capture input but never actions.
+		{Identity: identity(11, 4), Record: &artifactsv1.CaptureEvent_ClientInformation{ClientInformation: &artifactsv1.ClientInformationEvent{ViewDistance: 8}}},
+		{Identity: identity(11, 5), Record: &artifactsv1.CaptureEvent_ContainerView{ContainerView: &artifactsv1.ContainerViewEvent{ContainerId: 2}}},
 	}
 	for _, record := range records {
 		encoded, err := protojson.Marshal(record)

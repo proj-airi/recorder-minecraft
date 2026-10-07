@@ -55,6 +55,8 @@ private static final long serialVersionUID = 0L;
     PACKET_APPLY(22),
     PLAYER_STATE(23),
     REPLAY_TIMELINE(24),
+    CLIENT_INFORMATION(25),
+    CONTAINER_VIEW(26),
     RECORD_NOT_SET(0);
     private final int value;
     private RecordCase(int value) {
@@ -77,6 +79,8 @@ private static final long serialVersionUID = 0L;
         case 22: return PACKET_APPLY;
         case 23: return PLAYER_STATE;
         case 24: return REPLAY_TIMELINE;
+        case 25: return CLIENT_INFORMATION;
+        case 26: return CONTAINER_VIEW;
         case 0: return RECORD_NOT_SET;
         default: return null;
       }
@@ -273,6 +277,68 @@ private static final long serialVersionUID = 0L;
     return dev.recorderminecraft.artifacts.v1.ReplayTimelineEvent.getDefaultInstance();
   }
 
+  public static final int CLIENT_INFORMATION_FIELD_NUMBER = 25;
+  /**
+   * <code>.recorder_minecraft.artifacts.v1.ClientInformationEvent client_information = 25 [json_name = "clientInformation"];</code>
+   * @return Whether the clientInformation field is set.
+   */
+  @java.lang.Override
+  public boolean hasClientInformation() {
+    return recordCase_ == 25;
+  }
+  /**
+   * <code>.recorder_minecraft.artifacts.v1.ClientInformationEvent client_information = 25 [json_name = "clientInformation"];</code>
+   * @return The clientInformation.
+   */
+  @java.lang.Override
+  public dev.recorderminecraft.artifacts.v1.ClientInformationEvent getClientInformation() {
+    if (recordCase_ == 25) {
+       return (dev.recorderminecraft.artifacts.v1.ClientInformationEvent) record_;
+    }
+    return dev.recorderminecraft.artifacts.v1.ClientInformationEvent.getDefaultInstance();
+  }
+  /**
+   * <code>.recorder_minecraft.artifacts.v1.ClientInformationEvent client_information = 25 [json_name = "clientInformation"];</code>
+   */
+  @java.lang.Override
+  public dev.recorderminecraft.artifacts.v1.ClientInformationEventOrBuilder getClientInformationOrBuilder() {
+    if (recordCase_ == 25) {
+       return (dev.recorderminecraft.artifacts.v1.ClientInformationEvent) record_;
+    }
+    return dev.recorderminecraft.artifacts.v1.ClientInformationEvent.getDefaultInstance();
+  }
+
+  public static final int CONTAINER_VIEW_FIELD_NUMBER = 26;
+  /**
+   * <code>.recorder_minecraft.artifacts.v1.ContainerViewEvent container_view = 26 [json_name = "containerView"];</code>
+   * @return Whether the containerView field is set.
+   */
+  @java.lang.Override
+  public boolean hasContainerView() {
+    return recordCase_ == 26;
+  }
+  /**
+   * <code>.recorder_minecraft.artifacts.v1.ContainerViewEvent container_view = 26 [json_name = "containerView"];</code>
+   * @return The containerView.
+   */
+  @java.lang.Override
+  public dev.recorderminecraft.artifacts.v1.ContainerViewEvent getContainerView() {
+    if (recordCase_ == 26) {
+       return (dev.recorderminecraft.artifacts.v1.ContainerViewEvent) record_;
+    }
+    return dev.recorderminecraft.artifacts.v1.ContainerViewEvent.getDefaultInstance();
+  }
+  /**
+   * <code>.recorder_minecraft.artifacts.v1.ContainerViewEvent container_view = 26 [json_name = "containerView"];</code>
+   */
+  @java.lang.Override
+  public dev.recorderminecraft.artifacts.v1.ContainerViewEventOrBuilder getContainerViewOrBuilder() {
+    if (recordCase_ == 26) {
+       return (dev.recorderminecraft.artifacts.v1.ContainerViewEvent) record_;
+    }
+    return dev.recorderminecraft.artifacts.v1.ContainerViewEvent.getDefaultInstance();
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -304,6 +370,12 @@ private static final long serialVersionUID = 0L;
     }
     if (recordCase_ == 24) {
       output.writeMessage(24, (dev.recorderminecraft.artifacts.v1.ReplayTimelineEvent) record_);
+    }
+    if (recordCase_ == 25) {
+      output.writeMessage(25, (dev.recorderminecraft.artifacts.v1.ClientInformationEvent) record_);
+    }
+    if (recordCase_ == 26) {
+      output.writeMessage(26, (dev.recorderminecraft.artifacts.v1.ContainerViewEvent) record_);
     }
     getUnknownFields().writeTo(output);
   }
@@ -337,6 +409,14 @@ private static final long serialVersionUID = 0L;
     if (recordCase_ == 24) {
       size += com.google.protobuf.CodedOutputStream
         .computeMessageSize(24, (dev.recorderminecraft.artifacts.v1.ReplayTimelineEvent) record_);
+    }
+    if (recordCase_ == 25) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(25, (dev.recorderminecraft.artifacts.v1.ClientInformationEvent) record_);
+    }
+    if (recordCase_ == 26) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(26, (dev.recorderminecraft.artifacts.v1.ContainerViewEvent) record_);
     }
     size += getUnknownFields().getSerializedSize();
     memoizedSize = size;
@@ -380,6 +460,14 @@ private static final long serialVersionUID = 0L;
         if (!getReplayTimeline()
             .equals(other.getReplayTimeline())) return false;
         break;
+      case 25:
+        if (!getClientInformation()
+            .equals(other.getClientInformation())) return false;
+        break;
+      case 26:
+        if (!getContainerView()
+            .equals(other.getContainerView())) return false;
+        break;
       case 0:
       default:
     }
@@ -418,6 +506,14 @@ private static final long serialVersionUID = 0L;
       case 24:
         hash = (37 * hash) + REPLAY_TIMELINE_FIELD_NUMBER;
         hash = (53 * hash) + getReplayTimeline().hashCode();
+        break;
+      case 25:
+        hash = (37 * hash) + CLIENT_INFORMATION_FIELD_NUMBER;
+        hash = (53 * hash) + getClientInformation().hashCode();
+        break;
+      case 26:
+        hash = (37 * hash) + CONTAINER_VIEW_FIELD_NUMBER;
+        hash = (53 * hash) + getContainerView().hashCode();
         break;
       case 0:
       default:
@@ -579,6 +675,12 @@ private static final long serialVersionUID = 0L;
       if (replayTimelineBuilder_ != null) {
         replayTimelineBuilder_.clear();
       }
+      if (clientInformationBuilder_ != null) {
+        clientInformationBuilder_.clear();
+      }
+      if (containerViewBuilder_ != null) {
+        containerViewBuilder_.clear();
+      }
       recordCase_ = 0;
       record_ = null;
       return this;
@@ -648,6 +750,14 @@ private static final long serialVersionUID = 0L;
           replayTimelineBuilder_ != null) {
         result.record_ = replayTimelineBuilder_.build();
       }
+      if (recordCase_ == 25 &&
+          clientInformationBuilder_ != null) {
+        result.record_ = clientInformationBuilder_.build();
+      }
+      if (recordCase_ == 26 &&
+          containerViewBuilder_ != null) {
+        result.record_ = containerViewBuilder_.build();
+      }
     }
 
     @java.lang.Override
@@ -684,6 +794,14 @@ private static final long serialVersionUID = 0L;
         }
         case REPLAY_TIMELINE: {
           mergeReplayTimeline(other.getReplayTimeline());
+          break;
+        }
+        case CLIENT_INFORMATION: {
+          mergeClientInformation(other.getClientInformation());
+          break;
+        }
+        case CONTAINER_VIEW: {
+          mergeContainerView(other.getContainerView());
           break;
         }
         case RECORD_NOT_SET: {
@@ -758,6 +876,20 @@ private static final long serialVersionUID = 0L;
               recordCase_ = 24;
               break;
             } // case 194
+            case 202: {
+              input.readMessage(
+                  internalGetClientInformationFieldBuilder().getBuilder(),
+                  extensionRegistry);
+              recordCase_ = 25;
+              break;
+            } // case 202
+            case 210: {
+              input.readMessage(
+                  internalGetContainerViewFieldBuilder().getBuilder(),
+                  extensionRegistry);
+              recordCase_ = 26;
+              break;
+            } // case 210
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -1619,6 +1751,290 @@ private static final long serialVersionUID = 0L;
       recordCase_ = 24;
       onChanged();
       return replayTimelineBuilder_;
+    }
+
+    private com.google.protobuf.SingleFieldBuilder<
+        dev.recorderminecraft.artifacts.v1.ClientInformationEvent, dev.recorderminecraft.artifacts.v1.ClientInformationEvent.Builder, dev.recorderminecraft.artifacts.v1.ClientInformationEventOrBuilder> clientInformationBuilder_;
+    /**
+     * <code>.recorder_minecraft.artifacts.v1.ClientInformationEvent client_information = 25 [json_name = "clientInformation"];</code>
+     * @return Whether the clientInformation field is set.
+     */
+    @java.lang.Override
+    public boolean hasClientInformation() {
+      return recordCase_ == 25;
+    }
+    /**
+     * <code>.recorder_minecraft.artifacts.v1.ClientInformationEvent client_information = 25 [json_name = "clientInformation"];</code>
+     * @return The clientInformation.
+     */
+    @java.lang.Override
+    public dev.recorderminecraft.artifacts.v1.ClientInformationEvent getClientInformation() {
+      if (clientInformationBuilder_ == null) {
+        if (recordCase_ == 25) {
+          return (dev.recorderminecraft.artifacts.v1.ClientInformationEvent) record_;
+        }
+        return dev.recorderminecraft.artifacts.v1.ClientInformationEvent.getDefaultInstance();
+      } else {
+        if (recordCase_ == 25) {
+          return clientInformationBuilder_.getMessage();
+        }
+        return dev.recorderminecraft.artifacts.v1.ClientInformationEvent.getDefaultInstance();
+      }
+    }
+    /**
+     * <code>.recorder_minecraft.artifacts.v1.ClientInformationEvent client_information = 25 [json_name = "clientInformation"];</code>
+     */
+    public Builder setClientInformation(dev.recorderminecraft.artifacts.v1.ClientInformationEvent value) {
+      if (clientInformationBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        record_ = value;
+        onChanged();
+      } else {
+        clientInformationBuilder_.setMessage(value);
+      }
+      recordCase_ = 25;
+      return this;
+    }
+    /**
+     * <code>.recorder_minecraft.artifacts.v1.ClientInformationEvent client_information = 25 [json_name = "clientInformation"];</code>
+     */
+    public Builder setClientInformation(
+        dev.recorderminecraft.artifacts.v1.ClientInformationEvent.Builder builderForValue) {
+      if (clientInformationBuilder_ == null) {
+        record_ = builderForValue.build();
+        onChanged();
+      } else {
+        clientInformationBuilder_.setMessage(builderForValue.build());
+      }
+      recordCase_ = 25;
+      return this;
+    }
+    /**
+     * <code>.recorder_minecraft.artifacts.v1.ClientInformationEvent client_information = 25 [json_name = "clientInformation"];</code>
+     */
+    public Builder mergeClientInformation(dev.recorderminecraft.artifacts.v1.ClientInformationEvent value) {
+      if (clientInformationBuilder_ == null) {
+        if (recordCase_ == 25 &&
+            record_ != dev.recorderminecraft.artifacts.v1.ClientInformationEvent.getDefaultInstance()) {
+          record_ = dev.recorderminecraft.artifacts.v1.ClientInformationEvent.newBuilder((dev.recorderminecraft.artifacts.v1.ClientInformationEvent) record_)
+              .mergeFrom(value).buildPartial();
+        } else {
+          record_ = value;
+        }
+        onChanged();
+      } else {
+        if (recordCase_ == 25) {
+          clientInformationBuilder_.mergeFrom(value);
+        } else {
+          clientInformationBuilder_.setMessage(value);
+        }
+      }
+      recordCase_ = 25;
+      return this;
+    }
+    /**
+     * <code>.recorder_minecraft.artifacts.v1.ClientInformationEvent client_information = 25 [json_name = "clientInformation"];</code>
+     */
+    public Builder clearClientInformation() {
+      if (clientInformationBuilder_ == null) {
+        if (recordCase_ == 25) {
+          recordCase_ = 0;
+          record_ = null;
+          onChanged();
+        }
+      } else {
+        if (recordCase_ == 25) {
+          recordCase_ = 0;
+          record_ = null;
+        }
+        clientInformationBuilder_.clear();
+      }
+      return this;
+    }
+    /**
+     * <code>.recorder_minecraft.artifacts.v1.ClientInformationEvent client_information = 25 [json_name = "clientInformation"];</code>
+     */
+    public dev.recorderminecraft.artifacts.v1.ClientInformationEvent.Builder getClientInformationBuilder() {
+      return internalGetClientInformationFieldBuilder().getBuilder();
+    }
+    /**
+     * <code>.recorder_minecraft.artifacts.v1.ClientInformationEvent client_information = 25 [json_name = "clientInformation"];</code>
+     */
+    @java.lang.Override
+    public dev.recorderminecraft.artifacts.v1.ClientInformationEventOrBuilder getClientInformationOrBuilder() {
+      if ((recordCase_ == 25) && (clientInformationBuilder_ != null)) {
+        return clientInformationBuilder_.getMessageOrBuilder();
+      } else {
+        if (recordCase_ == 25) {
+          return (dev.recorderminecraft.artifacts.v1.ClientInformationEvent) record_;
+        }
+        return dev.recorderminecraft.artifacts.v1.ClientInformationEvent.getDefaultInstance();
+      }
+    }
+    /**
+     * <code>.recorder_minecraft.artifacts.v1.ClientInformationEvent client_information = 25 [json_name = "clientInformation"];</code>
+     */
+    private com.google.protobuf.SingleFieldBuilder<
+        dev.recorderminecraft.artifacts.v1.ClientInformationEvent, dev.recorderminecraft.artifacts.v1.ClientInformationEvent.Builder, dev.recorderminecraft.artifacts.v1.ClientInformationEventOrBuilder> 
+        internalGetClientInformationFieldBuilder() {
+      if (clientInformationBuilder_ == null) {
+        if (!(recordCase_ == 25)) {
+          record_ = dev.recorderminecraft.artifacts.v1.ClientInformationEvent.getDefaultInstance();
+        }
+        clientInformationBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            dev.recorderminecraft.artifacts.v1.ClientInformationEvent, dev.recorderminecraft.artifacts.v1.ClientInformationEvent.Builder, dev.recorderminecraft.artifacts.v1.ClientInformationEventOrBuilder>(
+                (dev.recorderminecraft.artifacts.v1.ClientInformationEvent) record_,
+                getParentForChildren(),
+                isClean());
+        record_ = null;
+      }
+      recordCase_ = 25;
+      onChanged();
+      return clientInformationBuilder_;
+    }
+
+    private com.google.protobuf.SingleFieldBuilder<
+        dev.recorderminecraft.artifacts.v1.ContainerViewEvent, dev.recorderminecraft.artifacts.v1.ContainerViewEvent.Builder, dev.recorderminecraft.artifacts.v1.ContainerViewEventOrBuilder> containerViewBuilder_;
+    /**
+     * <code>.recorder_minecraft.artifacts.v1.ContainerViewEvent container_view = 26 [json_name = "containerView"];</code>
+     * @return Whether the containerView field is set.
+     */
+    @java.lang.Override
+    public boolean hasContainerView() {
+      return recordCase_ == 26;
+    }
+    /**
+     * <code>.recorder_minecraft.artifacts.v1.ContainerViewEvent container_view = 26 [json_name = "containerView"];</code>
+     * @return The containerView.
+     */
+    @java.lang.Override
+    public dev.recorderminecraft.artifacts.v1.ContainerViewEvent getContainerView() {
+      if (containerViewBuilder_ == null) {
+        if (recordCase_ == 26) {
+          return (dev.recorderminecraft.artifacts.v1.ContainerViewEvent) record_;
+        }
+        return dev.recorderminecraft.artifacts.v1.ContainerViewEvent.getDefaultInstance();
+      } else {
+        if (recordCase_ == 26) {
+          return containerViewBuilder_.getMessage();
+        }
+        return dev.recorderminecraft.artifacts.v1.ContainerViewEvent.getDefaultInstance();
+      }
+    }
+    /**
+     * <code>.recorder_minecraft.artifacts.v1.ContainerViewEvent container_view = 26 [json_name = "containerView"];</code>
+     */
+    public Builder setContainerView(dev.recorderminecraft.artifacts.v1.ContainerViewEvent value) {
+      if (containerViewBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        record_ = value;
+        onChanged();
+      } else {
+        containerViewBuilder_.setMessage(value);
+      }
+      recordCase_ = 26;
+      return this;
+    }
+    /**
+     * <code>.recorder_minecraft.artifacts.v1.ContainerViewEvent container_view = 26 [json_name = "containerView"];</code>
+     */
+    public Builder setContainerView(
+        dev.recorderminecraft.artifacts.v1.ContainerViewEvent.Builder builderForValue) {
+      if (containerViewBuilder_ == null) {
+        record_ = builderForValue.build();
+        onChanged();
+      } else {
+        containerViewBuilder_.setMessage(builderForValue.build());
+      }
+      recordCase_ = 26;
+      return this;
+    }
+    /**
+     * <code>.recorder_minecraft.artifacts.v1.ContainerViewEvent container_view = 26 [json_name = "containerView"];</code>
+     */
+    public Builder mergeContainerView(dev.recorderminecraft.artifacts.v1.ContainerViewEvent value) {
+      if (containerViewBuilder_ == null) {
+        if (recordCase_ == 26 &&
+            record_ != dev.recorderminecraft.artifacts.v1.ContainerViewEvent.getDefaultInstance()) {
+          record_ = dev.recorderminecraft.artifacts.v1.ContainerViewEvent.newBuilder((dev.recorderminecraft.artifacts.v1.ContainerViewEvent) record_)
+              .mergeFrom(value).buildPartial();
+        } else {
+          record_ = value;
+        }
+        onChanged();
+      } else {
+        if (recordCase_ == 26) {
+          containerViewBuilder_.mergeFrom(value);
+        } else {
+          containerViewBuilder_.setMessage(value);
+        }
+      }
+      recordCase_ = 26;
+      return this;
+    }
+    /**
+     * <code>.recorder_minecraft.artifacts.v1.ContainerViewEvent container_view = 26 [json_name = "containerView"];</code>
+     */
+    public Builder clearContainerView() {
+      if (containerViewBuilder_ == null) {
+        if (recordCase_ == 26) {
+          recordCase_ = 0;
+          record_ = null;
+          onChanged();
+        }
+      } else {
+        if (recordCase_ == 26) {
+          recordCase_ = 0;
+          record_ = null;
+        }
+        containerViewBuilder_.clear();
+      }
+      return this;
+    }
+    /**
+     * <code>.recorder_minecraft.artifacts.v1.ContainerViewEvent container_view = 26 [json_name = "containerView"];</code>
+     */
+    public dev.recorderminecraft.artifacts.v1.ContainerViewEvent.Builder getContainerViewBuilder() {
+      return internalGetContainerViewFieldBuilder().getBuilder();
+    }
+    /**
+     * <code>.recorder_minecraft.artifacts.v1.ContainerViewEvent container_view = 26 [json_name = "containerView"];</code>
+     */
+    @java.lang.Override
+    public dev.recorderminecraft.artifacts.v1.ContainerViewEventOrBuilder getContainerViewOrBuilder() {
+      if ((recordCase_ == 26) && (containerViewBuilder_ != null)) {
+        return containerViewBuilder_.getMessageOrBuilder();
+      } else {
+        if (recordCase_ == 26) {
+          return (dev.recorderminecraft.artifacts.v1.ContainerViewEvent) record_;
+        }
+        return dev.recorderminecraft.artifacts.v1.ContainerViewEvent.getDefaultInstance();
+      }
+    }
+    /**
+     * <code>.recorder_minecraft.artifacts.v1.ContainerViewEvent container_view = 26 [json_name = "containerView"];</code>
+     */
+    private com.google.protobuf.SingleFieldBuilder<
+        dev.recorderminecraft.artifacts.v1.ContainerViewEvent, dev.recorderminecraft.artifacts.v1.ContainerViewEvent.Builder, dev.recorderminecraft.artifacts.v1.ContainerViewEventOrBuilder> 
+        internalGetContainerViewFieldBuilder() {
+      if (containerViewBuilder_ == null) {
+        if (!(recordCase_ == 26)) {
+          record_ = dev.recorderminecraft.artifacts.v1.ContainerViewEvent.getDefaultInstance();
+        }
+        containerViewBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            dev.recorderminecraft.artifacts.v1.ContainerViewEvent, dev.recorderminecraft.artifacts.v1.ContainerViewEvent.Builder, dev.recorderminecraft.artifacts.v1.ContainerViewEventOrBuilder>(
+                (dev.recorderminecraft.artifacts.v1.ContainerViewEvent) record_,
+                getParentForChildren(),
+                isClean());
+        record_ = null;
+      }
+      recordCase_ = 26;
+      onChanged();
+      return containerViewBuilder_;
     }
 
     // @@protoc_insertion_point(builder_scope:recorder_minecraft.artifacts.v1.CaptureEvent)
