@@ -1,18 +1,15 @@
 package dev.mcdata.recorder.io
 
-import com.google.protobuf.Timestamp
-import com.google.protobuf.util.JsonFormat
 import dev.recorderminecraft.artifacts.v1.CaptureMetadata
 import dev.recorderminecraft.artifacts.v1.Connection
 import dev.recorderminecraft.artifacts.v1.PlayerIdentity
 import dev.recorderminecraft.artifacts.v1.ServerIdentity
 import dev.recorderminecraft.artifacts.v1.ServerMetadata
+import dev.recorderminecraft.artifacts.v1.WorldTruthReference
 import dev.mcdata.recorder.capture.ReplayScenePacketContract
 import dev.mcdata.recorder.config.RecorderConfig
-import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
 import java.nio.file.Path
-import java.nio.file.StandardCopyOption
 import java.time.Instant
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
@@ -90,7 +87,7 @@ class PlayFiles private constructor(
     }
 
     companion object {
-        private val pathTime = DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss.SSS'Z'").withZone(ZoneOffset.UTC)
+        internal val pathTime = DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss.SSS'Z'").withZone(ZoneOffset.UTC)
 
         fun create(
             config: RecorderConfig,
@@ -99,7 +96,8 @@ class PlayFiles private constructor(
             playerUuid: UUID,
             connectionId: UUID,
             startedAt: Instant,
-            startServerTick: Long
+            startServerTick: Long,
+            worldContainerTruth: WorldTruthReference? = null
         ): PlayFiles {
             val identity = PlayIdentity(
                 config.serverName, config.serverInstanceUuid(), playerName, playerUuid,
@@ -122,43 +120,44 @@ class PlayFiles private constructor(
                         .setStartServerTick(startServerTick)
                 )
                 .setFlashbackCaptureContract(ReplayScenePacketContract.FLASHBACK_CAPTURE_CONTRACT)
-                .addAllKnownGaps(listOf(
-                    "audio_not_extracted", "particles_not_extracted", "lighting_not_persisted_in_scene_v2",
-                    "unopened_container_contents_may_be_unknown",
-                    "client_fov_gui_scale_aspect_unobservable_server_side",
-                    "container_views_unlinked_for_ender_chests_and_entity_inventories"
-                ))
+                .addAllKnownGaps(knownGaps(worldContainerTruth != null))
                 .setCapture(
                     CaptureMetadata.newBuilder()
                         .setEvents("capture/events.jsonl")
                         .setReplay("capture/replay.zip")
                         .setReplayFormat("flashback")
                 )
+            worldContainerTruth?.let(metadata::setWorldContainerTruth)
             atomicWrite(paths.metadata, metadata.build())
             return PlayFiles(paths, metadata)
         }
 
-        private fun atomicWrite(destination: Path, value: ServerMetadata) {
-            val partial = destination.resolveSibling(destination.fileName.toString() + ".inprogress")
-            Files.writeString(partial, JsonFormat.printer().print(value) + "\n")
-            moveComplete(partial, destination, replace = true)
-        }
-
-        private fun timestamp(value: Instant): Timestamp = Timestamp.newBuilder()
-            .setSeconds(value.epochSecond)
-            .setNanos(value.nano)
-            .build()
-
-        private fun moveComplete(source: Path, destination: Path, replace: Boolean = false) {
-            val options = mutableListOf(StandardCopyOption.ATOMIC_MOVE)
-            if (replace) options.add(StandardCopyOption.REPLACE_EXISTING)
-            try {
-                Files.move(source, destination, *options.toTypedArray())
-            } catch (_: AtomicMoveNotSupportedException) {
-                val fallback = if (replace) arrayOf(StandardCopyOption.REPLACE_EXISTING) else emptyArray()
-                Files.move(source, destination, *fallback)
+        /**
+         * A healthy world stream records every loaded container block entity, so unopened block
+         * containers are no longer unknown for this Play. Entity-held inventories (item entities,
+         * chest minecarts, donkeys) are still outside that stream.
+         */
+        internal fun knownGaps(worldStreamActive: Boolean): List<String> {
+            val shared = listOf(
+                "audio_not_extracted",
+                "particles_not_extracted",
+                "lighting_not_persisted_in_scene_v2",
+                "client_fov_gui_scale_aspect_unobservable_server_side",
+                "container_views_unlinked_for_ender_chests_and_entity_inventories"
+            )
+            return shared + if (worldStreamActive) {
+                "world_entities_not_recorded"
+            } else {
+                "unopened_container_contents_may_be_unknown"
             }
         }
+
+        private fun atomicWrite(destination: Path, value: ServerMetadata) =
+            AtomicFiles.writeProtoJson(destination, value)
+
+        private fun timestamp(value: Instant) = AtomicFiles.timestamp(value)
+
+        private fun moveComplete(source: Path, destination: Path) = AtomicFiles.move(source, destination)
     }
 
     private data class CaptureEnd(val endedAt: Instant, val endServerTick: Long, val terminalReason: String)

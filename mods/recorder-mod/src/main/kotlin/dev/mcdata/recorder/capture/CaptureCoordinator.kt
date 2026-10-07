@@ -13,6 +13,7 @@ import dev.recorderminecraft.artifacts.v1.PacketApplyEvent
 import dev.recorderminecraft.artifacts.v1.PacketArrivalEvent
 import dev.recorderminecraft.artifacts.v1.ReplayCoverage
 import dev.recorderminecraft.artifacts.v1.ReplayTimelineEvent
+import dev.recorderminecraft.artifacts.v1.WorldTruthReference
 import dev.mcdata.recorder.config.RecorderConfig
 import dev.mcdata.recorder.io.AsyncPlayWriter
 import dev.mcdata.recorder.io.PlayFiles
@@ -34,7 +35,8 @@ import java.util.concurrent.CompletableFuture
 class CaptureCoordinator(
     private val config: RecorderConfig,
     private val sessionId: String,
-    private val logger: Logger
+    private val logger: Logger,
+    private val worldContainerTruth: () -> WorldTruthReference? = { null }
 ) : AutoCloseable {
     private var serverTick = 0L
     private var applySequence = 0L
@@ -57,7 +59,8 @@ class CaptureCoordinator(
             playerUuid = profile.id,
             connectionId = connectionId,
             startedAt = Instant.now(),
-            startServerTick = associatedEventTick()
+            startServerTick = associatedEventTick(),
+            worldContainerTruth = worldContainerTruth()
         )
         val capture = ConnectionCapture(
             id = connectionId.toString(),
@@ -70,6 +73,10 @@ class CaptureCoordinator(
         logger.info("Started play capture {} in {}", capture.id, playFiles.paths.root)
         return playFiles.paths.replayWorking
     }
+
+    /** The tick an event observed now belongs to; the world stream stamps records with it too. */
+    @Synchronized
+    fun eventTick(): Long = associatedEventTick()
 
     @Synchronized
     fun startTick() {

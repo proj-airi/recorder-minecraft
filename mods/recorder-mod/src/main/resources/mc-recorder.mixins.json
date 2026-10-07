@@ -3,8 +3,11 @@
   "package": "dev.mcdata.recorder.mixin",
   "compatibilityLevel": "JAVA_21",
   "mixins": [
+    "BlockEntityChangedMixin",
+    "ChunkMapAccessor",
     "CompoundContainerAccessor",
     "FlashbackWriterScenePacketMixin",
+    "LevelChunkLoadedMixin",
     "PacketUtilsMixin",
     "ReplayOptimizerScenePacketMixin",
     "ReplayPacketSnapshotMixin",

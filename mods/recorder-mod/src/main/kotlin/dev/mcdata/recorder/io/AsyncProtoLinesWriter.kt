@@ -1,6 +1,8 @@
 package dev.mcdata.recorder.io
 
 import dev.recorderminecraft.artifacts.v1.CaptureEvent
+import dev.recorderminecraft.artifacts.v1.WorldEvent
+import com.google.protobuf.Message
 import com.google.protobuf.util.JsonFormat
 import org.slf4j.Logger
 import java.io.BufferedOutputStream
@@ -12,31 +14,38 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
+/** Connection-local Play event stream. */
+typealias AsyncPlayWriter = AsyncProtoLinesWriter<CaptureEvent>
+
+/** Session-level world event stream. */
+typealias AsyncWorldWriter = AsyncProtoLinesWriter<WorldEvent>
+
 /**
- * Single-owner asynchronous append stream for one player connection.
+ * Single-owner asynchronous ProtoJSON-lines append stream.
  *
- * The canonical events file exists from connection start and is never rotated. A clean close
- * drains the queue, flushes the buffer, and fsyncs the file before play metadata may be completed.
+ * The events file exists from stream start and is never rotated. A clean close drains the queue,
+ * flushes the buffer, and fsyncs the file before the owning metadata may be completed.
  */
-class AsyncPlayWriter(
+class AsyncProtoLinesWriter<T : Message>(
     private val events: Path,
     queueCapacity: Int,
-    private val logger: Logger
+    private val logger: Logger,
+    private val stream: String = "play"
 ) : AutoCloseable {
     private val queue = ArrayBlockingQueue<QueueItem>(queueCapacity)
     private val enqueueTransition = Any()
     private val closing = AtomicBoolean(false)
     private val failure = AtomicReference<Throwable?>()
-    private val worker = Thread(::writeLoop, "recorder-minecraft-play-writer").apply {
+    private val worker = Thread(::writeLoop, "recorder-minecraft-$stream-writer").apply {
         isDaemon = true
         start()
     }
 
-    fun submit(record: CaptureEvent) {
+    fun submit(record: T) {
         synchronized(enqueueTransition) {
-            check(!closing.get()) { "play writer is closing" }
+            check(!closing.get()) { "$stream writer is closing" }
             offerWhileHealthy(QueueItem.Record(record), "record")
-            failure.get()?.let { throw IllegalStateException("play writer failed", it) }
+            failure.get()?.let { throw IllegalStateException("$stream writer failed", it) }
         }
     }
 
@@ -64,28 +73,28 @@ class AsyncPlayWriter(
             joinWorker(throwOnFailure = false)
         }.onFailure {
             worker.interrupt()
-            logger.error("Could not stop play writer cleanly while aborting {}", events, it)
+            logger.error("Could not stop {} writer cleanly while aborting {}", stream, events, it)
         }
     }
 
     private fun offerWhileHealthy(item: QueueItem, description: String) {
         val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(QUEUE_TIMEOUT_SECONDS)
         while (true) {
-            failure.get()?.let { throw IllegalStateException("play writer failed", it) }
-            check(worker.isAlive) { "play writer stopped before accepting $description" }
+            failure.get()?.let { throw IllegalStateException("$stream writer failed", it) }
+            check(worker.isAlive) { "$stream writer stopped before accepting $description" }
             val remaining = deadline - System.nanoTime()
-            check(remaining > 0) { "play writer queue timed out while accepting $description" }
+            check(remaining > 0) { "$stream writer queue timed out while accepting $description" }
             if (queue.offer(item, minOf(remaining, TimeUnit.MILLISECONDS.toNanos(250)), TimeUnit.NANOSECONDS)) {
                 return
             }
-            if (item is QueueItem.Record) check(!closing.get()) { "play writer is closing" }
+            if (item is QueueItem.Record) check(!closing.get()) { "$stream writer is closing" }
         }
     }
 
     private fun joinWorker(throwOnFailure: Boolean = true) {
         worker.join(TimeUnit.SECONDS.toMillis(QUEUE_TIMEOUT_SECONDS))
-        check(!worker.isAlive) { "play writer did not stop within $QUEUE_TIMEOUT_SECONDS seconds" }
-        if (throwOnFailure) failure.get()?.let { throw IllegalStateException("play writer failed", it) }
+        check(!worker.isAlive) { "$stream writer did not stop within $QUEUE_TIMEOUT_SECONDS seconds" }
+        if (throwOnFailure) failure.get()?.let { throw IllegalStateException("$stream writer failed", it) }
     }
 
     private fun writeLoop() {
@@ -115,12 +124,12 @@ class AsyncPlayWriter(
             }
         } catch (throwable: Throwable) {
             failure.set(throwable)
-            logger.error("Recorder play writer failed for {}", events, throwable)
+            logger.error("Recorder {} writer failed for {}", stream, events, throwable)
         }
     }
 
     private sealed interface QueueItem {
-        data class Record(val value: CaptureEvent) : QueueItem
+        data class Record(val value: Message) : QueueItem
         data object Stop : QueueItem
         data object Abort : QueueItem
     }

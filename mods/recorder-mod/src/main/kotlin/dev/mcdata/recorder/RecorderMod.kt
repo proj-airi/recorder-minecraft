@@ -12,6 +12,7 @@ import net.casual.arcade.replay.events.ReplayRecorderStartEvent
 import net.casual.arcade.replay.events.ReplayRecorderStopEvent
 import net.casual.arcade.replay.recorder.player.ReplayPlayerRecorders
 import net.fabricmc.api.ModInitializer
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerBlockEntityEvents
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents
@@ -28,10 +29,19 @@ object RecorderMod : ModInitializer {
         ServerLifecycleEvents.SERVER_STARTED.register { server ->
             CaptureRuntime.start(server, RecorderConfig.load(logger))
         }
-        ServerLifecycleEvents.SERVER_STOPPING.register { CaptureRuntime.finishStoppingReplays() }
+        ServerLifecycleEvents.SERVER_STOPPING.register {
+            CaptureRuntime.closeWorld("server_shutdown")
+            CaptureRuntime.finishStoppingReplays()
+        }
         ServerLifecycleEvents.SERVER_STOPPED.register { CaptureRuntime.stop() }
         ServerTickEvents.START_SERVER_TICK.register { CaptureRuntime.startTick() }
         ServerTickEvents.END_SERVER_TICK.register { server -> CaptureRuntime.endTick(server) }
+        ServerBlockEntityEvents.BLOCK_ENTITY_LOAD.register { blockEntity, level ->
+            CaptureRuntime.blockEntityLoaded(level, blockEntity)
+        }
+        ServerBlockEntityEvents.BLOCK_ENTITY_UNLOAD.register { blockEntity, level ->
+            CaptureRuntime.blockEntityUnloaded(level, blockEntity)
+        }
         ServerPlayConnectionEvents.JOIN.register { handler, _, _ -> CaptureRuntime.playerJoin(handler.player) }
         ServerPlayConnectionEvents.DISCONNECT.register { handler, _ ->
             CaptureRuntime.playerLeave(handler.player)

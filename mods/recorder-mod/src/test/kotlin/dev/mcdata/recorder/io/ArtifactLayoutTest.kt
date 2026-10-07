@@ -35,6 +35,26 @@ class ArtifactLayoutTest {
     }
 
     @Test
+    fun `constructs the world session layout beside players`() {
+        val paths = ArtifactLayout.world(
+            Path.of("/artifacts"),
+            WorldSessionIdentity(
+                serverName = "local-test",
+                serverInstanceId = UUID.fromString("11111111-1111-4111-8111-111111111111"),
+                startedAt = "20260725T102030.125Z",
+                sessionId = UUID.fromString("44444444-4444-4444-8444-444444444444")
+            )
+        )
+
+        val relative = "world/sessions/20260725T102030.125Z--44444444-4444-4444-8444-444444444444"
+        assertEquals(Path.of("/artifacts/v1/local-test--11111111-1111-4111-8111-111111111111/$relative"), paths.root)
+        assertEquals(paths.root.resolve("world-events.jsonl"), paths.events)
+        assertEquals(paths.root.resolve("metadata.json"), paths.metadata)
+        assertEquals("$relative/world-events.jsonl", paths.relativeEvents)
+        assertEquals("$relative/metadata.json", paths.relativeMetadata)
+    }
+
+    @Test
     fun `rejects unsafe identity components`() {
         assertFailsWith<IllegalArgumentException> {
             ArtifactLayout.play(
