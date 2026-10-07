@@ -2,7 +2,6 @@ package dev.mcdata.recorder.capture
 
 import dev.recorderminecraft.artifacts.v1.Abilities
 import dev.recorderminecraft.artifacts.v1.EntityReference
-import dev.recorderminecraft.artifacts.v1.InventorySlot
 import dev.recorderminecraft.artifacts.v1.Passenger
 import dev.recorderminecraft.artifacts.v1.PlayerStateEvent
 import dev.recorderminecraft.artifacts.v1.Rotation
@@ -10,10 +9,8 @@ import dev.recorderminecraft.artifacts.v1.StatusEffect
 import dev.recorderminecraft.artifacts.v1.Vector3
 import dev.mcdata.recorder.config.RecorderConfig
 import net.minecraft.core.registries.BuiltInRegistries
-import net.minecraft.nbt.NbtOps
 import net.minecraft.server.level.ServerPlayer
 import net.minecraft.world.entity.Entity
-import net.minecraft.world.item.ItemStack
 
 object PlayerSnapshot {
     fun capture(player: ServerPlayer, config: RecorderConfig): PlayerStateEvent.Builder {
@@ -80,21 +77,11 @@ object PlayerSnapshot {
                     .setTypeId(BuiltInRegistries.ENTITY_TYPE.getKey(it.type).toString())
             )
         }
+        val slots = InventorySlots(config.includeInventoryComponents, player::registryAccess)
         for (slot in 0 until inventory.containerSize) {
             val stack = inventory.getItem(slot)
             if (stack.isEmpty) continue
-            val value = InventorySlot.newBuilder()
-                .setSlot(slot)
-                .setItemId(BuiltInRegistries.ITEM.getKey(stack.item).toString())
-                .setCount(stack.count)
-                .setDamage(stack.damageValue)
-                .setMaxDamage(stack.maxDamage)
-            if (config.includeInventoryComponents) {
-                value.componentsDebug = stack.components.toString()
-                val ops = player.registryAccess().createSerializationContext(NbtOps.INSTANCE)
-                ItemStack.CODEC.encodeStart(ops, stack).result().ifPresent { value.componentsSnbt = it.toString() }
-            }
-            result.addInventory(value)
+            result.addInventory(slots.encode(slot, stack))
         }
         return result
     }
