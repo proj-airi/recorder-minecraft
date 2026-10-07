@@ -109,7 +109,8 @@ packet that carried it precedes the event stream. Later records have `source`
 same settings packet. The requested view distance is not the effective one;
 the server also clamps it to its own limit, which `player_state.replay_coverage`
 reports. Field of view, GUI scale, and window aspect never reach the server and
-are not recorded.
+are not recorded; every play declares the known gap
+`client_fov_gui_scale_aspect_unobservable_server_side`.
 
 `container_view` is stamped when the server hands a container packet to this
 connection, so its `server_tick` follows the event envelope rule. Its `kind` is:
@@ -132,7 +133,9 @@ When a menu opened through a container block entity, every view of that
 container id up to its close carries `source`: dimension, integer block
 position, and block entity type. A double chest also carries the second half
 in `secondary_block_pos`. Ender chests, entity inventories such as chest boats
-and donkeys, and stateless menus such as crafting tables have no `source`. The
+and donkeys, and stateless menus such as crafting tables have no `source`.
+Every play declares the known gap
+`container_views_unlinked_for_ender_chests_and_entity_inventories` for this. The
 open-screen and initial contents packets precede the menu's assignment to the
 player, so the recorder holds them until `openMenu` returns and then writes
 them in send order.
