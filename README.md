@@ -129,6 +129,10 @@ accept explicit input and output paths.
 ## Artifact layout
 
 ```text
+artifacts/v1/<server>--<instance>/world/sessions/<start>--<session>/
+  metadata.json
+  world-events.jsonl  # container block entity contents, world scope
+
 artifacts/v1/<server>--<instance>/players/<player>--<uuid>/plays/<start>--<connection>/
   metadata.json
   capture/
@@ -140,8 +144,10 @@ artifacts/v1/<server>--<instance>/players/<player>--<uuid>/plays/<start>--<conne
     fpv_frames/
 ```
 
-Each play is self-contained. Recorder-owned capture inputs are not mutated by
-post-processing, and generated runtime directories must not be committed.
+Each play is self-contained. The world session is shared by every play from
+the same server start and is referenced from play metadata. Recorder-owned
+capture inputs are not mutated by post-processing, and generated runtime
+directories must not be committed.
 
 ## Modules
 

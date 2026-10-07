@@ -75,7 +75,11 @@ persisted objects to Artifacts V1.
 ```text
 artifacts/v1/
   <server-name>--<server-instance-uuid>/
-    world/                                      # reserved for future
+    world/                                      # optional
+      sessions/
+        <started-at-utc>--<session-uuid>/
+          metadata.json
+          world-events.jsonl
     players/
       <player-name>--<player-uuid>/
         plays/
@@ -115,7 +119,9 @@ hierarchy on the caller's behalf.
 | Derived output | Optional processor-owned result placed at an explicit caller-selected path, conventionally inside the play |
 | Play extension | Optional producer-owned typed data under `extensions/<extension-type>/` that is attached to one Play without changing its Primitive capture |
 | Runtime root | Private scratch and lock root configured by `paths.runtime`; it is not part of Artifacts V1 |
-| World directory | Reserved server-instance-wide location for possible future world saves, seeds, or related inputs; absent and unused in V1 |
+| World directory | Server-instance-wide location for data not owned by one player; in V1 it holds only world sessions, not world saves or seeds |
+| World session | Recorder-owned directory for one `session_id` under `world/sessions/`; it holds the world stream and its metadata, never plays |
+| World stream | `world-events.jsonl`: engine-reported, world-scope container block entity contents for one session, joined to plays by `session_id` and `server_tick` |
 
 ## Identities and ordering
 
@@ -123,7 +129,7 @@ hierarchy on the caller's behalf.
 | --- | --- | --- |
 | `server.name` | Human-facing server label | Configurable display name; initialization chooses a deployment-appropriate default |
 | `server.instance_id` | Recorder server instance | UUID generated once when recorder configuration is initialized and reused across restarts |
-| `session_id` | One recorder process run | In-memory run identity embedded in metadata, events, and replay metadata; it does not create a session directory |
+| `session_id` | One recorder process run | Run identity embedded in metadata, events, and replay metadata; it names the world session directory, and plays are not nested under it |
 | `player_uuid` | Minecraft player | Stable player identity across reconnects and display-name changes |
 | `connection_id` | One play | UUID generated for every join-to-disconnect interval |
 | `replay_id` | One replay archive | UUID embedded in `arcade_replay_meta.json` and bound to the player and connection |
@@ -291,6 +297,11 @@ gaps invisibly.
 of complete server-world state. Unloaded chunks, entities outside tracking
 range, and information Minecraft never sent to the client remain unknown.
 
+The world stream has scope `world` and provenance `engine-reported`. It
+records loaded container block entities whether or not a player saw them, so
+it is world truth, not player knowledge. Entity-held inventories are outside
+it (`world_entities_not_recorded`).
+
 Current Scene Store V2 does not persist exact lighting, particles, or audio.
 These limitations are declared in capture metadata and scene provenance. A
 future processor may add derived modalities without changing recorder
@@ -314,7 +325,8 @@ The following concepts belong to the removed architecture and must not be used
 to describe Artifacts V1:
 
 - Recorder epochs, epoch rotation, epoch manifests, and seal files.
-- Session directories as persisted artifact containers.
+- Session directories as containers of plays or player captures. A world
+  session holds only the session-level world stream.
 - Recorder-owned replay rotation, independently persisted replay segments, and
   segment artifacts. Scene extraction retains `segment_id` and
   `segment_ordinal` only as compatibility fields on a Replay source.
@@ -327,6 +339,6 @@ to describe Artifacts V1:
   dashboard and catalog API are active components.
 - Recorder-side download, post-processing, or dataset assembly.
 
-`session_id` remains a valid in-memory recorder-run identity. `Scene Store V1`
+`session_id` remains a valid recorder-run identity. `Scene Store V1`
 also remains valid only as a private implementation intermediate. Neither term
 restores the removed persisted layout or compatibility paths.
