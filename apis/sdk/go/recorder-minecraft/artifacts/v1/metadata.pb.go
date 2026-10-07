@@ -257,8 +257,11 @@ type ServerMetadata struct {
 	FlashbackCaptureContract string                 `protobuf:"bytes,7,opt,name=flashback_capture_contract,json=flashbackCaptureContract,proto3" json:"flashback_capture_contract,omitempty"`
 	KnownGaps                []string               `protobuf:"bytes,8,rep,name=known_gaps,json=knownGaps,proto3" json:"known_gaps,omitempty"`
 	Capture                  *CaptureMetadata       `protobuf:"bytes,9,opt,name=capture,proto3" json:"capture,omitempty"`
-	unknownFields            protoimpl.UnknownFields
-	sizeCache                protoimpl.SizeCache
+	// Present when a world stream was healthy at connection start. It replaces
+	// the unopened-container known gap for block entity containers.
+	WorldContainerTruth *WorldTruthReference `protobuf:"bytes,10,opt,name=world_container_truth,json=worldContainerTruth,proto3" json:"world_container_truth,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *ServerMetadata) Reset() {
@@ -354,6 +357,69 @@ func (x *ServerMetadata) GetCapture() *CaptureMetadata {
 	return nil
 }
 
+func (x *ServerMetadata) GetWorldContainerTruth() *WorldTruthReference {
+	if x != nil {
+		return x.WorldContainerTruth
+	}
+	return nil
+}
+
+// WorldTruthReference names the session-level world stream that covers a
+// Play. Paths are relative to the server instance directory that owns both
+// the Play and the world session. Coverage ends at the world session's
+// end_server_tick, which can precede the Play end after a stream failure.
+type WorldTruthReference struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Metadata      string                 `protobuf:"bytes,1,opt,name=metadata,proto3" json:"metadata,omitempty"`
+	Events        string                 `protobuf:"bytes,2,opt,name=events,proto3" json:"events,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WorldTruthReference) Reset() {
+	*x = WorldTruthReference{}
+	mi := &file_recorder_minecraft_artifacts_v1_metadata_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WorldTruthReference) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WorldTruthReference) ProtoMessage() {}
+
+func (x *WorldTruthReference) ProtoReflect() protoreflect.Message {
+	mi := &file_recorder_minecraft_artifacts_v1_metadata_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WorldTruthReference.ProtoReflect.Descriptor instead.
+func (*WorldTruthReference) Descriptor() ([]byte, []int) {
+	return file_recorder_minecraft_artifacts_v1_metadata_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *WorldTruthReference) GetMetadata() string {
+	if x != nil {
+		return x.Metadata
+	}
+	return ""
+}
+
+func (x *WorldTruthReference) GetEvents() string {
+	if x != nil {
+		return x.Events
+	}
+	return ""
+}
+
 type ServerIdentity struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
@@ -364,7 +430,7 @@ type ServerIdentity struct {
 
 func (x *ServerIdentity) Reset() {
 	*x = ServerIdentity{}
-	mi := &file_recorder_minecraft_artifacts_v1_metadata_proto_msgTypes[4]
+	mi := &file_recorder_minecraft_artifacts_v1_metadata_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -376,7 +442,7 @@ func (x *ServerIdentity) String() string {
 func (*ServerIdentity) ProtoMessage() {}
 
 func (x *ServerIdentity) ProtoReflect() protoreflect.Message {
-	mi := &file_recorder_minecraft_artifacts_v1_metadata_proto_msgTypes[4]
+	mi := &file_recorder_minecraft_artifacts_v1_metadata_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -389,7 +455,7 @@ func (x *ServerIdentity) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ServerIdentity.ProtoReflect.Descriptor instead.
 func (*ServerIdentity) Descriptor() ([]byte, []int) {
-	return file_recorder_minecraft_artifacts_v1_metadata_proto_rawDescGZIP(), []int{4}
+	return file_recorder_minecraft_artifacts_v1_metadata_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *ServerIdentity) GetName() string {
@@ -416,7 +482,7 @@ type PlayerIdentity struct {
 
 func (x *PlayerIdentity) Reset() {
 	*x = PlayerIdentity{}
-	mi := &file_recorder_minecraft_artifacts_v1_metadata_proto_msgTypes[5]
+	mi := &file_recorder_minecraft_artifacts_v1_metadata_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -428,7 +494,7 @@ func (x *PlayerIdentity) String() string {
 func (*PlayerIdentity) ProtoMessage() {}
 
 func (x *PlayerIdentity) ProtoReflect() protoreflect.Message {
-	mi := &file_recorder_minecraft_artifacts_v1_metadata_proto_msgTypes[5]
+	mi := &file_recorder_minecraft_artifacts_v1_metadata_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -441,7 +507,7 @@ func (x *PlayerIdentity) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlayerIdentity.ProtoReflect.Descriptor instead.
 func (*PlayerIdentity) Descriptor() ([]byte, []int) {
-	return file_recorder_minecraft_artifacts_v1_metadata_proto_rawDescGZIP(), []int{5}
+	return file_recorder_minecraft_artifacts_v1_metadata_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *PlayerIdentity) GetName() string {
@@ -473,7 +539,7 @@ type Connection struct {
 
 func (x *Connection) Reset() {
 	*x = Connection{}
-	mi := &file_recorder_minecraft_artifacts_v1_metadata_proto_msgTypes[6]
+	mi := &file_recorder_minecraft_artifacts_v1_metadata_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -485,7 +551,7 @@ func (x *Connection) String() string {
 func (*Connection) ProtoMessage() {}
 
 func (x *Connection) ProtoReflect() protoreflect.Message {
-	mi := &file_recorder_minecraft_artifacts_v1_metadata_proto_msgTypes[6]
+	mi := &file_recorder_minecraft_artifacts_v1_metadata_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -498,7 +564,7 @@ func (x *Connection) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Connection.ProtoReflect.Descriptor instead.
 func (*Connection) Descriptor() ([]byte, []int) {
-	return file_recorder_minecraft_artifacts_v1_metadata_proto_rawDescGZIP(), []int{6}
+	return file_recorder_minecraft_artifacts_v1_metadata_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *Connection) GetId() string {
@@ -561,7 +627,7 @@ type CaptureMetadata struct {
 
 func (x *CaptureMetadata) Reset() {
 	*x = CaptureMetadata{}
-	mi := &file_recorder_minecraft_artifacts_v1_metadata_proto_msgTypes[7]
+	mi := &file_recorder_minecraft_artifacts_v1_metadata_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -573,7 +639,7 @@ func (x *CaptureMetadata) String() string {
 func (*CaptureMetadata) ProtoMessage() {}
 
 func (x *CaptureMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_recorder_minecraft_artifacts_v1_metadata_proto_msgTypes[7]
+	mi := &file_recorder_minecraft_artifacts_v1_metadata_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -586,7 +652,7 @@ func (x *CaptureMetadata) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CaptureMetadata.ProtoReflect.Descriptor instead.
 func (*CaptureMetadata) Descriptor() ([]byte, []int) {
-	return file_recorder_minecraft_artifacts_v1_metadata_proto_rawDescGZIP(), []int{7}
+	return file_recorder_minecraft_artifacts_v1_metadata_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *CaptureMetadata) GetEvents() string {
@@ -621,7 +687,7 @@ type Capture struct {
 
 func (x *Capture) Reset() {
 	*x = Capture{}
-	mi := &file_recorder_minecraft_artifacts_v1_metadata_proto_msgTypes[8]
+	mi := &file_recorder_minecraft_artifacts_v1_metadata_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -633,7 +699,7 @@ func (x *Capture) String() string {
 func (*Capture) ProtoMessage() {}
 
 func (x *Capture) ProtoReflect() protoreflect.Message {
-	mi := &file_recorder_minecraft_artifacts_v1_metadata_proto_msgTypes[8]
+	mi := &file_recorder_minecraft_artifacts_v1_metadata_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -646,7 +712,7 @@ func (x *Capture) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Capture.ProtoReflect.Descriptor instead.
 func (*Capture) Descriptor() ([]byte, []int) {
-	return file_recorder_minecraft_artifacts_v1_metadata_proto_rawDescGZIP(), []int{8}
+	return file_recorder_minecraft_artifacts_v1_metadata_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *Capture) GetEvents() *ArtifactFile {
@@ -685,7 +751,7 @@ type Render struct {
 
 func (x *Render) Reset() {
 	*x = Render{}
-	mi := &file_recorder_minecraft_artifacts_v1_metadata_proto_msgTypes[9]
+	mi := &file_recorder_minecraft_artifacts_v1_metadata_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -697,7 +763,7 @@ func (x *Render) String() string {
 func (*Render) ProtoMessage() {}
 
 func (x *Render) ProtoReflect() protoreflect.Message {
-	mi := &file_recorder_minecraft_artifacts_v1_metadata_proto_msgTypes[9]
+	mi := &file_recorder_minecraft_artifacts_v1_metadata_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -710,7 +776,7 @@ func (x *Render) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Render.ProtoReflect.Descriptor instead.
 func (*Render) Descriptor() ([]byte, []int) {
-	return file_recorder_minecraft_artifacts_v1_metadata_proto_rawDescGZIP(), []int{9}
+	return file_recorder_minecraft_artifacts_v1_metadata_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *Render) GetKind() string {
@@ -773,7 +839,7 @@ type RenderFrame struct {
 
 func (x *RenderFrame) Reset() {
 	*x = RenderFrame{}
-	mi := &file_recorder_minecraft_artifacts_v1_metadata_proto_msgTypes[10]
+	mi := &file_recorder_minecraft_artifacts_v1_metadata_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -785,7 +851,7 @@ func (x *RenderFrame) String() string {
 func (*RenderFrame) ProtoMessage() {}
 
 func (x *RenderFrame) ProtoReflect() protoreflect.Message {
-	mi := &file_recorder_minecraft_artifacts_v1_metadata_proto_msgTypes[10]
+	mi := &file_recorder_minecraft_artifacts_v1_metadata_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -798,7 +864,7 @@ func (x *RenderFrame) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RenderFrame.ProtoReflect.Descriptor instead.
 func (*RenderFrame) Descriptor() ([]byte, []int) {
-	return file_recorder_minecraft_artifacts_v1_metadata_proto_rawDescGZIP(), []int{10}
+	return file_recorder_minecraft_artifacts_v1_metadata_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *RenderFrame) GetOrdinal() uint64 {
@@ -845,7 +911,7 @@ const file_recorder_minecraft_artifacts_v1_metadata_proto_rawDesc = "" +
 	"\aactions\x18\x04 \x01(\v2..recorder_minecraft.artifacts.v1.PlayerActionsR\aactions\x12B\n" +
 	"\acapture\x18\x05 \x01(\v2(.recorder_minecraft.artifacts.v1.CaptureR\acapture\x12A\n" +
 	"\x05scene\x18\x06 \x01(\v2+.recorder_minecraft.artifacts.v1.SceneStoreR\x05scene\x12A\n" +
-	"\arenders\x18\a \x03(\v2'.recorder_minecraft.artifacts.v1.RenderR\arenders\"\x85\x04\n" +
+	"\arenders\x18\a \x03(\v2'.recorder_minecraft.artifacts.v1.RenderR\arenders\"\xef\x04\n" +
 	"\x0eServerMetadata\x12%\n" +
 	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12%\n" +
 	"\x0elayout_version\x18\x02 \x01(\tR\rlayoutVersion\x12G\n" +
@@ -859,7 +925,12 @@ const file_recorder_minecraft_artifacts_v1_metadata_proto_rawDesc = "" +
 	"\x1aflashback_capture_contract\x18\a \x01(\tR\x18flashbackCaptureContract\x12\x1d\n" +
 	"\n" +
 	"known_gaps\x18\b \x03(\tR\tknownGaps\x12J\n" +
-	"\acapture\x18\t \x01(\v20.recorder_minecraft.artifacts.v1.CaptureMetadataR\acapture\"E\n" +
+	"\acapture\x18\t \x01(\v20.recorder_minecraft.artifacts.v1.CaptureMetadataR\acapture\x12h\n" +
+	"\x15world_container_truth\x18\n" +
+	" \x01(\v24.recorder_minecraft.artifacts.v1.WorldTruthReferenceR\x13worldContainerTruth\"I\n" +
+	"\x13WorldTruthReference\x12\x1a\n" +
+	"\bmetadata\x18\x01 \x01(\tR\bmetadata\x12\x16\n" +
+	"\x06events\x18\x02 \x01(\tR\x06events\"E\n" +
 	"\x0eServerIdentity\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1f\n" +
 	"\vinstance_id\x18\x02 \x01(\tR\n" +
@@ -915,53 +986,55 @@ func file_recorder_minecraft_artifacts_v1_metadata_proto_rawDescGZIP() []byte {
 	return file_recorder_minecraft_artifacts_v1_metadata_proto_rawDescData
 }
 
-var file_recorder_minecraft_artifacts_v1_metadata_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
+var file_recorder_minecraft_artifacts_v1_metadata_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
 var file_recorder_minecraft_artifacts_v1_metadata_proto_goTypes = []any{
 	(*Server)(nil),                // 0: recorder_minecraft.artifacts.v1.Server
 	(*Player)(nil),                // 1: recorder_minecraft.artifacts.v1.Player
 	(*PlayRecording)(nil),         // 2: recorder_minecraft.artifacts.v1.PlayRecording
 	(*ServerMetadata)(nil),        // 3: recorder_minecraft.artifacts.v1.ServerMetadata
-	(*ServerIdentity)(nil),        // 4: recorder_minecraft.artifacts.v1.ServerIdentity
-	(*PlayerIdentity)(nil),        // 5: recorder_minecraft.artifacts.v1.PlayerIdentity
-	(*Connection)(nil),            // 6: recorder_minecraft.artifacts.v1.Connection
-	(*CaptureMetadata)(nil),       // 7: recorder_minecraft.artifacts.v1.CaptureMetadata
-	(*Capture)(nil),               // 8: recorder_minecraft.artifacts.v1.Capture
-	(*Render)(nil),                // 9: recorder_minecraft.artifacts.v1.Render
-	(*RenderFrame)(nil),           // 10: recorder_minecraft.artifacts.v1.RenderFrame
-	(*ArtifactFile)(nil),          // 11: recorder_minecraft.artifacts.v1.ArtifactFile
-	(*timestamppb.Timestamp)(nil), // 12: google.protobuf.Timestamp
-	(*PlayerActions)(nil),         // 13: recorder_minecraft.artifacts.v1.PlayerActions
-	(*SceneStore)(nil),            // 14: recorder_minecraft.artifacts.v1.SceneStore
-	(*CaptureEvent)(nil),          // 15: recorder_minecraft.artifacts.v1.CaptureEvent
+	(*WorldTruthReference)(nil),   // 4: recorder_minecraft.artifacts.v1.WorldTruthReference
+	(*ServerIdentity)(nil),        // 5: recorder_minecraft.artifacts.v1.ServerIdentity
+	(*PlayerIdentity)(nil),        // 6: recorder_minecraft.artifacts.v1.PlayerIdentity
+	(*Connection)(nil),            // 7: recorder_minecraft.artifacts.v1.Connection
+	(*CaptureMetadata)(nil),       // 8: recorder_minecraft.artifacts.v1.CaptureMetadata
+	(*Capture)(nil),               // 9: recorder_minecraft.artifacts.v1.Capture
+	(*Render)(nil),                // 10: recorder_minecraft.artifacts.v1.Render
+	(*RenderFrame)(nil),           // 11: recorder_minecraft.artifacts.v1.RenderFrame
+	(*ArtifactFile)(nil),          // 12: recorder_minecraft.artifacts.v1.ArtifactFile
+	(*timestamppb.Timestamp)(nil), // 13: google.protobuf.Timestamp
+	(*PlayerActions)(nil),         // 14: recorder_minecraft.artifacts.v1.PlayerActions
+	(*SceneStore)(nil),            // 15: recorder_minecraft.artifacts.v1.SceneStore
+	(*CaptureEvent)(nil),          // 16: recorder_minecraft.artifacts.v1.CaptureEvent
 }
 var file_recorder_minecraft_artifacts_v1_metadata_proto_depIdxs = []int32{
 	1,  // 0: recorder_minecraft.artifacts.v1.Server.players:type_name -> recorder_minecraft.artifacts.v1.Player
-	11, // 1: recorder_minecraft.artifacts.v1.Server.assets:type_name -> recorder_minecraft.artifacts.v1.ArtifactFile
+	12, // 1: recorder_minecraft.artifacts.v1.Server.assets:type_name -> recorder_minecraft.artifacts.v1.ArtifactFile
 	2,  // 2: recorder_minecraft.artifacts.v1.Player.plays:type_name -> recorder_minecraft.artifacts.v1.PlayRecording
-	12, // 3: recorder_minecraft.artifacts.v1.PlayRecording.started_at:type_name -> google.protobuf.Timestamp
+	13, // 3: recorder_minecraft.artifacts.v1.PlayRecording.started_at:type_name -> google.protobuf.Timestamp
 	3,  // 4: recorder_minecraft.artifacts.v1.PlayRecording.metadata:type_name -> recorder_minecraft.artifacts.v1.ServerMetadata
-	13, // 5: recorder_minecraft.artifacts.v1.PlayRecording.actions:type_name -> recorder_minecraft.artifacts.v1.PlayerActions
-	8,  // 6: recorder_minecraft.artifacts.v1.PlayRecording.capture:type_name -> recorder_minecraft.artifacts.v1.Capture
-	14, // 7: recorder_minecraft.artifacts.v1.PlayRecording.scene:type_name -> recorder_minecraft.artifacts.v1.SceneStore
-	9,  // 8: recorder_minecraft.artifacts.v1.PlayRecording.renders:type_name -> recorder_minecraft.artifacts.v1.Render
-	4,  // 9: recorder_minecraft.artifacts.v1.ServerMetadata.server:type_name -> recorder_minecraft.artifacts.v1.ServerIdentity
-	5,  // 10: recorder_minecraft.artifacts.v1.ServerMetadata.player:type_name -> recorder_minecraft.artifacts.v1.PlayerIdentity
-	6,  // 11: recorder_minecraft.artifacts.v1.ServerMetadata.connection:type_name -> recorder_minecraft.artifacts.v1.Connection
-	7,  // 12: recorder_minecraft.artifacts.v1.ServerMetadata.capture:type_name -> recorder_minecraft.artifacts.v1.CaptureMetadata
-	12, // 13: recorder_minecraft.artifacts.v1.Connection.started_at:type_name -> google.protobuf.Timestamp
-	12, // 14: recorder_minecraft.artifacts.v1.Connection.ended_at:type_name -> google.protobuf.Timestamp
-	11, // 15: recorder_minecraft.artifacts.v1.Capture.events:type_name -> recorder_minecraft.artifacts.v1.ArtifactFile
-	11, // 16: recorder_minecraft.artifacts.v1.Capture.replay:type_name -> recorder_minecraft.artifacts.v1.ArtifactFile
-	15, // 17: recorder_minecraft.artifacts.v1.Capture.event_records:type_name -> recorder_minecraft.artifacts.v1.CaptureEvent
-	10, // 18: recorder_minecraft.artifacts.v1.Render.frames:type_name -> recorder_minecraft.artifacts.v1.RenderFrame
-	11, // 19: recorder_minecraft.artifacts.v1.Render.manifest:type_name -> recorder_minecraft.artifacts.v1.ArtifactFile
-	11, // 20: recorder_minecraft.artifacts.v1.Render.result:type_name -> recorder_minecraft.artifacts.v1.ArtifactFile
-	11, // 21: recorder_minecraft.artifacts.v1.RenderFrame.image:type_name -> recorder_minecraft.artifacts.v1.ArtifactFile
-	22, // [22:22] is the sub-list for method output_type
-	22, // [22:22] is the sub-list for method input_type
-	22, // [22:22] is the sub-list for extension type_name
-	22, // [22:22] is the sub-list for extension extendee
-	0,  // [0:22] is the sub-list for field type_name
+	14, // 5: recorder_minecraft.artifacts.v1.PlayRecording.actions:type_name -> recorder_minecraft.artifacts.v1.PlayerActions
+	9,  // 6: recorder_minecraft.artifacts.v1.PlayRecording.capture:type_name -> recorder_minecraft.artifacts.v1.Capture
+	15, // 7: recorder_minecraft.artifacts.v1.PlayRecording.scene:type_name -> recorder_minecraft.artifacts.v1.SceneStore
+	10, // 8: recorder_minecraft.artifacts.v1.PlayRecording.renders:type_name -> recorder_minecraft.artifacts.v1.Render
+	5,  // 9: recorder_minecraft.artifacts.v1.ServerMetadata.server:type_name -> recorder_minecraft.artifacts.v1.ServerIdentity
+	6,  // 10: recorder_minecraft.artifacts.v1.ServerMetadata.player:type_name -> recorder_minecraft.artifacts.v1.PlayerIdentity
+	7,  // 11: recorder_minecraft.artifacts.v1.ServerMetadata.connection:type_name -> recorder_minecraft.artifacts.v1.Connection
+	8,  // 12: recorder_minecraft.artifacts.v1.ServerMetadata.capture:type_name -> recorder_minecraft.artifacts.v1.CaptureMetadata
+	4,  // 13: recorder_minecraft.artifacts.v1.ServerMetadata.world_container_truth:type_name -> recorder_minecraft.artifacts.v1.WorldTruthReference
+	13, // 14: recorder_minecraft.artifacts.v1.Connection.started_at:type_name -> google.protobuf.Timestamp
+	13, // 15: recorder_minecraft.artifacts.v1.Connection.ended_at:type_name -> google.protobuf.Timestamp
+	12, // 16: recorder_minecraft.artifacts.v1.Capture.events:type_name -> recorder_minecraft.artifacts.v1.ArtifactFile
+	12, // 17: recorder_minecraft.artifacts.v1.Capture.replay:type_name -> recorder_minecraft.artifacts.v1.ArtifactFile
+	16, // 18: recorder_minecraft.artifacts.v1.Capture.event_records:type_name -> recorder_minecraft.artifacts.v1.CaptureEvent
+	11, // 19: recorder_minecraft.artifacts.v1.Render.frames:type_name -> recorder_minecraft.artifacts.v1.RenderFrame
+	12, // 20: recorder_minecraft.artifacts.v1.Render.manifest:type_name -> recorder_minecraft.artifacts.v1.ArtifactFile
+	12, // 21: recorder_minecraft.artifacts.v1.Render.result:type_name -> recorder_minecraft.artifacts.v1.ArtifactFile
+	12, // 22: recorder_minecraft.artifacts.v1.RenderFrame.image:type_name -> recorder_minecraft.artifacts.v1.ArtifactFile
+	23, // [23:23] is the sub-list for method output_type
+	23, // [23:23] is the sub-list for method input_type
+	23, // [23:23] is the sub-list for extension type_name
+	23, // [23:23] is the sub-list for extension extendee
+	0,  // [0:23] is the sub-list for field type_name
 }
 
 func init() { file_recorder_minecraft_artifacts_v1_metadata_proto_init() }
@@ -973,14 +1046,14 @@ func file_recorder_minecraft_artifacts_v1_metadata_proto_init() {
 	file_recorder_minecraft_artifacts_v1_common_proto_init()
 	file_recorder_minecraft_artifacts_v1_events_proto_init()
 	file_recorder_minecraft_artifacts_v1_scene_proto_init()
-	file_recorder_minecraft_artifacts_v1_metadata_proto_msgTypes[6].OneofWrappers = []any{}
+	file_recorder_minecraft_artifacts_v1_metadata_proto_msgTypes[7].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_recorder_minecraft_artifacts_v1_metadata_proto_rawDesc), len(file_recorder_minecraft_artifacts_v1_metadata_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   11,
+			NumMessages:   12,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

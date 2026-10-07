@@ -25,6 +25,29 @@ data class PlayPaths(val root: Path) {
     val fpvFrames: Path = renders.resolve("fpv_frames")
 }
 
+data class WorldSessionIdentity(
+    val serverName: String,
+    val serverInstanceId: UUID,
+    val startedAt: String,
+    val sessionId: UUID
+)
+
+/**
+ * One recorder session's world stream. [serverRelative] is the session directory relative to the
+ * server instance directory, which is how Play metadata refers to it.
+ */
+data class WorldSessionPaths(val root: Path, val serverRelative: String) {
+    val metadata: Path = root.resolve(METADATA)
+    val events: Path = root.resolve(EVENTS)
+    val relativeMetadata: String = "$serverRelative/$METADATA"
+    val relativeEvents: String = "$serverRelative/$EVENTS"
+
+    companion object {
+        const val METADATA = "metadata.json"
+        const val EVENTS = "world-events.jsonl"
+    }
+}
+
 object ArtifactLayout {
     const val VERSION = "v1"
     private val startPattern = Regex("^[0-9]{8}T[0-9]{6}(?:\\.[0-9]{1,9})?Z$")
@@ -45,6 +68,23 @@ object ArtifactLayout {
                 .resolve("${identity.startedAt}--${identity.connectionId}")
                 .toAbsolutePath()
                 .normalize()
+        )
+    }
+
+    fun world(artifactsRoot: Path, identity: WorldSessionIdentity): WorldSessionPaths {
+        val serverName = displayName(identity.serverName, "server name")
+        require(startPattern.matches(identity.startedAt)) {
+            "world session start must use UTC filesystem form YYYYMMDDTHHMMSS[.fraction]Z"
+        }
+        val relative = "world/sessions/${identity.startedAt}--${identity.sessionId}"
+        return WorldSessionPaths(
+            artifactsRoot
+                .resolve(VERSION)
+                .resolve("$serverName--${identity.serverInstanceId}")
+                .resolve(relative)
+                .toAbsolutePath()
+                .normalize(),
+            relative
         )
     }
 

@@ -1,0 +1,115 @@
+syntax = "proto3";
+
+package recorder_minecraft.artifacts.v1;
+
+import "google/protobuf/timestamp.proto";
+import "recorder-minecraft/artifacts/v1/events.proto";
+import "recorder-minecraft/artifacts/v1/metadata.proto";
+
+option go_package = "github.com/proj-airi/recorder-minecraft/apis/sdk/go/recorder-minecraft/artifacts/v1;artifactsv1";
+option java_multiple_files = true;
+option java_package = "dev.recorderminecraft.artifacts.v1";
+
+// WorldEvent is one ProtoJSON line of a session-level world stream. Its scope
+// is the authoritative server world, independent of any player.
+message WorldEvent {
+  WorldEventIdentity identity = 1;
+  oneof record {
+    ContainerSnapshot container_snapshot = 20;
+    ContainerRemoved container_removed = 21;
+  }
+}
+
+// WorldEventIdentity shares session_id and server_tick with Play
+// EventIdentity, so world and play records join on the same clock. It has no
+// player fields because the world stream has no subject player.
+message WorldEventIdentity {
+  uint32 schema_version = 1;
+  string session_id = 2;
+  int64 server_tick = 3;
+  // Strictly increasing order within one world stream.
+  uint64 sequence = 4;
+  int64 recorded_at_ns = 5;
+  int64 recorded_at_unix_ms = 6;
+}
+
+message BlockPosition {
+  int32 x = 1;
+  int32 y = 2;
+  int32 z = 3;
+}
+
+// ContainerSnapshot is the complete server-side contents of one container
+// block entity at the end of server_tick.
+message ContainerSnapshot {
+  enum Reason {
+    REASON_UNSPECIFIED = 0;
+    // The block entity was already loaded when the world stream started.
+    REASON_SESSION_START = 1;
+    // The block entity entered a loaded chunk: chunk load or placement.
+    REASON_LOADED = 2;
+    // The block entity reported a change and its contents differ from the
+    // previous snapshot at this position.
+    REASON_CHANGED = 3;
+  }
+
+  enum ContentsState {
+    CONTENTS_STATE_UNSPECIFIED = 0;
+    // slots lists every non-empty slot; omitted slots are empty.
+    CONTENTS_STATE_KNOWN = 1;
+    // A loot table has not been rolled yet. Contents are undetermined, not
+    // empty, and slots is always empty.
+    CONTENTS_STATE_LOOT_UNGENERATED = 2;
+  }
+
+  string dimension = 1;
+  BlockPosition block_pos = 2;
+  string block_entity_type = 3;
+  Reason reason = 4;
+  ContentsState contents_state = 5;
+  int32 container_size = 6;
+  repeated InventorySlot slots = 7;
+  // Present only for LOOT_UNGENERATED contents.
+  string loot_table = 8;
+}
+
+// ContainerRemoved ends the validity of the last snapshot at a position.
+message ContainerRemoved {
+  enum Cause {
+    CAUSE_UNSPECIFIED = 0;
+    // The containing chunk left the loaded world. Contents persist in the save.
+    CAUSE_CHUNK_UNLOADED = 1;
+    // The block entity was removed from a loaded chunk, for example by
+    // breaking or replacing its block.
+    CAUSE_DESTROYED = 2;
+  }
+
+  string dimension = 1;
+  BlockPosition block_pos = 2;
+  string block_entity_type = 3;
+  Cause cause = 4;
+}
+
+// WorldSessionMetadata is serialized as ProtoJSON at
+// world/sessions/<started-at>--<session-id>/metadata.json.
+message WorldSessionMetadata {
+  uint32 schema_version = 1;
+  string layout_version = 2;
+  ServerIdentity server = 3;
+  string session_id = 4;
+  // Always "world": records describe server state, not player perception.
+  string scope = 5;
+  // Always "engine-reported": values are read from server block entities.
+  string provenance = 6;
+  google.protobuf.Timestamp started_at = 7;
+  int64 start_server_tick = 8;
+  google.protobuf.Timestamp ended_at = 9;
+  // Absent while recording or after a crash. Present after a clean close or a
+  // contained stream failure; coverage ends at this tick either way.
+  optional int64 end_server_tick = 10;
+  optional string terminal_reason = 11;
+  optional string stream_failure = 12;
+  repeated string known_gaps = 13;
+  // Relative to the world session directory.
+  string events = 14;
+}

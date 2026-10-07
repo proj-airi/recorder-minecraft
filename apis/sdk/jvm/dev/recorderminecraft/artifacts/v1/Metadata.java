@@ -47,6 +47,11 @@ public final class Metadata extends com.google.protobuf.GeneratedFile {
     com.google.protobuf.GeneratedMessage.FieldAccessorTable
       internal_static_recorder_minecraft_artifacts_v1_ServerMetadata_fieldAccessorTable;
   static final com.google.protobuf.Descriptors.Descriptor
+    internal_static_recorder_minecraft_artifacts_v1_WorldTruthReference_descriptor;
+  static final 
+    com.google.protobuf.GeneratedMessage.FieldAccessorTable
+      internal_static_recorder_minecraft_artifacts_v1_WorldTruthReference_fieldAccessorTable;
+  static final com.google.protobuf.Descriptors.Descriptor
     internal_static_recorder_minecraft_artifacts_v1_ServerIdentity_descriptor;
   static final 
     com.google.protobuf.GeneratedMessage.FieldAccessorTable
@@ -116,7 +121,7 @@ public final class Metadata extends com.google.protobuf.GeneratedFile {
       "ureR\007capture\022A\n\005scene\030\006 \001(\0132+.recorder_m" +
       "inecraft.artifacts.v1.SceneStoreR\005scene\022" +
       "A\n\007renders\030\007 \003(\0132\'.recorder_minecraft.ar" +
-      "tifacts.v1.RenderR\007renders\"\205\004\n\016ServerMet" +
+      "tifacts.v1.RenderR\007renders\"\357\004\n\016ServerMet" +
       "adata\022%\n\016schema_version\030\001 \001(\rR\rschemaVer" +
       "sion\022%\n\016layout_version\030\002 \001(\tR\rlayoutVers" +
       "ion\022G\n\006server\030\003 \001(\0132/.recorder_minecraft" +
@@ -129,44 +134,49 @@ public final class Metadata extends com.google.protobuf.GeneratedFile {
       "ontract\030\007 \001(\tR\030flashbackCaptureContract\022" +
       "\035\n\nknown_gaps\030\010 \003(\tR\tknownGaps\022J\n\007captur" +
       "e\030\t \001(\01320.recorder_minecraft.artifacts.v" +
-      "1.CaptureMetadataR\007capture\"E\n\016ServerIden" +
-      "tity\022\022\n\004name\030\001 \001(\tR\004name\022\037\n\013instance_id\030" +
-      "\002 \001(\tR\ninstanceId\"8\n\016PlayerIdentity\022\022\n\004n" +
-      "ame\030\001 \001(\tR\004name\022\022\n\004uuid\030\002 \001(\tR\004uuid\"\377\002\n\n" +
-      "Connection\022\016\n\002id\030\001 \001(\tR\002id\0229\n\nstarted_at" +
-      "\030\002 \001(\0132\032.google.protobuf.TimestampR\tstar" +
-      "tedAt\022*\n\021start_server_tick\030\003 \001(\003R\017startS" +
-      "erverTick\0225\n\010ended_at\030\004 \001(\0132\032.google.pro" +
-      "tobuf.TimestampR\007endedAt\022+\n\017end_server_t" +
-      "ick\030\005 \001(\003H\000R\rendServerTick\210\001\001\022,\n\017termina" +
-      "l_reason\030\006 \001(\tH\001R\016terminalReason\210\001\001\022,\n\017c" +
-      "apture_failure\030\007 \001(\tH\002R\016captureFailure\210\001" +
-      "\001B\022\n\020_end_server_tickB\022\n\020_terminal_reaso" +
-      "nB\022\n\020_capture_failure\"f\n\017CaptureMetadata" +
-      "\022\026\n\006events\030\001 \001(\tR\006events\022\026\n\006replay\030\002 \001(\t" +
-      "R\006replay\022#\n\rreplay_format\030\003 \001(\tR\014replayF" +
-      "ormat\"\353\001\n\007Capture\022E\n\006events\030\001 \001(\0132-.reco" +
+      "1.CaptureMetadataR\007capture\022h\n\025world_cont" +
+      "ainer_truth\030\n \001(\01324.recorder_minecraft.a" +
+      "rtifacts.v1.WorldTruthReferenceR\023worldCo" +
+      "ntainerTruth\"I\n\023WorldTruthReference\022\032\n\010m" +
+      "etadata\030\001 \001(\tR\010metadata\022\026\n\006events\030\002 \001(\tR" +
+      "\006events\"E\n\016ServerIdentity\022\022\n\004name\030\001 \001(\tR" +
+      "\004name\022\037\n\013instance_id\030\002 \001(\tR\ninstanceId\"8" +
+      "\n\016PlayerIdentity\022\022\n\004name\030\001 \001(\tR\004name\022\022\n\004" +
+      "uuid\030\002 \001(\tR\004uuid\"\377\002\n\nConnection\022\016\n\002id\030\001 " +
+      "\001(\tR\002id\0229\n\nstarted_at\030\002 \001(\0132\032.google.pro" +
+      "tobuf.TimestampR\tstartedAt\022*\n\021start_serv" +
+      "er_tick\030\003 \001(\003R\017startServerTick\0225\n\010ended_" +
+      "at\030\004 \001(\0132\032.google.protobuf.TimestampR\007en" +
+      "dedAt\022+\n\017end_server_tick\030\005 \001(\003H\000R\rendSer" +
+      "verTick\210\001\001\022,\n\017terminal_reason\030\006 \001(\tH\001R\016t" +
+      "erminalReason\210\001\001\022,\n\017capture_failure\030\007 \001(" +
+      "\tH\002R\016captureFailure\210\001\001B\022\n\020_end_server_ti" +
+      "ckB\022\n\020_terminal_reasonB\022\n\020_capture_failu" +
+      "re\"f\n\017CaptureMetadata\022\026\n\006events\030\001 \001(\tR\006e" +
+      "vents\022\026\n\006replay\030\002 \001(\tR\006replay\022#\n\rreplay_" +
+      "format\030\003 \001(\tR\014replayFormat\"\353\001\n\007Capture\022E" +
+      "\n\006events\030\001 \001(\0132-.recorder_minecraft.arti" +
+      "facts.v1.ArtifactFileR\006events\022E\n\006replay\030" +
+      "\002 \001(\0132-.recorder_minecraft.artifacts.v1." +
+      "ArtifactFileR\006replay\022R\n\revent_records\030\003 " +
+      "\003(\0132-.recorder_minecraft.artifacts.v1.Ca" +
+      "ptureEventR\014eventRecords\"\316\002\n\006Render\022\022\n\004k" +
+      "ind\030\001 \001(\tR\004kind\022\024\n\005width\030\002 \001(\rR\005width\022\026\n" +
+      "\006height\030\003 \001(\rR\006height\022*\n\021frames_per_seco" +
+      "nd\030\004 \001(\001R\017framesPerSecond\022D\n\006frames\030\005 \003(" +
+      "\0132,.recorder_minecraft.artifacts.v1.Rend" +
+      "erFrameR\006frames\022I\n\010manifest\030\006 \001(\0132-.reco" +
       "rder_minecraft.artifacts.v1.ArtifactFile" +
-      "R\006events\022E\n\006replay\030\002 \001(\0132-.recorder_mine" +
-      "craft.artifacts.v1.ArtifactFileR\006replay\022" +
-      "R\n\revent_records\030\003 \003(\0132-.recorder_minecr" +
-      "aft.artifacts.v1.CaptureEventR\014eventReco" +
-      "rds\"\316\002\n\006Render\022\022\n\004kind\030\001 \001(\tR\004kind\022\024\n\005wi" +
-      "dth\030\002 \001(\rR\005width\022\026\n\006height\030\003 \001(\rR\006height" +
-      "\022*\n\021frames_per_second\030\004 \001(\001R\017framesPerSe" +
-      "cond\022D\n\006frames\030\005 \003(\0132,.recorder_minecraf" +
-      "t.artifacts.v1.RenderFrameR\006frames\022I\n\010ma" +
-      "nifest\030\006 \001(\0132-.recorder_minecraft.artifa" +
-      "cts.v1.ArtifactFileR\010manifest\022E\n\006result\030" +
-      "\007 \001(\0132-.recorder_minecraft.artifacts.v1." +
-      "ArtifactFileR\006result\"\215\001\n\013RenderFrame\022\030\n\007" +
-      "ordinal\030\001 \001(\004R\007ordinal\022\037\n\013server_tick\030\002 " +
-      "\001(\003R\nserverTick\022C\n\005image\030\003 \001(\0132-.recorde" +
-      "r_minecraft.artifacts.v1.ArtifactFileR\005i" +
-      "mageB\207\001\n\"dev.recorderminecraft.artifacts" +
-      ".v1P\001Z_github.com/proj-airi/recorder-min" +
-      "ecraft/apis/sdk/go/recorder-minecraft/ar" +
-      "tifacts/v1;artifactsv1b\006proto3"
+      "R\010manifest\022E\n\006result\030\007 \001(\0132-.recorder_mi" +
+      "necraft.artifacts.v1.ArtifactFileR\006resul" +
+      "t\"\215\001\n\013RenderFrame\022\030\n\007ordinal\030\001 \001(\004R\007ordi" +
+      "nal\022\037\n\013server_tick\030\002 \001(\003R\nserverTick\022C\n\005" +
+      "image\030\003 \001(\0132-.recorder_minecraft.artifac" +
+      "ts.v1.ArtifactFileR\005imageB\207\001\n\"dev.record" +
+      "erminecraft.artifacts.v1P\001Z_github.com/p" +
+      "roj-airi/recorder-minecraft/apis/sdk/go/" +
+      "recorder-minecraft/artifacts/v1;artifact" +
+      "sv1b\006proto3"
     };
     descriptor = com.google.protobuf.Descriptors.FileDescriptor
       .internalBuildGeneratedFileFrom(descriptorData,
@@ -200,45 +210,51 @@ public final class Metadata extends com.google.protobuf.GeneratedFile {
     internal_static_recorder_minecraft_artifacts_v1_ServerMetadata_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_recorder_minecraft_artifacts_v1_ServerMetadata_descriptor,
-        new java.lang.String[] { "SchemaVersion", "LayoutVersion", "Server", "SessionId", "Player", "Connection", "FlashbackCaptureContract", "KnownGaps", "Capture", });
-    internal_static_recorder_minecraft_artifacts_v1_ServerIdentity_descriptor =
+        new java.lang.String[] { "SchemaVersion", "LayoutVersion", "Server", "SessionId", "Player", "Connection", "FlashbackCaptureContract", "KnownGaps", "Capture", "WorldContainerTruth", });
+    internal_static_recorder_minecraft_artifacts_v1_WorldTruthReference_descriptor =
       getDescriptor().getMessageType(4);
+    internal_static_recorder_minecraft_artifacts_v1_WorldTruthReference_fieldAccessorTable = new
+      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
+        internal_static_recorder_minecraft_artifacts_v1_WorldTruthReference_descriptor,
+        new java.lang.String[] { "Metadata", "Events", });
+    internal_static_recorder_minecraft_artifacts_v1_ServerIdentity_descriptor =
+      getDescriptor().getMessageType(5);
     internal_static_recorder_minecraft_artifacts_v1_ServerIdentity_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_recorder_minecraft_artifacts_v1_ServerIdentity_descriptor,
         new java.lang.String[] { "Name", "InstanceId", });
     internal_static_recorder_minecraft_artifacts_v1_PlayerIdentity_descriptor =
-      getDescriptor().getMessageType(5);
+      getDescriptor().getMessageType(6);
     internal_static_recorder_minecraft_artifacts_v1_PlayerIdentity_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_recorder_minecraft_artifacts_v1_PlayerIdentity_descriptor,
         new java.lang.String[] { "Name", "Uuid", });
     internal_static_recorder_minecraft_artifacts_v1_Connection_descriptor =
-      getDescriptor().getMessageType(6);
+      getDescriptor().getMessageType(7);
     internal_static_recorder_minecraft_artifacts_v1_Connection_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_recorder_minecraft_artifacts_v1_Connection_descriptor,
         new java.lang.String[] { "Id", "StartedAt", "StartServerTick", "EndedAt", "EndServerTick", "TerminalReason", "CaptureFailure", });
     internal_static_recorder_minecraft_artifacts_v1_CaptureMetadata_descriptor =
-      getDescriptor().getMessageType(7);
+      getDescriptor().getMessageType(8);
     internal_static_recorder_minecraft_artifacts_v1_CaptureMetadata_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_recorder_minecraft_artifacts_v1_CaptureMetadata_descriptor,
         new java.lang.String[] { "Events", "Replay", "ReplayFormat", });
     internal_static_recorder_minecraft_artifacts_v1_Capture_descriptor =
-      getDescriptor().getMessageType(8);
+      getDescriptor().getMessageType(9);
     internal_static_recorder_minecraft_artifacts_v1_Capture_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_recorder_minecraft_artifacts_v1_Capture_descriptor,
         new java.lang.String[] { "Events", "Replay", "EventRecords", });
     internal_static_recorder_minecraft_artifacts_v1_Render_descriptor =
-      getDescriptor().getMessageType(9);
+      getDescriptor().getMessageType(10);
     internal_static_recorder_minecraft_artifacts_v1_Render_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_recorder_minecraft_artifacts_v1_Render_descriptor,
         new java.lang.String[] { "Kind", "Width", "Height", "FramesPerSecond", "Frames", "Manifest", "Result", });
     internal_static_recorder_minecraft_artifacts_v1_RenderFrame_descriptor =
-      getDescriptor().getMessageType(10);
+      getDescriptor().getMessageType(11);
     internal_static_recorder_minecraft_artifacts_v1_RenderFrame_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_recorder_minecraft_artifacts_v1_RenderFrame_descriptor,

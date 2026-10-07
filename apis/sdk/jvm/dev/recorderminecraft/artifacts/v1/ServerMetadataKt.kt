@@ -278,6 +278,48 @@ public object ServerMetadataKt {
 
     public val ServerMetadataKt.Dsl.captureOrNull: dev.recorderminecraft.artifacts.v1.CaptureMetadata?
       get() = _builder.captureOrNull
+
+    /**
+     * ```
+     * Present when a world stream was healthy at connection start. It replaces
+     * the unopened-container known gap for block entity containers.
+     * ```
+     *
+     * `.recorder_minecraft.artifacts.v1.WorldTruthReference world_container_truth = 10 [json_name = "worldContainerTruth"];`
+     */
+    public var worldContainerTruth: dev.recorderminecraft.artifacts.v1.WorldTruthReference
+      @kotlin.jvm.JvmName("getWorldContainerTruth")
+        get() = _builder.worldContainerTruth
+      @kotlin.jvm.JvmName("setWorldContainerTruth")
+        set(value) {
+        _builder.worldContainerTruth = value
+      }
+    /**
+     * ```
+     * Present when a world stream was healthy at connection start. It replaces
+     * the unopened-container known gap for block entity containers.
+     * ```
+     *
+     * `.recorder_minecraft.artifacts.v1.WorldTruthReference world_container_truth = 10 [json_name = "worldContainerTruth"];`
+     */
+    public fun clearWorldContainerTruth() {
+      _builder.clearWorldContainerTruth()
+    }
+    /**
+     * ```
+     * Present when a world stream was healthy at connection start. It replaces
+     * the unopened-container known gap for block entity containers.
+     * ```
+     *
+     * `.recorder_minecraft.artifacts.v1.WorldTruthReference world_container_truth = 10 [json_name = "worldContainerTruth"];`
+     * @return Whether the worldContainerTruth field is set.
+     */
+    public fun hasWorldContainerTruth(): kotlin.Boolean {
+      return _builder.hasWorldContainerTruth()
+    }
+
+    public val ServerMetadataKt.Dsl.worldContainerTruthOrNull: dev.recorderminecraft.artifacts.v1.WorldTruthReference?
+      get() = _builder.worldContainerTruthOrNull
   }
 }
 @kotlin.jvm.JvmSynthetic
@@ -295,4 +337,7 @@ public val dev.recorderminecraft.artifacts.v1.ServerMetadataOrBuilder.connection
 
 public val dev.recorderminecraft.artifacts.v1.ServerMetadataOrBuilder.captureOrNull: dev.recorderminecraft.artifacts.v1.CaptureMetadata?
   get() = if (hasCapture()) getCapture() else null
+
+public val dev.recorderminecraft.artifacts.v1.ServerMetadataOrBuilder.worldContainerTruthOrNull: dev.recorderminecraft.artifacts.v1.WorldTruthReference?
+  get() = if (hasWorldContainerTruth()) getWorldContainerTruth() else null
 

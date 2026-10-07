@@ -7,6 +7,7 @@ import (
 	"github.com/proj-airi/recorder-minecraft/internal/models/renders"
 	"github.com/proj-airi/recorder-minecraft/internal/models/replays"
 	"github.com/proj-airi/recorder-minecraft/internal/models/scenes"
+	"github.com/proj-airi/recorder-minecraft/internal/models/worldcaptures"
 	"github.com/samber/do/v2"
 )
 
@@ -21,4 +22,5 @@ func Package(injector do.Injector) {
 	do.Provide(injector, scenes.NewReader)
 	do.Provide(injector, scenes.NewExtractor)
 	do.Provide(injector, scenes.NewFinalizer)
+	do.Provide(injector, worldcaptures.NewService)
 }
