@@ -49,6 +49,18 @@ message ServerMetadata {
   string flashback_capture_contract = 7;
   repeated string known_gaps = 8;
   CaptureMetadata capture = 9;
+  // Present when a world stream was healthy at connection start. It replaces
+  // the unopened-container known gap for block entity containers.
+  WorldTruthReference world_container_truth = 10;
+}
+
+// WorldTruthReference names the session-level world stream that covers a
+// Play. Paths are relative to the server instance directory that owns both
+// the Play and the world session. Coverage ends at the world session's
+// end_server_tick, which can precede the Play end after a stream failure.
+message WorldTruthReference {
+  string metadata = 1;
+  string events = 2;
 }
 
 message ServerIdentity {

@@ -322,6 +322,47 @@ private static final long serialVersionUID = 0L;
     return capture_ == null ? dev.recorderminecraft.artifacts.v1.CaptureMetadata.getDefaultInstance() : capture_;
   }
 
+  public static final int WORLD_CONTAINER_TRUTH_FIELD_NUMBER = 10;
+  private dev.recorderminecraft.artifacts.v1.WorldTruthReference worldContainerTruth_;
+  /**
+   * <pre>
+   * Present when a world stream was healthy at connection start. It replaces
+   * the unopened-container known gap for block entity containers.
+   * </pre>
+   *
+   * <code>.recorder_minecraft.artifacts.v1.WorldTruthReference world_container_truth = 10 [json_name = "worldContainerTruth"];</code>
+   * @return Whether the worldContainerTruth field is set.
+   */
+  @java.lang.Override
+  public boolean hasWorldContainerTruth() {
+    return ((bitField0_ & 0x00000010) != 0);
+  }
+  /**
+   * <pre>
+   * Present when a world stream was healthy at connection start. It replaces
+   * the unopened-container known gap for block entity containers.
+   * </pre>
+   *
+   * <code>.recorder_minecraft.artifacts.v1.WorldTruthReference world_container_truth = 10 [json_name = "worldContainerTruth"];</code>
+   * @return The worldContainerTruth.
+   */
+  @java.lang.Override
+  public dev.recorderminecraft.artifacts.v1.WorldTruthReference getWorldContainerTruth() {
+    return worldContainerTruth_ == null ? dev.recorderminecraft.artifacts.v1.WorldTruthReference.getDefaultInstance() : worldContainerTruth_;
+  }
+  /**
+   * <pre>
+   * Present when a world stream was healthy at connection start. It replaces
+   * the unopened-container known gap for block entity containers.
+   * </pre>
+   *
+   * <code>.recorder_minecraft.artifacts.v1.WorldTruthReference world_container_truth = 10 [json_name = "worldContainerTruth"];</code>
+   */
+  @java.lang.Override
+  public dev.recorderminecraft.artifacts.v1.WorldTruthReferenceOrBuilder getWorldContainerTruthOrBuilder() {
+    return worldContainerTruth_ == null ? dev.recorderminecraft.artifacts.v1.WorldTruthReference.getDefaultInstance() : worldContainerTruth_;
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -362,6 +403,9 @@ private static final long serialVersionUID = 0L;
     }
     if (((bitField0_ & 0x00000008) != 0)) {
       output.writeMessage(9, getCapture());
+    }
+    if (((bitField0_ & 0x00000010) != 0)) {
+      output.writeMessage(10, getWorldContainerTruth());
     }
     getUnknownFields().writeTo(output);
   }
@@ -409,6 +453,10 @@ private static final long serialVersionUID = 0L;
       size += com.google.protobuf.CodedOutputStream
         .computeMessageSize(9, getCapture());
     }
+    if (((bitField0_ & 0x00000010) != 0)) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(10, getWorldContainerTruth());
+    }
     size += getUnknownFields().getSerializedSize();
     memoizedSize = size;
     return size;
@@ -454,6 +502,11 @@ private static final long serialVersionUID = 0L;
       if (!getCapture()
           .equals(other.getCapture())) return false;
     }
+    if (hasWorldContainerTruth() != other.hasWorldContainerTruth()) return false;
+    if (hasWorldContainerTruth()) {
+      if (!getWorldContainerTruth()
+          .equals(other.getWorldContainerTruth())) return false;
+    }
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -492,6 +545,10 @@ private static final long serialVersionUID = 0L;
     if (hasCapture()) {
       hash = (37 * hash) + CAPTURE_FIELD_NUMBER;
       hash = (53 * hash) + getCapture().hashCode();
+    }
+    if (hasWorldContainerTruth()) {
+      hash = (37 * hash) + WORLD_CONTAINER_TRUTH_FIELD_NUMBER;
+      hash = (53 * hash) + getWorldContainerTruth().hashCode();
     }
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
@@ -631,6 +688,7 @@ private static final long serialVersionUID = 0L;
         internalGetPlayerFieldBuilder();
         internalGetConnectionFieldBuilder();
         internalGetCaptureFieldBuilder();
+        internalGetWorldContainerTruthFieldBuilder();
       }
     }
     @java.lang.Override
@@ -662,6 +720,11 @@ private static final long serialVersionUID = 0L;
       if (captureBuilder_ != null) {
         captureBuilder_.dispose();
         captureBuilder_ = null;
+      }
+      worldContainerTruth_ = null;
+      if (worldContainerTruthBuilder_ != null) {
+        worldContainerTruthBuilder_.dispose();
+        worldContainerTruthBuilder_ = null;
       }
       return this;
     }
@@ -737,6 +800,12 @@ private static final long serialVersionUID = 0L;
             : captureBuilder_.build();
         to_bitField0_ |= 0x00000008;
       }
+      if (((from_bitField0_ & 0x00000200) != 0)) {
+        result.worldContainerTruth_ = worldContainerTruthBuilder_ == null
+            ? worldContainerTruth_
+            : worldContainerTruthBuilder_.build();
+        to_bitField0_ |= 0x00000010;
+      }
       result.bitField0_ |= to_bitField0_;
     }
 
@@ -791,6 +860,9 @@ private static final long serialVersionUID = 0L;
       }
       if (other.hasCapture()) {
         mergeCapture(other.getCapture());
+      }
+      if (other.hasWorldContainerTruth()) {
+        mergeWorldContainerTruth(other.getWorldContainerTruth());
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -872,6 +944,13 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000100;
               break;
             } // case 74
+            case 82: {
+              input.readMessage(
+                  internalGetWorldContainerTruthFieldBuilder().getBuilder(),
+                  extensionRegistry);
+              bitField0_ |= 0x00000200;
+              break;
+            } // case 82
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -1730,6 +1809,172 @@ private static final long serialVersionUID = 0L;
         capture_ = null;
       }
       return captureBuilder_;
+    }
+
+    private dev.recorderminecraft.artifacts.v1.WorldTruthReference worldContainerTruth_;
+    private com.google.protobuf.SingleFieldBuilder<
+        dev.recorderminecraft.artifacts.v1.WorldTruthReference, dev.recorderminecraft.artifacts.v1.WorldTruthReference.Builder, dev.recorderminecraft.artifacts.v1.WorldTruthReferenceOrBuilder> worldContainerTruthBuilder_;
+    /**
+     * <pre>
+     * Present when a world stream was healthy at connection start. It replaces
+     * the unopened-container known gap for block entity containers.
+     * </pre>
+     *
+     * <code>.recorder_minecraft.artifacts.v1.WorldTruthReference world_container_truth = 10 [json_name = "worldContainerTruth"];</code>
+     * @return Whether the worldContainerTruth field is set.
+     */
+    public boolean hasWorldContainerTruth() {
+      return ((bitField0_ & 0x00000200) != 0);
+    }
+    /**
+     * <pre>
+     * Present when a world stream was healthy at connection start. It replaces
+     * the unopened-container known gap for block entity containers.
+     * </pre>
+     *
+     * <code>.recorder_minecraft.artifacts.v1.WorldTruthReference world_container_truth = 10 [json_name = "worldContainerTruth"];</code>
+     * @return The worldContainerTruth.
+     */
+    public dev.recorderminecraft.artifacts.v1.WorldTruthReference getWorldContainerTruth() {
+      if (worldContainerTruthBuilder_ == null) {
+        return worldContainerTruth_ == null ? dev.recorderminecraft.artifacts.v1.WorldTruthReference.getDefaultInstance() : worldContainerTruth_;
+      } else {
+        return worldContainerTruthBuilder_.getMessage();
+      }
+    }
+    /**
+     * <pre>
+     * Present when a world stream was healthy at connection start. It replaces
+     * the unopened-container known gap for block entity containers.
+     * </pre>
+     *
+     * <code>.recorder_minecraft.artifacts.v1.WorldTruthReference world_container_truth = 10 [json_name = "worldContainerTruth"];</code>
+     */
+    public Builder setWorldContainerTruth(dev.recorderminecraft.artifacts.v1.WorldTruthReference value) {
+      if (worldContainerTruthBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        worldContainerTruth_ = value;
+      } else {
+        worldContainerTruthBuilder_.setMessage(value);
+      }
+      bitField0_ |= 0x00000200;
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * Present when a world stream was healthy at connection start. It replaces
+     * the unopened-container known gap for block entity containers.
+     * </pre>
+     *
+     * <code>.recorder_minecraft.artifacts.v1.WorldTruthReference world_container_truth = 10 [json_name = "worldContainerTruth"];</code>
+     */
+    public Builder setWorldContainerTruth(
+        dev.recorderminecraft.artifacts.v1.WorldTruthReference.Builder builderForValue) {
+      if (worldContainerTruthBuilder_ == null) {
+        worldContainerTruth_ = builderForValue.build();
+      } else {
+        worldContainerTruthBuilder_.setMessage(builderForValue.build());
+      }
+      bitField0_ |= 0x00000200;
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * Present when a world stream was healthy at connection start. It replaces
+     * the unopened-container known gap for block entity containers.
+     * </pre>
+     *
+     * <code>.recorder_minecraft.artifacts.v1.WorldTruthReference world_container_truth = 10 [json_name = "worldContainerTruth"];</code>
+     */
+    public Builder mergeWorldContainerTruth(dev.recorderminecraft.artifacts.v1.WorldTruthReference value) {
+      if (worldContainerTruthBuilder_ == null) {
+        if (((bitField0_ & 0x00000200) != 0) &&
+          worldContainerTruth_ != null &&
+          worldContainerTruth_ != dev.recorderminecraft.artifacts.v1.WorldTruthReference.getDefaultInstance()) {
+          getWorldContainerTruthBuilder().mergeFrom(value);
+        } else {
+          worldContainerTruth_ = value;
+        }
+      } else {
+        worldContainerTruthBuilder_.mergeFrom(value);
+      }
+      if (worldContainerTruth_ != null) {
+        bitField0_ |= 0x00000200;
+        onChanged();
+      }
+      return this;
+    }
+    /**
+     * <pre>
+     * Present when a world stream was healthy at connection start. It replaces
+     * the unopened-container known gap for block entity containers.
+     * </pre>
+     *
+     * <code>.recorder_minecraft.artifacts.v1.WorldTruthReference world_container_truth = 10 [json_name = "worldContainerTruth"];</code>
+     */
+    public Builder clearWorldContainerTruth() {
+      bitField0_ = (bitField0_ & ~0x00000200);
+      worldContainerTruth_ = null;
+      if (worldContainerTruthBuilder_ != null) {
+        worldContainerTruthBuilder_.dispose();
+        worldContainerTruthBuilder_ = null;
+      }
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * Present when a world stream was healthy at connection start. It replaces
+     * the unopened-container known gap for block entity containers.
+     * </pre>
+     *
+     * <code>.recorder_minecraft.artifacts.v1.WorldTruthReference world_container_truth = 10 [json_name = "worldContainerTruth"];</code>
+     */
+    public dev.recorderminecraft.artifacts.v1.WorldTruthReference.Builder getWorldContainerTruthBuilder() {
+      bitField0_ |= 0x00000200;
+      onChanged();
+      return internalGetWorldContainerTruthFieldBuilder().getBuilder();
+    }
+    /**
+     * <pre>
+     * Present when a world stream was healthy at connection start. It replaces
+     * the unopened-container known gap for block entity containers.
+     * </pre>
+     *
+     * <code>.recorder_minecraft.artifacts.v1.WorldTruthReference world_container_truth = 10 [json_name = "worldContainerTruth"];</code>
+     */
+    public dev.recorderminecraft.artifacts.v1.WorldTruthReferenceOrBuilder getWorldContainerTruthOrBuilder() {
+      if (worldContainerTruthBuilder_ != null) {
+        return worldContainerTruthBuilder_.getMessageOrBuilder();
+      } else {
+        return worldContainerTruth_ == null ?
+            dev.recorderminecraft.artifacts.v1.WorldTruthReference.getDefaultInstance() : worldContainerTruth_;
+      }
+    }
+    /**
+     * <pre>
+     * Present when a world stream was healthy at connection start. It replaces
+     * the unopened-container known gap for block entity containers.
+     * </pre>
+     *
+     * <code>.recorder_minecraft.artifacts.v1.WorldTruthReference world_container_truth = 10 [json_name = "worldContainerTruth"];</code>
+     */
+    private com.google.protobuf.SingleFieldBuilder<
+        dev.recorderminecraft.artifacts.v1.WorldTruthReference, dev.recorderminecraft.artifacts.v1.WorldTruthReference.Builder, dev.recorderminecraft.artifacts.v1.WorldTruthReferenceOrBuilder> 
+        internalGetWorldContainerTruthFieldBuilder() {
+      if (worldContainerTruthBuilder_ == null) {
+        worldContainerTruthBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            dev.recorderminecraft.artifacts.v1.WorldTruthReference, dev.recorderminecraft.artifacts.v1.WorldTruthReference.Builder, dev.recorderminecraft.artifacts.v1.WorldTruthReferenceOrBuilder>(
+                getWorldContainerTruth(),
+                getParentForChildren(),
+                isClean());
+        worldContainerTruth_ = null;
+      }
+      return worldContainerTruthBuilder_;
     }
 
     // @@protoc_insertion_point(builder_scope:recorder_minecraft.artifacts.v1.ServerMetadata)
