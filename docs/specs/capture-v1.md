@@ -19,8 +19,10 @@ produce a local primitive capture.
     replay.zip
 ```
 
-There are no sessions directories, epochs, rotations, per-epoch manifests,
-seal files, replay segments, or recorder-side post-processing intermediates.
+A play has no session subdirectories, epochs, rotations, per-epoch
+manifests, seal files, replay segments, or recorder-side post-processing
+intermediates. Session-level world data lives outside the play, under
+`world/sessions/`; see [World sessions](artifacts-v1.md#world-sessions).
 
 `metadata.json` is the ProtoJSON form of generated `ServerMetadata` and owns facts that occur once: server and player identity,
 connection UUID, start time/tick, end time/tick, terminal reason, capture file
@@ -99,6 +101,16 @@ post_state[t]
 
 The replay reconstructs the moving client-visible world, not omniscient server
 state. Unloaded cells remain unknown. Minecraft may not send unopened
-container contents, so missing chest inventory is unknown rather than empty.
+container contents, so missing chest inventory in the replay is unknown rather
+than empty.
+
+When `metadata.json` has `world_container_truth`, the world stream records the
+server-side contents of every loaded container block entity, and the play
+declares `world_entities_not_recorded` in place of
+`unopened_container_contents_may_be_unknown`. That gap means entity-held
+inventories (item entities, chest minecarts, donkeys) remain unknown. Without
+`world_container_truth`, the play declares
+`unopened_container_contents_may_be_unknown`.
+
 Exact light arrays, particles, and audio are not currently extracted. These
 gaps stay explicit in metadata and Scene Store V2 provenance.

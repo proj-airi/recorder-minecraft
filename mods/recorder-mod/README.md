@@ -61,13 +61,29 @@ At player join the mod creates:
     replay.zip
 ```
 
+Once per server start, the mod also writes a world session beside `players/`:
+
+```text
+<artifacts_root>/v1/<server>--<instance>/world/sessions/<start>--<session>/
+  metadata.json
+  world-events.jsonl
+```
+
+The world stream records the server-side contents of every loaded container
+block entity: a snapshot of each one at session start, when it loads, and when
+its contents change (at most once per tick), plus a removal record when it
+unloads or is destroyed. Containers with an unrolled loot table are recorded
+as `LOOT_UNGENERATED`, never as empty. A world stream failure disables only the
+world stream; Play capture continues. The stream is always on and needs no
+configuration key.
+
 It does not create actions, scenes, or renders. Those are post-processing
 outputs. ServerReplay writes one unrotated Flashback recording through a
 timestamped working child; after close, the recorder moves the archive
 unchanged to `capture/replay.zip`.
 
 The recorder appends one buffered, connection-local generated ProtoJSON `capture/events.jsonl`
-stream. There are no sessions on disk, epochs, manifests, or sealing step.
+stream. A play has no session subdirectories, epochs, manifests, or sealing step.
 After events are durable and the replay writer has closed, `metadata.json` is
 atomically updated with the end tick; a null end tick means incomplete.
 
@@ -77,8 +93,11 @@ not physical keyboard/mouse telemetry. `player_state` contains complete server
 state including inventory/effects/abilities and an application barrier.
 
 The recorder emits `mc_recorder:timeline/v1` once per player tick so replay
-ticks align exactly with server ticks. Captured world scope remains
-client-visible; unloaded cells and unopened-container contents may be unknown.
+ticks align exactly with server ticks. Play capture scope remains
+client-visible; unloaded cells may be unknown. Container block entity contents
+come from the world stream, which the play references in
+`world_container_truth`. Entity-held inventories are not recorded
+(`world_entities_not_recorded`).
 
 Build with:
 

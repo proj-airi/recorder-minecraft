@@ -109,9 +109,11 @@ are time-bounded and spatially indexed; they are not reasonable DOM nodes. At ov
 timeline needs density summaries. At detail zoom, it can query visible ranges and show discrete
 actions or versions.
 
-All captures declare the known gaps `audio_not_extracted`, `particles_not_extracted`,
-`lighting_not_persisted_in_scene_v2`, and `unopened_container_contents_may_be_unknown`. Missing
-modalities and unknown world cells need explicit UI states; they must not appear as empty or zero.
+All captures declare the known gaps `audio_not_extracted`, `particles_not_extracted`, and
+`lighting_not_persisted_in_scene_v2`. A capture without a world stream also declares
+`unopened_container_contents_may_be_unknown`; a capture with `world_container_truth` declares
+`world_entities_not_recorded` instead. Missing modalities and unknown world cells need explicit UI
+states; they must not appear as empty or zero.
 
 ### Current API state
 
