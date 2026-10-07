@@ -124,7 +124,9 @@ class PlayFiles private constructor(
                 .setFlashbackCaptureContract(ReplayScenePacketContract.FLASHBACK_CAPTURE_CONTRACT)
                 .addAllKnownGaps(listOf(
                     "audio_not_extracted", "particles_not_extracted", "lighting_not_persisted_in_scene_v2",
-                    "unopened_container_contents_may_be_unknown"
+                    "unopened_container_contents_may_be_unknown",
+                    "client_fov_gui_scale_aspect_unobservable_server_side",
+                    "container_views_unlinked_for_ender_chests_and_entity_inventories"
                 ))
                 .setCapture(
                     CaptureMetadata.newBuilder()

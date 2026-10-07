@@ -188,6 +188,8 @@ download policies are outside the V1 recorder contract.
 | `player_state` | Authoritative post-tick state for the recorded player, including transform, health, inventory, effects, abilities, and state barrier |
 | `control_state` | 20 Hz reconstruction of persistent movement flags, camera rotation and deltas, sprint/sneak state, and selected slot |
 | `replay_timeline` | Connection identity and server tick also sent into Flashback as `mc_recorder:timeline/v1` |
+| `client_information` | Actor-perception settings the client reported to the server, such as requested view distance and particle level; a join snapshot, then each play-phase update |
+| `container_view` | Actor-perception record of container contents actually sent to this player, with the backing block when known; never evidence about unopened containers |
 
 An action record is normalized semantic data. It is not a raw network byte
 stream, physical keyboard event, or raw mouse sample. Chat, command, and custom

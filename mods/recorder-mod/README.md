@@ -75,6 +75,9 @@ atomically updated with the end tick; a null end tick means incomplete.
 authoritative action order. `control_state` is a semantic 20 Hz reconstruction,
 not physical keyboard/mouse telemetry. `player_state` contains complete server
 state including inventory/effects/abilities and an application barrier.
+`client_information` and `container_view` are actor-perception records: the
+settings the client reported, and the container contents this player was
+actually sent, linked to the backing block when the menu came from one.
 
 The recorder emits `mc_recorder:timeline/v1` once per player tick so replay
 ticks align exactly with server ticks. Captured world scope remains

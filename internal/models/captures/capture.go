@@ -165,6 +165,10 @@ func eventView(message *artifactsv1.CaptureEvent) Event {
 		recordType = "player_state"
 	case *artifactsv1.CaptureEvent_ReplayTimeline:
 		recordType = "replay_timeline"
+	case *artifactsv1.CaptureEvent_ClientInformation:
+		recordType = "client_information"
+	case *artifactsv1.CaptureEvent_ContainerView:
+		recordType = "container_view"
 	}
 	identity := message.GetIdentity()
 	return Event{message, recordType, identity.GetServerTick(), identity.GetSequence(), identity.GetPlayerUuid(), identity.GetConnectionId()}

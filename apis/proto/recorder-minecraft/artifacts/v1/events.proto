@@ -17,6 +17,8 @@ message CaptureEvent {
     PacketApplyEvent packet_apply = 22;
     PlayerStateEvent player_state = 23;
     ReplayTimelineEvent replay_timeline = 24;
+    ClientInformationEvent client_information = 25;
+    ContainerViewEvent container_view = 26;
   }
 }
 
@@ -181,4 +183,85 @@ message ReplayCoverage {
   int32 center_chunk_z = 3;
   int32 view_distance_chunks = 4;
   bool complete = 5;
+}
+
+// Client-reported settings that bound what this actor can perceive.
+//
+// Scope is actor perception and provenance is captured: values are copied from
+// the server's view of the client, not inferred. FOV, GUI scale, and window
+// aspect are never reported to the server and are therefore absent.
+message ClientInformationEvent {
+  ClientInformationSource source = 1;
+  string language = 2;
+  // Client render distance in chunks before the server clamps it to its own limit.
+  int32 view_distance = 3;
+  string chat_visibility = 4;
+  bool chat_colors = 5;
+  // Bit mask of visible player model parts.
+  int32 model_customisation = 6;
+  string main_hand = 7;
+  bool text_filtering = 8;
+  bool allows_listing = 9;
+  string particle_status = 10;
+}
+
+enum ClientInformationSource {
+  CLIENT_INFORMATION_SOURCE_UNSPECIFIED = 0;
+  // Settings the server held for the player when the play capture joined. The
+  // configuration-phase packet that carried them precedes the play stream.
+  CLIENT_INFORMATION_SOURCE_JOIN_SNAPSHOT = 1;
+  // A play-phase settings packet applied on the server main thread.
+  CLIENT_INFORMATION_SOURCE_PACKET = 2;
+}
+
+// Container contents this actor was actually sent, or a container close.
+//
+// Scope is actor perception and provenance is captured: clientbound records are
+// observed as the server hands packets to the connection. The player's own
+// inventory menu (container id 0) is excluded because player_state covers it.
+message ContainerViewEvent {
+  ContainerViewKind kind = 1;
+  ContainerViewOrigin origin = 2;
+  int32 container_id = 3;
+  // Menu revision from content and slot packets; absent for open, carried, and close.
+  optional int32 state_id = 4;
+  // Menu registry ID, for example `minecraft:generic_9x3`; empty when the open was not observed.
+  string menu_type = 5;
+  // Block that backs the menu, when the menu was opened from a container block entity.
+  ContainerViewSource source = 6;
+  // Number of leading menu slots that belong to the opened container rather than
+  // the player's inventory; absent when the open was not observed.
+  optional int32 container_slot_count = 7;
+  // Menu slot indexes. CONTENTS lists every non-empty slot, so an absent slot is
+  // empty. SLOT lists exactly one slot and uses `minecraft:air` with count 0 for
+  // an emptied slot.
+  repeated InventorySlot slots = 8;
+  // Cursor stack for CONTENTS and CARRIED; `minecraft:air` with count 0 when empty.
+  InventorySlot carried_item = 9;
+}
+
+enum ContainerViewKind {
+  CONTAINER_VIEW_KIND_UNSPECIFIED = 0;
+  CONTAINER_VIEW_KIND_OPENED = 1;
+  CONTAINER_VIEW_KIND_CONTENTS = 2;
+  CONTAINER_VIEW_KIND_SLOT = 3;
+  CONTAINER_VIEW_KIND_CARRIED = 4;
+  CONTAINER_VIEW_KIND_CLOSED = 5;
+}
+
+enum ContainerViewOrigin {
+  CONTAINER_VIEW_ORIGIN_UNSPECIFIED = 0;
+  // A packet the server sent to this client.
+  CONTAINER_VIEW_ORIGIN_CLIENTBOUND = 1;
+  // A close packet from this client, applied on the server main thread.
+  CONTAINER_VIEW_ORIGIN_SERVERBOUND = 2;
+}
+
+message ContainerViewSource {
+  string dimension = 1;
+  // Integer block coordinates. For a double chest this is the first half.
+  Vector3 block_pos = 2;
+  string block_entity_type = 3;
+  // Second half of a double chest.
+  Vector3 secondary_block_pos = 4;
 }

@@ -175,6 +175,54 @@ public object CaptureEventKt {
     public fun hasReplayTimeline(): kotlin.Boolean {
       return _builder.hasReplayTimeline()
     }
+
+    /**
+     * `.recorder_minecraft.artifacts.v1.ClientInformationEvent client_information = 25 [json_name = "clientInformation"];`
+     */
+    public var clientInformation: dev.recorderminecraft.artifacts.v1.ClientInformationEvent
+      @kotlin.jvm.JvmName("getClientInformation")
+        get() = _builder.clientInformation
+      @kotlin.jvm.JvmName("setClientInformation")
+        set(value) {
+        _builder.clientInformation = value
+      }
+    /**
+     * `.recorder_minecraft.artifacts.v1.ClientInformationEvent client_information = 25 [json_name = "clientInformation"];`
+     */
+    public fun clearClientInformation() {
+      _builder.clearClientInformation()
+    }
+    /**
+     * `.recorder_minecraft.artifacts.v1.ClientInformationEvent client_information = 25 [json_name = "clientInformation"];`
+     * @return Whether the clientInformation field is set.
+     */
+    public fun hasClientInformation(): kotlin.Boolean {
+      return _builder.hasClientInformation()
+    }
+
+    /**
+     * `.recorder_minecraft.artifacts.v1.ContainerViewEvent container_view = 26 [json_name = "containerView"];`
+     */
+    public var containerView: dev.recorderminecraft.artifacts.v1.ContainerViewEvent
+      @kotlin.jvm.JvmName("getContainerView")
+        get() = _builder.containerView
+      @kotlin.jvm.JvmName("setContainerView")
+        set(value) {
+        _builder.containerView = value
+      }
+    /**
+     * `.recorder_minecraft.artifacts.v1.ContainerViewEvent container_view = 26 [json_name = "containerView"];`
+     */
+    public fun clearContainerView() {
+      _builder.clearContainerView()
+    }
+    /**
+     * `.recorder_minecraft.artifacts.v1.ContainerViewEvent container_view = 26 [json_name = "containerView"];`
+     * @return Whether the containerView field is set.
+     */
+    public fun hasContainerView(): kotlin.Boolean {
+      return _builder.hasContainerView()
+    }
     public val recordCase: dev.recorderminecraft.artifacts.v1.CaptureEvent.RecordCase
     @kotlin.jvm.JvmName("getRecordCase")
       get() = _builder.getRecordCase()
@@ -205,4 +253,10 @@ public val dev.recorderminecraft.artifacts.v1.CaptureEventOrBuilder.playerStateO
 
 public val dev.recorderminecraft.artifacts.v1.CaptureEventOrBuilder.replayTimelineOrNull: dev.recorderminecraft.artifacts.v1.ReplayTimelineEvent?
   get() = if (hasReplayTimeline()) getReplayTimeline() else null
+
+public val dev.recorderminecraft.artifacts.v1.CaptureEventOrBuilder.clientInformationOrNull: dev.recorderminecraft.artifacts.v1.ClientInformationEvent?
+  get() = if (hasClientInformation()) getClientInformation() else null
+
+public val dev.recorderminecraft.artifacts.v1.CaptureEventOrBuilder.containerViewOrNull: dev.recorderminecraft.artifacts.v1.ContainerViewEvent?
+  get() = if (hasContainerView()) getContainerView() else null
 

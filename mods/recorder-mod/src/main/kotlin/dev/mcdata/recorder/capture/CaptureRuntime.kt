@@ -6,6 +6,7 @@ import net.casual.arcade.replay.recorder.ReplayRecorder
 import net.minecraft.network.protocol.Packet
 import net.minecraft.server.MinecraftServer
 import net.minecraft.server.level.ServerPlayer
+import net.minecraft.world.MenuProvider
 import org.slf4j.Logger
 import java.nio.file.Path
 import java.util.UUID
@@ -51,6 +52,15 @@ object CaptureRuntime {
 
     @JvmStatic
     fun packetApply(player: ServerPlayer, packet: Packet<*>) = safely { it.packetApply(player, packet) }
+
+    @JvmStatic
+    fun clientboundPacket(player: ServerPlayer, packet: Packet<*>) = safely { it.clientboundPacket(player, packet) }
+
+    @JvmStatic
+    fun menuOpening(player: ServerPlayer) = safely { it.menuOpening(player) }
+
+    @JvmStatic
+    fun menuOpened(player: ServerPlayer, provider: MenuProvider) = safely { it.menuOpened(player, provider) }
 
     @Synchronized
     fun stop() {

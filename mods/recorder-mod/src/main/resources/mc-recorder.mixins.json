@@ -3,11 +3,14 @@
   "package": "dev.mcdata.recorder.mixin",
   "compatibilityLevel": "JAVA_21",
   "mixins": [
+    "CompoundContainerAccessor",
     "FlashbackWriterScenePacketMixin",
     "PacketUtilsMixin",
     "ReplayOptimizerScenePacketMixin",
     "ReplayPacketSnapshotMixin",
     "ReplayConfigCapturePathMixin",
+    "ServerCommonPacketListenerImplMixin",
+    "ServerPlayerMenuMixin",
     "ServerboundInteractPacketAccessor"
   ],
   "injectors": {

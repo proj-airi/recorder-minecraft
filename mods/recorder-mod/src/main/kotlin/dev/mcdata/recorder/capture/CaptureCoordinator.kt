@@ -2,6 +2,10 @@ package dev.mcdata.recorder.capture
 
 import com.mojang.authlib.GameProfile
 import dev.recorderminecraft.artifacts.v1.CaptureEvent
+import dev.recorderminecraft.artifacts.v1.ClientInformationSource
+import dev.recorderminecraft.artifacts.v1.ContainerViewEvent
+import dev.recorderminecraft.artifacts.v1.ContainerViewKind
+import dev.recorderminecraft.artifacts.v1.ContainerViewSource
 import dev.recorderminecraft.artifacts.v1.ControlState
 import dev.recorderminecraft.artifacts.v1.ControlStateEvent
 import dev.recorderminecraft.artifacts.v1.EventIdentity
@@ -19,6 +23,7 @@ import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking
 import net.minecraft.network.protocol.Packet
 import net.minecraft.server.MinecraftServer
 import net.minecraft.server.level.ServerPlayer
+import net.minecraft.world.MenuProvider
 import org.slf4j.Logger
 import java.nio.file.Path
 import java.time.Instant
@@ -117,6 +122,54 @@ class CaptureCoordinator(
             }
             event.packetApply = applied.build()
         }
+        // Settings and client-initiated closes follow their packet_apply record, so the packet's
+        // apply_sequence still orders them against the rest of the action stream.
+        ClientSettings.fromPacket(packet)?.let { settings ->
+            capture.emit(eventTick, player) { event -> event.clientInformation = settings }
+        }
+        ContainerViews.closedByClient(packet)?.let { view -> emitContainerView(capture, player, eventTick, view) }
+    }
+
+    @Synchronized
+    fun clientboundPacket(player: ServerPlayer, packet: Packet<*>) {
+        val capture = activeCapture(player) ?: return
+        val view = ContainerViews.clientbound(packet, inventorySlots(player), player.containerMenu.containerId) ?: return
+        val eventTick = associatedEventTick()
+        capture.pendingMenuOpen?.let { pending ->
+            pending += PendingContainerView(eventTick, view)
+            return
+        }
+        if (view.kind == ContainerViewKind.CONTAINER_VIEW_KIND_OPENED) {
+            capture.menus[view.containerId] = OpenMenu(view.menuType)
+        }
+        emitContainerView(capture, player, eventTick, view)
+    }
+
+    /**
+     * `ServerPlayer.openMenu` sends the open-screen and initial contents packets before the new menu
+     * is assigned to the player, so the backing block is only resolvable when it returns. Views sent
+     * inside that window are held and emitted at return, in send order, with the block attached.
+     */
+    @Synchronized
+    fun menuOpening(player: ServerPlayer) {
+        val capture = activeCapture(player) ?: return
+        flushPendingMenuOpen(capture, player)
+        capture.pendingMenuOpen = mutableListOf()
+    }
+
+    @Synchronized
+    fun menuOpened(player: ServerPlayer, provider: MenuProvider) {
+        val capture = activeCapture(player) ?: return
+        val pending = capture.pendingMenuOpen ?: return
+        val menu = player.containerMenu
+        pending.map { it.view }.filter { it.kind == ContainerViewKind.CONTAINER_VIEW_KIND_OPENED }.forEach { opened ->
+            capture.menus[opened.containerId] = if (opened.containerId == menu.containerId) {
+                OpenMenu(opened.menuType, ContainerViews.source(provider, menu), ContainerViews.containerSlotCount(menu))
+            } else {
+                OpenMenu(opened.menuType)
+            }
+        }
+        flushPendingMenuOpen(capture, player)
     }
 
     @Synchronized
@@ -144,6 +197,14 @@ class CaptureCoordinator(
         if (capture.joined) return
         capture.joined = true
         capture.entityId = player.id
+        // The configuration-phase settings packet precedes every play record, so the settings the
+        // server already holds are the actor's starting perception bounds.
+        capture.emit(associatedEventTick(), player) { event ->
+            event.clientInformation = ClientSettings.record(
+                player.clientInformation(),
+                ClientInformationSource.CLIENT_INFORMATION_SOURCE_JOIN_SNAPSHOT
+            )
+        }
         controls.getOrPut(player.uuid, ::ControlStateTracker)
     }
 
@@ -163,6 +224,8 @@ class CaptureCoordinator(
         val stateBarrier = applySequence
         for (player in server.playerList.players.sortedBy { it.uuid.toString() }) {
             val capture = activeCapture(player) ?: continue
+            // An open window only survives to here if openMenu threw before returning.
+            flushPendingMenuOpen(capture, player)
             val state = PlayerSnapshot.capture(player, config)
             capture.emit(serverTick, player) { event ->
                 state.stateBarrierApplySequence = stateBarrier
@@ -250,6 +313,30 @@ class CaptureCoordinator(
         capture.playFiles.eventsClosed(endedAt, endServerTick, terminalReason)
     }
 
+    private fun flushPendingMenuOpen(capture: ConnectionCapture, player: ServerPlayer) {
+        val pending = capture.pendingMenuOpen ?: return
+        capture.pendingMenuOpen = null
+        pending.forEach { emitContainerView(capture, player, it.eventTick, it.view) }
+    }
+
+    private fun emitContainerView(
+        capture: ConnectionCapture,
+        player: ServerPlayer,
+        eventTick: Long,
+        view: ContainerViewEvent.Builder
+    ) {
+        capture.menus[view.containerId]?.let { menu ->
+            if (view.menuType.isEmpty()) view.menuType = menu.menuType
+            menu.source?.let(view::setSource)
+            menu.containerSlotCount?.let(view::setContainerSlotCount)
+        }
+        if (view.kind == ContainerViewKind.CONTAINER_VIEW_KIND_CLOSED) capture.menus.remove(view.containerId)
+        capture.emit(eventTick, player) { event -> event.containerView = view.build() }
+    }
+
+    private fun inventorySlots(player: ServerPlayer) =
+        InventorySlots(config.includeInventoryComponents, player::registryAccess)
+
     private fun activeCapture(player: ServerPlayer): ConnectionCapture? =
         captures[player.uuid]?.takeIf { active && it.joined }
 
@@ -264,6 +351,8 @@ class CaptureCoordinator(
         val writer: AsyncPlayWriter,
         var joined: Boolean = false,
         var entityId: Int = -1,
+        var pendingMenuOpen: MutableList<PendingContainerView>? = null,
+        val menus: MutableMap<Int, OpenMenu> = HashMap(),
         private var sequence: Long = 0
     ) {
         fun peekNextSequence(): Long = sequence + 1
@@ -293,6 +382,15 @@ class CaptureCoordinator(
         val arrivalSequence: Long,
         val arrivalTick: Long,
         val normalized: PacketNormalizer.Result
+    )
+
+    private data class PendingContainerView(val eventTick: Long, val view: ContainerViewEvent.Builder)
+
+    /** What is known about a menu id between its open and close, attached to every view of it. */
+    private data class OpenMenu(
+        val menuType: String,
+        val source: ContainerViewSource? = null,
+        val containerSlotCount: Int? = null
     )
 
     private enum class TickPhase(val serialized: String) {

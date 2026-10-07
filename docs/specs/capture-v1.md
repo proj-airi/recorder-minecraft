@@ -64,8 +64,9 @@ generated oneof record:
 | `connection_id` | Canonical connection UUID. |
 
 The stream contains `packet_arrival`, `packet_apply`, `player_state`,
-`control_state`, and `replay_timeline`. Join, leave, start, and end facts live in
-metadata rather than one-off event records.
+`control_state`, `replay_timeline`, `client_information`, and
+`container_view`. Join, leave, start, and end facts live in metadata rather
+than one-off event records.
 
 `packet_arrival` is a diagnostic network-thread observation. It is useful for
 queue latency and arrival/apply matching, but does not define authoritative
@@ -86,6 +87,59 @@ physical keyboard or raw mouse telemetry. `replay_timeline` is also written
 inside Flashback as `mc_recorder:timeline/v1`, aligning server ticks to replay
 ticks without filenames or file timestamps.
 
+## Actor perception records
+
+`client_information` and `container_view` describe what this player could
+perceive, not what the world contains. Both have scope `actor perception` and
+provenance `captured`: they copy values the server held or sent for this
+connection and infer nothing.
+
+| Record | Scope | Provenance | Source |
+| --- | --- | --- | --- |
+| `client_information` | actor perception | captured | Server-held client settings at join, then each applied play-phase settings packet |
+| `container_view` | actor perception | captured | Container packets sent to this client, plus container closes it sent |
+
+`client_information` records the settings the client reports to the server:
+language, requested view distance in chunks, chat visibility and colors, model
+part mask, main hand, text filtering, server listing, and particle level. The
+first record has `source` `CLIENT_INFORMATION_SOURCE_JOIN_SNAPSHOT` and is
+copied from the server's player at join, because the configuration-phase
+packet that carried it precedes the event stream. Later records have `source`
+`CLIENT_INFORMATION_SOURCE_PACKET` and follow the `packet_apply` record of the
+same settings packet. The requested view distance is not the effective one;
+the server also clamps it to its own limit, which `player_state.replay_coverage`
+reports. Field of view, GUI scale, and window aspect never reach the server and
+are not recorded; every play declares the known gap
+`client_fov_gui_scale_aspect_unobservable_server_side`.
+
+`container_view` is stamped when the server hands a container packet to this
+connection, so its `server_tick` follows the event envelope rule. Its `kind` is:
+
+| Kind | Packet | Content |
+| --- | --- | --- |
+| `CONTAINER_VIEW_KIND_OPENED` | open screen | `menu_type` |
+| `CONTAINER_VIEW_KIND_CONTENTS` | container contents | Every non-empty menu slot, the carried stack, and `state_id`; an absent slot is empty |
+| `CONTAINER_VIEW_KIND_SLOT` | container slot | One menu slot and `state_id`; an emptied slot is `minecraft:air` with count 0 |
+| `CONTAINER_VIEW_KIND_CARRIED` | cursor item | The carried stack, attributed to the menu open when it was sent |
+| `CONTAINER_VIEW_KIND_CLOSED` | container close | `origin` tells a server close from a client close |
+
+Slot numbers are menu slot indexes, as in the packets. The first
+`container_slot_count` menu slots belong to the opened container; the rest
+mirror the player's inventory, which `player_state` already records. Container
+id 0, the player's own inventory menu, is never recorded. Slot stacks use the
+same `InventorySlot` encoding as `player_state.inventory`.
+
+When a menu opened through a container block entity, every view of that
+container id up to its close carries `source`: dimension, integer block
+position, and block entity type. A double chest also carries the second half
+in `secondary_block_pos`. Ender chests, entity inventories such as chest boats
+and donkeys, and stateless menus such as crafting tables have no `source`.
+Every play declares the known gap
+`container_views_unlinked_for_ender_chests_and_entity_inventories` for this. The
+open-screen and initial contents packets precede the menu's assignment to the
+player, so the recorder holds them until `openMenu` returns and then writes
+them in send order.
+
 For adjacent snapshots:
 
 ```text
@@ -100,5 +154,7 @@ post_state[t]
 The replay reconstructs the moving client-visible world, not omniscient server
 state. Unloaded cells remain unknown. Minecraft may not send unopened
 container contents, so missing chest inventory is unknown rather than empty.
+`container_view` records which contents this player was actually sent; it is
+not evidence about containers the player never opened.
 Exact light arrays, particles, and audio are not currently extracted. These
 gaps stay explicit in metadata and Scene Store V2 provenance.
