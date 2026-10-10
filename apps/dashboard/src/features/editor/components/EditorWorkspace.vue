@@ -10,6 +10,7 @@ import { useResizeObserver } from '@vueuse/core'
 import { DockviewVue, themeDark } from 'dockview-vue'
 import { computed, markRaw, onBeforeUnmount, onMounted, provide, toRef, useTemplateRef, watch } from 'vue'
 
+import EventLogPanel from '../../event-log/components/EventLogPanel.vue'
 import InputMonitorPanel from '../../inputs/components/InputMonitorPanel.vue'
 import MediaPreviewPanel from '../../media/components/MediaPreviewPanel.vue'
 import MultiViewMonitorPanel from '../../monitor/components/MultiViewMonitorPanel.vue'
@@ -61,6 +62,7 @@ const viewDefinitions: EditorViewDefinition[] = [
   { component: 'mediaPreview', icon: 'i-mingcute-video-line', id: 'preview', label: 'Preview', showTitle: true, source: 'built-in' },
   { component: 'multiViewMonitor', icon: 'i-mingcute-grid-line', id: 'monitor', label: 'Monitor', showTitle: true, source: 'built-in' },
   { component: 'inputMonitor', icon: 'i-mingcute-keyboard-line', id: 'inputs', label: 'Inputs', showTitle: true, source: 'built-in' },
+  { component: 'eventLog', icon: 'i-mingcute-list-check-line', id: 'events', label: 'Event log', showTitle: true, source: 'built-in' },
   { component: 'timeline', icon: 'i-mingcute-timeline-line', id: 'timeline', label: 'Timeline', showTitle: false, source: 'built-in' },
   ...playExtensionModules.map((module): EditorViewDefinition => ({
     component: `extension:${module.extensionType}`,
@@ -75,6 +77,7 @@ const viewDefinitions: EditorViewDefinition[] = [
 const catalog = useArtifactCatalog()
 const replayPlayback = useReplayPlayback(catalog.selectedReplay)
 const components: Record<string, VueComponent> = markRaw({
+  eventLog: EventLogPanel as unknown as VueComponent,
   inputMonitor: InputMonitorPanel as unknown as VueComponent,
   mediaPreview: MediaPreviewPanel as unknown as VueComponent,
   multiViewMonitor: MultiViewMonitorPanel as unknown as VueComponent,
@@ -97,7 +100,12 @@ const selectedExtension = computed(() => toSelectedPlayExtension(props.session.s
 
 provide(editorWorkspaceContextKey, {
   addReplay: (replay) => {
-    emit('addReplay', replay)
+    // A Play linked to a world session joins the timeline with that session's world source.
+    const world = catalog.worldSourceFor(replay)
+    if (world)
+      emit('addSession', world.sessionId, [replay], world)
+    else
+      emit('addReplay', replay)
   },
   addSession: (sessionId, replays, world) => {
     emit('addSession', sessionId, replays, world)
@@ -151,6 +159,10 @@ function panelOptions(definition: EditorViewDefinition): AddPanelOptions<EditorP
   }
   else if (definition.id === 'inputs') {
     options.minimumWidth = 160
+  }
+  else if (definition.id === 'events') {
+    options.minimumHeight = 120
+    options.minimumWidth = 220
   }
   else if (definition.source === 'extension') {
     options.minimumHeight = 160
@@ -218,6 +230,15 @@ function addView(viewId: EditorViewId, initialSize?: number): IDockviewPanel | u
     if (reference)
       options.position = { direction: 'right', referencePanel: reference }
   }
+  else if (viewId === 'events') {
+    options.initialHeight = initialSize
+    const inputs = firstOpenPanel(api, ['inputs'])
+    const reference = firstOpenPanel(api, ['monitor', 'timeline'])
+    if (inputs)
+      options.position = { direction: 'below', referencePanel: inputs }
+    else if (reference)
+      options.position = { direction: 'right', referencePanel: reference }
+  }
   else if (definition.source === 'extension') {
     options.initialWidth = initialSize
     const reference = firstOpenPanel(api, ['monitor', 'preview', 'timeline'])
@@ -262,17 +283,20 @@ function applyInitialLayout(api: DockviewApi, width: number, height: number): vo
 
   initialLayoutApplied = true
 
-  const sideWidth = Math.max(160, Math.round(layoutWidth * 0.125))
+  const sideWidth = Math.max(220, Math.round(layoutWidth * 0.15))
+  const rightWidth = Math.max(240, Math.round(layoutWidth * 0.2))
   const resources = addView('resources')
   // Adding the center at the remaining width first leaves the requested resource width on the
   // left. The input column is then carved out of the center without rebuilding Dockview's grid.
   addView('monitor', layoutWidth - sideWidth)
-  const inputs = addView('inputs', sideWidth)
+  const inputs = addView('inputs', rightWidth)
+  const events = addView('events', Math.round(layoutHeight * 0.55))
   const preview = addView('preview', Math.round(layoutHeight / 6))
   const timeline = addView('timeline', Math.round(layoutHeight * 0.3))
 
   resources?.group.api.setSize({ width: sideWidth })
-  inputs?.group.api.setSize({ width: sideWidth })
+  inputs?.group.api.setSize({ width: rightWidth })
+  events?.group.api.setSize({ height: Math.round(layoutHeight * 0.55) })
   preview?.group.api.setSize({ height: Math.round(layoutHeight / 6) })
   timeline?.group.api.setSize({ height: Math.round(layoutHeight * 0.3) })
   inputs?.api.setActive()

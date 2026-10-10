@@ -240,19 +240,23 @@ export function replayDurationTicks(replay: null | RecorderMinecraftApiV1Replay)
 /** Builds the episode source record for a catalog Play. */
 export function replaySource(replay: RecorderMinecraftApiV1Replay): EpisodeReplaySource {
   return {
+    actionsUrl: replay.actionsUrl || undefined,
     connectionId: replay.connectionId ?? '',
     endServerTick: replay.endServerTick,
     eventsUrl: replay.eventsUrl,
-    framesIndexUrl: optionalString(replay, 'framesIndexUrl'),
+    framesIndexUrl: replay.framesIndexUrl || undefined,
+    perceptionUrl: replay.perceptionUrl || undefined,
     playerName: replay.playerName ?? 'Unknown player',
     playerUuid: replay.playerUuid,
     replay,
+    sceneUrl: replay.sceneUrl || undefined,
     serverName: replay.serverName ?? 'Unknown server',
     sessionId: replay.sessionId,
     startedAt: replay.startedAt,
     startServerTick: replay.startServerTick,
     videoFramesPerSecond: replay.video?.framesPerSecond,
     videoUrl: replay.video?.url,
+    worldSessionId: replay.worldSessionId || undefined,
   }
 }
 
@@ -381,11 +385,6 @@ function insertReplay(
 
   const state: EpisodeState = { originTimeMs, placements: [...episode.placements, placement], sessions }
   return startTick < 0 ? shiftEpisode(state, -startTick) : state
-}
-
-function optionalString(value: object, key: string): string | undefined {
-  const field = (value as Record<string, unknown>)[key]
-  return typeof field === 'string' && field.length > 0 ? field : undefined
 }
 
 function projectSegments(sessions: readonly EpisodeSession[], placements: readonly PlayPlacement[]): EpisodeSegment[] {
