@@ -28,6 +28,9 @@ type Metadata struct {
 	ConnectionID string
 	StartTick    int64
 	EndTick      int64
+	// PlayerName and TerminalReason are descriptive; UUIDs remain the identity.
+	PlayerName     string
+	TerminalReason string
 }
 
 type Event struct {
@@ -95,7 +98,11 @@ func (*Service) LoadMetadata(path string) (Metadata, error) {
 	if value.GetConnection().GetEndServerTick() < value.GetConnection().GetStartServerTick() {
 		return Metadata{}, errors.New("capture end tick precedes its start tick")
 	}
-	return Metadata{resolved, value.GetSessionId(), player, connection, value.GetConnection().GetStartServerTick(), value.GetConnection().GetEndServerTick()}, nil
+	return Metadata{
+		Path: resolved, SessionID: value.GetSessionId(), PlayerUUID: player, ConnectionID: connection,
+		StartTick: value.GetConnection().GetStartServerTick(), EndTick: value.GetConnection().GetEndServerTick(),
+		PlayerName: value.GetPlayer().GetName(), TerminalReason: value.GetConnection().GetTerminalReason(),
+	}, nil
 }
 
 func (*Service) ScanEvents(path string, metadata Metadata, visit func(Event) error) (EventsSource, error) {

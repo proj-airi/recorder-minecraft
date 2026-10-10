@@ -2,6 +2,7 @@ package models
 
 import (
 	"github.com/proj-airi/recorder-minecraft/internal/models/actions"
+	"github.com/proj-airi/recorder-minecraft/internal/models/alignments"
 	"github.com/proj-airi/recorder-minecraft/internal/models/captures"
 	"github.com/proj-airi/recorder-minecraft/internal/models/catalog"
 	"github.com/proj-airi/recorder-minecraft/internal/models/perceptions"
@@ -25,4 +26,5 @@ func Package(injector do.Injector) {
 	do.Provide(injector, scenes.NewFinalizer)
 	do.Provide(injector, worldcaptures.NewService)
 	do.Provide(injector, perceptions.NewService)
+	do.Provide(injector, alignments.NewService)
 }
