@@ -83,6 +83,8 @@ Every line is the ProtoJSON form of one generated `WorldEvent`. Its
 entity at the end of its tick:
 
 - `dimension`, `block_pos`, and `block_entity_type` identify the container.
+  `block_pos` is a `BlockPosition` of integers, the same type as
+  `container_view.source.block_pos` in a play's `events.jsonl`.
 - `reason` is `SESSION_START` for containers already loaded when the stream
   started, `LOADED` when a container enters a loaded chunk (chunk load or
   placement), and `CHANGED` after the container reported a change.

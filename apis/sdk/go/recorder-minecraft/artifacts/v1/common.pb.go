@@ -81,6 +81,68 @@ func (x *Vector3) GetZ() float64 {
 	return 0
 }
 
+// Integer block coordinates. The world stream and actor perception records
+// both use this type, so a dimension plus block position joins them directly.
+type BlockPosition struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	X             int32                  `protobuf:"varint,1,opt,name=x,proto3" json:"x,omitempty"`
+	Y             int32                  `protobuf:"varint,2,opt,name=y,proto3" json:"y,omitempty"`
+	Z             int32                  `protobuf:"varint,3,opt,name=z,proto3" json:"z,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BlockPosition) Reset() {
+	*x = BlockPosition{}
+	mi := &file_recorder_minecraft_artifacts_v1_common_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BlockPosition) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BlockPosition) ProtoMessage() {}
+
+func (x *BlockPosition) ProtoReflect() protoreflect.Message {
+	mi := &file_recorder_minecraft_artifacts_v1_common_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BlockPosition.ProtoReflect.Descriptor instead.
+func (*BlockPosition) Descriptor() ([]byte, []int) {
+	return file_recorder_minecraft_artifacts_v1_common_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *BlockPosition) GetX() int32 {
+	if x != nil {
+		return x.X
+	}
+	return 0
+}
+
+func (x *BlockPosition) GetY() int32 {
+	if x != nil {
+		return x.Y
+	}
+	return 0
+}
+
+func (x *BlockPosition) GetZ() int32 {
+	if x != nil {
+		return x.Z
+	}
+	return 0
+}
+
 type Rotation struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Yaw           float64                `protobuf:"fixed64,1,opt,name=yaw,proto3" json:"yaw,omitempty"`
@@ -92,7 +154,7 @@ type Rotation struct {
 
 func (x *Rotation) Reset() {
 	*x = Rotation{}
-	mi := &file_recorder_minecraft_artifacts_v1_common_proto_msgTypes[1]
+	mi := &file_recorder_minecraft_artifacts_v1_common_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -104,7 +166,7 @@ func (x *Rotation) String() string {
 func (*Rotation) ProtoMessage() {}
 
 func (x *Rotation) ProtoReflect() protoreflect.Message {
-	mi := &file_recorder_minecraft_artifacts_v1_common_proto_msgTypes[1]
+	mi := &file_recorder_minecraft_artifacts_v1_common_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -117,7 +179,7 @@ func (x *Rotation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Rotation.ProtoReflect.Descriptor instead.
 func (*Rotation) Descriptor() ([]byte, []int) {
-	return file_recorder_minecraft_artifacts_v1_common_proto_rawDescGZIP(), []int{1}
+	return file_recorder_minecraft_artifacts_v1_common_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *Rotation) GetYaw() float64 {
@@ -151,7 +213,7 @@ type TickRange struct {
 
 func (x *TickRange) Reset() {
 	*x = TickRange{}
-	mi := &file_recorder_minecraft_artifacts_v1_common_proto_msgTypes[2]
+	mi := &file_recorder_minecraft_artifacts_v1_common_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -163,7 +225,7 @@ func (x *TickRange) String() string {
 func (*TickRange) ProtoMessage() {}
 
 func (x *TickRange) ProtoReflect() protoreflect.Message {
-	mi := &file_recorder_minecraft_artifacts_v1_common_proto_msgTypes[2]
+	mi := &file_recorder_minecraft_artifacts_v1_common_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -176,7 +238,7 @@ func (x *TickRange) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TickRange.ProtoReflect.Descriptor instead.
 func (*TickRange) Descriptor() ([]byte, []int) {
-	return file_recorder_minecraft_artifacts_v1_common_proto_rawDescGZIP(), []int{2}
+	return file_recorder_minecraft_artifacts_v1_common_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *TickRange) GetFirstTick() int64 {
@@ -206,7 +268,7 @@ type ArtifactFile struct {
 
 func (x *ArtifactFile) Reset() {
 	*x = ArtifactFile{}
-	mi := &file_recorder_minecraft_artifacts_v1_common_proto_msgTypes[3]
+	mi := &file_recorder_minecraft_artifacts_v1_common_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -218,7 +280,7 @@ func (x *ArtifactFile) String() string {
 func (*ArtifactFile) ProtoMessage() {}
 
 func (x *ArtifactFile) ProtoReflect() protoreflect.Message {
-	mi := &file_recorder_minecraft_artifacts_v1_common_proto_msgTypes[3]
+	mi := &file_recorder_minecraft_artifacts_v1_common_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -231,7 +293,7 @@ func (x *ArtifactFile) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ArtifactFile.ProtoReflect.Descriptor instead.
 func (*ArtifactFile) Descriptor() ([]byte, []int) {
-	return file_recorder_minecraft_artifacts_v1_common_proto_rawDescGZIP(), []int{3}
+	return file_recorder_minecraft_artifacts_v1_common_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *ArtifactFile) GetPath() string {
@@ -270,7 +332,11 @@ const file_recorder_minecraft_artifacts_v1_common_proto_rawDesc = "" +
 	"\aVector3\x12\f\n" +
 	"\x01x\x18\x01 \x01(\x01R\x01x\x12\f\n" +
 	"\x01y\x18\x02 \x01(\x01R\x01y\x12\f\n" +
-	"\x01z\x18\x03 \x01(\x01R\x01z\"M\n" +
+	"\x01z\x18\x03 \x01(\x01R\x01z\"9\n" +
+	"\rBlockPosition\x12\f\n" +
+	"\x01x\x18\x01 \x01(\x05R\x01x\x12\f\n" +
+	"\x01y\x18\x02 \x01(\x05R\x01y\x12\f\n" +
+	"\x01z\x18\x03 \x01(\x05R\x01z\"M\n" +
 	"\bRotation\x12\x10\n" +
 	"\x03yaw\x18\x01 \x01(\x01R\x03yaw\x12\x14\n" +
 	"\x05pitch\x18\x02 \x01(\x01R\x05pitch\x12\x19\n" +
@@ -300,12 +366,13 @@ func file_recorder_minecraft_artifacts_v1_common_proto_rawDescGZIP() []byte {
 	return file_recorder_minecraft_artifacts_v1_common_proto_rawDescData
 }
 
-var file_recorder_minecraft_artifacts_v1_common_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_recorder_minecraft_artifacts_v1_common_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
 var file_recorder_minecraft_artifacts_v1_common_proto_goTypes = []any{
-	(*Vector3)(nil),      // 0: recorder_minecraft.artifacts.v1.Vector3
-	(*Rotation)(nil),     // 1: recorder_minecraft.artifacts.v1.Rotation
-	(*TickRange)(nil),    // 2: recorder_minecraft.artifacts.v1.TickRange
-	(*ArtifactFile)(nil), // 3: recorder_minecraft.artifacts.v1.ArtifactFile
+	(*Vector3)(nil),       // 0: recorder_minecraft.artifacts.v1.Vector3
+	(*BlockPosition)(nil), // 1: recorder_minecraft.artifacts.v1.BlockPosition
+	(*Rotation)(nil),      // 2: recorder_minecraft.artifacts.v1.Rotation
+	(*TickRange)(nil),     // 3: recorder_minecraft.artifacts.v1.TickRange
+	(*ArtifactFile)(nil),  // 4: recorder_minecraft.artifacts.v1.ArtifactFile
 }
 var file_recorder_minecraft_artifacts_v1_common_proto_depIdxs = []int32{
 	0, // [0:0] is the sub-list for method output_type
@@ -326,7 +393,7 @@ func file_recorder_minecraft_artifacts_v1_common_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_recorder_minecraft_artifacts_v1_common_proto_rawDesc), len(file_recorder_minecraft_artifacts_v1_common_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   4,
+			NumMessages:   5,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

@@ -48,12 +48,14 @@ public object ContainerViewSourceKt {
 
     /**
      * ```
-     * Integer block coordinates. For a double chest this is the first half.
+     * For a double chest this is the first half. Captures written before this
+     * field became BlockPosition carry integral ProtoJSON doubles such as `2.0`,
+     * which ProtoJSON int32 parsing accepts.
      * ```
      *
-     * `.recorder_minecraft.artifacts.v1.Vector3 block_pos = 2 [json_name = "blockPos"];`
+     * `.recorder_minecraft.artifacts.v1.BlockPosition block_pos = 2 [json_name = "blockPos"];`
      */
-    public var blockPos: dev.recorderminecraft.artifacts.v1.Vector3
+    public var blockPos: dev.recorderminecraft.artifacts.v1.BlockPosition
       @kotlin.jvm.JvmName("getBlockPos")
         get() = _builder.blockPos
       @kotlin.jvm.JvmName("setBlockPos")
@@ -62,27 +64,31 @@ public object ContainerViewSourceKt {
       }
     /**
      * ```
-     * Integer block coordinates. For a double chest this is the first half.
+     * For a double chest this is the first half. Captures written before this
+     * field became BlockPosition carry integral ProtoJSON doubles such as `2.0`,
+     * which ProtoJSON int32 parsing accepts.
      * ```
      *
-     * `.recorder_minecraft.artifacts.v1.Vector3 block_pos = 2 [json_name = "blockPos"];`
+     * `.recorder_minecraft.artifacts.v1.BlockPosition block_pos = 2 [json_name = "blockPos"];`
      */
     public fun clearBlockPos() {
       _builder.clearBlockPos()
     }
     /**
      * ```
-     * Integer block coordinates. For a double chest this is the first half.
+     * For a double chest this is the first half. Captures written before this
+     * field became BlockPosition carry integral ProtoJSON doubles such as `2.0`,
+     * which ProtoJSON int32 parsing accepts.
      * ```
      *
-     * `.recorder_minecraft.artifacts.v1.Vector3 block_pos = 2 [json_name = "blockPos"];`
+     * `.recorder_minecraft.artifacts.v1.BlockPosition block_pos = 2 [json_name = "blockPos"];`
      * @return Whether the blockPos field is set.
      */
     public fun hasBlockPos(): kotlin.Boolean {
       return _builder.hasBlockPos()
     }
 
-    public val ContainerViewSourceKt.Dsl.blockPosOrNull: dev.recorderminecraft.artifacts.v1.Vector3?
+    public val ContainerViewSourceKt.Dsl.blockPosOrNull: dev.recorderminecraft.artifacts.v1.BlockPosition?
       get() = _builder.blockPosOrNull
 
     /**
@@ -107,9 +113,9 @@ public object ContainerViewSourceKt {
      * Second half of a double chest.
      * ```
      *
-     * `.recorder_minecraft.artifacts.v1.Vector3 secondary_block_pos = 4 [json_name = "secondaryBlockPos"];`
+     * `.recorder_minecraft.artifacts.v1.BlockPosition secondary_block_pos = 4 [json_name = "secondaryBlockPos"];`
      */
-    public var secondaryBlockPos: dev.recorderminecraft.artifacts.v1.Vector3
+    public var secondaryBlockPos: dev.recorderminecraft.artifacts.v1.BlockPosition
       @kotlin.jvm.JvmName("getSecondaryBlockPos")
         get() = _builder.secondaryBlockPos
       @kotlin.jvm.JvmName("setSecondaryBlockPos")
@@ -121,7 +127,7 @@ public object ContainerViewSourceKt {
      * Second half of a double chest.
      * ```
      *
-     * `.recorder_minecraft.artifacts.v1.Vector3 secondary_block_pos = 4 [json_name = "secondaryBlockPos"];`
+     * `.recorder_minecraft.artifacts.v1.BlockPosition secondary_block_pos = 4 [json_name = "secondaryBlockPos"];`
      */
     public fun clearSecondaryBlockPos() {
       _builder.clearSecondaryBlockPos()
@@ -131,14 +137,14 @@ public object ContainerViewSourceKt {
      * Second half of a double chest.
      * ```
      *
-     * `.recorder_minecraft.artifacts.v1.Vector3 secondary_block_pos = 4 [json_name = "secondaryBlockPos"];`
+     * `.recorder_minecraft.artifacts.v1.BlockPosition secondary_block_pos = 4 [json_name = "secondaryBlockPos"];`
      * @return Whether the secondaryBlockPos field is set.
      */
     public fun hasSecondaryBlockPos(): kotlin.Boolean {
       return _builder.hasSecondaryBlockPos()
     }
 
-    public val ContainerViewSourceKt.Dsl.secondaryBlockPosOrNull: dev.recorderminecraft.artifacts.v1.Vector3?
+    public val ContainerViewSourceKt.Dsl.secondaryBlockPosOrNull: dev.recorderminecraft.artifacts.v1.BlockPosition?
       get() = _builder.secondaryBlockPosOrNull
   }
 }
@@ -146,9 +152,9 @@ public object ContainerViewSourceKt {
 public inline fun dev.recorderminecraft.artifacts.v1.ContainerViewSource.copy(block: `dev.recorderminecraft.artifacts.v1`.ContainerViewSourceKt.Dsl.() -> kotlin.Unit): dev.recorderminecraft.artifacts.v1.ContainerViewSource =
   `dev.recorderminecraft.artifacts.v1`.ContainerViewSourceKt.Dsl._create(this.toBuilder()).apply { block() }._build()
 
-public val dev.recorderminecraft.artifacts.v1.ContainerViewSourceOrBuilder.blockPosOrNull: dev.recorderminecraft.artifacts.v1.Vector3?
+public val dev.recorderminecraft.artifacts.v1.ContainerViewSourceOrBuilder.blockPosOrNull: dev.recorderminecraft.artifacts.v1.BlockPosition?
   get() = if (hasBlockPos()) getBlockPos() else null
 
-public val dev.recorderminecraft.artifacts.v1.ContainerViewSourceOrBuilder.secondaryBlockPosOrNull: dev.recorderminecraft.artifacts.v1.Vector3?
+public val dev.recorderminecraft.artifacts.v1.ContainerViewSourceOrBuilder.secondaryBlockPosOrNull: dev.recorderminecraft.artifacts.v1.BlockPosition?
   get() = if (hasSecondaryBlockPos()) getSecondaryBlockPos() else null
 

@@ -32,6 +32,11 @@ public final class Common extends com.google.protobuf.GeneratedFile {
     com.google.protobuf.GeneratedMessage.FieldAccessorTable
       internal_static_recorder_minecraft_artifacts_v1_Vector3_fieldAccessorTable;
   static final com.google.protobuf.Descriptors.Descriptor
+    internal_static_recorder_minecraft_artifacts_v1_BlockPosition_descriptor;
+  static final 
+    com.google.protobuf.GeneratedMessage.FieldAccessorTable
+      internal_static_recorder_minecraft_artifacts_v1_BlockPosition_fieldAccessorTable;
+  static final com.google.protobuf.Descriptors.Descriptor
     internal_static_recorder_minecraft_artifacts_v1_Rotation_descriptor;
   static final 
     com.google.protobuf.GeneratedMessage.FieldAccessorTable
@@ -58,17 +63,19 @@ public final class Common extends com.google.protobuf.GeneratedFile {
       "\n,recorder-minecraft/artifacts/v1/common" +
       ".proto\022\037recorder_minecraft.artifacts.v1\"" +
       "3\n\007Vector3\022\014\n\001x\030\001 \001(\001R\001x\022\014\n\001y\030\002 \001(\001R\001y\022\014" +
-      "\n\001z\030\003 \001(\001R\001z\"M\n\010Rotation\022\020\n\003yaw\030\001 \001(\001R\003y" +
-      "aw\022\024\n\005pitch\030\002 \001(\001R\005pitch\022\031\n\010head_yaw\030\003 \001" +
-      "(\001R\007headYaw\"G\n\tTickRange\022\035\n\nfirst_tick\030\001" +
-      " \001(\003R\tfirstTick\022\033\n\tlast_tick\030\002 \001(\003R\010last" +
-      "Tick\"x\n\014ArtifactFile\022\022\n\004path\030\001 \001(\tR\004path" +
-      "\022\026\n\006sha256\030\002 \001(\tR\006sha256\022\035\n\nsize_bytes\030\003" +
-      " \001(\004R\tsizeBytes\022\035\n\nmedia_type\030\004 \001(\tR\tmed" +
-      "iaTypeB\207\001\n\"dev.recorderminecraft.artifac" +
-      "ts.v1P\001Z_github.com/proj-airi/recorder-m" +
-      "inecraft/apis/sdk/go/recorder-minecraft/" +
-      "artifacts/v1;artifactsv1b\006proto3"
+      "\n\001z\030\003 \001(\001R\001z\"9\n\rBlockPosition\022\014\n\001x\030\001 \001(\005" +
+      "R\001x\022\014\n\001y\030\002 \001(\005R\001y\022\014\n\001z\030\003 \001(\005R\001z\"M\n\010Rotat" +
+      "ion\022\020\n\003yaw\030\001 \001(\001R\003yaw\022\024\n\005pitch\030\002 \001(\001R\005pi" +
+      "tch\022\031\n\010head_yaw\030\003 \001(\001R\007headYaw\"G\n\tTickRa" +
+      "nge\022\035\n\nfirst_tick\030\001 \001(\003R\tfirstTick\022\033\n\tla" +
+      "st_tick\030\002 \001(\003R\010lastTick\"x\n\014ArtifactFile\022" +
+      "\022\n\004path\030\001 \001(\tR\004path\022\026\n\006sha256\030\002 \001(\tR\006sha" +
+      "256\022\035\n\nsize_bytes\030\003 \001(\004R\tsizeBytes\022\035\n\nme" +
+      "dia_type\030\004 \001(\tR\tmediaTypeB\207\001\n\"dev.record" +
+      "erminecraft.artifacts.v1P\001Z_github.com/p" +
+      "roj-airi/recorder-minecraft/apis/sdk/go/" +
+      "recorder-minecraft/artifacts/v1;artifact" +
+      "sv1b\006proto3"
     };
     descriptor = com.google.protobuf.Descriptors.FileDescriptor
       .internalBuildGeneratedFileFrom(descriptorData,
@@ -80,20 +87,26 @@ public final class Common extends com.google.protobuf.GeneratedFile {
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_recorder_minecraft_artifacts_v1_Vector3_descriptor,
         new java.lang.String[] { "X", "Y", "Z", });
-    internal_static_recorder_minecraft_artifacts_v1_Rotation_descriptor =
+    internal_static_recorder_minecraft_artifacts_v1_BlockPosition_descriptor =
       getDescriptor().getMessageType(1);
+    internal_static_recorder_minecraft_artifacts_v1_BlockPosition_fieldAccessorTable = new
+      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
+        internal_static_recorder_minecraft_artifacts_v1_BlockPosition_descriptor,
+        new java.lang.String[] { "X", "Y", "Z", });
+    internal_static_recorder_minecraft_artifacts_v1_Rotation_descriptor =
+      getDescriptor().getMessageType(2);
     internal_static_recorder_minecraft_artifacts_v1_Rotation_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_recorder_minecraft_artifacts_v1_Rotation_descriptor,
         new java.lang.String[] { "Yaw", "Pitch", "HeadYaw", });
     internal_static_recorder_minecraft_artifacts_v1_TickRange_descriptor =
-      getDescriptor().getMessageType(2);
+      getDescriptor().getMessageType(3);
     internal_static_recorder_minecraft_artifacts_v1_TickRange_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_recorder_minecraft_artifacts_v1_TickRange_descriptor,
         new java.lang.String[] { "FirstTick", "LastTick", });
     internal_static_recorder_minecraft_artifacts_v1_ArtifactFile_descriptor =
-      getDescriptor().getMessageType(3);
+      getDescriptor().getMessageType(4);
     internal_static_recorder_minecraft_artifacts_v1_ArtifactFile_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_recorder_minecraft_artifacts_v1_ArtifactFile_descriptor,

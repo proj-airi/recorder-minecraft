@@ -1,7 +1,10 @@
 package dev.mcdata.recorder.capture
 
+import com.google.protobuf.util.JsonFormat
+import dev.recorderminecraft.artifacts.v1.BlockPosition
 import dev.recorderminecraft.artifacts.v1.ContainerViewKind
 import dev.recorderminecraft.artifacts.v1.ContainerViewOrigin
+import dev.recorderminecraft.artifacts.v1.ContainerViewSource
 import net.minecraft.DetectedVersion
 import net.minecraft.SharedConstants
 import net.minecraft.core.BlockPos
@@ -133,12 +136,32 @@ class ContainerViewsTest {
 
         val source = requireNotNull(ContainerViews.source(chest, menu))
 
-        assertEquals(10.0, source.blockPos.x)
-        assertEquals(64.0, source.blockPos.y)
-        assertEquals(-3.0, source.blockPos.z)
+        assertEquals(BlockPosition.newBuilder().setX(10).setY(64).setZ(-3).build(), source.blockPos)
         assertEquals("minecraft:chest", source.blockEntityType)
         assertFalse(source.hasSecondaryBlockPos())
         assertEquals(27, ContainerViews.containerSlotCount(menu))
+    }
+
+    @Test
+    fun `source position uses the world stream integer encoding`() {
+        val chest = ChestBlockEntity(BlockPos(2, -60, 5), Blocks.CHEST.defaultBlockState())
+        val source = requireNotNull(ContainerViews.source(chest, ChestMenu.threeRows(5, detachedInventory())))
+
+        val json = JsonFormat.printer().omittingInsignificantWhitespace().print(source)
+
+        assertTrue("\"blockPos\":{\"x\":2,\"y\":-60,\"z\":5}" in json, json)
+    }
+
+    @Test
+    fun `positions written as doubles before BlockPosition still parse`() {
+        // Earlier captures encoded fields 2 and 4 as Vector3; ProtoJSON int32 accepts integral doubles.
+        val legacy = """{"dimension":"minecraft:overworld","blockPos":{"x":2.0,"y":-60.0},""" +
+            """"blockEntityType":"minecraft:chest","secondaryBlockPos":{"x":2.0,"y":-60.0,"z":1.0}}"""
+
+        val source = ContainerViewSource.newBuilder().also { JsonFormat.parser().merge(legacy, it) }.build()
+
+        assertEquals(BlockPosition.newBuilder().setX(2).setY(-60).build(), source.blockPos)
+        assertEquals(BlockPosition.newBuilder().setX(2).setY(-60).setZ(1).build(), source.secondaryBlockPos)
     }
 
     @Test

@@ -2084,11 +2084,13 @@ func (x *ContainerViewEvent) GetCarriedItem() *InventorySlot {
 type ContainerViewSource struct {
 	state     protoimpl.MessageState `protogen:"open.v1"`
 	Dimension string                 `protobuf:"bytes,1,opt,name=dimension,proto3" json:"dimension,omitempty"`
-	// Integer block coordinates. For a double chest this is the first half.
-	BlockPos        *Vector3 `protobuf:"bytes,2,opt,name=block_pos,json=blockPos,proto3" json:"block_pos,omitempty"`
-	BlockEntityType string   `protobuf:"bytes,3,opt,name=block_entity_type,json=blockEntityType,proto3" json:"block_entity_type,omitempty"`
+	// For a double chest this is the first half. Captures written before this
+	// field became BlockPosition carry integral ProtoJSON doubles such as `2.0`,
+	// which ProtoJSON int32 parsing accepts.
+	BlockPos        *BlockPosition `protobuf:"bytes,2,opt,name=block_pos,json=blockPos,proto3" json:"block_pos,omitempty"`
+	BlockEntityType string         `protobuf:"bytes,3,opt,name=block_entity_type,json=blockEntityType,proto3" json:"block_entity_type,omitempty"`
 	// Second half of a double chest.
-	SecondaryBlockPos *Vector3 `protobuf:"bytes,4,opt,name=secondary_block_pos,json=secondaryBlockPos,proto3" json:"secondary_block_pos,omitempty"`
+	SecondaryBlockPos *BlockPosition `protobuf:"bytes,4,opt,name=secondary_block_pos,json=secondaryBlockPos,proto3" json:"secondary_block_pos,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
@@ -2130,7 +2132,7 @@ func (x *ContainerViewSource) GetDimension() string {
 	return ""
 }
 
-func (x *ContainerViewSource) GetBlockPos() *Vector3 {
+func (x *ContainerViewSource) GetBlockPos() *BlockPosition {
 	if x != nil {
 		return x.BlockPos
 	}
@@ -2144,7 +2146,7 @@ func (x *ContainerViewSource) GetBlockEntityType() string {
 	return ""
 }
 
-func (x *ContainerViewSource) GetSecondaryBlockPos() *Vector3 {
+func (x *ContainerViewSource) GetSecondaryBlockPos() *BlockPosition {
 	if x != nil {
 		return x.SecondaryBlockPos
 	}
@@ -2371,12 +2373,12 @@ const file_recorder_minecraft_artifacts_v1_events_proto_rawDesc = "" +
 	"\x05slots\x18\b \x03(\v2..recorder_minecraft.artifacts.v1.InventorySlotR\x05slots\x12Q\n" +
 	"\fcarried_item\x18\t \x01(\v2..recorder_minecraft.artifacts.v1.InventorySlotR\vcarriedItemB\v\n" +
 	"\t_state_idB\x17\n" +
-	"\x15_container_slot_count\"\x80\x02\n" +
+	"\x15_container_slot_count\"\x8c\x02\n" +
 	"\x13ContainerViewSource\x12\x1c\n" +
-	"\tdimension\x18\x01 \x01(\tR\tdimension\x12E\n" +
-	"\tblock_pos\x18\x02 \x01(\v2(.recorder_minecraft.artifacts.v1.Vector3R\bblockPos\x12*\n" +
-	"\x11block_entity_type\x18\x03 \x01(\tR\x0fblockEntityType\x12X\n" +
-	"\x13secondary_block_pos\x18\x04 \x01(\v2(.recorder_minecraft.artifacts.v1.Vector3R\x11secondaryBlockPos*\x97\x01\n" +
+	"\tdimension\x18\x01 \x01(\tR\tdimension\x12K\n" +
+	"\tblock_pos\x18\x02 \x01(\v2..recorder_minecraft.artifacts.v1.BlockPositionR\bblockPos\x12*\n" +
+	"\x11block_entity_type\x18\x03 \x01(\tR\x0fblockEntityType\x12^\n" +
+	"\x13secondary_block_pos\x18\x04 \x01(\v2..recorder_minecraft.artifacts.v1.BlockPositionR\x11secondaryBlockPos*\x97\x01\n" +
 	"\x17ClientInformationSource\x12)\n" +
 	"%CLIENT_INFORMATION_SOURCE_UNSPECIFIED\x10\x00\x12+\n" +
 	"'CLIENT_INFORMATION_SOURCE_JOIN_SNAPSHOT\x10\x01\x12$\n" +
@@ -2437,6 +2439,7 @@ var file_recorder_minecraft_artifacts_v1_events_proto_goTypes = []any{
 	(*MovementInput)(nil),          // 25: recorder_minecraft.artifacts.v1.MovementInput
 	(*Vector3)(nil),                // 26: recorder_minecraft.artifacts.v1.Vector3
 	(*Rotation)(nil),               // 27: recorder_minecraft.artifacts.v1.Rotation
+	(*BlockPosition)(nil),          // 28: recorder_minecraft.artifacts.v1.BlockPosition
 }
 var file_recorder_minecraft_artifacts_v1_events_proto_depIdxs = []int32{
 	4,  // 0: recorder_minecraft.artifacts.v1.CaptureEvent.identity:type_name -> recorder_minecraft.artifacts.v1.EventIdentity
@@ -2473,8 +2476,8 @@ var file_recorder_minecraft_artifacts_v1_events_proto_depIdxs = []int32{
 	21, // 31: recorder_minecraft.artifacts.v1.ContainerViewEvent.source:type_name -> recorder_minecraft.artifacts.v1.ContainerViewSource
 	17, // 32: recorder_minecraft.artifacts.v1.ContainerViewEvent.slots:type_name -> recorder_minecraft.artifacts.v1.InventorySlot
 	17, // 33: recorder_minecraft.artifacts.v1.ContainerViewEvent.carried_item:type_name -> recorder_minecraft.artifacts.v1.InventorySlot
-	26, // 34: recorder_minecraft.artifacts.v1.ContainerViewSource.block_pos:type_name -> recorder_minecraft.artifacts.v1.Vector3
-	26, // 35: recorder_minecraft.artifacts.v1.ContainerViewSource.secondary_block_pos:type_name -> recorder_minecraft.artifacts.v1.Vector3
+	28, // 34: recorder_minecraft.artifacts.v1.ContainerViewSource.block_pos:type_name -> recorder_minecraft.artifacts.v1.BlockPosition
+	28, // 35: recorder_minecraft.artifacts.v1.ContainerViewSource.secondary_block_pos:type_name -> recorder_minecraft.artifacts.v1.BlockPosition
 	36, // [36:36] is the sub-list for method output_type
 	36, // [36:36] is the sub-list for method input_type
 	36, // [36:36] is the sub-list for extension type_name

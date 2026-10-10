@@ -5,7 +5,6 @@ import dev.mcdata.recorder.config.RecorderConfig
 import dev.mcdata.recorder.io.AsyncWorldWriter
 import dev.mcdata.recorder.io.WorldSessionFiles
 import dev.mcdata.recorder.mixin.ChunkMapAccessor
-import dev.recorderminecraft.artifacts.v1.BlockPosition
 import dev.recorderminecraft.artifacts.v1.ContainerRemoved
 import dev.recorderminecraft.artifacts.v1.ContainerSnapshot
 import dev.recorderminecraft.artifacts.v1.WorldEvent
@@ -107,7 +106,7 @@ class WorldCapture private constructor(
         emit(tick) { event ->
             event.containerRemoved = ContainerRemoved.newBuilder()
                 .setDimension(level.dimension().location().toString())
-                .setBlockPos(position(blockEntity.blockPos))
+                .setBlockPos(blockPosition(blockEntity.blockPos))
                 .setBlockEntityType(typeId(blockEntity))
                 .setCause(cause)
                 .build()
@@ -177,7 +176,7 @@ class WorldCapture private constructor(
     ) {
         val snapshot = ContainerSnapshot.newBuilder()
             .setDimension(level.dimension().location().toString())
-            .setBlockPos(position(blockEntity.blockPos))
+            .setBlockPos(blockPosition(blockEntity.blockPos))
             .setBlockEntityType(typeId(blockEntity))
         ContainerContents.fill(blockEntity as Container, ops, snapshot)
         val fingerprint = ContainerTracker.fingerprint(snapshot.build())
@@ -203,9 +202,6 @@ class WorldCapture private constructor(
 
     private fun componentOps(level: ServerLevel): DynamicOps<Tag>? =
         if (includeComponents) level.registryAccess().createSerializationContext(NbtOps.INSTANCE) else null
-
-    private fun position(pos: BlockPos): BlockPosition =
-        BlockPosition.newBuilder().setX(pos.x).setY(pos.y).setZ(pos.z).build()
 
     private fun typeId(blockEntity: BlockEntity): String =
         BuiltInRegistries.BLOCK_ENTITY_TYPE.getKey(blockEntity.type)?.toString() ?: "unknown"
