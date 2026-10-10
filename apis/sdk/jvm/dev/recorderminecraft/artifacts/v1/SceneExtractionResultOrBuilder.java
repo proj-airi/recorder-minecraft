@@ -196,4 +196,48 @@ public interface SceneExtractionResultOrBuilder extends
    * @return The coveredTickCount.
    */
   long getCoveredTickCount();
+
+  /**
+   * <pre>
+   * One entry per source replay, in source_replays order.
+   * </pre>
+   *
+   * <code>repeated .recorder_minecraft.artifacts.v1.SceneSourceRuntime source_runtimes = 14 [json_name = "sourceRuntimes"];</code>
+   */
+  java.util.List<dev.recorderminecraft.artifacts.v1.SceneSourceRuntime> 
+      getSourceRuntimesList();
+  /**
+   * <pre>
+   * One entry per source replay, in source_replays order.
+   * </pre>
+   *
+   * <code>repeated .recorder_minecraft.artifacts.v1.SceneSourceRuntime source_runtimes = 14 [json_name = "sourceRuntimes"];</code>
+   */
+  dev.recorderminecraft.artifacts.v1.SceneSourceRuntime getSourceRuntimes(int index);
+  /**
+   * <pre>
+   * One entry per source replay, in source_replays order.
+   * </pre>
+   *
+   * <code>repeated .recorder_minecraft.artifacts.v1.SceneSourceRuntime source_runtimes = 14 [json_name = "sourceRuntimes"];</code>
+   */
+  int getSourceRuntimesCount();
+  /**
+   * <pre>
+   * One entry per source replay, in source_replays order.
+   * </pre>
+   *
+   * <code>repeated .recorder_minecraft.artifacts.v1.SceneSourceRuntime source_runtimes = 14 [json_name = "sourceRuntimes"];</code>
+   */
+  java.util.List<? extends dev.recorderminecraft.artifacts.v1.SceneSourceRuntimeOrBuilder> 
+      getSourceRuntimesOrBuilderList();
+  /**
+   * <pre>
+   * One entry per source replay, in source_replays order.
+   * </pre>
+   *
+   * <code>repeated .recorder_minecraft.artifacts.v1.SceneSourceRuntime source_runtimes = 14 [json_name = "sourceRuntimes"];</code>
+   */
+  dev.recorderminecraft.artifacts.v1.SceneSourceRuntimeOrBuilder getSourceRuntimesOrBuilder(
+      int index);
 }

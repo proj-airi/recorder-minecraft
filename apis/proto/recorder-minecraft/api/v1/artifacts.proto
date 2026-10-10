@@ -360,4 +360,31 @@ message VideoAsset {
   uint32 height = 5;
   double frames_per_second = 6;
   uint64 frame_count = 7;
+  // Absent when no manifest describes the video. Without timing, the video
+  // time of a server tick is unknown.
+  VideoTiming timing = 8;
+  double duration_seconds = 9;
+}
+
+// VideoTiming locates the file that maps video time to server ticks.
+message VideoTiming {
+  enum Format {
+    FORMAT_UNSPECIFIED = 0;
+    // renders/fpv.json, FpvVideoManifest ProtoJSON. Its frames are sampled
+    // {server_tick, video_seconds} anchors. For a server tick T, seek to the
+    // video_seconds of the last anchor with server_tick <= T.
+    FORMAT_FPV_MANIFEST = 1;
+    // renders/fpv_frames/frames.jsonl, RenderFrameIndex ProtoJSON lines with
+    // one line per video frame. Frame ordinal N (from 1) starts at
+    // (N - 1) / frames_per_second.
+    FORMAT_RENDER_FRAME_INDEX = 2;
+  }
+  Format format = 1;
+  string url = 2;
+  // Server ticks of the first and last anchor or frame.
+  int64 first_server_tick = 3;
+  int64 last_server_tick = 4;
+  uint64 anchor_count = 5;
+  // False when the producer reported a truncated video or index.
+  bool complete = 6;
 }

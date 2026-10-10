@@ -62,6 +62,16 @@ public final class RenderProtocol extends com.google.protobuf.GeneratedFile {
     com.google.protobuf.GeneratedMessage.FieldAccessorTable
       internal_static_recorder_minecraft_artifacts_v1_RenderResult_fieldAccessorTable;
   static final com.google.protobuf.Descriptors.Descriptor
+    internal_static_recorder_minecraft_artifacts_v1_FpvVideoManifest_descriptor;
+  static final 
+    com.google.protobuf.GeneratedMessage.FieldAccessorTable
+      internal_static_recorder_minecraft_artifacts_v1_FpvVideoManifest_fieldAccessorTable;
+  static final com.google.protobuf.Descriptors.Descriptor
+    internal_static_recorder_minecraft_artifacts_v1_FpvVideoAnchor_descriptor;
+  static final 
+    com.google.protobuf.GeneratedMessage.FieldAccessorTable
+      internal_static_recorder_minecraft_artifacts_v1_FpvVideoAnchor_fieldAccessorTable;
+  static final com.google.protobuf.Descriptors.Descriptor
     internal_static_recorder_minecraft_artifacts_v1_RenderProgress_descriptor;
   static final 
     com.google.protobuf.GeneratedMessage.FieldAccessorTable
@@ -152,38 +162,52 @@ public final class RenderProtocol extends com.google.protobuf.GeneratedFile {
       "\n\023unsupported_packets\030\023 \001(\01323.recorder_m" +
       "inecraft.artifacts.v1.UnsupportedPackets" +
       "R\022unsupportedPackets\022\031\n\005error\030\024 \001(\tH\000R\005e" +
-      "rror\210\001\001B\010\n\006_error\"\215\003\n\016RenderProgress\022%\n\016" +
-      "schema_version\030\001 \001(\rR\rschemaVersion\022M\n\006s" +
-      "tatus\030\002 \001(\01625.recorder_minecraft.artifac" +
-      "ts.v1.RenderProgressStatusR\006status\022\035\n\nse" +
-      "ssion_id\030\003 \001(\tR\tsessionId\022#\n\rconnection_" +
-      "id\030\004 \001(\tR\014connectionId\022\037\n\013player_uuid\030\005 " +
-      "\001(\tR\nplayerUuid\022\033\n\treplay_id\030\006 \001(\tR\010repl" +
-      "ayId\022\'\n\017completed_units\030\007 \001(\004R\016completed" +
-      "Units\022\037\n\013total_units\030\010 \001(\004R\ntotalUnits\0229" +
-      "\n\nupdated_at\030\t \001(\0132\032.google.protobuf.Tim" +
-      "estampR\tupdatedAt*T\n\017RenderJobStatus\022!\n\035" +
-      "RENDER_JOB_STATUS_UNSPECIFIED\020\000\022\036\n\032RENDE" +
-      "R_JOB_STATUS_PREPARED\020\001*^\n\021RenderRangePo" +
-      "licy\022#\n\037RENDER_RANGE_POLICY_UNSPECIFIED\020" +
-      "\000\022$\n RENDER_RANGE_POLICY_INTERSECTION\020\001*" +
-      "\244\001\n\022RenderResultStatus\022$\n RENDER_RESULT_" +
-      "STATUS_UNSPECIFIED\020\000\022!\n\035RENDER_RESULT_ST" +
-      "ATUS_COMPLETE\020\001\022$\n RENDER_RESULT_STATUS_" +
-      "NO_COVERAGE\020\002\022\037\n\033RENDER_RESULT_STATUS_FA" +
-      "ILED\020\003*\321\002\n\024RenderProgressStatus\022&\n\"RENDE" +
-      "R_PROGRESS_STATUS_UNSPECIFIED\020\000\022#\n\037RENDE" +
-      "R_PROGRESS_STATUS_PREPARED\020\001\022)\n%RENDER_P" +
-      "ROGRESS_STATUS_OPENING_REPLAY\020\002\022+\n\'RENDE" +
-      "R_PROGRESS_STATUS_FINDING_COVERAGE\020\003\022$\n " +
-      "RENDER_PROGRESS_STATUS_RENDERING\020\004\022#\n\037RE" +
-      "NDER_PROGRESS_STATUS_COMPLETE\020\005\022!\n\035RENDE" +
-      "R_PROGRESS_STATUS_FAILED\020\006\022&\n\"RENDER_PRO" +
-      "GRESS_STATUS_NO_COVERAGE\020\007B\227\001\n\"dev.recor" +
-      "derminecraft.artifacts.v1B\016RenderProtoco" +
-      "lP\001Z_github.com/proj-airi/recorder-minec" +
-      "raft/apis/sdk/go/recorder-minecraft/arti" +
-      "facts/v1;artifactsv1b\006proto3"
+      "rror\210\001\001B\010\n\006_error\"\327\003\n\020FpvVideoManifest\022%" +
+      "\n\016schema_version\030\001 \001(\rR\rschemaVersion\022,\n" +
+      "\022server_instance_id\030\002 \001(\tR\020serverInstanc" +
+      "eId\022\037\n\013player_uuid\030\003 \001(\tR\nplayerUuid\022#\n\r" +
+      "connection_id\030\004 \001(\tR\014connectionId\022G\n\006fra" +
+      "mes\030\005 \003(\0132/.recorder_minecraft.artifacts" +
+      ".v1.FpvVideoAnchorR\006frames\022\032\n\010complete\030\006" +
+      " \001(\010R\010complete\022\024\n\005width\030\007 \001(\rR\005width\022\026\n\006" +
+      "height\030\010 \001(\rR\006height\022*\n\021frames_per_secon" +
+      "d\030\t \001(\001R\017framesPerSecond\022\037\n\013frame_count\030" +
+      "\n \001(\004R\nframeCount\022)\n\020duration_seconds\030\013 " +
+      "\001(\001R\017durationSeconds\022\035\n\nsize_bytes\030\014 \001(\004" +
+      "R\tsizeBytes\"V\n\016FpvVideoAnchor\022#\n\rvideo_s" +
+      "econds\030\001 \001(\001R\014videoSeconds\022\037\n\013server_tic" +
+      "k\030\002 \001(\003R\nserverTick\"\215\003\n\016RenderProgress\022%" +
+      "\n\016schema_version\030\001 \001(\rR\rschemaVersion\022M\n" +
+      "\006status\030\002 \001(\01625.recorder_minecraft.artif" +
+      "acts.v1.RenderProgressStatusR\006status\022\035\n\n" +
+      "session_id\030\003 \001(\tR\tsessionId\022#\n\rconnectio" +
+      "n_id\030\004 \001(\tR\014connectionId\022\037\n\013player_uuid\030" +
+      "\005 \001(\tR\nplayerUuid\022\033\n\treplay_id\030\006 \001(\tR\010re" +
+      "playId\022\'\n\017completed_units\030\007 \001(\004R\016complet" +
+      "edUnits\022\037\n\013total_units\030\010 \001(\004R\ntotalUnits" +
+      "\0229\n\nupdated_at\030\t \001(\0132\032.google.protobuf.T" +
+      "imestampR\tupdatedAt*T\n\017RenderJobStatus\022!" +
+      "\n\035RENDER_JOB_STATUS_UNSPECIFIED\020\000\022\036\n\032REN" +
+      "DER_JOB_STATUS_PREPARED\020\001*^\n\021RenderRange" +
+      "Policy\022#\n\037RENDER_RANGE_POLICY_UNSPECIFIE" +
+      "D\020\000\022$\n RENDER_RANGE_POLICY_INTERSECTION\020" +
+      "\001*\244\001\n\022RenderResultStatus\022$\n RENDER_RESUL" +
+      "T_STATUS_UNSPECIFIED\020\000\022!\n\035RENDER_RESULT_" +
+      "STATUS_COMPLETE\020\001\022$\n RENDER_RESULT_STATU" +
+      "S_NO_COVERAGE\020\002\022\037\n\033RENDER_RESULT_STATUS_" +
+      "FAILED\020\003*\321\002\n\024RenderProgressStatus\022&\n\"REN" +
+      "DER_PROGRESS_STATUS_UNSPECIFIED\020\000\022#\n\037REN" +
+      "DER_PROGRESS_STATUS_PREPARED\020\001\022)\n%RENDER" +
+      "_PROGRESS_STATUS_OPENING_REPLAY\020\002\022+\n\'REN" +
+      "DER_PROGRESS_STATUS_FINDING_COVERAGE\020\003\022$" +
+      "\n RENDER_PROGRESS_STATUS_RENDERING\020\004\022#\n\037" +
+      "RENDER_PROGRESS_STATUS_COMPLETE\020\005\022!\n\035REN" +
+      "DER_PROGRESS_STATUS_FAILED\020\006\022&\n\"RENDER_P" +
+      "ROGRESS_STATUS_NO_COVERAGE\020\007B\227\001\n\"dev.rec" +
+      "orderminecraft.artifacts.v1B\016RenderProto" +
+      "colP\001Z_github.com/proj-airi/recorder-min" +
+      "ecraft/apis/sdk/go/recorder-minecraft/ar" +
+      "tifacts/v1;artifactsv1b\006proto3"
     };
     descriptor = com.google.protobuf.Descriptors.FileDescriptor
       .internalBuildGeneratedFileFrom(descriptorData,
@@ -233,8 +257,20 @@ public final class RenderProtocol extends com.google.protobuf.GeneratedFile {
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_recorder_minecraft_artifacts_v1_RenderResult_descriptor,
         new java.lang.String[] { "SchemaVersion", "Status", "SessionId", "ConnectionId", "PlayerUuid", "Replay", "OutputPath", "RequestedGlobalTicks", "GlobalTicks", "ReplayTicks", "GlobalTickOffset", "SegmentCoverageTicks", "FramesPerSecond", "Width", "Height", "NoGui", "FrameCount", "FrameIndex", "UnsupportedPackets", "Error", });
-    internal_static_recorder_minecraft_artifacts_v1_RenderProgress_descriptor =
+    internal_static_recorder_minecraft_artifacts_v1_FpvVideoManifest_descriptor =
       getDescriptor().getMessageType(7);
+    internal_static_recorder_minecraft_artifacts_v1_FpvVideoManifest_fieldAccessorTable = new
+      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
+        internal_static_recorder_minecraft_artifacts_v1_FpvVideoManifest_descriptor,
+        new java.lang.String[] { "SchemaVersion", "ServerInstanceId", "PlayerUuid", "ConnectionId", "Frames", "Complete", "Width", "Height", "FramesPerSecond", "FrameCount", "DurationSeconds", "SizeBytes", });
+    internal_static_recorder_minecraft_artifacts_v1_FpvVideoAnchor_descriptor =
+      getDescriptor().getMessageType(8);
+    internal_static_recorder_minecraft_artifacts_v1_FpvVideoAnchor_fieldAccessorTable = new
+      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
+        internal_static_recorder_minecraft_artifacts_v1_FpvVideoAnchor_descriptor,
+        new java.lang.String[] { "VideoSeconds", "ServerTick", });
+    internal_static_recorder_minecraft_artifacts_v1_RenderProgress_descriptor =
+      getDescriptor().getMessageType(9);
     internal_static_recorder_minecraft_artifacts_v1_RenderProgress_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_recorder_minecraft_artifacts_v1_RenderProgress_descriptor,

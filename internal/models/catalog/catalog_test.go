@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	apiv1 "github.com/proj-airi/recorder-minecraft/apis/sdk/go/recorder-minecraft/api/v1"
 	artifactsv1 "github.com/proj-airi/recorder-minecraft/apis/sdk/go/recorder-minecraft/artifacts/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -268,4 +269,145 @@ func writeReplay(t *testing.T, path, replayID, playerID, connectionID string) {
 	require.NoError(t, json.NewEncoder(arcade).Encode(payload))
 	require.NoError(t, archive.Close())
 	require.NoError(t, file.Close())
+}
+
+func TestSnapshotReadsFpvVideoManifest(t *testing.T) {
+	t.Parallel()
+
+	root, play := writeVideoPlay(t)
+	writeFpvManifest(t, play, fpvManifest(int64(len(videoBytes))))
+
+	video := snapshotVideo(t, root)
+	require.NotNil(t, video)
+	assert.Equal(t, uint32(640), video.GetWidth())
+	assert.Equal(t, uint32(360), video.GetHeight())
+	assert.Equal(t, 20.0, video.GetFramesPerSecond())
+	assert.Equal(t, uint64(9840), video.GetFrameCount())
+	assert.Equal(t, 492.0, video.GetDurationSeconds())
+	timing := video.GetTiming()
+	require.NotNil(t, timing)
+	assert.Equal(t, apiv1.VideoTiming_FORMAT_FPV_MANIFEST, timing.GetFormat())
+	assert.Equal(t, playURL+"/renders/fpv.json", timing.GetUrl())
+	assert.Equal(t, int64(22), timing.GetFirstServerTick())
+	assert.Equal(t, int64(6337), timing.GetLastServerTick())
+	assert.Equal(t, uint64(3), timing.GetAnchorCount())
+	assert.True(t, timing.GetComplete())
+}
+
+func TestSnapshotIgnoresFpvManifestThatDoesNotDescribeTheVideo(t *testing.T) {
+	t.Parallel()
+
+	for name, change := range map[string]func(*artifactsv1.FpvVideoManifest){
+		"stale size": func(manifest *artifactsv1.FpvVideoManifest) { manifest.SizeBytes++ },
+		"other connection": func(manifest *artifactsv1.FpvVideoManifest) {
+			manifest.ConnectionId = "4f0f3f3c-4c3e-4a43-9d84-2a3c11c4c111"
+		},
+		"unordered anchors": func(manifest *artifactsv1.FpvVideoManifest) {
+			manifest.Frames[2].VideoSeconds = manifest.Frames[1].GetVideoSeconds()
+		},
+		"no anchors": func(manifest *artifactsv1.FpvVideoManifest) { manifest.Frames = nil },
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			root, play := writeVideoPlay(t)
+			manifest := fpvManifest(int64(len(videoBytes)))
+			change(manifest)
+			writeFpvManifest(t, play, manifest)
+
+			video := snapshotVideo(t, root)
+			require.NotNil(t, video, "the MP4 stays playable without a usable manifest")
+			assert.Nil(t, video.GetTiming())
+			assert.Zero(t, video.GetWidth())
+		})
+	}
+}
+
+func TestSnapshotReadsRenderResultTiming(t *testing.T) {
+	t.Parallel()
+
+	root, play := writeVideoPlay(t)
+	require.NoError(t, os.MkdirAll(filepath.Join(play, "renders", "fpv_frames"), 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(play, "renders", "fpv_frames", "frames.jsonl"), []byte("{}\n"), 0o600))
+	raw, err := protojson.Marshal(&artifactsv1.RenderResult{
+		SchemaVersion: 1, Status: artifactsv1.RenderResultStatus_RENDER_RESULT_STATUS_COMPLETE,
+		GlobalTicks: &artifactsv1.TickRange{FirstTick: 6337, LastTick: 9545}, FramesPerSecond: 20,
+		Width: 854, Height: 480, FrameCount: 3209,
+	})
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(play, "renders", "result.json"), raw, 0o600))
+
+	video := snapshotVideo(t, root)
+	require.NotNil(t, video)
+	assert.Equal(t, uint32(854), video.GetWidth())
+	assert.InDelta(t, 160.45, video.GetDurationSeconds(), 1e-9)
+	timing := video.GetTiming()
+	require.NotNil(t, timing)
+	assert.Equal(t, apiv1.VideoTiming_FORMAT_RENDER_FRAME_INDEX, timing.GetFormat())
+	assert.Equal(t, playURL+"/renders/fpv_frames/frames.jsonl", timing.GetUrl())
+	assert.Equal(t, int64(6337), timing.GetFirstServerTick())
+	assert.Equal(t, int64(9545), timing.GetLastServerTick())
+	assert.Equal(t, uint64(3209), timing.GetAnchorCount())
+}
+
+const (
+	videoServerID     = "71b4bb44-1f22-44f0-81f7-d6d654b8d109"
+	videoPlayerID     = "2575798e-2b63-3ebe-a39e-5e3a3eba2b3f"
+	videoConnectionID = "afe03965-030f-469f-8c5b-0dcd6c185c92"
+	playURL           = "/assets/v1/server--" + videoServerID + "/players/Airi--" + videoPlayerID + "/plays/20261010T181823.114Z--" + videoConnectionID
+)
+
+var videoBytes = []byte("not a real MP4, but the catalog only checks its size")
+
+func writeVideoPlay(t *testing.T) (string, string) {
+	t.Helper()
+	root := t.TempDir()
+	play := filepath.Join(root, "v1", "server--"+videoServerID, "players", "Airi--"+videoPlayerID, "plays", "20261010T181823.114Z--"+videoConnectionID)
+	require.NoError(t, os.MkdirAll(filepath.Join(play, "capture"), 0o750))
+	require.NoError(t, os.MkdirAll(filepath.Join(play, "renders"), 0o750))
+	metadata := &artifactsv1.ServerMetadata{
+		SchemaVersion: 1, LayoutVersion: "v1", SessionId: "session",
+		Server: &artifactsv1.ServerIdentity{Name: "server", InstanceId: videoServerID},
+		Player: &artifactsv1.PlayerIdentity{Name: "Airi", Uuid: videoPlayerID},
+		Connection: &artifactsv1.Connection{
+			Id: videoConnectionID, StartedAt: timestamppb.New(time.Date(2026, time.October, 10, 18, 18, 23, 114000000, time.UTC)), StartServerTick: 11,
+		},
+		Capture: &artifactsv1.CaptureMetadata{Events: "capture/events.jsonl", Replay: "capture/replay.zip", ReplayFormat: "flashback"},
+	}
+	raw, err := protojson.Marshal(metadata)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(play, "metadata.json"), raw, 0o600))
+	writeReplay(t, filepath.Join(play, "capture", "replay.zip"), "c6dd59e9-4638-4b31-80b9-a23363d7a179", videoPlayerID, videoConnectionID)
+	require.NoError(t, os.WriteFile(filepath.Join(play, "renders", "fpv.mp4"), videoBytes, 0o600))
+	return root, play
+}
+
+// fpvManifest mirrors renders/fpv.json of an Airicraft hosted playtest, with three of its anchors.
+func fpvManifest(videoSize int64) *artifactsv1.FpvVideoManifest {
+	return &artifactsv1.FpvVideoManifest{
+		SchemaVersion: 1, ServerInstanceId: videoServerID, PlayerUuid: videoPlayerID, ConnectionId: videoConnectionID,
+		Frames: []*artifactsv1.FpvVideoAnchor{
+			{VideoSeconds: 0, ServerTick: 22}, {VideoSeconds: 315.6, ServerTick: 6335}, {VideoSeconds: 315.8, ServerTick: 6337},
+		},
+		Complete: true, Width: 640, Height: 360, FramesPerSecond: 20, FrameCount: 9840, DurationSeconds: 492,
+		SizeBytes: uint64(videoSize),
+	}
+}
+
+func writeFpvManifest(t *testing.T, play string, manifest *artifactsv1.FpvVideoManifest) {
+	t.Helper()
+	raw, err := protojson.Marshal(manifest)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(play, "renders", "fpv.json"), raw, 0o600))
+}
+
+func snapshotVideo(t *testing.T, root string) *apiv1.VideoAsset {
+	t.Helper()
+	service, err := New(root)
+	require.NoError(t, err)
+	servers, err := service.Snapshot(context.Background(), Filter{})
+	require.NoError(t, err)
+	replay := servers[0].GetPlayers()[0].GetReplays()[0]
+	require.Nil(t, replay.ValidationError)
+	return replay.GetVideo()
 }
