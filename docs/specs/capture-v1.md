@@ -132,9 +132,19 @@ id 0, the player's own inventory menu, is never recorded. Slot stacks use the
 same `InventorySlot` encoding as `player_state.inventory`.
 
 When a menu opened through a container block entity, every view of that
-container id up to its close carries `source`: dimension, integer block
-position, and block entity type. A double chest also carries the second half
-in `secondary_block_pos`. Ender chests, entity inventories such as chest boats
+container id up to its close carries `source`: `dimension`, `block_pos`, and
+`block_entity_type`. A double chest also carries the second half in
+`secondary_block_pos`. Both positions are `BlockPosition` integers, the same
+type the world stream uses, so `dimension` plus `block_pos` joins a view to
+`container_snapshot` records without conversion.
+
+Captures written before this change encode `block_pos` and
+`secondary_block_pos` as `Vector3` doubles under the same field numbers and
+JSON names, for example `{"x":2.0,"y":-60.0,"z":5.0}`. The values are always
+integral, and ProtoJSON `int32` parsing (Go `protojson` and Java `JsonFormat`)
+accepts integral doubles, so those captures still load as `BlockPosition`.
+The change is not wire-compatible for binary protobuf; no artifact stores
+`container_view` in binary form. Ender chests, entity inventories such as chest boats
 and donkeys, and stateless menus such as crafting tables have no `source`.
 Every play declares the known gap
 `container_views_unlinked_for_ender_chests_and_entity_inventories` for this. The
