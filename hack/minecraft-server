@@ -151,7 +151,10 @@ prepare() {
 }
 EOF
 
-  cat > "${config_dir}/mc-recorder.json" <<EOF
+  # Earlier versions of this script staged the pre-rename file name, which the
+  # mod never reads. Drop it so the staged config directory has one source.
+  rm -f "${config_dir}/mc-recorder.json"
+  cat > "${config_dir}/recorder-minecraft.json" <<EOF
 {
   "artifacts_root": "/artifacts",
   "server_name": "${server_name}",

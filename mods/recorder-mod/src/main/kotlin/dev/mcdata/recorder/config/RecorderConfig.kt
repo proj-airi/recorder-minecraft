@@ -70,9 +70,27 @@ data class RecorderConfig(
             "include_inventory_components"
         )
 
-        fun load(logger: Logger): RecorderConfig {
-            val path = FabricLoader.getInstance().configDir.resolve("recorder-minecraft.json")
+        private const val FILE_NAME = "recorder-minecraft.json"
+
+        // NOTICE: The product rename (a11dfd5) changed the file name from mc-recorder.json without
+        // a migration. A leftover old file is ignored, so the defaults below would silently send
+        // artifacts to <game-directory>/artifacts under a random instance ID; warn so operators
+        // notice before collecting plays in the wrong place.
+        private const val LEGACY_FILE_NAME = "mc-recorder.json"
+
+        fun load(logger: Logger): RecorderConfig = load(FabricLoader.getInstance().configDir, logger)
+
+        internal fun load(configDirectory: Path, logger: Logger): RecorderConfig {
+            val path = configDirectory.resolve(FILE_NAME)
             if (!path.exists()) {
+                val legacy = configDirectory.resolve(LEGACY_FILE_NAME)
+                if (legacy.exists()) {
+                    logger.warn(
+                        "Ignoring legacy recorder configuration at {}; move its settings to {}",
+                        legacy,
+                        path
+                    )
+                }
                 val defaults = RecorderConfig()
                 Files.createDirectories(path.parent)
                 Files.writeString(path, gson.toJson(defaults) + "\n")
