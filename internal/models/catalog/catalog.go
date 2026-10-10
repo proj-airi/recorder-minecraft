@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"net/url"
 	"os"
 	pathpkg "path"
@@ -454,7 +455,7 @@ func (service *Service) readReplay(playPath, serverName, serverID, playerName, p
 		value := connection.GetEndServerTick()
 		replay.EndServerTick = &value
 	}
-	replay.Video = service.video(playPath)
+	replay.Video = service.video(playPath, serverID, playerID, connectionID)
 	replay.Extensions = service.extensions(playPath, serverID, playerID, connectionID)
 	replay.PerceptionUrl = service.optionalAssetURL(playPath, "perception.jsonl")
 	replay.ActionsUrl = service.optionalAssetURL(playPath, "actions.jsonl")
@@ -549,27 +550,61 @@ func publicValidationError(playPath string, err error) string {
 	return message
 }
 
-func (service *Service) video(playPath string) *apiv1.VideoAsset {
+func (service *Service) video(playPath, serverID, playerID, connectionID string) *apiv1.VideoAsset {
 	videoPath := filepath.Join(playPath, "renders", "fpv.mp4")
 	info, err := os.Lstat(videoPath)
 	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 		return nil
 	}
-	result := &artifactsv1.RenderResult{}
 	video := &apiv1.VideoAsset{
 		Url:       service.assetURL(playPath, filepath.Join("renders", "fpv.mp4")),
 		MediaType: "video/mp4",
 		SizeBytes: uint64(info.Size()),
 	}
+	// A producer without a render job (an Airicraft screen capture) describes fpv.mp4 with
+	// fpv.json. The manifest records the MP4 size, so a later render that replaced the MP4 makes
+	// the manifest stale, and the render result then describes the video instead.
+	if manifest := readFpvManifest(playPath, serverID, playerID, connectionID, info.Size()); manifest != nil {
+		anchors := manifest.GetFrames()
+		video.Width = manifest.GetWidth()
+		video.Height = manifest.GetHeight()
+		video.FramesPerSecond = manifest.GetFramesPerSecond()
+		video.FrameCount = manifest.GetFrameCount()
+		video.DurationSeconds = manifest.GetDurationSeconds()
+		video.Timing = &apiv1.VideoTiming{
+			Format:          apiv1.VideoTiming_FORMAT_FPV_MANIFEST,
+			Url:             service.assetURL(playPath, filepath.Join("renders", "fpv.json")),
+			FirstServerTick: anchors[0].GetServerTick(),
+			LastServerTick:  anchors[len(anchors)-1].GetServerTick(),
+			AnchorCount:     uint64(len(anchors)),
+			Complete:        manifest.GetComplete(),
+		}
+		return video
+	}
 	// NOTICE: Render manifests produced before the current Protobuf contract may not decode strictly.
 	// The independently complete MP4 remains usable; a current, complete manifest only enriches the
 	// catalog entry with geometry and frame metadata.
+	result := &artifactsv1.RenderResult{}
 	if readProtoJSON(filepath.Join(playPath, "renders", "result.json"), result) == nil &&
 		result.GetStatus() == artifactsv1.RenderResultStatus_RENDER_RESULT_STATUS_COMPLETE {
 		video.Width = result.GetWidth()
 		video.Height = result.GetHeight()
 		video.FramesPerSecond = result.GetFramesPerSecond()
 		video.FrameCount = result.GetFrameCount()
+		if result.GetFramesPerSecond() > 0 {
+			video.DurationSeconds = float64(result.GetFrameCount()) / result.GetFramesPerSecond()
+		}
+		frameIndex := filepath.Join("renders", "fpv_frames", "frames.jsonl")
+		if regularFile(filepath.Join(playPath, frameIndex)) && result.GetGlobalTicks() != nil {
+			video.Timing = &apiv1.VideoTiming{
+				Format:          apiv1.VideoTiming_FORMAT_RENDER_FRAME_INDEX,
+				Url:             service.assetURL(playPath, frameIndex),
+				FirstServerTick: result.GetGlobalTicks().GetFirstTick(),
+				LastServerTick:  result.GetGlobalTicks().GetLastTick(),
+				AnchorCount:     result.GetFrameCount(),
+				Complete:        true,
+			}
+		}
 	}
 	return video
 }
@@ -585,6 +620,42 @@ func (service *Service) optionalAssetURL(playPath, relative string) *string {
 		return nil
 	}
 	return &value
+}
+
+// readFpvManifest returns renders/fpv.json when it describes this Play and an MP4 of videoSize
+// bytes, with usable anchors. Any other manifest is ignored rather than reported: the MP4 itself
+// stays playable, only without timing.
+func readFpvManifest(playPath, serverID, playerID, connectionID string, videoSize int64) *artifactsv1.FpvVideoManifest {
+	manifest := &artifactsv1.FpvVideoManifest{}
+	if readProtoJSON(filepath.Join(playPath, "renders", "fpv.json"), manifest) != nil ||
+		manifest.GetSchemaVersion() != 1 ||
+		manifest.GetServerInstanceId() != serverID || manifest.GetPlayerUuid() != playerID ||
+		manifest.GetConnectionId() != connectionID ||
+		manifest.GetSizeBytes() != uint64(videoSize) || len(manifest.GetFrames()) == 0 {
+		return nil
+	}
+	previous := manifest.GetFrames()[0]
+	if !validVideoSeconds(previous.GetVideoSeconds()) {
+		return nil
+	}
+	// Consumers binary-search the anchors by server tick and by video time, so both must be ordered.
+	for _, anchor := range manifest.GetFrames()[1:] {
+		if !validVideoSeconds(anchor.GetVideoSeconds()) || anchor.GetVideoSeconds() <= previous.GetVideoSeconds() ||
+			anchor.GetServerTick() < previous.GetServerTick() {
+			return nil
+		}
+		previous = anchor
+	}
+	return manifest
+}
+
+func validVideoSeconds(value float64) bool {
+	return value >= 0 && !math.IsInf(value, 0) && !math.IsNaN(value)
+}
+
+func regularFile(path string) bool {
+	info, err := os.Lstat(path)
+	return err == nil && info.Mode()&os.ModeSymlink == 0 && info.Mode().IsRegular()
 }
 
 func (service *Service) assetURL(playPath, relative string) string {

@@ -1005,6 +1005,200 @@ func (x *RenderResult) GetError() string {
 	return ""
 }
 
+// FpvVideoManifest is serialized as ProtoJSON at renders/fpv.json. A producer
+// that publishes renders/fpv.mp4 without a render job, such as a client screen
+// capture, writes it to describe that video. A render job instead describes its
+// video with result.json and fpv_frames/frames.jsonl.
+type FpvVideoManifest struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	SchemaVersion    uint32                 `protobuf:"varint,1,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
+	ServerInstanceId string                 `protobuf:"bytes,2,opt,name=server_instance_id,json=serverInstanceId,proto3" json:"server_instance_id,omitempty"`
+	PlayerUuid       string                 `protobuf:"bytes,3,opt,name=player_uuid,json=playerUuid,proto3" json:"player_uuid,omitempty"`
+	ConnectionId     string                 `protobuf:"bytes,4,opt,name=connection_id,json=connectionId,proto3" json:"connection_id,omitempty"`
+	// Sampled anchors in strictly increasing video_seconds with non-decreasing
+	// server_tick. Until the next anchor, the video shows the image captured at
+	// the anchor's tick.
+	Frames []*FpvVideoAnchor `protobuf:"bytes,5,rep,name=frames,proto3" json:"frames,omitempty"`
+	// False when the video or the anchors were cut short, for example by a crash.
+	Complete        bool    `protobuf:"varint,6,opt,name=complete,proto3" json:"complete,omitempty"`
+	Width           uint32  `protobuf:"varint,7,opt,name=width,proto3" json:"width,omitempty"`
+	Height          uint32  `protobuf:"varint,8,opt,name=height,proto3" json:"height,omitempty"`
+	FramesPerSecond float64 `protobuf:"fixed64,9,opt,name=frames_per_second,json=framesPerSecond,proto3" json:"frames_per_second,omitempty"`
+	// Encoded video frames, not anchors.
+	FrameCount      uint64  `protobuf:"varint,10,opt,name=frame_count,json=frameCount,proto3" json:"frame_count,omitempty"`
+	DurationSeconds float64 `protobuf:"fixed64,11,opt,name=duration_seconds,json=durationSeconds,proto3" json:"duration_seconds,omitempty"`
+	// Byte size of renders/fpv.mp4 that this manifest describes.
+	SizeBytes     uint64 `protobuf:"varint,12,opt,name=size_bytes,json=sizeBytes,proto3" json:"size_bytes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FpvVideoManifest) Reset() {
+	*x = FpvVideoManifest{}
+	mi := &file_recorder_minecraft_artifacts_v1_render_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FpvVideoManifest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FpvVideoManifest) ProtoMessage() {}
+
+func (x *FpvVideoManifest) ProtoReflect() protoreflect.Message {
+	mi := &file_recorder_minecraft_artifacts_v1_render_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FpvVideoManifest.ProtoReflect.Descriptor instead.
+func (*FpvVideoManifest) Descriptor() ([]byte, []int) {
+	return file_recorder_minecraft_artifacts_v1_render_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *FpvVideoManifest) GetSchemaVersion() uint32 {
+	if x != nil {
+		return x.SchemaVersion
+	}
+	return 0
+}
+
+func (x *FpvVideoManifest) GetServerInstanceId() string {
+	if x != nil {
+		return x.ServerInstanceId
+	}
+	return ""
+}
+
+func (x *FpvVideoManifest) GetPlayerUuid() string {
+	if x != nil {
+		return x.PlayerUuid
+	}
+	return ""
+}
+
+func (x *FpvVideoManifest) GetConnectionId() string {
+	if x != nil {
+		return x.ConnectionId
+	}
+	return ""
+}
+
+func (x *FpvVideoManifest) GetFrames() []*FpvVideoAnchor {
+	if x != nil {
+		return x.Frames
+	}
+	return nil
+}
+
+func (x *FpvVideoManifest) GetComplete() bool {
+	if x != nil {
+		return x.Complete
+	}
+	return false
+}
+
+func (x *FpvVideoManifest) GetWidth() uint32 {
+	if x != nil {
+		return x.Width
+	}
+	return 0
+}
+
+func (x *FpvVideoManifest) GetHeight() uint32 {
+	if x != nil {
+		return x.Height
+	}
+	return 0
+}
+
+func (x *FpvVideoManifest) GetFramesPerSecond() float64 {
+	if x != nil {
+		return x.FramesPerSecond
+	}
+	return 0
+}
+
+func (x *FpvVideoManifest) GetFrameCount() uint64 {
+	if x != nil {
+		return x.FrameCount
+	}
+	return 0
+}
+
+func (x *FpvVideoManifest) GetDurationSeconds() float64 {
+	if x != nil {
+		return x.DurationSeconds
+	}
+	return 0
+}
+
+func (x *FpvVideoManifest) GetSizeBytes() uint64 {
+	if x != nil {
+		return x.SizeBytes
+	}
+	return 0
+}
+
+type FpvVideoAnchor struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	VideoSeconds  float64                `protobuf:"fixed64,1,opt,name=video_seconds,json=videoSeconds,proto3" json:"video_seconds,omitempty"`
+	ServerTick    int64                  `protobuf:"varint,2,opt,name=server_tick,json=serverTick,proto3" json:"server_tick,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FpvVideoAnchor) Reset() {
+	*x = FpvVideoAnchor{}
+	mi := &file_recorder_minecraft_artifacts_v1_render_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FpvVideoAnchor) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FpvVideoAnchor) ProtoMessage() {}
+
+func (x *FpvVideoAnchor) ProtoReflect() protoreflect.Message {
+	mi := &file_recorder_minecraft_artifacts_v1_render_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FpvVideoAnchor.ProtoReflect.Descriptor instead.
+func (*FpvVideoAnchor) Descriptor() ([]byte, []int) {
+	return file_recorder_minecraft_artifacts_v1_render_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *FpvVideoAnchor) GetVideoSeconds() float64 {
+	if x != nil {
+		return x.VideoSeconds
+	}
+	return 0
+}
+
+func (x *FpvVideoAnchor) GetServerTick() int64 {
+	if x != nil {
+		return x.ServerTick
+	}
+	return 0
+}
+
 type RenderProgress struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	SchemaVersion  uint32                 `protobuf:"varint,1,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
@@ -1022,7 +1216,7 @@ type RenderProgress struct {
 
 func (x *RenderProgress) Reset() {
 	*x = RenderProgress{}
-	mi := &file_recorder_minecraft_artifacts_v1_render_proto_msgTypes[7]
+	mi := &file_recorder_minecraft_artifacts_v1_render_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1034,7 +1228,7 @@ func (x *RenderProgress) String() string {
 func (*RenderProgress) ProtoMessage() {}
 
 func (x *RenderProgress) ProtoReflect() protoreflect.Message {
-	mi := &file_recorder_minecraft_artifacts_v1_render_proto_msgTypes[7]
+	mi := &file_recorder_minecraft_artifacts_v1_render_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1047,7 +1241,7 @@ func (x *RenderProgress) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RenderProgress.ProtoReflect.Descriptor instead.
 func (*RenderProgress) Descriptor() ([]byte, []int) {
-	return file_recorder_minecraft_artifacts_v1_render_proto_rawDescGZIP(), []int{7}
+	return file_recorder_minecraft_artifacts_v1_render_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *RenderProgress) GetSchemaVersion() uint32 {
@@ -1211,7 +1405,28 @@ const file_recorder_minecraft_artifacts_v1_render_proto_rawDesc = "" +
 	"frameIndex\x12d\n" +
 	"\x13unsupported_packets\x18\x13 \x01(\v23.recorder_minecraft.artifacts.v1.UnsupportedPacketsR\x12unsupportedPackets\x12\x19\n" +
 	"\x05error\x18\x14 \x01(\tH\x00R\x05error\x88\x01\x01B\b\n" +
-	"\x06_error\"\x8d\x03\n" +
+	"\x06_error\"\xd7\x03\n" +
+	"\x10FpvVideoManifest\x12%\n" +
+	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12,\n" +
+	"\x12server_instance_id\x18\x02 \x01(\tR\x10serverInstanceId\x12\x1f\n" +
+	"\vplayer_uuid\x18\x03 \x01(\tR\n" +
+	"playerUuid\x12#\n" +
+	"\rconnection_id\x18\x04 \x01(\tR\fconnectionId\x12G\n" +
+	"\x06frames\x18\x05 \x03(\v2/.recorder_minecraft.artifacts.v1.FpvVideoAnchorR\x06frames\x12\x1a\n" +
+	"\bcomplete\x18\x06 \x01(\bR\bcomplete\x12\x14\n" +
+	"\x05width\x18\a \x01(\rR\x05width\x12\x16\n" +
+	"\x06height\x18\b \x01(\rR\x06height\x12*\n" +
+	"\x11frames_per_second\x18\t \x01(\x01R\x0fframesPerSecond\x12\x1f\n" +
+	"\vframe_count\x18\n" +
+	" \x01(\x04R\n" +
+	"frameCount\x12)\n" +
+	"\x10duration_seconds\x18\v \x01(\x01R\x0fdurationSeconds\x12\x1d\n" +
+	"\n" +
+	"size_bytes\x18\f \x01(\x04R\tsizeBytes\"V\n" +
+	"\x0eFpvVideoAnchor\x12#\n" +
+	"\rvideo_seconds\x18\x01 \x01(\x01R\fvideoSeconds\x12\x1f\n" +
+	"\vserver_tick\x18\x02 \x01(\x03R\n" +
+	"serverTick\"\x8d\x03\n" +
 	"\x0eRenderProgress\x12%\n" +
 	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12M\n" +
 	"\x06status\x18\x02 \x01(\x0e25.recorder_minecraft.artifacts.v1.RenderProgressStatusR\x06status\x12\x1d\n" +
@@ -1261,7 +1476,7 @@ func file_recorder_minecraft_artifacts_v1_render_proto_rawDescGZIP() []byte {
 }
 
 var file_recorder_minecraft_artifacts_v1_render_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
-var file_recorder_minecraft_artifacts_v1_render_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
+var file_recorder_minecraft_artifacts_v1_render_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
 var file_recorder_minecraft_artifacts_v1_render_proto_goTypes = []any{
 	(RenderJobStatus)(0),           // 0: recorder_minecraft.artifacts.v1.RenderJobStatus
 	(RenderRangePolicy)(0),         // 1: recorder_minecraft.artifacts.v1.RenderRangePolicy
@@ -1274,33 +1489,36 @@ var file_recorder_minecraft_artifacts_v1_render_proto_goTypes = []any{
 	(*UnsupportedPacketCount)(nil), // 8: recorder_minecraft.artifacts.v1.UnsupportedPacketCount
 	(*UnsupportedPackets)(nil),     // 9: recorder_minecraft.artifacts.v1.UnsupportedPackets
 	(*RenderResult)(nil),           // 10: recorder_minecraft.artifacts.v1.RenderResult
-	(*RenderProgress)(nil),         // 11: recorder_minecraft.artifacts.v1.RenderProgress
-	(*timestamppb.Timestamp)(nil),  // 12: google.protobuf.Timestamp
-	(*TickRange)(nil),              // 13: recorder_minecraft.artifacts.v1.TickRange
+	(*FpvVideoManifest)(nil),       // 11: recorder_minecraft.artifacts.v1.FpvVideoManifest
+	(*FpvVideoAnchor)(nil),         // 12: recorder_minecraft.artifacts.v1.FpvVideoAnchor
+	(*RenderProgress)(nil),         // 13: recorder_minecraft.artifacts.v1.RenderProgress
+	(*timestamppb.Timestamp)(nil),  // 14: google.protobuf.Timestamp
+	(*TickRange)(nil),              // 15: recorder_minecraft.artifacts.v1.TickRange
 }
 var file_recorder_minecraft_artifacts_v1_render_proto_depIdxs = []int32{
-	12, // 0: recorder_minecraft.artifacts.v1.RenderJob.created_at:type_name -> google.protobuf.Timestamp
+	14, // 0: recorder_minecraft.artifacts.v1.RenderJob.created_at:type_name -> google.protobuf.Timestamp
 	0,  // 1: recorder_minecraft.artifacts.v1.RenderJob.status:type_name -> recorder_minecraft.artifacts.v1.RenderJobStatus
 	4,  // 2: recorder_minecraft.artifacts.v1.RenderJob.replay:type_name -> recorder_minecraft.artifacts.v1.RenderReplaySource
-	13, // 3: recorder_minecraft.artifacts.v1.RenderJob.global_ticks:type_name -> recorder_minecraft.artifacts.v1.TickRange
+	15, // 3: recorder_minecraft.artifacts.v1.RenderJob.global_ticks:type_name -> recorder_minecraft.artifacts.v1.TickRange
 	1,  // 4: recorder_minecraft.artifacts.v1.RenderJob.range_policy:type_name -> recorder_minecraft.artifacts.v1.RenderRangePolicy
 	5,  // 5: recorder_minecraft.artifacts.v1.RenderJob.source_events:type_name -> recorder_minecraft.artifacts.v1.RenderArtifact
 	8,  // 6: recorder_minecraft.artifacts.v1.UnsupportedPackets.types:type_name -> recorder_minecraft.artifacts.v1.UnsupportedPacketCount
 	2,  // 7: recorder_minecraft.artifacts.v1.RenderResult.status:type_name -> recorder_minecraft.artifacts.v1.RenderResultStatus
 	4,  // 8: recorder_minecraft.artifacts.v1.RenderResult.replay:type_name -> recorder_minecraft.artifacts.v1.RenderReplaySource
-	13, // 9: recorder_minecraft.artifacts.v1.RenderResult.requested_global_ticks:type_name -> recorder_minecraft.artifacts.v1.TickRange
-	13, // 10: recorder_minecraft.artifacts.v1.RenderResult.global_ticks:type_name -> recorder_minecraft.artifacts.v1.TickRange
-	13, // 11: recorder_minecraft.artifacts.v1.RenderResult.replay_ticks:type_name -> recorder_minecraft.artifacts.v1.TickRange
-	13, // 12: recorder_minecraft.artifacts.v1.RenderResult.segment_coverage_ticks:type_name -> recorder_minecraft.artifacts.v1.TickRange
+	15, // 9: recorder_minecraft.artifacts.v1.RenderResult.requested_global_ticks:type_name -> recorder_minecraft.artifacts.v1.TickRange
+	15, // 10: recorder_minecraft.artifacts.v1.RenderResult.global_ticks:type_name -> recorder_minecraft.artifacts.v1.TickRange
+	15, // 11: recorder_minecraft.artifacts.v1.RenderResult.replay_ticks:type_name -> recorder_minecraft.artifacts.v1.TickRange
+	15, // 12: recorder_minecraft.artifacts.v1.RenderResult.segment_coverage_ticks:type_name -> recorder_minecraft.artifacts.v1.TickRange
 	5,  // 13: recorder_minecraft.artifacts.v1.RenderResult.frame_index:type_name -> recorder_minecraft.artifacts.v1.RenderArtifact
 	9,  // 14: recorder_minecraft.artifacts.v1.RenderResult.unsupported_packets:type_name -> recorder_minecraft.artifacts.v1.UnsupportedPackets
-	3,  // 15: recorder_minecraft.artifacts.v1.RenderProgress.status:type_name -> recorder_minecraft.artifacts.v1.RenderProgressStatus
-	12, // 16: recorder_minecraft.artifacts.v1.RenderProgress.updated_at:type_name -> google.protobuf.Timestamp
-	17, // [17:17] is the sub-list for method output_type
-	17, // [17:17] is the sub-list for method input_type
-	17, // [17:17] is the sub-list for extension type_name
-	17, // [17:17] is the sub-list for extension extendee
-	0,  // [0:17] is the sub-list for field type_name
+	12, // 15: recorder_minecraft.artifacts.v1.FpvVideoManifest.frames:type_name -> recorder_minecraft.artifacts.v1.FpvVideoAnchor
+	3,  // 16: recorder_minecraft.artifacts.v1.RenderProgress.status:type_name -> recorder_minecraft.artifacts.v1.RenderProgressStatus
+	14, // 17: recorder_minecraft.artifacts.v1.RenderProgress.updated_at:type_name -> google.protobuf.Timestamp
+	18, // [18:18] is the sub-list for method output_type
+	18, // [18:18] is the sub-list for method input_type
+	18, // [18:18] is the sub-list for extension type_name
+	18, // [18:18] is the sub-list for extension extendee
+	0,  // [0:18] is the sub-list for field type_name
 }
 
 func init() { file_recorder_minecraft_artifacts_v1_render_proto_init() }
@@ -1316,7 +1534,7 @@ func file_recorder_minecraft_artifacts_v1_render_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_recorder_minecraft_artifacts_v1_render_proto_rawDesc), len(file_recorder_minecraft_artifacts_v1_render_proto_rawDesc)),
 			NumEnums:      4,
-			NumMessages:   8,
+			NumMessages:   10,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

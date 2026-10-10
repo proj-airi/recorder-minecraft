@@ -127,6 +127,36 @@ message RenderResult {
   optional string error = 20;
 }
 
+// FpvVideoManifest is serialized as ProtoJSON at renders/fpv.json. A producer
+// that publishes renders/fpv.mp4 without a render job, such as a client screen
+// capture, writes it to describe that video. A render job instead describes its
+// video with result.json and fpv_frames/frames.jsonl.
+message FpvVideoManifest {
+  uint32 schema_version = 1;
+  string server_instance_id = 2;
+  string player_uuid = 3;
+  string connection_id = 4;
+  // Sampled anchors in strictly increasing video_seconds with non-decreasing
+  // server_tick. Until the next anchor, the video shows the image captured at
+  // the anchor's tick.
+  repeated FpvVideoAnchor frames = 5;
+  // False when the video or the anchors were cut short, for example by a crash.
+  bool complete = 6;
+  uint32 width = 7;
+  uint32 height = 8;
+  double frames_per_second = 9;
+  // Encoded video frames, not anchors.
+  uint64 frame_count = 10;
+  double duration_seconds = 11;
+  // Byte size of renders/fpv.mp4 that this manifest describes.
+  uint64 size_bytes = 12;
+}
+
+message FpvVideoAnchor {
+  double video_seconds = 1;
+  int64 server_tick = 2;
+}
+
 message RenderProgress {
   uint32 schema_version = 1;
   RenderProgressStatus status = 2;
