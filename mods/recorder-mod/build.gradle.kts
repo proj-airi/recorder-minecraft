@@ -1,6 +1,7 @@
 import java.net.HttpURLConnection
 import java.net.URI
 import java.security.MessageDigest
+import java.util.Properties
 import java.util.zip.ZipFile
 import java.util.jar.JarInputStream
 
@@ -16,6 +17,10 @@ val minecraftVersion = "1.21.8"
 val fabricLoaderVersion = "0.19.3"
 val fabricApiVersion = "0.136.1+1.21.8"
 val fabricLanguageKotlinVersion = "1.13.13+kotlin.2.4.10"
+// Modrinth version IDs for the deployed server runtime (deploy/). Each ID must name the version
+// declared above; `verifyServerRuntimePins` checks the deploy files against these values.
+val fabricApiVersionId = "g58ofrov"
+val fabricLanguageKotlinVersionId = "bdhiINYC"
 val serverReplayVersion = "3.0.1+1.21.8"
 val serverReplayVersionId = "TbWIikrT"
 val serverReplaySha256 = "5538e575bd8559f61aaae3f697ead6ca20bc7393614dd1af2690a1ba1247a524"
@@ -243,4 +248,71 @@ tasks.register<Copy>("stageRecordingProfile") {
     from(buildRecordingProfile)
     into(layout.buildDirectory.dir("recording-profile"))
     rename { "recorder-profile.jar" }
+}
+
+// NOTICE: The dev Compose service and the release server image install their mods from Modrinth at
+// container start, and the scene extractor rejects a replay unless its own Minecraft, loader,
+// Fabric API, and Fabric Language Kotlin versions equal the ones the server recorded. These values
+// live in files that Gradle cannot share with Docker, so this check keeps them from drifting.
+val serverRuntimePinFiles = mapOf(
+    "compose" to rootDir.resolve("../../deploy/docker-compose.yml"),
+    "dockerfile" to rootDir.resolve("../../deploy/minecraft-server.Dockerfile"),
+    "extractor" to rootDir.resolve("../../processors/scene-extractor/gradle.properties"),
+)
+val verifyServerRuntimePins = tasks.register("verifyServerRuntimePins") {
+    group = "verification"
+    description = "Verify deploy and scene-extractor runtime pins match the recorder mod build"
+    val files = serverRuntimePinFiles
+    val expectedServer = mapOf(
+        "VERSION" to minecraftVersion,
+        "FABRIC_LOADER_VERSION" to fabricLoaderVersion,
+        "MODRINTH_PROJECTS" to listOf(
+            "server-replay:$serverReplayVersionId",
+            "fabric-api:$fabricApiVersionId",
+            "fabric-language-kotlin:$fabricLanguageKotlinVersionId",
+        ).joinToString(","),
+        "MODRINTH_DOWNLOAD_DEPENDENCIES" to "none",
+    )
+    val expectedExtractor = mapOf(
+        "minecraft_version" to minecraftVersion,
+        "loader_version" to fabricLoaderVersion,
+        "fabric_version" to fabricApiVersion,
+        "fabric_kotlin_version" to fabricLanguageKotlinVersion,
+    )
+    inputs.files(files.values)
+    inputs.properties(expectedServer + expectedExtractor)
+    doLast {
+        val mismatches = mutableListOf<String>()
+        fun expect(file: java.io.File, key: String, expected: String, actual: String?) {
+            if (actual != expected) mismatches += "${file.name}: $key=${actual ?: "<missing>"}, expected $expected"
+        }
+
+        val compose = files.getValue("compose")
+        val composeText = compose.readText()
+        for ((key, expected) in expectedServer) {
+            val actual = Regex("""(?m)^\s+$key:\s*'?([^'\s]+)'?\s*$""").find(composeText)?.groupValues?.get(1)
+            expect(compose, key, expected, actual)
+        }
+
+        val dockerfile = files.getValue("dockerfile")
+        val dockerfileText = dockerfile.readText()
+        for ((key, expected) in expectedServer) {
+            val actual = Regex("""(?m)(?:^ENV\s+|^\s+)$key=(\S+)""").find(dockerfileText)?.groupValues?.get(1)
+            expect(dockerfile, key, expected, actual)
+        }
+
+        val extractor = files.getValue("extractor")
+        val extractorProperties = Properties().apply { extractor.inputStream().use(::load) }
+        for ((key, expected) in expectedExtractor) {
+            expect(extractor, key, expected, extractorProperties.getProperty(key))
+        }
+
+        check(mismatches.isEmpty()) {
+            "server runtime pins drifted from mods/recorder-mod/build.gradle.kts:\n" +
+                mismatches.joinToString("\n")
+        }
+    }
+}
+tasks.check {
+    dependsOn(verifyServerRuntimePins)
 }
