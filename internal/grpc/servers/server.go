@@ -75,7 +75,7 @@ func (server *Server) Serve(ctx context.Context) error {
 	echoServer := echo.New()
 	echoServer.Use(middleware.CORSWithConfig(middleware.CORSConfig{
 		AllowOrigins:  []string{"*"},
-		AllowMethods:  []string{http.MethodGet, http.MethodHead, http.MethodOptions},
+		AllowMethods:  []string{http.MethodGet, http.MethodHead, http.MethodPost, http.MethodOptions},
 		AllowHeaders:  []string{echo.HeaderAccept, echo.HeaderContentType, "Range"},
 		ExposeHeaders: []string{"Accept-Ranges", echo.HeaderContentLength, "Content-Range"},
 	}))
