@@ -2,7 +2,7 @@
 
 import type { Client, ClientMeta, Options as Options2, RequestResult, TDataShape } from './client';
 import { client } from './client.gen';
-import type { ArtifactsListData, ArtifactsListErrors, ArtifactsListResponses, PlayersListData, PlayersListErrors, PlayersListResponses, ReplaysGetData, ReplaysGetErrors, ReplaysGetResponses, ReplaysListData, ReplaysListErrors, ReplaysListResponses, ServerInstancesListData, ServerInstancesListErrors, ServerInstancesListResponses } from './types.gen';
+import type { ArtifactsListData, ArtifactsListErrors, ArtifactsListResponses, CatalogRefreshData, CatalogRefreshErrors, CatalogRefreshResponses, PlayersListData, PlayersListErrors, PlayersListResponses, ReplaysGetData, ReplaysGetErrors, ReplaysGetResponses, ReplaysListData, ReplaysListErrors, ReplaysListResponses, ServerInstancesListData, ServerInstancesListErrors, ServerInstancesListResponses, WorldSessionsGetData, WorldSessionsGetErrors, WorldSessionsGetResponses, WorldSessionsListData, WorldSessionsListErrors, WorldSessionsListResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -26,6 +26,13 @@ export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends 
 export const artifactsList = <ThrowOnError extends boolean = true>(options?: Options<ArtifactsListData, ThrowOnError>): RequestResult<ArtifactsListResponses, ArtifactsListErrors, ThrowOnError> => (options?.client ?? client).get<ArtifactsListResponses, ArtifactsListErrors, ThrowOnError>({ url: '/api/v1/artifacts', ...options });
 
 /**
+ * Rescan the artifacts root.
+ *
+ * Discards the briefly cached catalog snapshot and walks the artifacts root again. Other reads may serve a snapshot up to a few seconds old.
+ */
+export const catalogRefresh = <ThrowOnError extends boolean = true>(options?: Options<CatalogRefreshData, ThrowOnError>): RequestResult<CatalogRefreshResponses, CatalogRefreshErrors, ThrowOnError> => (options?.client ?? client).post<CatalogRefreshResponses, CatalogRefreshErrors, ThrowOnError>({ url: '/api/v1/catalog:refresh', ...options });
+
+/**
  * List players.
  */
 export const playersList = <ThrowOnError extends boolean = true>(options?: Options<PlayersListData, ThrowOnError>): RequestResult<PlayersListResponses, PlayersListErrors, ThrowOnError> => (options?.client ?? client).get<PlayersListResponses, PlayersListErrors, ThrowOnError>({ url: '/api/v1/players', ...options });
@@ -44,3 +51,15 @@ export const serverInstancesList = <ThrowOnError extends boolean = true>(options
  * Get one replay resource.
  */
 export const replaysGet = <ThrowOnError extends boolean = true>(options: Options<ReplaysGetData, ThrowOnError>): RequestResult<ReplaysGetResponses, ReplaysGetErrors, ThrowOnError> => (options.client ?? client).get<ReplaysGetResponses, ReplaysGetErrors, ThrowOnError>({ url: '/api/v1/server-instances/{serverInstanceId}/players/{playerUuid}/replays/{connectionId}', ...options });
+
+/**
+ * Get one world session.
+ */
+export const worldSessionsGet = <ThrowOnError extends boolean = true>(options: Options<WorldSessionsGetData, ThrowOnError>): RequestResult<WorldSessionsGetResponses, WorldSessionsGetErrors, ThrowOnError> => (options.client ?? client).get<WorldSessionsGetResponses, WorldSessionsGetErrors, ThrowOnError>({ url: '/api/v1/server-instances/{serverInstanceId}/world-sessions/{worldSessionId}', ...options });
+
+/**
+ * List world sessions.
+ *
+ * Returns the readable world sessions under world/sessions/ of each server instance, with their alignment files and the Plays that link to them.
+ */
+export const worldSessionsList = <ThrowOnError extends boolean = true>(options?: Options<WorldSessionsListData, ThrowOnError>): RequestResult<WorldSessionsListResponses, WorldSessionsListErrors, ThrowOnError> => (options?.client ?? client).get<WorldSessionsListResponses, WorldSessionsListErrors, ThrowOnError>({ url: '/api/v1/world-sessions', ...options });

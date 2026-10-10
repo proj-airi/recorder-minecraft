@@ -72,6 +72,30 @@
         ]
       }
     },
+    "/api/v1/catalog:refresh": {
+      "post": {
+        "summary": "Rescan the artifacts root.",
+        "description": "Discards the briefly cached catalog snapshot and walks the artifacts root again. Other reads may serve a snapshot up to a few seconds old.",
+        "operationId": "catalog_refresh",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/recorder_minecraft.api.v1.RefreshCatalogResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/google.rpc.Status"
+            }
+          }
+        },
+        "tags": [
+          "Artifacts"
+        ]
+      }
+    },
     "/api/v1/players": {
       "get": {
         "summary": "List players.",
@@ -234,6 +258,85 @@
           "Artifacts"
         ]
       }
+    },
+    "/api/v1/server-instances/{serverInstanceId}/world-sessions/{worldSessionId}": {
+      "get": {
+        "summary": "Get one world session.",
+        "operationId": "world_sessions_get",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/recorder_minecraft.api.v1.GetWorldSessionResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/google.rpc.Status"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "serverInstanceId",
+            "description": "Recorder installation UUID.",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "worldSessionId",
+            "description": "World session directory name, \u003cstarted-at\u003e--\u003csession-id\u003e.",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "Artifacts"
+        ]
+      }
+    },
+    "/api/v1/world-sessions": {
+      "get": {
+        "summary": "List world sessions.",
+        "description": "Returns the readable world sessions under world/sessions/ of each server instance, with their alignment files and the Plays that link to them.",
+        "operationId": "world_sessions_list",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/recorder_minecraft.api.v1.ListWorldSessionsResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/google.rpc.Status"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "serverInstanceId",
+            "description": "Restrict results to one recorder installation UUID.",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "sessionId",
+            "description": "Restrict results to one recorder session_id.",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "Artifacts"
+        ]
+      }
     }
   },
   "definitions": {
@@ -265,11 +368,47 @@
         }
       }
     },
+    "recorder_minecraft.api.v1.AlignmentParticipant": {
+      "type": "object",
+      "properties": {
+        "playerUuid": {
+          "type": "string"
+        },
+        "playerName": {
+          "type": "string"
+        },
+        "connectionId": {
+          "type": "string"
+        },
+        "startServerTick": {
+          "type": "string",
+          "format": "int64",
+          "description": "Connection start and end server tick."
+        },
+        "endServerTick": {
+          "type": "string",
+          "format": "int64"
+        },
+        "perceptionProvided": {
+          "type": "boolean",
+          "description": "True when the alignment was given the Play's perception.jsonl."
+        }
+      },
+      "description": "AlignmentParticipant is one Play named in a session alignment header."
+    },
     "recorder_minecraft.api.v1.GetReplayResponse": {
       "type": "object",
       "properties": {
         "replay": {
           "$ref": "#/definitions/recorder_minecraft.api.v1.Replay"
+        }
+      }
+    },
+    "recorder_minecraft.api.v1.GetWorldSessionResponse": {
+      "type": "object",
+      "properties": {
+        "worldSession": {
+          "$ref": "#/definitions/recorder_minecraft.api.v1.WorldSession"
         }
       }
     },
@@ -317,6 +456,18 @@
           "items": {
             "type": "object",
             "$ref": "#/definitions/recorder_minecraft.api.v1.ServerInstanceSummary"
+          }
+        }
+      }
+    },
+    "recorder_minecraft.api.v1.ListWorldSessionsResponse": {
+      "type": "object",
+      "properties": {
+        "worldSessions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/recorder_minecraft.api.v1.WorldSession"
           }
         }
       }
@@ -394,6 +545,27 @@
         }
       }
     },
+    "recorder_minecraft.api.v1.RefreshCatalogResponse": {
+      "type": "object",
+      "properties": {
+        "refreshedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "serverInstanceCount": {
+          "type": "string",
+          "format": "uint64"
+        },
+        "replayCount": {
+          "type": "string",
+          "format": "uint64"
+        },
+        "worldSessionCount": {
+          "type": "string",
+          "format": "uint64"
+        }
+      }
+    },
     "recorder_minecraft.api.v1.Replay": {
       "type": "object",
       "properties": {
@@ -461,6 +633,27 @@
             "type": "object",
             "$ref": "#/definitions/recorder_minecraft.api.v1.PlayExtension"
           }
+        },
+        "perceptionUrl": {
+          "type": "string",
+          "description": "Derived files under the Play directory. Each URL is present only when the\nfile exists as a regular file."
+        },
+        "actionsUrl": {
+          "type": "string"
+        },
+        "sceneUrl": {
+          "type": "string"
+        },
+        "framesIndexUrl": {
+          "type": "string",
+          "description": "renders/fpv_frames/frames.jsonl: the frame to server tick index of a render."
+        },
+        "worldSessionId": {
+          "type": "string",
+          "description": "WorldSession.id of the world session that covers this Play, when one is\nreadable in the same server instance."
+        },
+        "worldSessionLink": {
+          "$ref": "#/definitions/recorder_minecraft.api.v1.WorldSessionLink"
         }
       }
     },
@@ -479,6 +672,14 @@
             "type": "object",
             "$ref": "#/definitions/recorder_minecraft.api.v1.Player"
           }
+        },
+        "worldSessions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/recorder_minecraft.api.v1.WorldSession"
+          },
+          "description": "World sessions are listed in full; player and time filters do not apply to them."
         }
       }
     },
@@ -496,6 +697,10 @@
           "format": "uint64"
         },
         "replayCount": {
+          "type": "string",
+          "format": "uint64"
+        },
+        "worldSessionCount": {
           "type": "string",
           "format": "uint64"
         }
@@ -531,6 +736,146 @@
           "format": "uint64"
         }
       }
+    },
+    "recorder_minecraft.api.v1.WorldSession": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Directory name, \u003cstarted-at\u003e--\u003csession-id\u003e. Unique within a server instance."
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "serverName": {
+          "type": "string"
+        },
+        "serverInstanceId": {
+          "type": "string"
+        },
+        "startedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "endedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "startServerTick": {
+          "type": "string",
+          "format": "int64"
+        },
+        "endServerTick": {
+          "type": "string",
+          "format": "int64",
+          "description": "Absent while recording or after a crash."
+        },
+        "terminalReason": {
+          "type": "string"
+        },
+        "streamFailure": {
+          "type": "string",
+          "description": "Set when the world stream stopped early; coverage ends at end_server_tick."
+        },
+        "knownGaps": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "metadataUrl": {
+          "type": "string"
+        },
+        "eventsUrl": {
+          "type": "string"
+        },
+        "alignments": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/recorder_minecraft.api.v1.WorldSessionAlignment"
+          },
+          "description": "JSONL files in alignments/, sorted by name."
+        },
+        "plays": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/recorder_minecraft.api.v1.WorldSessionPlay"
+          },
+          "description": "Plays in the same server instance that link to this world session."
+        },
+        "validationError": {
+          "type": "string",
+          "description": "Set when metadata.json is missing, invalid, or describes an open stream."
+        }
+      },
+      "description": "WorldSession is one directory under world/sessions/ of a server instance."
+    },
+    "recorder_minecraft.api.v1.WorldSessionAlignment": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "File name without the .jsonl suffix."
+        },
+        "url": {
+          "type": "string"
+        },
+        "sizeBytes": {
+          "type": "string",
+          "format": "uint64"
+        },
+        "participants": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/recorder_minecraft.api.v1.AlignmentParticipant"
+          },
+          "description": "From the header line."
+        },
+        "eventCount": {
+          "type": "string",
+          "format": "uint64"
+        },
+        "divergenceCount": {
+          "type": "string",
+          "format": "uint64"
+        },
+        "validationError": {
+          "type": "string",
+          "description": "Set when the header line cannot be read or names another session."
+        }
+      },
+      "description": "WorldSessionAlignment is one session alignment JSONL under alignments/."
+    },
+    "recorder_minecraft.api.v1.WorldSessionLink": {
+      "type": "string",
+      "enum": [
+        "WORLD_SESSION_LINK_UNSPECIFIED",
+        "WORLD_SESSION_LINK_CONTAINER_TRUTH",
+        "WORLD_SESSION_LINK_SESSION_ID"
+      ],
+      "default": "WORLD_SESSION_LINK_UNSPECIFIED",
+      "description": "WorldSessionLink tells how a Play was joined to its world session.\n\n - WORLD_SESSION_LINK_CONTAINER_TRUTH: Play metadata names the world session in world_container_truth.\n - WORLD_SESSION_LINK_SESSION_ID: Play metadata has no world_container_truth (the stream was not healthy at\nconnection start); the world session has the same session_id."
+    },
+    "recorder_minecraft.api.v1.WorldSessionPlay": {
+      "type": "object",
+      "properties": {
+        "playerUuid": {
+          "type": "string"
+        },
+        "playerName": {
+          "type": "string"
+        },
+        "connectionId": {
+          "type": "string"
+        },
+        "link": {
+          "$ref": "#/definitions/recorder_minecraft.api.v1.WorldSessionLink"
+        }
+      },
+      "description": "WorldSessionPlay identifies one Play linked to a world session."
     },
     "recorder_minecraft.catalog.v1.FinalInventoryItem": {
       "type": "object",

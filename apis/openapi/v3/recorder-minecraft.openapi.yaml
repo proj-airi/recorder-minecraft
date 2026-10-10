@@ -18,10 +18,35 @@ components:
         message:
           type: string
       type: object
+    recorder_minecraft.api.v1.AlignmentParticipant:
+      description: AlignmentParticipant is one Play named in a session alignment header.
+      properties:
+        connectionId:
+          type: string
+        endServerTick:
+          format: int64
+          type: string
+        perceptionProvided:
+          description: True when the alignment was given the Play's perception.jsonl.
+          type: boolean
+        playerName:
+          type: string
+        playerUuid:
+          type: string
+        startServerTick:
+          description: Connection start and end server tick.
+          format: int64
+          type: string
+      type: object
     recorder_minecraft.api.v1.GetReplayResponse:
       properties:
         replay:
           $ref: '#/components/schemas/recorder_minecraft.api.v1.Replay'
+      type: object
+    recorder_minecraft.api.v1.GetWorldSessionResponse:
+      properties:
+        worldSession:
+          $ref: '#/components/schemas/recorder_minecraft.api.v1.WorldSession'
       type: object
     recorder_minecraft.api.v1.ListArtifactsResponse:
       properties:
@@ -49,6 +74,13 @@ components:
         serverInstances:
           items:
             $ref: '#/components/schemas/recorder_minecraft.api.v1.ServerInstanceSummary'
+          type: array
+      type: object
+    recorder_minecraft.api.v1.ListWorldSessionsResponse:
+      properties:
+        worldSessions:
+          items:
+            $ref: '#/components/schemas/recorder_minecraft.api.v1.WorldSession'
           type: array
       type: object
     recorder_minecraft.api.v1.PlayExtension:
@@ -100,8 +132,25 @@ components:
         uuid:
           type: string
       type: object
+    recorder_minecraft.api.v1.RefreshCatalogResponse:
+      properties:
+        refreshedAt:
+          format: date-time
+          type: string
+        replayCount:
+          format: uint64
+          type: string
+        serverInstanceCount:
+          format: uint64
+          type: string
+        worldSessionCount:
+          format: uint64
+          type: string
+      type: object
     recorder_minecraft.api.v1.Replay:
       properties:
+        actionsUrl:
+          type: string
         captureFailure:
           type: string
         connectionId:
@@ -118,6 +167,14 @@ components:
           items:
             $ref: '#/components/schemas/recorder_minecraft.api.v1.PlayExtension'
           type: array
+        framesIndexUrl:
+          description: 'renders/fpv_frames/frames.jsonl: the frame to server tick index of a render.'
+          type: string
+        perceptionUrl:
+          description: |-
+            Derived files under the Play directory. Each URL is present only when the
+            file exists as a regular file.
+          type: string
         playerName:
           type: string
         playerUuid:
@@ -125,6 +182,8 @@ components:
         replayFormat:
           type: string
         replayUrl:
+          type: string
+        sceneUrl:
           type: string
         serverInstanceId:
           type: string
@@ -146,6 +205,13 @@ components:
           type: string
         video:
           $ref: '#/components/schemas/recorder_minecraft.api.v1.VideoAsset'
+        worldSessionId:
+          description: |-
+            WorldSession.id of the world session that covers this Play, when one is
+            readable in the same server instance.
+          type: string
+        worldSessionLink:
+          $ref: '#/components/schemas/recorder_minecraft.api.v1.WorldSessionLink'
       type: object
     recorder_minecraft.api.v1.ServerInstance:
       properties:
@@ -156,6 +222,11 @@ components:
         players:
           items:
             $ref: '#/components/schemas/recorder_minecraft.api.v1.Player'
+          type: array
+        worldSessions:
+          description: World sessions are listed in full; player and time filters do not apply to them.
+          items:
+            $ref: '#/components/schemas/recorder_minecraft.api.v1.WorldSession'
           type: array
       type: object
     recorder_minecraft.api.v1.ServerInstanceSummary:
@@ -168,6 +239,9 @@ components:
           format: uint64
           type: string
         replayCount:
+          format: uint64
+          type: string
+        worldSessionCount:
           format: uint64
           type: string
       type: object
@@ -192,6 +266,109 @@ components:
         width:
           format: int64
           type: integer
+      type: object
+    recorder_minecraft.api.v1.WorldSession:
+      description: WorldSession is one directory under world/sessions/ of a server instance.
+      properties:
+        alignments:
+          description: JSONL files in alignments/, sorted by name.
+          items:
+            $ref: '#/components/schemas/recorder_minecraft.api.v1.WorldSessionAlignment'
+          type: array
+        endServerTick:
+          description: Absent while recording or after a crash.
+          format: int64
+          type: string
+        endedAt:
+          format: date-time
+          type: string
+        eventsUrl:
+          type: string
+        id:
+          description: Directory name, <started-at>--<session-id>. Unique within a server instance.
+          type: string
+        knownGaps:
+          items:
+            type: string
+          type: array
+        metadataUrl:
+          type: string
+        plays:
+          description: Plays in the same server instance that link to this world session.
+          items:
+            $ref: '#/components/schemas/recorder_minecraft.api.v1.WorldSessionPlay'
+          type: array
+        serverInstanceId:
+          type: string
+        serverName:
+          type: string
+        sessionId:
+          type: string
+        startServerTick:
+          format: int64
+          type: string
+        startedAt:
+          format: date-time
+          type: string
+        streamFailure:
+          description: Set when the world stream stopped early; coverage ends at end_server_tick.
+          type: string
+        terminalReason:
+          type: string
+        validationError:
+          description: Set when metadata.json is missing, invalid, or describes an open stream.
+          type: string
+      type: object
+    recorder_minecraft.api.v1.WorldSessionAlignment:
+      description: WorldSessionAlignment is one session alignment JSONL under alignments/.
+      properties:
+        divergenceCount:
+          format: uint64
+          type: string
+        eventCount:
+          format: uint64
+          type: string
+        name:
+          description: File name without the .jsonl suffix.
+          type: string
+        participants:
+          description: From the header line.
+          items:
+            $ref: '#/components/schemas/recorder_minecraft.api.v1.AlignmentParticipant'
+          type: array
+        sizeBytes:
+          format: uint64
+          type: string
+        url:
+          type: string
+        validationError:
+          description: Set when the header line cannot be read or names another session.
+          type: string
+      type: object
+    recorder_minecraft.api.v1.WorldSessionLink:
+      default: WORLD_SESSION_LINK_UNSPECIFIED
+      description: |-
+        WorldSessionLink tells how a Play was joined to its world session.
+
+         - WORLD_SESSION_LINK_CONTAINER_TRUTH: Play metadata names the world session in world_container_truth.
+         - WORLD_SESSION_LINK_SESSION_ID: Play metadata has no world_container_truth (the stream was not healthy at
+        connection start); the world session has the same session_id.
+      enum:
+        - WORLD_SESSION_LINK_UNSPECIFIED
+        - WORLD_SESSION_LINK_CONTAINER_TRUTH
+        - WORLD_SESSION_LINK_SESSION_ID
+      type: string
+    recorder_minecraft.api.v1.WorldSessionPlay:
+      description: WorldSessionPlay identifies one Play linked to a world session.
+      properties:
+        connectionId:
+          type: string
+        link:
+          $ref: '#/components/schemas/recorder_minecraft.api.v1.WorldSessionLink'
+        playerName:
+          type: string
+        playerUuid:
+          type: string
       type: object
     recorder_minecraft.catalog.v1.FinalInventoryItem:
       properties:
@@ -283,6 +460,26 @@ paths:
                 $ref: '#/components/schemas/google.rpc.Status'
           description: An unexpected error response.
       summary: List the artifact catalog.
+      tags:
+        - Artifacts
+  /api/v1/catalog:refresh:
+    post:
+      description: Discards the briefly cached catalog snapshot and walks the artifacts root again. Other reads may serve a snapshot up to a few seconds old.
+      operationId: catalog_refresh
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/recorder_minecraft.api.v1.RefreshCatalogResponse'
+          description: A successful response.
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/google.rpc.Status'
+          description: An unexpected error response.
+      summary: Rescan the artifacts root.
       tags:
         - Artifacts
   /api/v1/players:
@@ -412,6 +609,69 @@ paths:
                 $ref: '#/components/schemas/google.rpc.Status'
           description: An unexpected error response.
       summary: Get one replay resource.
+      tags:
+        - Artifacts
+  /api/v1/server-instances/{serverInstanceId}/world-sessions/{worldSessionId}:
+    get:
+      operationId: world_sessions_get
+      parameters:
+        - description: Recorder installation UUID.
+          in: path
+          name: serverInstanceId
+          required: true
+          schema:
+            type: string
+        - description: World session directory name, <started-at>--<session-id>.
+          in: path
+          name: worldSessionId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/recorder_minecraft.api.v1.GetWorldSessionResponse'
+          description: A successful response.
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/google.rpc.Status'
+          description: An unexpected error response.
+      summary: Get one world session.
+      tags:
+        - Artifacts
+  /api/v1/world-sessions:
+    get:
+      description: Returns the readable world sessions under world/sessions/ of each server instance, with their alignment files and the Plays that link to them.
+      operationId: world_sessions_list
+      parameters:
+        - description: Restrict results to one recorder installation UUID.
+          in: query
+          name: serverInstanceId
+          schema:
+            type: string
+        - description: Restrict results to one recorder session_id.
+          in: query
+          name: sessionId
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/recorder_minecraft.api.v1.ListWorldSessionsResponse'
+          description: A successful response.
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/google.rpc.Status'
+          description: An unexpected error response.
+      summary: List world sessions.
       tags:
         - Artifacts
 tags:

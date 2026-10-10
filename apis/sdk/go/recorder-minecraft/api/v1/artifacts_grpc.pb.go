@@ -24,6 +24,9 @@ const (
 	ArtifactCatalogService_ListPlayers_FullMethodName         = "/recorder_minecraft.api.v1.ArtifactCatalogService/ListPlayers"
 	ArtifactCatalogService_ListReplays_FullMethodName         = "/recorder_minecraft.api.v1.ArtifactCatalogService/ListReplays"
 	ArtifactCatalogService_GetReplay_FullMethodName           = "/recorder_minecraft.api.v1.ArtifactCatalogService/GetReplay"
+	ArtifactCatalogService_ListWorldSessions_FullMethodName   = "/recorder_minecraft.api.v1.ArtifactCatalogService/ListWorldSessions"
+	ArtifactCatalogService_GetWorldSession_FullMethodName     = "/recorder_minecraft.api.v1.ArtifactCatalogService/GetWorldSession"
+	ArtifactCatalogService_RefreshCatalog_FullMethodName      = "/recorder_minecraft.api.v1.ArtifactCatalogService/RefreshCatalog"
 )
 
 // ArtifactCatalogServiceClient is the client API for ArtifactCatalogService service.
@@ -37,6 +40,9 @@ type ArtifactCatalogServiceClient interface {
 	ListPlayers(ctx context.Context, in *ListPlayersRequest, opts ...grpc.CallOption) (*ListPlayersResponse, error)
 	ListReplays(ctx context.Context, in *ListReplaysRequest, opts ...grpc.CallOption) (*ListReplaysResponse, error)
 	GetReplay(ctx context.Context, in *GetReplayRequest, opts ...grpc.CallOption) (*GetReplayResponse, error)
+	ListWorldSessions(ctx context.Context, in *ListWorldSessionsRequest, opts ...grpc.CallOption) (*ListWorldSessionsResponse, error)
+	GetWorldSession(ctx context.Context, in *GetWorldSessionRequest, opts ...grpc.CallOption) (*GetWorldSessionResponse, error)
+	RefreshCatalog(ctx context.Context, in *RefreshCatalogRequest, opts ...grpc.CallOption) (*RefreshCatalogResponse, error)
 }
 
 type artifactCatalogServiceClient struct {
@@ -97,6 +103,36 @@ func (c *artifactCatalogServiceClient) GetReplay(ctx context.Context, in *GetRep
 	return out, nil
 }
 
+func (c *artifactCatalogServiceClient) ListWorldSessions(ctx context.Context, in *ListWorldSessionsRequest, opts ...grpc.CallOption) (*ListWorldSessionsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListWorldSessionsResponse)
+	err := c.cc.Invoke(ctx, ArtifactCatalogService_ListWorldSessions_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *artifactCatalogServiceClient) GetWorldSession(ctx context.Context, in *GetWorldSessionRequest, opts ...grpc.CallOption) (*GetWorldSessionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetWorldSessionResponse)
+	err := c.cc.Invoke(ctx, ArtifactCatalogService_GetWorldSession_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *artifactCatalogServiceClient) RefreshCatalog(ctx context.Context, in *RefreshCatalogRequest, opts ...grpc.CallOption) (*RefreshCatalogResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RefreshCatalogResponse)
+	err := c.cc.Invoke(ctx, ArtifactCatalogService_RefreshCatalog_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ArtifactCatalogServiceServer is the server API for ArtifactCatalogService service.
 // All implementations must embed UnimplementedArtifactCatalogServiceServer
 // for forward compatibility.
@@ -108,6 +144,9 @@ type ArtifactCatalogServiceServer interface {
 	ListPlayers(context.Context, *ListPlayersRequest) (*ListPlayersResponse, error)
 	ListReplays(context.Context, *ListReplaysRequest) (*ListReplaysResponse, error)
 	GetReplay(context.Context, *GetReplayRequest) (*GetReplayResponse, error)
+	ListWorldSessions(context.Context, *ListWorldSessionsRequest) (*ListWorldSessionsResponse, error)
+	GetWorldSession(context.Context, *GetWorldSessionRequest) (*GetWorldSessionResponse, error)
+	RefreshCatalog(context.Context, *RefreshCatalogRequest) (*RefreshCatalogResponse, error)
 	mustEmbedUnimplementedArtifactCatalogServiceServer()
 }
 
@@ -132,6 +171,15 @@ func (UnimplementedArtifactCatalogServiceServer) ListReplays(context.Context, *L
 }
 func (UnimplementedArtifactCatalogServiceServer) GetReplay(context.Context, *GetReplayRequest) (*GetReplayResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetReplay not implemented")
+}
+func (UnimplementedArtifactCatalogServiceServer) ListWorldSessions(context.Context, *ListWorldSessionsRequest) (*ListWorldSessionsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListWorldSessions not implemented")
+}
+func (UnimplementedArtifactCatalogServiceServer) GetWorldSession(context.Context, *GetWorldSessionRequest) (*GetWorldSessionResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetWorldSession not implemented")
+}
+func (UnimplementedArtifactCatalogServiceServer) RefreshCatalog(context.Context, *RefreshCatalogRequest) (*RefreshCatalogResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RefreshCatalog not implemented")
 }
 func (UnimplementedArtifactCatalogServiceServer) mustEmbedUnimplementedArtifactCatalogServiceServer() {
 }
@@ -245,6 +293,60 @@ func _ArtifactCatalogService_GetReplay_Handler(srv interface{}, ctx context.Cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ArtifactCatalogService_ListWorldSessions_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListWorldSessionsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ArtifactCatalogServiceServer).ListWorldSessions(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ArtifactCatalogService_ListWorldSessions_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ArtifactCatalogServiceServer).ListWorldSessions(ctx, req.(*ListWorldSessionsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ArtifactCatalogService_GetWorldSession_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetWorldSessionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ArtifactCatalogServiceServer).GetWorldSession(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ArtifactCatalogService_GetWorldSession_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ArtifactCatalogServiceServer).GetWorldSession(ctx, req.(*GetWorldSessionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ArtifactCatalogService_RefreshCatalog_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RefreshCatalogRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ArtifactCatalogServiceServer).RefreshCatalog(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ArtifactCatalogService_RefreshCatalog_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ArtifactCatalogServiceServer).RefreshCatalog(ctx, req.(*RefreshCatalogRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ArtifactCatalogService_ServiceDesc is the grpc.ServiceDesc for ArtifactCatalogService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -271,6 +373,18 @@ var ArtifactCatalogService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetReplay",
 			Handler:    _ArtifactCatalogService_GetReplay_Handler,
+		},
+		{
+			MethodName: "ListWorldSessions",
+			Handler:    _ArtifactCatalogService_ListWorldSessions_Handler,
+		},
+		{
+			MethodName: "GetWorldSession",
+			Handler:    _ArtifactCatalogService_GetWorldSession_Handler,
+		},
+		{
+			MethodName: "RefreshCatalog",
+			Handler:    _ArtifactCatalogService_RefreshCatalog_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

@@ -59,6 +59,35 @@ service ArtifactCatalogService {
       tags: "Artifacts"
     };
   }
+
+  rpc ListWorldSessions(ListWorldSessionsRequest) returns (ListWorldSessionsResponse) {
+    option (google.api.http) = {get: "/api/v1/world-sessions"};
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      operation_id: "world_sessions_list"
+      summary: "List world sessions."
+      description: "Returns the readable world sessions under world/sessions/ of each server instance, with their alignment files and the Plays that link to them."
+      tags: "Artifacts"
+    };
+  }
+
+  rpc GetWorldSession(GetWorldSessionRequest) returns (GetWorldSessionResponse) {
+    option (google.api.http) = {get: "/api/v1/server-instances/{server_instance_id}/world-sessions/{world_session_id}"};
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      operation_id: "world_sessions_get"
+      summary: "Get one world session."
+      tags: "Artifacts"
+    };
+  }
+
+  rpc RefreshCatalog(RefreshCatalogRequest) returns (RefreshCatalogResponse) {
+    option (google.api.http) = {post: "/api/v1/catalog:refresh"};
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      operation_id: "catalog_refresh"
+      summary: "Rescan the artifacts root."
+      description: "Discards the briefly cached catalog snapshot and walks the artifacts root again. Other reads may serve a snapshot up to a few seconds old."
+      tags: "Artifacts"
+    };
+  }
 }
 
 message ListArtifactsRequest {
@@ -137,6 +166,7 @@ message ServerInstanceSummary {
   string instance_id = 2;
   uint64 player_count = 3;
   uint64 replay_count = 4;
+  uint64 world_session_count = 5;
 }
 
 message PlayerSummary {
@@ -151,6 +181,8 @@ message ServerInstance {
   string name = 1;
   string instance_id = 2;
   repeated Player players = 3;
+  // World sessions are listed in full; player and time filters do not apply to them.
+  repeated WorldSession world_sessions = 4;
 }
 
 message Player {
@@ -179,6 +211,130 @@ message Replay {
   optional string validation_error = 17;
   optional recorder_minecraft.catalog.v1.PlaySummary summary = 18;
   repeated PlayExtension extensions = 19;
+  // Derived files under the Play directory. Each URL is present only when the
+  // file exists as a regular file.
+  optional string perception_url = 20;
+  optional string actions_url = 21;
+  optional string scene_url = 22;
+  // renders/fpv_frames/frames.jsonl: the frame to server tick index of a render.
+  optional string frames_index_url = 23;
+  // WorldSession.id of the world session that covers this Play, when one is
+  // readable in the same server instance.
+  optional string world_session_id = 24;
+  WorldSessionLink world_session_link = 25;
+}
+
+// WorldSessionLink tells how a Play was joined to its world session.
+enum WorldSessionLink {
+  WORLD_SESSION_LINK_UNSPECIFIED = 0;
+  // Play metadata names the world session in world_container_truth.
+  WORLD_SESSION_LINK_CONTAINER_TRUTH = 1;
+  // Play metadata has no world_container_truth (the stream was not healthy at
+  // connection start); the world session has the same session_id.
+  WORLD_SESSION_LINK_SESSION_ID = 2;
+}
+
+message ListWorldSessionsRequest {
+  optional string server_instance_id = 1 [
+    (buf.validate.field).string.uuid = true,
+    (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {description: "Restrict results to one recorder installation UUID."}
+  ];
+  optional string session_id = 2 [
+    (buf.validate.field).string.max_len = 160,
+    (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {description: "Restrict results to one recorder session_id."}
+  ];
+}
+
+message ListWorldSessionsResponse {
+  repeated WorldSession world_sessions = 1;
+}
+
+message GetWorldSessionRequest {
+  string server_instance_id = 1 [
+    (buf.validate.field).string.uuid = true,
+    (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {description: "Recorder installation UUID."}
+  ];
+  string world_session_id = 2 [
+    (buf.validate.field).string = {
+      min_len: 1
+      max_len: 256
+      pattern: "^[^/\\\\]+--[^/\\\\]+$"
+    },
+    (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {description: "World session directory name, <started-at>--<session-id>."}
+  ];
+}
+
+message GetWorldSessionResponse {
+  WorldSession world_session = 1;
+}
+
+message RefreshCatalogRequest {}
+
+message RefreshCatalogResponse {
+  google.protobuf.Timestamp refreshed_at = 1;
+  uint64 server_instance_count = 2;
+  uint64 replay_count = 3;
+  uint64 world_session_count = 4;
+}
+
+// WorldSession is one directory under world/sessions/ of a server instance.
+message WorldSession {
+  // Directory name, <started-at>--<session-id>. Unique within a server instance.
+  string id = 1;
+  string session_id = 2;
+  string server_name = 3;
+  string server_instance_id = 4;
+  google.protobuf.Timestamp started_at = 5;
+  google.protobuf.Timestamp ended_at = 6;
+  int64 start_server_tick = 7;
+  // Absent while recording or after a crash.
+  optional int64 end_server_tick = 8;
+  optional string terminal_reason = 9;
+  // Set when the world stream stopped early; coverage ends at end_server_tick.
+  optional string stream_failure = 10;
+  repeated string known_gaps = 11;
+  string metadata_url = 12;
+  string events_url = 13;
+  // JSONL files in alignments/, sorted by name.
+  repeated WorldSessionAlignment alignments = 14;
+  // Plays in the same server instance that link to this world session.
+  repeated WorldSessionPlay plays = 15;
+  // Set when metadata.json is missing, invalid, or describes an open stream.
+  optional string validation_error = 16;
+}
+
+// WorldSessionAlignment is one session alignment JSONL under alignments/.
+message WorldSessionAlignment {
+  // File name without the .jsonl suffix.
+  string name = 1;
+  string url = 2;
+  uint64 size_bytes = 3;
+  // From the header line.
+  repeated AlignmentParticipant participants = 4;
+  uint64 event_count = 5;
+  uint64 divergence_count = 6;
+  // Set when the header line cannot be read or names another session.
+  optional string validation_error = 7;
+}
+
+// AlignmentParticipant is one Play named in a session alignment header.
+message AlignmentParticipant {
+  string player_uuid = 1;
+  string player_name = 2;
+  string connection_id = 3;
+  // Connection start and end server tick.
+  int64 start_server_tick = 4;
+  int64 end_server_tick = 5;
+  // True when the alignment was given the Play's perception.jsonl.
+  bool perception_provided = 6;
+}
+
+// WorldSessionPlay identifies one Play linked to a world session.
+message WorldSessionPlay {
+  string player_uuid = 1;
+  string player_name = 2;
+  string connection_id = 3;
+  WorldSessionLink link = 4;
 }
 
 // PlayExtension describes optional producer-owned data attached to one Play.

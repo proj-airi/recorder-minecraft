@@ -26,6 +26,59 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// WorldSessionLink tells how a Play was joined to its world session.
+type WorldSessionLink int32
+
+const (
+	WorldSessionLink_WORLD_SESSION_LINK_UNSPECIFIED WorldSessionLink = 0
+	// Play metadata names the world session in world_container_truth.
+	WorldSessionLink_WORLD_SESSION_LINK_CONTAINER_TRUTH WorldSessionLink = 1
+	// Play metadata has no world_container_truth (the stream was not healthy at
+	// connection start); the world session has the same session_id.
+	WorldSessionLink_WORLD_SESSION_LINK_SESSION_ID WorldSessionLink = 2
+)
+
+// Enum value maps for WorldSessionLink.
+var (
+	WorldSessionLink_name = map[int32]string{
+		0: "WORLD_SESSION_LINK_UNSPECIFIED",
+		1: "WORLD_SESSION_LINK_CONTAINER_TRUTH",
+		2: "WORLD_SESSION_LINK_SESSION_ID",
+	}
+	WorldSessionLink_value = map[string]int32{
+		"WORLD_SESSION_LINK_UNSPECIFIED":     0,
+		"WORLD_SESSION_LINK_CONTAINER_TRUTH": 1,
+		"WORLD_SESSION_LINK_SESSION_ID":      2,
+	}
+)
+
+func (x WorldSessionLink) Enum() *WorldSessionLink {
+	p := new(WorldSessionLink)
+	*p = x
+	return p
+}
+
+func (x WorldSessionLink) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (WorldSessionLink) Descriptor() protoreflect.EnumDescriptor {
+	return file_recorder_minecraft_api_v1_artifacts_proto_enumTypes[0].Descriptor()
+}
+
+func (WorldSessionLink) Type() protoreflect.EnumType {
+	return &file_recorder_minecraft_api_v1_artifacts_proto_enumTypes[0]
+}
+
+func (x WorldSessionLink) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use WorldSessionLink.Descriptor instead.
+func (WorldSessionLink) EnumDescriptor() ([]byte, []int) {
+	return file_recorder_minecraft_api_v1_artifacts_proto_rawDescGZIP(), []int{0}
+}
+
 type ListArtifactsRequest struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	ServerInstanceId *string                `protobuf:"bytes,1,opt,name=server_instance_id,json=serverInstanceId,proto3,oneof" json:"server_instance_id,omitempty"`
@@ -531,13 +584,14 @@ func (x *GetReplayResponse) GetReplay() *Replay {
 }
 
 type ServerInstanceSummary struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	InstanceId    string                 `protobuf:"bytes,2,opt,name=instance_id,json=instanceId,proto3" json:"instance_id,omitempty"`
-	PlayerCount   uint64                 `protobuf:"varint,3,opt,name=player_count,json=playerCount,proto3" json:"player_count,omitempty"`
-	ReplayCount   uint64                 `protobuf:"varint,4,opt,name=replay_count,json=replayCount,proto3" json:"replay_count,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	Name              string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	InstanceId        string                 `protobuf:"bytes,2,opt,name=instance_id,json=instanceId,proto3" json:"instance_id,omitempty"`
+	PlayerCount       uint64                 `protobuf:"varint,3,opt,name=player_count,json=playerCount,proto3" json:"player_count,omitempty"`
+	ReplayCount       uint64                 `protobuf:"varint,4,opt,name=replay_count,json=replayCount,proto3" json:"replay_count,omitempty"`
+	WorldSessionCount uint64                 `protobuf:"varint,5,opt,name=world_session_count,json=worldSessionCount,proto3" json:"world_session_count,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *ServerInstanceSummary) Reset() {
@@ -594,6 +648,13 @@ func (x *ServerInstanceSummary) GetPlayerCount() uint64 {
 func (x *ServerInstanceSummary) GetReplayCount() uint64 {
 	if x != nil {
 		return x.ReplayCount
+	}
+	return 0
+}
+
+func (x *ServerInstanceSummary) GetWorldSessionCount() uint64 {
+	if x != nil {
+		return x.WorldSessionCount
 	}
 	return 0
 }
@@ -675,10 +736,12 @@ func (x *PlayerSummary) GetReplayCount() uint64 {
 }
 
 type ServerInstance struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	InstanceId    string                 `protobuf:"bytes,2,opt,name=instance_id,json=instanceId,proto3" json:"instance_id,omitempty"`
-	Players       []*Player              `protobuf:"bytes,3,rep,name=players,proto3" json:"players,omitempty"`
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	Name       string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	InstanceId string                 `protobuf:"bytes,2,opt,name=instance_id,json=instanceId,proto3" json:"instance_id,omitempty"`
+	Players    []*Player              `protobuf:"bytes,3,rep,name=players,proto3" json:"players,omitempty"`
+	// World sessions are listed in full; player and time filters do not apply to them.
+	WorldSessions []*WorldSession `protobuf:"bytes,4,rep,name=world_sessions,json=worldSessions,proto3" json:"world_sessions,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -730,6 +793,13 @@ func (x *ServerInstance) GetInstanceId() string {
 func (x *ServerInstance) GetPlayers() []*Player {
 	if x != nil {
 		return x.Players
+	}
+	return nil
+}
+
+func (x *ServerInstance) GetWorldSessions() []*WorldSession {
+	if x != nil {
+		return x.WorldSessions
 	}
 	return nil
 }
@@ -815,6 +885,17 @@ type Replay struct {
 	ValidationError  *string                `protobuf:"bytes,17,opt,name=validation_error,json=validationError,proto3,oneof" json:"validation_error,omitempty"`
 	Summary          *v1.PlaySummary        `protobuf:"bytes,18,opt,name=summary,proto3,oneof" json:"summary,omitempty"`
 	Extensions       []*PlayExtension       `protobuf:"bytes,19,rep,name=extensions,proto3" json:"extensions,omitempty"`
+	// Derived files under the Play directory. Each URL is present only when the
+	// file exists as a regular file.
+	PerceptionUrl *string `protobuf:"bytes,20,opt,name=perception_url,json=perceptionUrl,proto3,oneof" json:"perception_url,omitempty"`
+	ActionsUrl    *string `protobuf:"bytes,21,opt,name=actions_url,json=actionsUrl,proto3,oneof" json:"actions_url,omitempty"`
+	SceneUrl      *string `protobuf:"bytes,22,opt,name=scene_url,json=sceneUrl,proto3,oneof" json:"scene_url,omitempty"`
+	// renders/fpv_frames/frames.jsonl: the frame to server tick index of a render.
+	FramesIndexUrl *string `protobuf:"bytes,23,opt,name=frames_index_url,json=framesIndexUrl,proto3,oneof" json:"frames_index_url,omitempty"`
+	// WorldSession.id of the world session that covers this Play, when one is
+	// readable in the same server instance.
+	WorldSessionId   *string          `protobuf:"bytes,24,opt,name=world_session_id,json=worldSessionId,proto3,oneof" json:"world_session_id,omitempty"`
+	WorldSessionLink WorldSessionLink `protobuf:"varint,25,opt,name=world_session_link,json=worldSessionLink,proto3,enum=recorder_minecraft.api.v1.WorldSessionLink" json:"world_session_link,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -982,6 +1063,767 @@ func (x *Replay) GetExtensions() []*PlayExtension {
 	return nil
 }
 
+func (x *Replay) GetPerceptionUrl() string {
+	if x != nil && x.PerceptionUrl != nil {
+		return *x.PerceptionUrl
+	}
+	return ""
+}
+
+func (x *Replay) GetActionsUrl() string {
+	if x != nil && x.ActionsUrl != nil {
+		return *x.ActionsUrl
+	}
+	return ""
+}
+
+func (x *Replay) GetSceneUrl() string {
+	if x != nil && x.SceneUrl != nil {
+		return *x.SceneUrl
+	}
+	return ""
+}
+
+func (x *Replay) GetFramesIndexUrl() string {
+	if x != nil && x.FramesIndexUrl != nil {
+		return *x.FramesIndexUrl
+	}
+	return ""
+}
+
+func (x *Replay) GetWorldSessionId() string {
+	if x != nil && x.WorldSessionId != nil {
+		return *x.WorldSessionId
+	}
+	return ""
+}
+
+func (x *Replay) GetWorldSessionLink() WorldSessionLink {
+	if x != nil {
+		return x.WorldSessionLink
+	}
+	return WorldSessionLink_WORLD_SESSION_LINK_UNSPECIFIED
+}
+
+type ListWorldSessionsRequest struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	ServerInstanceId *string                `protobuf:"bytes,1,opt,name=server_instance_id,json=serverInstanceId,proto3,oneof" json:"server_instance_id,omitempty"`
+	SessionId        *string                `protobuf:"bytes,2,opt,name=session_id,json=sessionId,proto3,oneof" json:"session_id,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *ListWorldSessionsRequest) Reset() {
+	*x = ListWorldSessionsRequest{}
+	mi := &file_recorder_minecraft_api_v1_artifacts_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListWorldSessionsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListWorldSessionsRequest) ProtoMessage() {}
+
+func (x *ListWorldSessionsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_recorder_minecraft_api_v1_artifacts_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListWorldSessionsRequest.ProtoReflect.Descriptor instead.
+func (*ListWorldSessionsRequest) Descriptor() ([]byte, []int) {
+	return file_recorder_minecraft_api_v1_artifacts_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *ListWorldSessionsRequest) GetServerInstanceId() string {
+	if x != nil && x.ServerInstanceId != nil {
+		return *x.ServerInstanceId
+	}
+	return ""
+}
+
+func (x *ListWorldSessionsRequest) GetSessionId() string {
+	if x != nil && x.SessionId != nil {
+		return *x.SessionId
+	}
+	return ""
+}
+
+type ListWorldSessionsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	WorldSessions []*WorldSession        `protobuf:"bytes,1,rep,name=world_sessions,json=worldSessions,proto3" json:"world_sessions,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListWorldSessionsResponse) Reset() {
+	*x = ListWorldSessionsResponse{}
+	mi := &file_recorder_minecraft_api_v1_artifacts_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListWorldSessionsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListWorldSessionsResponse) ProtoMessage() {}
+
+func (x *ListWorldSessionsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_recorder_minecraft_api_v1_artifacts_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListWorldSessionsResponse.ProtoReflect.Descriptor instead.
+func (*ListWorldSessionsResponse) Descriptor() ([]byte, []int) {
+	return file_recorder_minecraft_api_v1_artifacts_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *ListWorldSessionsResponse) GetWorldSessions() []*WorldSession {
+	if x != nil {
+		return x.WorldSessions
+	}
+	return nil
+}
+
+type GetWorldSessionRequest struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	ServerInstanceId string                 `protobuf:"bytes,1,opt,name=server_instance_id,json=serverInstanceId,proto3" json:"server_instance_id,omitempty"`
+	WorldSessionId   string                 `protobuf:"bytes,2,opt,name=world_session_id,json=worldSessionId,proto3" json:"world_session_id,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *GetWorldSessionRequest) Reset() {
+	*x = GetWorldSessionRequest{}
+	mi := &file_recorder_minecraft_api_v1_artifacts_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetWorldSessionRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetWorldSessionRequest) ProtoMessage() {}
+
+func (x *GetWorldSessionRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_recorder_minecraft_api_v1_artifacts_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetWorldSessionRequest.ProtoReflect.Descriptor instead.
+func (*GetWorldSessionRequest) Descriptor() ([]byte, []int) {
+	return file_recorder_minecraft_api_v1_artifacts_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *GetWorldSessionRequest) GetServerInstanceId() string {
+	if x != nil {
+		return x.ServerInstanceId
+	}
+	return ""
+}
+
+func (x *GetWorldSessionRequest) GetWorldSessionId() string {
+	if x != nil {
+		return x.WorldSessionId
+	}
+	return ""
+}
+
+type GetWorldSessionResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	WorldSession  *WorldSession          `protobuf:"bytes,1,opt,name=world_session,json=worldSession,proto3" json:"world_session,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetWorldSessionResponse) Reset() {
+	*x = GetWorldSessionResponse{}
+	mi := &file_recorder_minecraft_api_v1_artifacts_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetWorldSessionResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetWorldSessionResponse) ProtoMessage() {}
+
+func (x *GetWorldSessionResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_recorder_minecraft_api_v1_artifacts_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetWorldSessionResponse.ProtoReflect.Descriptor instead.
+func (*GetWorldSessionResponse) Descriptor() ([]byte, []int) {
+	return file_recorder_minecraft_api_v1_artifacts_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *GetWorldSessionResponse) GetWorldSession() *WorldSession {
+	if x != nil {
+		return x.WorldSession
+	}
+	return nil
+}
+
+type RefreshCatalogRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RefreshCatalogRequest) Reset() {
+	*x = RefreshCatalogRequest{}
+	mi := &file_recorder_minecraft_api_v1_artifacts_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RefreshCatalogRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RefreshCatalogRequest) ProtoMessage() {}
+
+func (x *RefreshCatalogRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_recorder_minecraft_api_v1_artifacts_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RefreshCatalogRequest.ProtoReflect.Descriptor instead.
+func (*RefreshCatalogRequest) Descriptor() ([]byte, []int) {
+	return file_recorder_minecraft_api_v1_artifacts_proto_rawDescGZIP(), []int{19}
+}
+
+type RefreshCatalogResponse struct {
+	state               protoimpl.MessageState `protogen:"open.v1"`
+	RefreshedAt         *timestamppb.Timestamp `protobuf:"bytes,1,opt,name=refreshed_at,json=refreshedAt,proto3" json:"refreshed_at,omitempty"`
+	ServerInstanceCount uint64                 `protobuf:"varint,2,opt,name=server_instance_count,json=serverInstanceCount,proto3" json:"server_instance_count,omitempty"`
+	ReplayCount         uint64                 `protobuf:"varint,3,opt,name=replay_count,json=replayCount,proto3" json:"replay_count,omitempty"`
+	WorldSessionCount   uint64                 `protobuf:"varint,4,opt,name=world_session_count,json=worldSessionCount,proto3" json:"world_session_count,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
+}
+
+func (x *RefreshCatalogResponse) Reset() {
+	*x = RefreshCatalogResponse{}
+	mi := &file_recorder_minecraft_api_v1_artifacts_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RefreshCatalogResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RefreshCatalogResponse) ProtoMessage() {}
+
+func (x *RefreshCatalogResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_recorder_minecraft_api_v1_artifacts_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RefreshCatalogResponse.ProtoReflect.Descriptor instead.
+func (*RefreshCatalogResponse) Descriptor() ([]byte, []int) {
+	return file_recorder_minecraft_api_v1_artifacts_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *RefreshCatalogResponse) GetRefreshedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.RefreshedAt
+	}
+	return nil
+}
+
+func (x *RefreshCatalogResponse) GetServerInstanceCount() uint64 {
+	if x != nil {
+		return x.ServerInstanceCount
+	}
+	return 0
+}
+
+func (x *RefreshCatalogResponse) GetReplayCount() uint64 {
+	if x != nil {
+		return x.ReplayCount
+	}
+	return 0
+}
+
+func (x *RefreshCatalogResponse) GetWorldSessionCount() uint64 {
+	if x != nil {
+		return x.WorldSessionCount
+	}
+	return 0
+}
+
+// WorldSession is one directory under world/sessions/ of a server instance.
+type WorldSession struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Directory name, <started-at>--<session-id>. Unique within a server instance.
+	Id               string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	SessionId        string                 `protobuf:"bytes,2,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	ServerName       string                 `protobuf:"bytes,3,opt,name=server_name,json=serverName,proto3" json:"server_name,omitempty"`
+	ServerInstanceId string                 `protobuf:"bytes,4,opt,name=server_instance_id,json=serverInstanceId,proto3" json:"server_instance_id,omitempty"`
+	StartedAt        *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
+	EndedAt          *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=ended_at,json=endedAt,proto3" json:"ended_at,omitempty"`
+	StartServerTick  int64                  `protobuf:"varint,7,opt,name=start_server_tick,json=startServerTick,proto3" json:"start_server_tick,omitempty"`
+	// Absent while recording or after a crash.
+	EndServerTick  *int64  `protobuf:"varint,8,opt,name=end_server_tick,json=endServerTick,proto3,oneof" json:"end_server_tick,omitempty"`
+	TerminalReason *string `protobuf:"bytes,9,opt,name=terminal_reason,json=terminalReason,proto3,oneof" json:"terminal_reason,omitempty"`
+	// Set when the world stream stopped early; coverage ends at end_server_tick.
+	StreamFailure *string  `protobuf:"bytes,10,opt,name=stream_failure,json=streamFailure,proto3,oneof" json:"stream_failure,omitempty"`
+	KnownGaps     []string `protobuf:"bytes,11,rep,name=known_gaps,json=knownGaps,proto3" json:"known_gaps,omitempty"`
+	MetadataUrl   string   `protobuf:"bytes,12,opt,name=metadata_url,json=metadataUrl,proto3" json:"metadata_url,omitempty"`
+	EventsUrl     string   `protobuf:"bytes,13,opt,name=events_url,json=eventsUrl,proto3" json:"events_url,omitempty"`
+	// JSONL files in alignments/, sorted by name.
+	Alignments []*WorldSessionAlignment `protobuf:"bytes,14,rep,name=alignments,proto3" json:"alignments,omitempty"`
+	// Plays in the same server instance that link to this world session.
+	Plays []*WorldSessionPlay `protobuf:"bytes,15,rep,name=plays,proto3" json:"plays,omitempty"`
+	// Set when metadata.json is missing, invalid, or describes an open stream.
+	ValidationError *string `protobuf:"bytes,16,opt,name=validation_error,json=validationError,proto3,oneof" json:"validation_error,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *WorldSession) Reset() {
+	*x = WorldSession{}
+	mi := &file_recorder_minecraft_api_v1_artifacts_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WorldSession) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WorldSession) ProtoMessage() {}
+
+func (x *WorldSession) ProtoReflect() protoreflect.Message {
+	mi := &file_recorder_minecraft_api_v1_artifacts_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WorldSession.ProtoReflect.Descriptor instead.
+func (*WorldSession) Descriptor() ([]byte, []int) {
+	return file_recorder_minecraft_api_v1_artifacts_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *WorldSession) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *WorldSession) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+func (x *WorldSession) GetServerName() string {
+	if x != nil {
+		return x.ServerName
+	}
+	return ""
+}
+
+func (x *WorldSession) GetServerInstanceId() string {
+	if x != nil {
+		return x.ServerInstanceId
+	}
+	return ""
+}
+
+func (x *WorldSession) GetStartedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.StartedAt
+	}
+	return nil
+}
+
+func (x *WorldSession) GetEndedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.EndedAt
+	}
+	return nil
+}
+
+func (x *WorldSession) GetStartServerTick() int64 {
+	if x != nil {
+		return x.StartServerTick
+	}
+	return 0
+}
+
+func (x *WorldSession) GetEndServerTick() int64 {
+	if x != nil && x.EndServerTick != nil {
+		return *x.EndServerTick
+	}
+	return 0
+}
+
+func (x *WorldSession) GetTerminalReason() string {
+	if x != nil && x.TerminalReason != nil {
+		return *x.TerminalReason
+	}
+	return ""
+}
+
+func (x *WorldSession) GetStreamFailure() string {
+	if x != nil && x.StreamFailure != nil {
+		return *x.StreamFailure
+	}
+	return ""
+}
+
+func (x *WorldSession) GetKnownGaps() []string {
+	if x != nil {
+		return x.KnownGaps
+	}
+	return nil
+}
+
+func (x *WorldSession) GetMetadataUrl() string {
+	if x != nil {
+		return x.MetadataUrl
+	}
+	return ""
+}
+
+func (x *WorldSession) GetEventsUrl() string {
+	if x != nil {
+		return x.EventsUrl
+	}
+	return ""
+}
+
+func (x *WorldSession) GetAlignments() []*WorldSessionAlignment {
+	if x != nil {
+		return x.Alignments
+	}
+	return nil
+}
+
+func (x *WorldSession) GetPlays() []*WorldSessionPlay {
+	if x != nil {
+		return x.Plays
+	}
+	return nil
+}
+
+func (x *WorldSession) GetValidationError() string {
+	if x != nil && x.ValidationError != nil {
+		return *x.ValidationError
+	}
+	return ""
+}
+
+// WorldSessionAlignment is one session alignment JSONL under alignments/.
+type WorldSessionAlignment struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// File name without the .jsonl suffix.
+	Name      string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Url       string `protobuf:"bytes,2,opt,name=url,proto3" json:"url,omitempty"`
+	SizeBytes uint64 `protobuf:"varint,3,opt,name=size_bytes,json=sizeBytes,proto3" json:"size_bytes,omitempty"`
+	// From the header line.
+	Participants    []*AlignmentParticipant `protobuf:"bytes,4,rep,name=participants,proto3" json:"participants,omitempty"`
+	EventCount      uint64                  `protobuf:"varint,5,opt,name=event_count,json=eventCount,proto3" json:"event_count,omitempty"`
+	DivergenceCount uint64                  `protobuf:"varint,6,opt,name=divergence_count,json=divergenceCount,proto3" json:"divergence_count,omitempty"`
+	// Set when the header line cannot be read or names another session.
+	ValidationError *string `protobuf:"bytes,7,opt,name=validation_error,json=validationError,proto3,oneof" json:"validation_error,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *WorldSessionAlignment) Reset() {
+	*x = WorldSessionAlignment{}
+	mi := &file_recorder_minecraft_api_v1_artifacts_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WorldSessionAlignment) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WorldSessionAlignment) ProtoMessage() {}
+
+func (x *WorldSessionAlignment) ProtoReflect() protoreflect.Message {
+	mi := &file_recorder_minecraft_api_v1_artifacts_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WorldSessionAlignment.ProtoReflect.Descriptor instead.
+func (*WorldSessionAlignment) Descriptor() ([]byte, []int) {
+	return file_recorder_minecraft_api_v1_artifacts_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *WorldSessionAlignment) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *WorldSessionAlignment) GetUrl() string {
+	if x != nil {
+		return x.Url
+	}
+	return ""
+}
+
+func (x *WorldSessionAlignment) GetSizeBytes() uint64 {
+	if x != nil {
+		return x.SizeBytes
+	}
+	return 0
+}
+
+func (x *WorldSessionAlignment) GetParticipants() []*AlignmentParticipant {
+	if x != nil {
+		return x.Participants
+	}
+	return nil
+}
+
+func (x *WorldSessionAlignment) GetEventCount() uint64 {
+	if x != nil {
+		return x.EventCount
+	}
+	return 0
+}
+
+func (x *WorldSessionAlignment) GetDivergenceCount() uint64 {
+	if x != nil {
+		return x.DivergenceCount
+	}
+	return 0
+}
+
+func (x *WorldSessionAlignment) GetValidationError() string {
+	if x != nil && x.ValidationError != nil {
+		return *x.ValidationError
+	}
+	return ""
+}
+
+// AlignmentParticipant is one Play named in a session alignment header.
+type AlignmentParticipant struct {
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	PlayerUuid   string                 `protobuf:"bytes,1,opt,name=player_uuid,json=playerUuid,proto3" json:"player_uuid,omitempty"`
+	PlayerName   string                 `protobuf:"bytes,2,opt,name=player_name,json=playerName,proto3" json:"player_name,omitempty"`
+	ConnectionId string                 `protobuf:"bytes,3,opt,name=connection_id,json=connectionId,proto3" json:"connection_id,omitempty"`
+	// Connection start and end server tick.
+	StartServerTick int64 `protobuf:"varint,4,opt,name=start_server_tick,json=startServerTick,proto3" json:"start_server_tick,omitempty"`
+	EndServerTick   int64 `protobuf:"varint,5,opt,name=end_server_tick,json=endServerTick,proto3" json:"end_server_tick,omitempty"`
+	// True when the alignment was given the Play's perception.jsonl.
+	PerceptionProvided bool `protobuf:"varint,6,opt,name=perception_provided,json=perceptionProvided,proto3" json:"perception_provided,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *AlignmentParticipant) Reset() {
+	*x = AlignmentParticipant{}
+	mi := &file_recorder_minecraft_api_v1_artifacts_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AlignmentParticipant) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AlignmentParticipant) ProtoMessage() {}
+
+func (x *AlignmentParticipant) ProtoReflect() protoreflect.Message {
+	mi := &file_recorder_minecraft_api_v1_artifacts_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AlignmentParticipant.ProtoReflect.Descriptor instead.
+func (*AlignmentParticipant) Descriptor() ([]byte, []int) {
+	return file_recorder_minecraft_api_v1_artifacts_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *AlignmentParticipant) GetPlayerUuid() string {
+	if x != nil {
+		return x.PlayerUuid
+	}
+	return ""
+}
+
+func (x *AlignmentParticipant) GetPlayerName() string {
+	if x != nil {
+		return x.PlayerName
+	}
+	return ""
+}
+
+func (x *AlignmentParticipant) GetConnectionId() string {
+	if x != nil {
+		return x.ConnectionId
+	}
+	return ""
+}
+
+func (x *AlignmentParticipant) GetStartServerTick() int64 {
+	if x != nil {
+		return x.StartServerTick
+	}
+	return 0
+}
+
+func (x *AlignmentParticipant) GetEndServerTick() int64 {
+	if x != nil {
+		return x.EndServerTick
+	}
+	return 0
+}
+
+func (x *AlignmentParticipant) GetPerceptionProvided() bool {
+	if x != nil {
+		return x.PerceptionProvided
+	}
+	return false
+}
+
+// WorldSessionPlay identifies one Play linked to a world session.
+type WorldSessionPlay struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	PlayerUuid    string                 `protobuf:"bytes,1,opt,name=player_uuid,json=playerUuid,proto3" json:"player_uuid,omitempty"`
+	PlayerName    string                 `protobuf:"bytes,2,opt,name=player_name,json=playerName,proto3" json:"player_name,omitempty"`
+	ConnectionId  string                 `protobuf:"bytes,3,opt,name=connection_id,json=connectionId,proto3" json:"connection_id,omitempty"`
+	Link          WorldSessionLink       `protobuf:"varint,4,opt,name=link,proto3,enum=recorder_minecraft.api.v1.WorldSessionLink" json:"link,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WorldSessionPlay) Reset() {
+	*x = WorldSessionPlay{}
+	mi := &file_recorder_minecraft_api_v1_artifacts_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WorldSessionPlay) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WorldSessionPlay) ProtoMessage() {}
+
+func (x *WorldSessionPlay) ProtoReflect() protoreflect.Message {
+	mi := &file_recorder_minecraft_api_v1_artifacts_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WorldSessionPlay.ProtoReflect.Descriptor instead.
+func (*WorldSessionPlay) Descriptor() ([]byte, []int) {
+	return file_recorder_minecraft_api_v1_artifacts_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *WorldSessionPlay) GetPlayerUuid() string {
+	if x != nil {
+		return x.PlayerUuid
+	}
+	return ""
+}
+
+func (x *WorldSessionPlay) GetPlayerName() string {
+	if x != nil {
+		return x.PlayerName
+	}
+	return ""
+}
+
+func (x *WorldSessionPlay) GetConnectionId() string {
+	if x != nil {
+		return x.ConnectionId
+	}
+	return ""
+}
+
+func (x *WorldSessionPlay) GetLink() WorldSessionLink {
+	if x != nil {
+		return x.Link
+	}
+	return WorldSessionLink_WORLD_SESSION_LINK_UNSPECIFIED
+}
+
 // PlayExtension describes optional producer-owned data attached to one Play.
 type PlayExtension struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -993,7 +1835,7 @@ type PlayExtension struct {
 
 func (x *PlayExtension) Reset() {
 	*x = PlayExtension{}
-	mi := &file_recorder_minecraft_api_v1_artifacts_proto_msgTypes[15]
+	mi := &file_recorder_minecraft_api_v1_artifacts_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1005,7 +1847,7 @@ func (x *PlayExtension) String() string {
 func (*PlayExtension) ProtoMessage() {}
 
 func (x *PlayExtension) ProtoReflect() protoreflect.Message {
-	mi := &file_recorder_minecraft_api_v1_artifacts_proto_msgTypes[15]
+	mi := &file_recorder_minecraft_api_v1_artifacts_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1018,7 +1860,7 @@ func (x *PlayExtension) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlayExtension.ProtoReflect.Descriptor instead.
 func (*PlayExtension) Descriptor() ([]byte, []int) {
-	return file_recorder_minecraft_api_v1_artifacts_proto_rawDescGZIP(), []int{15}
+	return file_recorder_minecraft_api_v1_artifacts_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *PlayExtension) GetExtensionType() string {
@@ -1049,7 +1891,7 @@ type PlayExtensionAsset struct {
 
 func (x *PlayExtensionAsset) Reset() {
 	*x = PlayExtensionAsset{}
-	mi := &file_recorder_minecraft_api_v1_artifacts_proto_msgTypes[16]
+	mi := &file_recorder_minecraft_api_v1_artifacts_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1061,7 +1903,7 @@ func (x *PlayExtensionAsset) String() string {
 func (*PlayExtensionAsset) ProtoMessage() {}
 
 func (x *PlayExtensionAsset) ProtoReflect() protoreflect.Message {
-	mi := &file_recorder_minecraft_api_v1_artifacts_proto_msgTypes[16]
+	mi := &file_recorder_minecraft_api_v1_artifacts_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1074,7 +1916,7 @@ func (x *PlayExtensionAsset) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlayExtensionAsset.ProtoReflect.Descriptor instead.
 func (*PlayExtensionAsset) Descriptor() ([]byte, []int) {
-	return file_recorder_minecraft_api_v1_artifacts_proto_rawDescGZIP(), []int{16}
+	return file_recorder_minecraft_api_v1_artifacts_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *PlayExtensionAsset) GetRole() string {
@@ -1120,7 +1962,7 @@ type VideoAsset struct {
 
 func (x *VideoAsset) Reset() {
 	*x = VideoAsset{}
-	mi := &file_recorder_minecraft_api_v1_artifacts_proto_msgTypes[17]
+	mi := &file_recorder_minecraft_api_v1_artifacts_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1132,7 +1974,7 @@ func (x *VideoAsset) String() string {
 func (*VideoAsset) ProtoMessage() {}
 
 func (x *VideoAsset) ProtoReflect() protoreflect.Message {
-	mi := &file_recorder_minecraft_api_v1_artifacts_proto_msgTypes[17]
+	mi := &file_recorder_minecraft_api_v1_artifacts_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1145,7 +1987,7 @@ func (x *VideoAsset) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VideoAsset.ProtoReflect.Descriptor instead.
 func (*VideoAsset) Descriptor() ([]byte, []int) {
-	return file_recorder_minecraft_api_v1_artifacts_proto_rawDescGZIP(), []int{17}
+	return file_recorder_minecraft_api_v1_artifacts_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *VideoAsset) GetUrl() string {
@@ -1241,29 +2083,32 @@ const file_recorder_minecraft_api_v1_artifacts_proto_rawDesc = "" +
 	"playerUuid\x12I\n" +
 	"\rconnection_id\x18\x03 \x01(\tB$\x92A\x192\x17Replay connection UUID.\xbaH\x05r\x03\xb0\x01\x01R\fconnectionId\"N\n" +
 	"\x11GetReplayResponse\x129\n" +
-	"\x06replay\x18\x01 \x01(\v2!.recorder_minecraft.api.v1.ReplayR\x06replay\"\x92\x01\n" +
+	"\x06replay\x18\x01 \x01(\v2!.recorder_minecraft.api.v1.ReplayR\x06replay\"\xc2\x01\n" +
 	"\x15ServerInstanceSummary\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1f\n" +
 	"\vinstance_id\x18\x02 \x01(\tR\n" +
 	"instanceId\x12!\n" +
 	"\fplayer_count\x18\x03 \x01(\x04R\vplayerCount\x12!\n" +
-	"\freplay_count\x18\x04 \x01(\x04R\vreplayCount\"\xa9\x01\n" +
+	"\freplay_count\x18\x04 \x01(\x04R\vreplayCount\x12.\n" +
+	"\x13world_session_count\x18\x05 \x01(\x04R\x11worldSessionCount\"\xa9\x01\n" +
 	"\rPlayerSummary\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
 	"\x04uuid\x18\x02 \x01(\tR\x04uuid\x12\x1f\n" +
 	"\vserver_name\x18\x03 \x01(\tR\n" +
 	"serverName\x12,\n" +
 	"\x12server_instance_id\x18\x04 \x01(\tR\x10serverInstanceId\x12!\n" +
-	"\freplay_count\x18\x05 \x01(\x04R\vreplayCount\"\x82\x01\n" +
+	"\freplay_count\x18\x05 \x01(\x04R\vreplayCount\"\xd2\x01\n" +
 	"\x0eServerInstance\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1f\n" +
 	"\vinstance_id\x18\x02 \x01(\tR\n" +
 	"instanceId\x12;\n" +
-	"\aplayers\x18\x03 \x03(\v2!.recorder_minecraft.api.v1.PlayerR\aplayers\"m\n" +
+	"\aplayers\x18\x03 \x03(\v2!.recorder_minecraft.api.v1.PlayerR\aplayers\x12N\n" +
+	"\x0eworld_sessions\x18\x04 \x03(\v2'.recorder_minecraft.api.v1.WorldSessionR\rworldSessions\"m\n" +
 	"\x06Player\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
 	"\x04uuid\x18\x02 \x01(\tR\x04uuid\x12;\n" +
-	"\areplays\x18\x03 \x03(\v2!.recorder_minecraft.api.v1.ReplayR\areplays\"\xd5\a\n" +
+	"\areplays\x18\x03 \x03(\v2!.recorder_minecraft.api.v1.ReplayR\areplays\"\xdd\n" +
+	"\n" +
 	"\x06Replay\x12#\n" +
 	"\rconnection_id\x18\x01 \x01(\tR\fconnectionId\x12\x1d\n" +
 	"\n" +
@@ -1293,14 +2138,103 @@ const file_recorder_minecraft_api_v1_artifacts_proto_rawDesc = "" +
 	"\asummary\x18\x12 \x01(\v2*.recorder_minecraft.catalog.v1.PlaySummaryH\x05R\asummary\x88\x01\x01\x12H\n" +
 	"\n" +
 	"extensions\x18\x13 \x03(\v2(.recorder_minecraft.api.v1.PlayExtensionR\n" +
-	"extensionsB\x12\n" +
+	"extensions\x12*\n" +
+	"\x0eperception_url\x18\x14 \x01(\tH\x06R\rperceptionUrl\x88\x01\x01\x12$\n" +
+	"\vactions_url\x18\x15 \x01(\tH\aR\n" +
+	"actionsUrl\x88\x01\x01\x12 \n" +
+	"\tscene_url\x18\x16 \x01(\tH\bR\bsceneUrl\x88\x01\x01\x12-\n" +
+	"\x10frames_index_url\x18\x17 \x01(\tH\tR\x0eframesIndexUrl\x88\x01\x01\x12-\n" +
+	"\x10world_session_id\x18\x18 \x01(\tH\n" +
+	"R\x0eworldSessionId\x88\x01\x01\x12Y\n" +
+	"\x12world_session_link\x18\x19 \x01(\x0e2+.recorder_minecraft.api.v1.WorldSessionLinkR\x10worldSessionLinkB\x12\n" +
 	"\x10_end_server_tickB\x12\n" +
 	"\x10_terminal_reasonB\x12\n" +
 	"\x10_capture_failureB\b\n" +
 	"\x06_videoB\x13\n" +
 	"\x11_validation_errorB\n" +
 	"\n" +
-	"\b_summary\"}\n" +
+	"\b_summaryB\x11\n" +
+	"\x0f_perception_urlB\x0e\n" +
+	"\f_actions_urlB\f\n" +
+	"\n" +
+	"_scene_urlB\x13\n" +
+	"\x11_frames_index_urlB\x13\n" +
+	"\x11_world_session_id\"\x94\x02\n" +
+	"\x18ListWorldSessionsRequest\x12s\n" +
+	"\x12server_instance_id\x18\x01 \x01(\tB@\x92A523Restrict results to one recorder installation UUID.\xbaH\x05r\x03\xb0\x01\x01H\x00R\x10serverInstanceId\x88\x01\x01\x12]\n" +
+	"\n" +
+	"session_id\x18\x02 \x01(\tB9\x92A.2,Restrict results to one recorder session_id.\xbaH\x05r\x03\x18\xa0\x01H\x01R\tsessionId\x88\x01\x01B\x15\n" +
+	"\x13_server_instance_idB\r\n" +
+	"\v_session_id\"k\n" +
+	"\x19ListWorldSessionsResponse\x12N\n" +
+	"\x0eworld_sessions\x18\x01 \x03(\v2'.recorder_minecraft.api.v1.WorldSessionR\rworldSessions\"\xf9\x01\n" +
+	"\x16GetWorldSessionRequest\x12V\n" +
+	"\x12server_instance_id\x18\x01 \x01(\tB(\x92A\x1d2\x1bRecorder installation UUID.\xbaH\x05r\x03\xb0\x01\x01R\x10serverInstanceId\x12\x86\x01\n" +
+	"\x10world_session_id\x18\x02 \x01(\tB\\\x92A;29World session directory name, <started-at>--<session-id>.\xbaH\x1br\x19\x10\x01\x18\x80\x022\x12^[^/\\\\]+--[^/\\\\]+$R\x0eworldSessionId\"g\n" +
+	"\x17GetWorldSessionResponse\x12L\n" +
+	"\rworld_session\x18\x01 \x01(\v2'.recorder_minecraft.api.v1.WorldSessionR\fworldSession\"\x17\n" +
+	"\x15RefreshCatalogRequest\"\xde\x01\n" +
+	"\x16RefreshCatalogResponse\x12=\n" +
+	"\frefreshed_at\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\vrefreshedAt\x122\n" +
+	"\x15server_instance_count\x18\x02 \x01(\x04R\x13serverInstanceCount\x12!\n" +
+	"\freplay_count\x18\x03 \x01(\x04R\vreplayCount\x12.\n" +
+	"\x13world_session_count\x18\x04 \x01(\x04R\x11worldSessionCount\"\xa7\x06\n" +
+	"\fWorldSession\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x02 \x01(\tR\tsessionId\x12\x1f\n" +
+	"\vserver_name\x18\x03 \x01(\tR\n" +
+	"serverName\x12,\n" +
+	"\x12server_instance_id\x18\x04 \x01(\tR\x10serverInstanceId\x129\n" +
+	"\n" +
+	"started_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\tstartedAt\x125\n" +
+	"\bended_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\aendedAt\x12*\n" +
+	"\x11start_server_tick\x18\a \x01(\x03R\x0fstartServerTick\x12+\n" +
+	"\x0fend_server_tick\x18\b \x01(\x03H\x00R\rendServerTick\x88\x01\x01\x12,\n" +
+	"\x0fterminal_reason\x18\t \x01(\tH\x01R\x0eterminalReason\x88\x01\x01\x12*\n" +
+	"\x0estream_failure\x18\n" +
+	" \x01(\tH\x02R\rstreamFailure\x88\x01\x01\x12\x1d\n" +
+	"\n" +
+	"known_gaps\x18\v \x03(\tR\tknownGaps\x12!\n" +
+	"\fmetadata_url\x18\f \x01(\tR\vmetadataUrl\x12\x1d\n" +
+	"\n" +
+	"events_url\x18\r \x01(\tR\teventsUrl\x12P\n" +
+	"\n" +
+	"alignments\x18\x0e \x03(\v20.recorder_minecraft.api.v1.WorldSessionAlignmentR\n" +
+	"alignments\x12A\n" +
+	"\x05plays\x18\x0f \x03(\v2+.recorder_minecraft.api.v1.WorldSessionPlayR\x05plays\x12.\n" +
+	"\x10validation_error\x18\x10 \x01(\tH\x03R\x0fvalidationError\x88\x01\x01B\x12\n" +
+	"\x10_end_server_tickB\x12\n" +
+	"\x10_terminal_reasonB\x11\n" +
+	"\x0f_stream_failureB\x13\n" +
+	"\x11_validation_error\"\xc2\x02\n" +
+	"\x15WorldSessionAlignment\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x10\n" +
+	"\x03url\x18\x02 \x01(\tR\x03url\x12\x1d\n" +
+	"\n" +
+	"size_bytes\x18\x03 \x01(\x04R\tsizeBytes\x12S\n" +
+	"\fparticipants\x18\x04 \x03(\v2/.recorder_minecraft.api.v1.AlignmentParticipantR\fparticipants\x12\x1f\n" +
+	"\vevent_count\x18\x05 \x01(\x04R\n" +
+	"eventCount\x12)\n" +
+	"\x10divergence_count\x18\x06 \x01(\x04R\x0fdivergenceCount\x12.\n" +
+	"\x10validation_error\x18\a \x01(\tH\x00R\x0fvalidationError\x88\x01\x01B\x13\n" +
+	"\x11_validation_error\"\x82\x02\n" +
+	"\x14AlignmentParticipant\x12\x1f\n" +
+	"\vplayer_uuid\x18\x01 \x01(\tR\n" +
+	"playerUuid\x12\x1f\n" +
+	"\vplayer_name\x18\x02 \x01(\tR\n" +
+	"playerName\x12#\n" +
+	"\rconnection_id\x18\x03 \x01(\tR\fconnectionId\x12*\n" +
+	"\x11start_server_tick\x18\x04 \x01(\x03R\x0fstartServerTick\x12&\n" +
+	"\x0fend_server_tick\x18\x05 \x01(\x03R\rendServerTick\x12/\n" +
+	"\x13perception_provided\x18\x06 \x01(\bR\x12perceptionProvided\"\xba\x01\n" +
+	"\x10WorldSessionPlay\x12\x1f\n" +
+	"\vplayer_uuid\x18\x01 \x01(\tR\n" +
+	"playerUuid\x12\x1f\n" +
+	"\vplayer_name\x18\x02 \x01(\tR\n" +
+	"playerName\x12#\n" +
+	"\rconnection_id\x18\x03 \x01(\tR\fconnectionId\x12?\n" +
+	"\x04link\x18\x04 \x01(\x0e2+.recorder_minecraft.api.v1.WorldSessionLinkR\x04link\"}\n" +
 	"\rPlayExtension\x12%\n" +
 	"\x0eextension_type\x18\x01 \x01(\tR\rextensionType\x12E\n" +
 	"\x06assets\x18\x02 \x03(\v2-.recorder_minecraft.api.v1.PlayExtensionAssetR\x06assets\"q\n" +
@@ -1321,7 +2255,11 @@ const file_recorder_minecraft_api_v1_artifacts_proto_rawDesc = "" +
 	"\x06height\x18\x05 \x01(\rR\x06height\x12*\n" +
 	"\x11frames_per_second\x18\x06 \x01(\x01R\x0fframesPerSecond\x12\x1f\n" +
 	"\vframe_count\x18\a \x01(\x04R\n" +
-	"frameCount2\xa2\t\n" +
+	"frameCount*\x81\x01\n" +
+	"\x10WorldSessionLink\x12\"\n" +
+	"\x1eWORLD_SESSION_LINK_UNSPECIFIED\x10\x00\x12&\n" +
+	"\"WORLD_SESSION_LINK_CONTAINER_TRUTH\x10\x01\x12!\n" +
+	"\x1dWORLD_SESSION_LINK_SESSION_ID\x10\x022\x81\x11\n" +
 	"\x16ArtifactCatalogService\x12\xae\x02\n" +
 	"\rListArtifacts\x12/.recorder_minecraft.api.v1.ListArtifactsRequest\x1a0.recorder_minecraft.api.v1.ListArtifactsResponse\"\xb9\x01\x92A\x9c\x01\n" +
 	"\tArtifacts\x12\x1aList the artifact catalog.\x1acReturns the complete readable server, player, and replay hierarchy after applying optional filters.*\x0eartifacts_list\x82\xd3\xe4\x93\x02\x13\x12\x11/api/v1/artifacts\x12\xe3\x01\n" +
@@ -1332,7 +2270,13 @@ const file_recorder_minecraft_api_v1_artifacts_proto_rawDesc = "" +
 	"\vListReplays\x12-.recorder_minecraft.api.v1.ListReplaysRequest\x1a..recorder_minecraft.api.v1.ListReplaysResponse\"K\x92A1\n" +
 	"\tArtifacts\x12\x16List replay resources.*\freplays_list\x82\xd3\xe4\x93\x02\x11\x12\x0f/api/v1/replays\x12\x81\x02\n" +
 	"\tGetReplay\x12+.recorder_minecraft.api.v1.GetReplayRequest\x1a,.recorder_minecraft.api.v1.GetReplayResponse\"\x98\x01\x92A2\n" +
-	"\tArtifacts\x12\x18Get one replay resource.*\vreplays_get\x82\xd3\xe4\x93\x02]\x12[/api/v1/server-instances/{server_instance_id}/players/{player_uuid}/replays/{connection_id}Bu\n" +
+	"\tArtifacts\x12\x18Get one replay resource.*\vreplays_get\x82\xd3\xe4\x93\x02]\x12[/api/v1/server-instances/{server_instance_id}/players/{player_uuid}/replays/{connection_id}\x12\xea\x02\n" +
+	"\x11ListWorldSessions\x123.recorder_minecraft.api.v1.ListWorldSessionsRequest\x1a4.recorder_minecraft.api.v1.ListWorldSessionsResponse\"\xe9\x01\x92A\xc7\x01\n" +
+	"\tArtifacts\x12\x14List world sessions.\x1a\x8e\x01Returns the readable world sessions under world/sessions/ of each server instance, with their alignment files and the Plays that link to them.*\x13world_sessions_list\x82\xd3\xe4\x93\x02\x18\x12\x16/api/v1/world-sessions\x12\x8c\x02\n" +
+	"\x0fGetWorldSession\x121.recorder_minecraft.api.v1.GetWorldSessionRequest\x1a2.recorder_minecraft.api.v1.GetWorldSessionResponse\"\x91\x01\x92A7\n" +
+	"\tArtifacts\x12\x16Get one world session.*\x12world_sessions_get\x82\xd3\xe4\x93\x02Q\x12O/api/v1/server-instances/{server_instance_id}/world-sessions/{world_session_id}\x12\xe0\x02\n" +
+	"\x0eRefreshCatalog\x120.recorder_minecraft.api.v1.RefreshCatalogRequest\x1a1.recorder_minecraft.api.v1.RefreshCatalogResponse\"\xe8\x01\x92A\xc5\x01\n" +
+	"\tArtifacts\x12\x1aRescan the artifacts root.\x1a\x8a\x01Discards the briefly cached catalog snapshot and walks the artifacts root again. Other reads may serve a snapshot up to a few seconds old.*\x0fcatalog_refresh\x82\xd3\xe4\x93\x02\x19\"\x17/api/v1/catalog:refreshBu\n" +
 	"\x1cdev.recorderminecraft.api.v1P\x01ZSgithub.com/proj-airi/recorder-minecraft/apis/sdk/go/recorder-minecraft/api/v1;apiv1b\x06proto3"
 
 var (
@@ -1347,62 +2291,91 @@ func file_recorder_minecraft_api_v1_artifacts_proto_rawDescGZIP() []byte {
 	return file_recorder_minecraft_api_v1_artifacts_proto_rawDescData
 }
 
-var file_recorder_minecraft_api_v1_artifacts_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
+var file_recorder_minecraft_api_v1_artifacts_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_recorder_minecraft_api_v1_artifacts_proto_msgTypes = make([]protoimpl.MessageInfo, 28)
 var file_recorder_minecraft_api_v1_artifacts_proto_goTypes = []any{
-	(*ListArtifactsRequest)(nil),        // 0: recorder_minecraft.api.v1.ListArtifactsRequest
-	(*ListArtifactsResponse)(nil),       // 1: recorder_minecraft.api.v1.ListArtifactsResponse
-	(*ListServerInstancesRequest)(nil),  // 2: recorder_minecraft.api.v1.ListServerInstancesRequest
-	(*ListServerInstancesResponse)(nil), // 3: recorder_minecraft.api.v1.ListServerInstancesResponse
-	(*ListPlayersRequest)(nil),          // 4: recorder_minecraft.api.v1.ListPlayersRequest
-	(*ListPlayersResponse)(nil),         // 5: recorder_minecraft.api.v1.ListPlayersResponse
-	(*ListReplaysRequest)(nil),          // 6: recorder_minecraft.api.v1.ListReplaysRequest
-	(*ListReplaysResponse)(nil),         // 7: recorder_minecraft.api.v1.ListReplaysResponse
-	(*GetReplayRequest)(nil),            // 8: recorder_minecraft.api.v1.GetReplayRequest
-	(*GetReplayResponse)(nil),           // 9: recorder_minecraft.api.v1.GetReplayResponse
-	(*ServerInstanceSummary)(nil),       // 10: recorder_minecraft.api.v1.ServerInstanceSummary
-	(*PlayerSummary)(nil),               // 11: recorder_minecraft.api.v1.PlayerSummary
-	(*ServerInstance)(nil),              // 12: recorder_minecraft.api.v1.ServerInstance
-	(*Player)(nil),                      // 13: recorder_minecraft.api.v1.Player
-	(*Replay)(nil),                      // 14: recorder_minecraft.api.v1.Replay
-	(*PlayExtension)(nil),               // 15: recorder_minecraft.api.v1.PlayExtension
-	(*PlayExtensionAsset)(nil),          // 16: recorder_minecraft.api.v1.PlayExtensionAsset
-	(*VideoAsset)(nil),                  // 17: recorder_minecraft.api.v1.VideoAsset
-	(*timestamppb.Timestamp)(nil),       // 18: google.protobuf.Timestamp
-	(*v1.PlaySummary)(nil),              // 19: recorder_minecraft.catalog.v1.PlaySummary
+	(WorldSessionLink)(0),               // 0: recorder_minecraft.api.v1.WorldSessionLink
+	(*ListArtifactsRequest)(nil),        // 1: recorder_minecraft.api.v1.ListArtifactsRequest
+	(*ListArtifactsResponse)(nil),       // 2: recorder_minecraft.api.v1.ListArtifactsResponse
+	(*ListServerInstancesRequest)(nil),  // 3: recorder_minecraft.api.v1.ListServerInstancesRequest
+	(*ListServerInstancesResponse)(nil), // 4: recorder_minecraft.api.v1.ListServerInstancesResponse
+	(*ListPlayersRequest)(nil),          // 5: recorder_minecraft.api.v1.ListPlayersRequest
+	(*ListPlayersResponse)(nil),         // 6: recorder_minecraft.api.v1.ListPlayersResponse
+	(*ListReplaysRequest)(nil),          // 7: recorder_minecraft.api.v1.ListReplaysRequest
+	(*ListReplaysResponse)(nil),         // 8: recorder_minecraft.api.v1.ListReplaysResponse
+	(*GetReplayRequest)(nil),            // 9: recorder_minecraft.api.v1.GetReplayRequest
+	(*GetReplayResponse)(nil),           // 10: recorder_minecraft.api.v1.GetReplayResponse
+	(*ServerInstanceSummary)(nil),       // 11: recorder_minecraft.api.v1.ServerInstanceSummary
+	(*PlayerSummary)(nil),               // 12: recorder_minecraft.api.v1.PlayerSummary
+	(*ServerInstance)(nil),              // 13: recorder_minecraft.api.v1.ServerInstance
+	(*Player)(nil),                      // 14: recorder_minecraft.api.v1.Player
+	(*Replay)(nil),                      // 15: recorder_minecraft.api.v1.Replay
+	(*ListWorldSessionsRequest)(nil),    // 16: recorder_minecraft.api.v1.ListWorldSessionsRequest
+	(*ListWorldSessionsResponse)(nil),   // 17: recorder_minecraft.api.v1.ListWorldSessionsResponse
+	(*GetWorldSessionRequest)(nil),      // 18: recorder_minecraft.api.v1.GetWorldSessionRequest
+	(*GetWorldSessionResponse)(nil),     // 19: recorder_minecraft.api.v1.GetWorldSessionResponse
+	(*RefreshCatalogRequest)(nil),       // 20: recorder_minecraft.api.v1.RefreshCatalogRequest
+	(*RefreshCatalogResponse)(nil),      // 21: recorder_minecraft.api.v1.RefreshCatalogResponse
+	(*WorldSession)(nil),                // 22: recorder_minecraft.api.v1.WorldSession
+	(*WorldSessionAlignment)(nil),       // 23: recorder_minecraft.api.v1.WorldSessionAlignment
+	(*AlignmentParticipant)(nil),        // 24: recorder_minecraft.api.v1.AlignmentParticipant
+	(*WorldSessionPlay)(nil),            // 25: recorder_minecraft.api.v1.WorldSessionPlay
+	(*PlayExtension)(nil),               // 26: recorder_minecraft.api.v1.PlayExtension
+	(*PlayExtensionAsset)(nil),          // 27: recorder_minecraft.api.v1.PlayExtensionAsset
+	(*VideoAsset)(nil),                  // 28: recorder_minecraft.api.v1.VideoAsset
+	(*timestamppb.Timestamp)(nil),       // 29: google.protobuf.Timestamp
+	(*v1.PlaySummary)(nil),              // 30: recorder_minecraft.catalog.v1.PlaySummary
 }
 var file_recorder_minecraft_api_v1_artifacts_proto_depIdxs = []int32{
-	18, // 0: recorder_minecraft.api.v1.ListArtifactsRequest.started_at_or_after:type_name -> google.protobuf.Timestamp
-	18, // 1: recorder_minecraft.api.v1.ListArtifactsRequest.started_before:type_name -> google.protobuf.Timestamp
-	12, // 2: recorder_minecraft.api.v1.ListArtifactsResponse.server_instances:type_name -> recorder_minecraft.api.v1.ServerInstance
-	10, // 3: recorder_minecraft.api.v1.ListServerInstancesResponse.server_instances:type_name -> recorder_minecraft.api.v1.ServerInstanceSummary
-	11, // 4: recorder_minecraft.api.v1.ListPlayersResponse.players:type_name -> recorder_minecraft.api.v1.PlayerSummary
-	18, // 5: recorder_minecraft.api.v1.ListReplaysRequest.started_at_or_after:type_name -> google.protobuf.Timestamp
-	18, // 6: recorder_minecraft.api.v1.ListReplaysRequest.started_before:type_name -> google.protobuf.Timestamp
-	14, // 7: recorder_minecraft.api.v1.ListReplaysResponse.replays:type_name -> recorder_minecraft.api.v1.Replay
-	14, // 8: recorder_minecraft.api.v1.GetReplayResponse.replay:type_name -> recorder_minecraft.api.v1.Replay
-	13, // 9: recorder_minecraft.api.v1.ServerInstance.players:type_name -> recorder_minecraft.api.v1.Player
-	14, // 10: recorder_minecraft.api.v1.Player.replays:type_name -> recorder_minecraft.api.v1.Replay
-	18, // 11: recorder_minecraft.api.v1.Replay.started_at:type_name -> google.protobuf.Timestamp
-	18, // 12: recorder_minecraft.api.v1.Replay.ended_at:type_name -> google.protobuf.Timestamp
-	17, // 13: recorder_minecraft.api.v1.Replay.video:type_name -> recorder_minecraft.api.v1.VideoAsset
-	19, // 14: recorder_minecraft.api.v1.Replay.summary:type_name -> recorder_minecraft.catalog.v1.PlaySummary
-	15, // 15: recorder_minecraft.api.v1.Replay.extensions:type_name -> recorder_minecraft.api.v1.PlayExtension
-	16, // 16: recorder_minecraft.api.v1.PlayExtension.assets:type_name -> recorder_minecraft.api.v1.PlayExtensionAsset
-	0,  // 17: recorder_minecraft.api.v1.ArtifactCatalogService.ListArtifacts:input_type -> recorder_minecraft.api.v1.ListArtifactsRequest
-	2,  // 18: recorder_minecraft.api.v1.ArtifactCatalogService.ListServerInstances:input_type -> recorder_minecraft.api.v1.ListServerInstancesRequest
-	4,  // 19: recorder_minecraft.api.v1.ArtifactCatalogService.ListPlayers:input_type -> recorder_minecraft.api.v1.ListPlayersRequest
-	6,  // 20: recorder_minecraft.api.v1.ArtifactCatalogService.ListReplays:input_type -> recorder_minecraft.api.v1.ListReplaysRequest
-	8,  // 21: recorder_minecraft.api.v1.ArtifactCatalogService.GetReplay:input_type -> recorder_minecraft.api.v1.GetReplayRequest
-	1,  // 22: recorder_minecraft.api.v1.ArtifactCatalogService.ListArtifacts:output_type -> recorder_minecraft.api.v1.ListArtifactsResponse
-	3,  // 23: recorder_minecraft.api.v1.ArtifactCatalogService.ListServerInstances:output_type -> recorder_minecraft.api.v1.ListServerInstancesResponse
-	5,  // 24: recorder_minecraft.api.v1.ArtifactCatalogService.ListPlayers:output_type -> recorder_minecraft.api.v1.ListPlayersResponse
-	7,  // 25: recorder_minecraft.api.v1.ArtifactCatalogService.ListReplays:output_type -> recorder_minecraft.api.v1.ListReplaysResponse
-	9,  // 26: recorder_minecraft.api.v1.ArtifactCatalogService.GetReplay:output_type -> recorder_minecraft.api.v1.GetReplayResponse
-	22, // [22:27] is the sub-list for method output_type
-	17, // [17:22] is the sub-list for method input_type
-	17, // [17:17] is the sub-list for extension type_name
-	17, // [17:17] is the sub-list for extension extendee
-	0,  // [0:17] is the sub-list for field type_name
+	29, // 0: recorder_minecraft.api.v1.ListArtifactsRequest.started_at_or_after:type_name -> google.protobuf.Timestamp
+	29, // 1: recorder_minecraft.api.v1.ListArtifactsRequest.started_before:type_name -> google.protobuf.Timestamp
+	13, // 2: recorder_minecraft.api.v1.ListArtifactsResponse.server_instances:type_name -> recorder_minecraft.api.v1.ServerInstance
+	11, // 3: recorder_minecraft.api.v1.ListServerInstancesResponse.server_instances:type_name -> recorder_minecraft.api.v1.ServerInstanceSummary
+	12, // 4: recorder_minecraft.api.v1.ListPlayersResponse.players:type_name -> recorder_minecraft.api.v1.PlayerSummary
+	29, // 5: recorder_minecraft.api.v1.ListReplaysRequest.started_at_or_after:type_name -> google.protobuf.Timestamp
+	29, // 6: recorder_minecraft.api.v1.ListReplaysRequest.started_before:type_name -> google.protobuf.Timestamp
+	15, // 7: recorder_minecraft.api.v1.ListReplaysResponse.replays:type_name -> recorder_minecraft.api.v1.Replay
+	15, // 8: recorder_minecraft.api.v1.GetReplayResponse.replay:type_name -> recorder_minecraft.api.v1.Replay
+	14, // 9: recorder_minecraft.api.v1.ServerInstance.players:type_name -> recorder_minecraft.api.v1.Player
+	22, // 10: recorder_minecraft.api.v1.ServerInstance.world_sessions:type_name -> recorder_minecraft.api.v1.WorldSession
+	15, // 11: recorder_minecraft.api.v1.Player.replays:type_name -> recorder_minecraft.api.v1.Replay
+	29, // 12: recorder_minecraft.api.v1.Replay.started_at:type_name -> google.protobuf.Timestamp
+	29, // 13: recorder_minecraft.api.v1.Replay.ended_at:type_name -> google.protobuf.Timestamp
+	28, // 14: recorder_minecraft.api.v1.Replay.video:type_name -> recorder_minecraft.api.v1.VideoAsset
+	30, // 15: recorder_minecraft.api.v1.Replay.summary:type_name -> recorder_minecraft.catalog.v1.PlaySummary
+	26, // 16: recorder_minecraft.api.v1.Replay.extensions:type_name -> recorder_minecraft.api.v1.PlayExtension
+	0,  // 17: recorder_minecraft.api.v1.Replay.world_session_link:type_name -> recorder_minecraft.api.v1.WorldSessionLink
+	22, // 18: recorder_minecraft.api.v1.ListWorldSessionsResponse.world_sessions:type_name -> recorder_minecraft.api.v1.WorldSession
+	22, // 19: recorder_minecraft.api.v1.GetWorldSessionResponse.world_session:type_name -> recorder_minecraft.api.v1.WorldSession
+	29, // 20: recorder_minecraft.api.v1.RefreshCatalogResponse.refreshed_at:type_name -> google.protobuf.Timestamp
+	29, // 21: recorder_minecraft.api.v1.WorldSession.started_at:type_name -> google.protobuf.Timestamp
+	29, // 22: recorder_minecraft.api.v1.WorldSession.ended_at:type_name -> google.protobuf.Timestamp
+	23, // 23: recorder_minecraft.api.v1.WorldSession.alignments:type_name -> recorder_minecraft.api.v1.WorldSessionAlignment
+	25, // 24: recorder_minecraft.api.v1.WorldSession.plays:type_name -> recorder_minecraft.api.v1.WorldSessionPlay
+	24, // 25: recorder_minecraft.api.v1.WorldSessionAlignment.participants:type_name -> recorder_minecraft.api.v1.AlignmentParticipant
+	0,  // 26: recorder_minecraft.api.v1.WorldSessionPlay.link:type_name -> recorder_minecraft.api.v1.WorldSessionLink
+	27, // 27: recorder_minecraft.api.v1.PlayExtension.assets:type_name -> recorder_minecraft.api.v1.PlayExtensionAsset
+	1,  // 28: recorder_minecraft.api.v1.ArtifactCatalogService.ListArtifacts:input_type -> recorder_minecraft.api.v1.ListArtifactsRequest
+	3,  // 29: recorder_minecraft.api.v1.ArtifactCatalogService.ListServerInstances:input_type -> recorder_minecraft.api.v1.ListServerInstancesRequest
+	5,  // 30: recorder_minecraft.api.v1.ArtifactCatalogService.ListPlayers:input_type -> recorder_minecraft.api.v1.ListPlayersRequest
+	7,  // 31: recorder_minecraft.api.v1.ArtifactCatalogService.ListReplays:input_type -> recorder_minecraft.api.v1.ListReplaysRequest
+	9,  // 32: recorder_minecraft.api.v1.ArtifactCatalogService.GetReplay:input_type -> recorder_minecraft.api.v1.GetReplayRequest
+	16, // 33: recorder_minecraft.api.v1.ArtifactCatalogService.ListWorldSessions:input_type -> recorder_minecraft.api.v1.ListWorldSessionsRequest
+	18, // 34: recorder_minecraft.api.v1.ArtifactCatalogService.GetWorldSession:input_type -> recorder_minecraft.api.v1.GetWorldSessionRequest
+	20, // 35: recorder_minecraft.api.v1.ArtifactCatalogService.RefreshCatalog:input_type -> recorder_minecraft.api.v1.RefreshCatalogRequest
+	2,  // 36: recorder_minecraft.api.v1.ArtifactCatalogService.ListArtifacts:output_type -> recorder_minecraft.api.v1.ListArtifactsResponse
+	4,  // 37: recorder_minecraft.api.v1.ArtifactCatalogService.ListServerInstances:output_type -> recorder_minecraft.api.v1.ListServerInstancesResponse
+	6,  // 38: recorder_minecraft.api.v1.ArtifactCatalogService.ListPlayers:output_type -> recorder_minecraft.api.v1.ListPlayersResponse
+	8,  // 39: recorder_minecraft.api.v1.ArtifactCatalogService.ListReplays:output_type -> recorder_minecraft.api.v1.ListReplaysResponse
+	10, // 40: recorder_minecraft.api.v1.ArtifactCatalogService.GetReplay:output_type -> recorder_minecraft.api.v1.GetReplayResponse
+	17, // 41: recorder_minecraft.api.v1.ArtifactCatalogService.ListWorldSessions:output_type -> recorder_minecraft.api.v1.ListWorldSessionsResponse
+	19, // 42: recorder_minecraft.api.v1.ArtifactCatalogService.GetWorldSession:output_type -> recorder_minecraft.api.v1.GetWorldSessionResponse
+	21, // 43: recorder_minecraft.api.v1.ArtifactCatalogService.RefreshCatalog:output_type -> recorder_minecraft.api.v1.RefreshCatalogResponse
+	36, // [36:44] is the sub-list for method output_type
+	28, // [28:36] is the sub-list for method input_type
+	28, // [28:28] is the sub-list for extension type_name
+	28, // [28:28] is the sub-list for extension extendee
+	0,  // [0:28] is the sub-list for field type_name
 }
 
 func init() { file_recorder_minecraft_api_v1_artifacts_proto_init() }
@@ -1414,18 +2387,22 @@ func file_recorder_minecraft_api_v1_artifacts_proto_init() {
 	file_recorder_minecraft_api_v1_artifacts_proto_msgTypes[4].OneofWrappers = []any{}
 	file_recorder_minecraft_api_v1_artifacts_proto_msgTypes[6].OneofWrappers = []any{}
 	file_recorder_minecraft_api_v1_artifacts_proto_msgTypes[14].OneofWrappers = []any{}
+	file_recorder_minecraft_api_v1_artifacts_proto_msgTypes[15].OneofWrappers = []any{}
+	file_recorder_minecraft_api_v1_artifacts_proto_msgTypes[21].OneofWrappers = []any{}
+	file_recorder_minecraft_api_v1_artifacts_proto_msgTypes[22].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_recorder_minecraft_api_v1_artifacts_proto_rawDesc), len(file_recorder_minecraft_api_v1_artifacts_proto_rawDesc)),
-			NumEnums:      0,
-			NumMessages:   18,
+			NumEnums:      1,
+			NumMessages:   28,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
 		GoTypes:           file_recorder_minecraft_api_v1_artifacts_proto_goTypes,
 		DependencyIndexes: file_recorder_minecraft_api_v1_artifacts_proto_depIdxs,
+		EnumInfos:         file_recorder_minecraft_api_v1_artifacts_proto_enumTypes,
 		MessageInfos:      file_recorder_minecraft_api_v1_artifacts_proto_msgTypes,
 	}.Build()
 	File_recorder_minecraft_api_v1_artifacts_proto = out.File
