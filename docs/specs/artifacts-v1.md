@@ -39,6 +39,8 @@ artifacts/v1/
               fpv_frames/
                 frames.jsonl
                 frame_*.png
+              fpv.mp4                           # optional playback video
+              fpv.json                          # optional, for a video without a render job
             extensions/                         # optional producer-owned data
               <extension-type>/
                 manifest.json
@@ -262,11 +264,33 @@ after `ffmpeg` succeeds; `--frames-only` retains the image-sequence-only
 workflow. The video is derived and may be regenerated without mutating the
 capture inputs.
 
+A producer can publish `renders/fpv.mp4` without a render job, for example an
+Airicraft first-person screen capture. It then writes `renders/fpv.json`, the
+ProtoJSON form of `FpvVideoManifest`, and no `result.json` or `fpv_frames/`.
+The manifest has `schema_version` `1`, the Play's server instance, player, and
+connection, the video geometry, frame rate, encoded frame count, duration, and
+the byte size of `fpv.mp4`. `complete` is false when the video or its anchors
+were cut short. `frames` lists sampled anchors, each a `server_tick` and a
+`video_seconds`, in strictly increasing video time with non-decreasing ticks.
+Until the next anchor, the video shows the image captured at the anchor's tick.
+The video time of a server tick T is the `video_seconds` of the last anchor
+with `server_tick` at or before T. Do not compute it from the tick rate: the
+capture can skip identical images and hold one image for a long time.
+
 ## Read API and media serving
 
 `recorder-minecraft serve` exposes the read-only Artifacts V1 catalog over gRPC
 and a grpc-gateway HTTP API. Catalog traversal validates the server, player, and
 play directory identities against their metadata before returning them.
+A Play's `video` names `renders/fpv.mp4`. Its geometry, frame rate, frame
+count, duration, and `timing` come from `renders/fpv.json` when that manifest
+has the Play's identity, the MP4's byte size, and ordered anchors. Otherwise
+they come from a complete `renders/result.json`. `timing` gives the URL and
+format of the file that maps video time to server ticks
+(`FORMAT_FPV_MANIFEST` for `fpv.json`, `FORMAT_RENDER_FRAME_INDEX` for
+`fpv_frames/frames.jsonl`), the first and last mapped server ticks, and the
+number of anchors or frames. Without `timing`, the video time of a tick is
+unknown. A manifest that does not describe the MP4 is ignored.
 `/assets/` serves only regular files contained below the configured artifacts
 root and supports HTTP byte ranges so browser decoders can seek in MP4 files.
 Symlinks and path traversal outside that root are rejected.

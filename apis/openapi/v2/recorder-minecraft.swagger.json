@@ -734,8 +734,55 @@
         "frameCount": {
           "type": "string",
           "format": "uint64"
+        },
+        "timing": {
+          "$ref": "#/definitions/recorder_minecraft.api.v1.VideoTiming",
+          "description": "Absent when no manifest describes the video. Without timing, the video\ntime of a server tick is unknown."
+        },
+        "durationSeconds": {
+          "type": "number",
+          "format": "double"
         }
       }
+    },
+    "recorder_minecraft.api.v1.VideoTiming": {
+      "type": "object",
+      "properties": {
+        "format": {
+          "$ref": "#/definitions/recorder_minecraft.api.v1.VideoTiming.Format"
+        },
+        "url": {
+          "type": "string"
+        },
+        "firstServerTick": {
+          "type": "string",
+          "format": "int64",
+          "description": "Server ticks of the first and last anchor or frame."
+        },
+        "lastServerTick": {
+          "type": "string",
+          "format": "int64"
+        },
+        "anchorCount": {
+          "type": "string",
+          "format": "uint64"
+        },
+        "complete": {
+          "type": "boolean",
+          "description": "False when the producer reported a truncated video or index."
+        }
+      },
+      "description": "VideoTiming locates the file that maps video time to server ticks."
+    },
+    "recorder_minecraft.api.v1.VideoTiming.Format": {
+      "type": "string",
+      "enum": [
+        "FORMAT_UNSPECIFIED",
+        "FORMAT_FPV_MANIFEST",
+        "FORMAT_RENDER_FRAME_INDEX"
+      ],
+      "default": "FORMAT_UNSPECIFIED",
+      "description": " - FORMAT_FPV_MANIFEST: renders/fpv.json, FpvVideoManifest ProtoJSON. Its frames are sampled\n{server_tick, video_seconds} anchors. For a server tick T, seek to the\nvideo_seconds of the last anchor with server_tick \u003c= T.\n - FORMAT_RENDER_FRAME_INDEX: renders/fpv_frames/frames.jsonl, RenderFrameIndex ProtoJSON lines with\none line per video frame. Frame ordinal N (from 1) starts at\n(N - 1) / frames_per_second."
     },
     "recorder_minecraft.api.v1.WorldSession": {
       "type": "object",
