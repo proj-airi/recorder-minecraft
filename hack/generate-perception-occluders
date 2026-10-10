@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Regenerates internal/models/perceptions/occluders_table.go from the vanilla
+# block registry. The scene extractor distribution already carries the
+# Mojang-mapped Minecraft jar and its libraries, so this reuses its classpath.
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "${ROOT}"
+gradle --project-dir processors/scene-extractor installDist
+
+lib="$(find processors/scene-extractor/build/install -mindepth 2 -maxdepth 2 -type d -name lib | head -n 1)"
+if [[ -z "${lib}" ]]; then
+  echo "scene extractor distribution has no lib directory" >&2
+  exit 2
+fi
+classpath="$(find "${lib}" -name '*.jar' | sort | paste -sd: -)"
+work="$(mktemp -d)"
+trap 'rm -rf "${work}"' EXIT
+
+javac -proc:none -d "${work}" -cp "${classpath}" hack/perception-occluders/OccluderTable.java
+java -cp "${classpath}:${work}" OccluderTable internal/models/perceptions/occluders_table.go
+gofmt -w internal/models/perceptions/occluders_table.go
