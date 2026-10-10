@@ -41,7 +41,7 @@ rotation. In particular:
   "ignore_custom_payloads": false,
   "max_duration": "0s",
   "max_file_size": "0 B",
-  "player_predicate": {"type": "all"},
+  "player_predicate": { "type": "all" },
   "restart_after_max_duration": false,
   "restart_after_max_file_size": false
 }
