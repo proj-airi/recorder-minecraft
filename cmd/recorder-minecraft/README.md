@@ -10,6 +10,7 @@ go run ./cmd/recorder-minecraft plays list --output json
 go run ./cmd/recorder-minecraft actions extract --help
 go run ./cmd/recorder-minecraft scene extract --help
 go run ./cmd/recorder-minecraft perception extract --help
+go run ./cmd/recorder-minecraft session align --help
 go run ./cmd/recorder-minecraft render --help
 ```
 
@@ -27,6 +28,20 @@ distance (`--max-distance`, default 64 blocks, also capped by view distance).
 Cells the scene does not know make a target undetermined rather than visible
 or hidden. Regenerate the vanilla occluder table with
 `hack/generate-perception-occluders` after a Minecraft version change.
+
+`session align` reads one closed world session (`--world-metadata`,
+`--world-events`) and the Plays named by repeated
+`--play metadata=PATH,events=PATH[,perception=PATH]`. Every Play must have
+the world session's `session_id`. It writes one JSONL file: a header with
+the lineage of every input, a tick-ordered index that references world
+container records, container views, joins and leaves, and visibility
+changes, then each actor's container divergences. A divergence is an
+interval in which the world contents of a container differ from the
+contents that actor last observed in it, with the perception sample at its
+start. A Play without perception gets co-presence `PERCEPTION_NOT_PROVIDED`,
+which means unknown. The output reports facts only; it states nothing
+about what an actor knows. See the Session alignment section of
+`docs/specs/artifacts-v1.md`.
 
 `plays list` reads the configured Artifacts root without starting the catalog
 server or Dashboard. It calculates read-only summaries for completed Plays and

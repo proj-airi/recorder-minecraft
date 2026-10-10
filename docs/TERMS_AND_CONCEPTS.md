@@ -52,6 +52,7 @@ hosted by a game client. Joining a remote server from client does not create a P
 | ServerReplay | Live Flashback writer and final Flashback ZIP bytes | Recorder events, play layout, or derived outputs |
 | Action processor | Reconstruction of a semantic action stream from one completed capture | Capture discovery, hierarchy creation, or replay mutation |
 | Perception processor | Reconstruction of what one recorded player could see, from that Play's Scene Store | Capture, scene extraction, or claims about pixels on the player's screen |
+| Session processor | Alignment of one world session with several named Plays of the same session on the server tick timeline, and factual observation divergences | Play discovery, capture mutation, or conclusions about what an actor knows or expects |
 | Scene processor | Headless replay reduction, private Scene Store V1 staging, and durable Scene Store V2 output | GUI rendering or omniscient server-world recovery |
 | Renderer | Flashback playback and optional first-person PNG generation | Scene extraction, artifact discovery, or capture mutation |
 | Catalog API | Read-only discovery and media serving for validated Artifacts V1 plays | Capture, processing, rendering, or artifact mutation |
@@ -215,6 +216,7 @@ actions between adjacent authoritative states without relying on arrival time.
 | Actions extraction | Transformation from metadata plus events into `actions.jsonl` |
 | Scene extraction | Transformation from metadata, events, and replay into `scene.sqlite3` |
 | Perception extraction | Transformation from metadata, events, and `scene.sqlite3` into `perception.jsonl` |
+| Session alignment | Transformation from one world session and several named Plays (metadata, events, optional `perception.jsonl`) into one session alignment JSONL |
 | Rendering | Transformation from metadata, events, and replay into a `renders/` directory |
 | Replay source | Reference to a replay archive used as processor input or dashboard media; it retains the replay identity and may also bind its path, digest, size, format, event stream, or display metadata |
 | Tick selection | Optional inclusive `--from-tick` and `--to-tick` interval applied by a processor |
@@ -289,6 +291,22 @@ assumptions; it is not a capture of the player's screen.
 
 A target absent from a sample was determined not visible. An Unknown cell
 never becomes air or an occluder in this reconstruction.
+
+## Session alignment terms
+
+A session alignment has scope `session` and provenance `deterministic
+transform`. It is hindsight: a divergence end reads records after its start.
+It records observations and divergences only, and it never states what an
+actor knows or expects; a consumer above the recorder interprets the facts.
+
+| Term | Definition |
+| --- | --- |
+| Actor | One Play among the participants of a session alignment; two connections of the same player are two actors |
+| Container observation | A `CONTENTS` view, a `SLOT` view after one, or an applied own click while a menu backed by the container is open; it sets the actor's last observed contents of that container |
+| Container truth | The latest world `container_snapshot` of a container at or before a tick; unknown before the first snapshot, after removal, and for ungenerated loot |
+| Container divergence | An interval of server ticks in which the container truth differs from the actor's last observed contents, after at least one observation; it ends on re-observation, matching truth, removal, undetermined truth, or the end of either coverage |
+| Co-presence evidence | The observer's perception sample at a divergence start: visibility of the container, visible and undetermined entities, and whether a visible participant had the container open; unknown, not false, without perception |
+| Record reference | Stream, actor connection, server tick, and sequence of a source record, used instead of copying it |
 
 ## Render terms
 
