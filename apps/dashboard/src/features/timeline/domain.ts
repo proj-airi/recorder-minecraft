@@ -49,21 +49,29 @@ export interface EpisodePrimaryTrack extends EpisodeTrackBase {
 }
 
 export interface EpisodeReplaySource {
+  /** `actions.jsonl` URL, when the Play has one. */
+  actionsUrl?: string
   connectionId: string
   endServerTick?: string
   eventsUrl?: string
   /** `renders/fpv_frames/frames.jsonl` URL; maps video frames to Server ticks when present. */
   framesIndexUrl?: string
+  /** `perception.jsonl` URL, when the Play has one. */
+  perceptionUrl?: string
   playerName: string
   playerUuid?: string
   /** The catalog record, kept for data track providers that need fields this type does not copy. */
   replay?: RecorderMinecraftApiV1Replay
+  /** `scene.sqlite3` URL, when the Play has one. */
+  sceneUrl?: string
   serverName: string
   sessionId?: string
   startedAt?: string
   startServerTick?: string
   videoFramesPerSecond?: number
   videoUrl?: string
+  /** Catalog world session id (`WorldSession.id`) the Play is linked to. */
+  worldSessionId?: string
 }
 
 export interface EpisodeSegment {

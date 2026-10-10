@@ -2,6 +2,7 @@ import type { RecorderMinecraftApiV1ListReplaysResponse, RecorderMinecraftApiV1R
 
 import { expect, it, vi } from 'vitest'
 
+import { catalogFixture } from '../fixtures'
 import { useArtifactCatalog } from './useArtifactCatalog'
 
 it('publishes basic rows before it merges the asynchronous summaries', async () => {
@@ -49,4 +50,26 @@ it('keeps basic rows when summary loading fails', async () => {
   expect(catalog.replays.value).toHaveLength(1)
   expect(catalog.error.value).toBeNull()
   expect(catalog.summaryError.value).toBe('Error: corrupt completed Play')
+})
+
+it('rescans before reloading and maps a linked Play to its world source', async () => {
+  const calls: string[] = []
+  const catalog = useArtifactCatalog({
+    artifactsList: async () => {
+      calls.push('list')
+      return { data: { serverInstances: catalogFixture() } }
+    },
+    catalogRefresh: async () => {
+      calls.push('refresh')
+    },
+    replaysList: async () => ({ data: { replays: [] } }),
+  })
+  await catalog.refresh()
+
+  expect(calls).toEqual(['refresh', 'list'])
+  expect(catalog.worldSessions.value.map(session => session.sessionId)).toEqual(['run1-session', 'run2-session'])
+  const bob = catalog.replays.value.find(replay => replay.connectionId === 'bob-1')!
+  expect(catalog.worldSourceFor(bob)).toMatchObject({ id: '20261010T080003Z--run1', sessionId: 'run1-session', startServerTick: 0 })
+  const eve = catalog.replays.value.find(replay => replay.connectionId === 'eve-1')!
+  expect(catalog.worldSourceFor(eve)).toBeUndefined()
 })
