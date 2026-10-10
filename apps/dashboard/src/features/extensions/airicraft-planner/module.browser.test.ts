@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { loadSupportedExtensionTracks } from '../registry'
+import { playExtensionModules } from '../registry'
 import { parsePlannerCalls } from './module'
 
 describe('airicraft planner extension', () => {
@@ -39,13 +39,17 @@ describe('airicraft planner extension', () => {
       sequence: '1',
       timeline: { applied: { serverTick: '130' }, completed: { serverTick: '129' }, submitted: { serverTick: '120' } },
     })
-    const tracks = await loadSupportedExtensionTracks([
+    const descriptors = [
       {
         assets: [{ mediaType: 'application/x-ndjson', role: 'planner_calls', schema: 'airicraft.planner-call.v1', url: '/planner.jsonl' }],
         extensionType: 'airicraft.planner',
       },
       { extensionType: 'llm.annotation' },
-    ], { text: async () => source })
+    ]
+    const tracks = await Promise.all(descriptors.flatMap((descriptor) => {
+      const module = playExtensionModules.find(candidate => candidate.extensionType === descriptor.extensionType)
+      return module ? [module.loadTrack(descriptor, { text: async () => source })] : []
+    }))
 
     expect(tracks).toHaveLength(1)
     expect(tracks[0]).toMatchObject({
