@@ -1,0 +1,194 @@
+syntax = "proto3";
+
+package recorder_minecraft.artifacts.v1;
+
+import "recorder-minecraft/artifacts/v1/common.proto";
+
+option go_package = "github.com/proj-airi/recorder-minecraft/apis/sdk/go/recorder-minecraft/artifacts/v1;artifactsv1";
+option java_multiple_files = true;
+option java_package = "dev.recorderminecraft.artifacts.v1";
+
+// PerceptionRecord is one ProtoJSON line of a play-local perception.jsonl.
+//
+// The first line is the header and every later line is one sample in
+// increasing server_tick order. Scope is actor perception and provenance is
+// reconstructed: the processor recomputes, from the Scene Store, what the
+// recorded player could have seen. Nothing in this file was observed on the
+// player's computer.
+message PerceptionRecord {
+  uint32 schema_version = 1;
+  oneof record {
+    PerceptionHeader header = 20;
+    PerceptionSample sample = 21;
+  }
+}
+
+// PerceptionHeader binds the samples to their inputs and declares every
+// assumption the reconstruction depends on.
+message PerceptionHeader {
+  PerceptionProcessor processor = 1;
+  // Always "actor perception".
+  string scope = 2;
+  // Always "reconstructed".
+  string provenance = 3;
+  // False: a sample at tick T reads only scene state valid at T.
+  bool uses_future_context = 4;
+  string session_id = 5;
+  string player_uuid = 6;
+  string connection_id = 7;
+  // First and last sampled server tick.
+  TickRange ticks = 8;
+  repeated PerceptionInput inputs = 9;
+  PerceptionAssumptions assumptions = 10;
+  // Effects the reconstruction does not model.
+  repeated string known_limitations = 11;
+  uint64 sample_count = 12;
+}
+
+message PerceptionProcessor {
+  string name = 1;
+  // Version of the visibility algorithm and output contract.
+  string version = 2;
+}
+
+// PerceptionInput identifies one input by role and content digest.
+message PerceptionInput {
+  // One of "capture_metadata", "capture_events", or "scene_store".
+  string role = 1;
+  // path is relative to the directory that contains perception.jsonl when the
+  // input is inside it, and absolute otherwise.
+  ArtifactFile file = 2;
+}
+
+message PerceptionAssumptions {
+  PerceptionCamera camera = 1;
+  // Eye height above the feet position for each recorded pose.
+  repeated PoseEyeHeight eye_heights = 2;
+  // Eye height for a pose absent from eye_heights.
+  double default_eye_height = 3;
+  OccluderModel occluder_model = 4;
+  // A sample is written at the first selected tick and every interval after it.
+  uint32 sampling_interval_ticks = 5;
+  // Upper bound on the distance from the eye to the nearest point of a target.
+  double max_distance_blocks = 6;
+  // When true, a sample also caps the distance at its effective view distance
+  // in blocks (16 per chunk).
+  bool max_distance_capped_by_view_distance = 7;
+  TargetSampling target_sampling = 8;
+  UnknownCellPolicy unknown_cell_policy = 9;
+  // Where the observer pose comes from.
+  string observer_source = 10;
+}
+
+// PerceptionCamera models the vanilla first-person perspective projection.
+message PerceptionCamera {
+  // Vertical field of view in degrees. Vanilla's FOV option is vertical.
+  double vertical_fov_degrees = 1;
+  // Window width divided by height.
+  double aspect_ratio = 2;
+  // Derived from vertical_fov_degrees and aspect_ratio.
+  double horizontal_fov_degrees = 3;
+  // Points closer than this along the view direction are outside the view.
+  double near_plane_blocks = 4;
+}
+
+message PoseEyeHeight {
+  // Lowercase vanilla Pose name as written in player_state.pose.
+  string pose = 1;
+  double eye_height = 2;
+}
+
+// OccluderModel decides which block cells stop a sight ray.
+message OccluderModel {
+  string name = 1;
+  string description = 2;
+  // Blocks treated as occluders although vanilla does not mark them solid-render.
+  repeated string occluder_overrides = 3;
+  // Property-dependent rules, such as "minecraft:*_slab: type=double".
+  repeated string conditional_rules = 4;
+  // How a block absent from the table is treated.
+  string unlisted_block_policy = 5;
+}
+
+// TargetSampling describes where sight rays end on each target.
+message TargetSampling {
+  string entity_points = 1;
+  string block_entity_points = 2;
+  // Rule that turns ray outcomes into a visibility verdict.
+  string visibility_rule = 3;
+}
+
+enum UnknownCellPolicy {
+  UNKNOWN_CELL_POLICY_UNSPECIFIED = 0;
+  // A ray that enters a cell with no known block state at the sample tick
+  // stops there with an unknown outcome. It never counts as clear or blocked.
+  UNKNOWN_CELL_POLICY_RAY_UNDETERMINED = 1;
+}
+
+// PerceptionSample lists what the observer could see at one server tick.
+//
+// A target that is absent from both the visible and the undetermined lists
+// was determined not visible: outside the view, beyond the distance limit,
+// or blocked by known occluders on every ray.
+message PerceptionSample {
+  int64 server_tick = 1;
+  string dimension = 2;
+  PerceptionObserver observer = 3;
+  // Distance limit applied to this sample.
+  double max_distance_blocks = 4;
+  // min(client requested, server) view distance in chunks; absent when unknown.
+  optional int32 view_distance_chunks = 5;
+  // Copied from the scene frame: false when the scene itself was incomplete.
+  bool scene_coverage_complete = 6;
+  repeated PerceivedEntity visible_entities = 7;
+  repeated PerceivedBlockEntity visible_block_entities = 8;
+  // In view and in range, but every ray that was not blocked crossed an
+  // unknown cell. Visibility is undetermined, not false.
+  repeated PerceivedEntity undetermined_entities = 9;
+  repeated PerceivedBlockEntity undetermined_block_entities = 10;
+}
+
+message PerceptionObserver {
+  // Scene network id of the observer entity, excluded from targets.
+  int32 entity_id = 1;
+  // Feet position from the authoritative post-tick player state.
+  Vector3 position = 2;
+  Vector3 eye = 3;
+  Rotation rotation = 4;
+  string pose = 5;
+  double eye_height = 6;
+}
+
+// RaySupport counts sight-ray outcomes for one target.
+message RaySupport {
+  // Sample points on the target.
+  uint32 points = 1;
+  // Points inside the view frustum; only these are cast.
+  uint32 in_view = 2;
+  // Rays that reached the target through known non-occluding cells.
+  uint32 clear = 3;
+  // Rays stopped by a known occluder.
+  uint32 blocked = 4;
+  // Rays stopped by an unknown cell before any occluder.
+  uint32 unknown = 5;
+}
+
+message PerceivedEntity {
+  // Scene Store entity_versions.instance_id.
+  string instance_id = 1;
+  optional int32 network_id = 2;
+  optional string uuid = 3;
+  string type_id = 4;
+  // Eye to the nearest point of the entity bounding box.
+  double distance = 5;
+  RaySupport support = 6;
+}
+
+message PerceivedBlockEntity {
+  string dimension = 1;
+  BlockPosition block_pos = 2;
+  string type_id = 3;
+  // Eye to the nearest point of the block cell.
+  double distance = 4;
+  RaySupport support = 5;
+}
