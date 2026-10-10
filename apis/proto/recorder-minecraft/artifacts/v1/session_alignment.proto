@@ -1,0 +1,216 @@
+syntax = "proto3";
+
+package recorder_minecraft.artifacts.v1;
+
+import "recorder-minecraft/artifacts/v1/common.proto";
+import "recorder-minecraft/artifacts/v1/events.proto";
+import "recorder-minecraft/artifacts/v1/perception.proto";
+
+option go_package = "github.com/proj-airi/recorder-minecraft/apis/sdk/go/recorder-minecraft/artifacts/v1;artifactsv1";
+option java_multiple_files = true;
+option java_package = "dev.recorderminecraft.artifacts.v1";
+
+// SessionAlignmentRecord is one ProtoJSON line of a session alignment JSONL.
+//
+// The first line is the header. Then come the aligned events in server tick
+// order and the container divergences in start tick order. Scope is session:
+// one world stream plus the plays the caller named. Provenance is
+// deterministic transform: every value is computed from those inputs, and
+// nothing is inferred about what an actor thinks.
+message SessionAlignmentRecord {
+  uint32 schema_version = 1;
+  oneof record {
+    SessionAlignmentHeader header = 20;
+    AlignedEvent event = 21;
+    ContainerDivergence divergence = 22;
+  }
+}
+
+message SessionAlignmentHeader {
+  PerceptionProcessor processor = 1;
+  // Always "session". World records have no actor; every other record names
+  // the actor it belongs to by connection_id.
+  string scope = 2;
+  // Always "deterministic transform".
+  string provenance = 3;
+  // True: a divergence end reads records after its start tick.
+  bool uses_future_context = 4;
+  // Which fields read records after the tick they describe.
+  string future_context = 5;
+  string session_id = 6;
+  // First and last server tick of the world stream.
+  TickRange world_coverage = 7;
+  // Roles "world_metadata" and "world_events".
+  repeated PerceptionInput world_inputs = 8;
+  repeated SessionParticipant participants = 9;
+  repeated string assumptions = 10;
+  repeated string known_limitations = 11;
+  uint64 event_count = 12;
+  uint64 divergence_count = 13;
+}
+
+// SessionParticipant is one Play given as input. An actor is one Play, not
+// one player: two connections of the same player are two actors.
+message SessionParticipant {
+  string player_uuid = 1;
+  string player_name = 2;
+  string connection_id = 3;
+  // Connection start and end server tick.
+  TickRange coverage = 4;
+  string terminal_reason = 5;
+  // Roles "capture_metadata", "capture_events", and "perception" when given.
+  repeated PerceptionInput inputs = 6;
+  // First and last perception sample; absent when no perception was given.
+  TickRange perception_coverage = 7;
+  uint32 perception_interval_ticks = 8;
+  // World stream containers this actor observed at least once, and those it
+  // never observed. A never observed container has no divergences.
+  uint32 observed_container_count = 9;
+  uint32 unobserved_container_count = 10;
+}
+
+// RecordRef points at one source record instead of copying it.
+message RecordRef {
+  RecordStream stream = 1;
+  // Actor that owns a capture or perception record; empty for the world stream.
+  string connection_id = 2;
+  int64 server_tick = 3;
+  // Stream sequence of a world or capture event. Zero for capture metadata
+  // and perception samples, which the tick identifies.
+  uint64 sequence = 4;
+}
+
+enum RecordStream {
+  RECORD_STREAM_UNSPECIFIED = 0;
+  RECORD_STREAM_WORLD_EVENTS = 1;
+  RECORD_STREAM_CAPTURE_METADATA = 2;
+  RECORD_STREAM_CAPTURE_EVENTS = 3;
+  RECORD_STREAM_PERCEPTION = 4;
+}
+
+// AlignedEvent indexes one source record on the merged server tick timeline.
+message AlignedEvent {
+  AlignedEventKind kind = 1;
+  // Tick, stream, actor, and sequence of the indexed record.
+  RecordRef source = 2;
+  // Container or block entity; absent for joins, leaves, and entities.
+  string dimension = 3;
+  BlockPosition block_pos = 4;
+  // For ACTOR_CONTAINER_VIEW.
+  ContainerViewKind container_view_kind = 5;
+  // For the two visibility kinds: the state from this sample on.
+  TargetVisibility visibility = 6;
+  // For ACTOR_ENTITY_VISIBILITY.
+  string entity_uuid = 7;
+  // Entity type, or block entity type for block entity visibility.
+  string type_id = 8;
+}
+
+enum AlignedEventKind {
+  ALIGNED_EVENT_KIND_UNSPECIFIED = 0;
+  ALIGNED_EVENT_KIND_WORLD_CONTAINER_SNAPSHOT = 1;
+  ALIGNED_EVENT_KIND_WORLD_CONTAINER_REMOVED = 2;
+  // Play start and end from capture metadata.
+  ALIGNED_EVENT_KIND_ACTOR_JOINED = 3;
+  ALIGNED_EVENT_KIND_ACTOR_LEFT = 4;
+  // A container_view record whose menu is backed by a container block.
+  ALIGNED_EVENT_KIND_ACTOR_CONTAINER_VIEW = 5;
+  // An applied container click while such a menu was open.
+  ALIGNED_EVENT_KIND_ACTOR_CONTAINER_CLICK = 6;
+  // A perception sample where the target's visibility changed.
+  ALIGNED_EVENT_KIND_ACTOR_ENTITY_VISIBILITY = 7;
+  ALIGNED_EVENT_KIND_ACTOR_BLOCK_ENTITY_VISIBILITY = 8;
+}
+
+enum TargetVisibility {
+  TARGET_VISIBILITY_UNSPECIFIED = 0;
+  TARGET_VISIBILITY_VISIBLE = 1;
+  // The perception sample determined the target was not visible.
+  TARGET_VISIBILITY_NOT_VISIBLE = 2;
+  // In view and in range, but rays met unknown cells. Not evidence of absence.
+  TARGET_VISIBILITY_UNDETERMINED = 3;
+}
+
+// ContainerDivergence is one interval in which the world contents of a
+// container differ from the contents the actor last observed in it.
+message ContainerDivergence {
+  string connection_id = 1;
+  string dimension = 2;
+  BlockPosition block_pos = 3;
+  // First tick at whose end the contents differed.
+  int64 start_tick = 4;
+  // Last tick at whose end the contents still differed.
+  int64 last_tick = 5;
+  // Tick at whose end the difference no longer held. Absent when coverage
+  // ended first, so the state after last_tick is unknown.
+  optional int64 end_tick = 6;
+  DivergenceEnd end = 7;
+  // Record that ended the interval; absent for coverage ends.
+  RecordRef end_source = 8;
+  // Contents the actor last observed before start_tick.
+  ContainerSlots observed = 9;
+  // World contents at the end of start_tick.
+  ContainerSlots truth = 10;
+  // World snapshots of the container after start_tick inside the interval.
+  uint32 truth_changes = 11;
+  CoPresence co_presence = 12;
+}
+
+enum DivergenceEnd {
+  DIVERGENCE_END_UNSPECIFIED = 0;
+  // The actor observed the container again.
+  DIVERGENCE_END_REOBSERVED = 1;
+  // The world contents changed back to the last observed contents.
+  DIVERGENCE_END_TRUTH_MATCHES = 2;
+  // container_removed: the chunk unloaded or the block entity was destroyed.
+  DIVERGENCE_END_CONTAINER_REMOVED = 3;
+  // The world contents became undetermined, such as an unrolled loot table.
+  DIVERGENCE_END_TRUTH_UNDETERMINED = 4;
+  // The actor's Play ended.
+  DIVERGENCE_END_ACTOR_COVERAGE_END = 5;
+  // The world stream ended.
+  DIVERGENCE_END_WORLD_COVERAGE_END = 6;
+}
+
+// ContainerSlots is the contents of one container, keyed by container slot.
+message ContainerSlots {
+  // Records that produced these contents, oldest first.
+  repeated RecordRef sources = 1;
+  // Non-empty container slots; an absent slot is empty. Slot numbers are
+  // container slots, not menu slots. components_debug is omitted.
+  repeated InventorySlot slots = 2;
+}
+
+// CoPresence is the observer's perception sample at a divergence start.
+message CoPresence {
+  CoPresenceStatus status = 1;
+  // The latest sample at or before the divergence start, when SAMPLED.
+  RecordRef sample = 2;
+  // Visibility of the container block entity itself.
+  TargetVisibility container = 3;
+  // Visible and undetermined entities in the sample.
+  repeated CoPresentEntity entities = 4;
+}
+
+enum CoPresenceStatus {
+  CO_PRESENCE_STATUS_UNSPECIFIED = 0;
+  // No perception.jsonl was given for this actor: unknown, not false.
+  CO_PRESENCE_STATUS_PERCEPTION_NOT_PROVIDED = 1;
+  // No sample within one sampling interval at or before the start tick.
+  CO_PRESENCE_STATUS_NO_SAMPLE = 2;
+  CO_PRESENCE_STATUS_SAMPLED = 3;
+}
+
+message CoPresentEntity {
+  optional string uuid = 1;
+  string type_id = 2;
+  TargetVisibility visibility = 3;
+  // Set when the entity is a participant player whose Play covers the
+  // divergence start tick.
+  string participant_connection_id = 4;
+  // Whether that participant had a menu backed by this container open at the
+  // divergence start tick. Absent when the entity is not such a participant.
+  optional bool participant_container_open = 5;
+  // The OPENED view of that menu when it was open.
+  RecordRef participant_menu = 6;
+}

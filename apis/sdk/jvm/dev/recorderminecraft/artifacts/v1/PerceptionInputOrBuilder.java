@@ -12,7 +12,7 @@ public interface PerceptionInputOrBuilder extends
 
   /**
    * <pre>
-   * One of "capture_metadata", "capture_events", or "scene_store".
+   * Perception uses "capture_metadata", "capture_events", or "scene_store".
    * </pre>
    *
    * <code>string role = 1 [json_name = "role"];</code>
@@ -21,7 +21,7 @@ public interface PerceptionInputOrBuilder extends
   java.lang.String getRole();
   /**
    * <pre>
-   * One of "capture_metadata", "capture_events", or "scene_store".
+   * Perception uses "capture_metadata", "capture_events", or "scene_store".
    * </pre>
    *
    * <code>string role = 1 [json_name = "role"];</code>
@@ -32,7 +32,7 @@ public interface PerceptionInputOrBuilder extends
 
   /**
    * <pre>
-   * path is relative to the directory that contains perception.jsonl when the
+   * path is relative to the directory that contains the output when the
    * input is inside it, and absolute otherwise.
    * </pre>
    *
@@ -42,7 +42,7 @@ public interface PerceptionInputOrBuilder extends
   boolean hasFile();
   /**
    * <pre>
-   * path is relative to the directory that contains perception.jsonl when the
+   * path is relative to the directory that contains the output when the
    * input is inside it, and absolute otherwise.
    * </pre>
    *
@@ -52,7 +52,7 @@ public interface PerceptionInputOrBuilder extends
   dev.recorderminecraft.artifacts.v1.ArtifactFile getFile();
   /**
    * <pre>
-   * path is relative to the directory that contains perception.jsonl when the
+   * path is relative to the directory that contains the output when the
    * input is inside it, and absolute otherwise.
    * </pre>
    *

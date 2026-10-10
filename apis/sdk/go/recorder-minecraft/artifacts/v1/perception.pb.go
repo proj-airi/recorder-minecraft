@@ -358,12 +358,13 @@ func (x *PerceptionProcessor) GetVersion() string {
 	return ""
 }
 
-// PerceptionInput identifies one input by role and content digest.
+// PerceptionInput identifies one input by role and content digest. Session
+// alignment reuses it for its own lineage.
 type PerceptionInput struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// One of "capture_metadata", "capture_events", or "scene_store".
+	// Perception uses "capture_metadata", "capture_events", or "scene_store".
 	Role string `protobuf:"bytes,1,opt,name=role,proto3" json:"role,omitempty"`
-	// path is relative to the directory that contains perception.jsonl when the
+	// path is relative to the directory that contains the output when the
 	// input is inside it, and absolute otherwise.
 	File          *ArtifactFile `protobuf:"bytes,2,opt,name=file,proto3" json:"file,omitempty"`
 	unknownFields protoimpl.UnknownFields

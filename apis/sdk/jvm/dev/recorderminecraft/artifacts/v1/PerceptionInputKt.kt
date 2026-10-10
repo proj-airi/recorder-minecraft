@@ -12,7 +12,8 @@ public inline fun perceptionInput(block: dev.recorderminecraft.artifacts.v1.Perc
   dev.recorderminecraft.artifacts.v1.PerceptionInputKt.Dsl._create(dev.recorderminecraft.artifacts.v1.PerceptionInput.newBuilder()).apply { block() }._build()
 /**
  * ```
- * PerceptionInput identifies one input by role and content digest.
+ * PerceptionInput identifies one input by role and content digest. Session
+ * alignment reuses it for its own lineage.
  * ```
  *
  * Protobuf type `recorder_minecraft.artifacts.v1.PerceptionInput`
@@ -35,7 +36,7 @@ public object PerceptionInputKt {
 
     /**
      * ```
-     * One of "capture_metadata", "capture_events", or "scene_store".
+     * Perception uses "capture_metadata", "capture_events", or "scene_store".
      * ```
      *
      * `string role = 1 [json_name = "role"];`
@@ -49,7 +50,7 @@ public object PerceptionInputKt {
       }
     /**
      * ```
-     * One of "capture_metadata", "capture_events", or "scene_store".
+     * Perception uses "capture_metadata", "capture_events", or "scene_store".
      * ```
      *
      * `string role = 1 [json_name = "role"];`
@@ -60,7 +61,7 @@ public object PerceptionInputKt {
 
     /**
      * ```
-     * path is relative to the directory that contains perception.jsonl when the
+     * path is relative to the directory that contains the output when the
      * input is inside it, and absolute otherwise.
      * ```
      *
@@ -75,7 +76,7 @@ public object PerceptionInputKt {
       }
     /**
      * ```
-     * path is relative to the directory that contains perception.jsonl when the
+     * path is relative to the directory that contains the output when the
      * input is inside it, and absolute otherwise.
      * ```
      *
@@ -86,7 +87,7 @@ public object PerceptionInputKt {
     }
     /**
      * ```
-     * path is relative to the directory that contains perception.jsonl when the
+     * path is relative to the directory that contains the output when the
      * input is inside it, and absolute otherwise.
      * ```
      *
