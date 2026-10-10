@@ -5,6 +5,8 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import dev.mcdata.scene.io.Hashing;
 import dev.mcdata.scene.job.SceneJob;
+import dev.recorderminecraft.artifacts.v1.SceneSourceRuntime;
+import dev.recorderminecraft.artifacts.v1.SceneToleratedMod;
 
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -12,46 +14,31 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.attribute.BasicFileAttributes;
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Map;
-import java.util.Set;
+import java.util.TreeMap;
 import java.util.UUID;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
-/** Verifies immutable bytes, embedded provenance, and source-compatible mod versions. */
+/**
+ * Verifies immutable bytes, embedded provenance, and that the extractor can decode the replay.
+ *
+ * <p>Only the Minecraft version, network protocol, and data version must equal the extractor's,
+ * because the extractor decodes with the vanilla codecs and registries of that version (see
+ * {@link ExtractorRuntime}). The ServerReplay {@code mods} list is provenance: it names every
+ * top-level mod of the recording client or server, not what the replay bytes need. A mod that
+ * only adds behavior, such as a path finder or a map, adds at most custom payloads, which the
+ * extractor counts as ignored packets. A mod that adds blocks, items, entities, or entity data
+ * serializers gets raw IDs after the vanilla ones, and the vanilla codecs reject unknown IDs, so
+ * extraction fails at the first packet that uses one. A mod denylist would add no safety and
+ * would need an update for every new mod.
+ */
 public final class ReplayArchiveValidator {
     private static final long MAX_METADATA_BYTES = 1_048_576;
-    // NOTICE: Replays recorded before the Fabric mod ID was aligned with the product name contain
-    // mc-recorder. Both IDs describe capture infrastructure replaced by this headless extractor,
-    // so neither should be required in the extractor runtime.
-    private static final Set<String> REPLACED_CAPTURE_INFRASTRUCTURE_IDS = Set.of(
-        "mc-recorder", "recorder-minecraft", "server-replay"
-    );
-    private static final Set<String> INFRASTRUCTURE_IDS = Set.of(
-        "minecraft", "java", "fabricloader", "fabric-api", "fabric-language-kotlin",
-        "mc-recorder", "recorder-minecraft", "server-replay", "recorder-minecraft-scene-extractor", "mixinextras", "inject"
-    );
-    private final Map<String, String> loadedMods;
+    private final ExtractorRuntime runtime;
 
-    public ReplayArchiveValidator(Map<String, String> loadedMods) {
-        this.loadedMods = Map.copyOf(loadedMods);
-    }
-
-    public static Map<String, String> runtimeMods() {
-        Map<String, String> mods = new HashMap<>();
-        putProperty(mods, "minecraft", "mcRecorder.minecraftVersion");
-        putProperty(mods, "fabricloader", "mcRecorder.fabricLoaderVersion");
-        putProperty(mods, "fabric-api", "mcRecorder.fabricVersion");
-        putProperty(mods, "fabric-language-kotlin", "mcRecorder.fabricKotlinVersion");
-        putProperty(mods, "arcade-replay", "mcRecorder.arcadeVersion");
-        putProperty(mods, "recorder-minecraft-scene-extractor", "mcRecorder.extractorVersion");
-        String javaVersion = System.getProperty("java.version");
-        if (javaVersion != null && !javaVersion.isBlank()) {
-            mods.put("java", javaVersion);
-        }
-        return Map.copyOf(mods);
+    public ReplayArchiveValidator(ExtractorRuntime runtime) {
+        this.runtime = runtime;
     }
 
     public VerifiedSource verify(SceneJob job, SceneJob.SourceReplay source) throws IOException {
@@ -69,12 +56,19 @@ public final class ReplayArchiveValidator {
         JsonObject arcadeMetadata = readMetadata(source.path(), "arcade_replay_meta.json");
         JsonObject identity = requiredObject(arcadeMetadata, "recorder-minecraft");
         requireIdentity(identity, job, source);
-        verifyMods(requiredObject(arcadeMetadata, "mods"));
         JsonObject flashbackMetadata = readMetadata(source.path(), "metadata.json");
         if (!flashbackMetadata.has("chunks") || !flashbackMetadata.has("total_ticks")) {
             throw new IOException("Flashback metadata lacks chunks or total_ticks: " + source.path());
         }
-        return new VerifiedSource(source, before.fileKey(), before.size(), before.lastModifiedTime().toMillis());
+        SceneSourceRuntime sourceRuntime;
+        try {
+            sourceRuntime = compareRuntime(source.segmentId(), flashbackMetadata, arcadeMetadata, runtime);
+        } catch (IOException exception) {
+            throw new IOException(exception.getMessage() + ": " + source.path(), exception);
+        }
+        return new VerifiedSource(
+            source, before.fileKey(), before.size(), before.lastModifiedTime().toMillis(), sourceRuntime
+        );
     }
 
     public void verifyUnchanged(VerifiedSource verified) throws IOException {
@@ -155,56 +149,64 @@ public final class ReplayArchiveValidator {
         }
     }
 
-    private void verifyMods(JsonObject sourceMods) throws IOException {
-        Map<String, String> expected = new HashMap<>();
-        for (Map.Entry<String, JsonElement> entry : sourceMods.entrySet()) {
+    /**
+     * Rejects a replay whose Minecraft identity differs from the extractor runtime and records every
+     * other runtime difference as provenance.
+     */
+    static SceneSourceRuntime compareRuntime(
+        UUID segmentId,
+        JsonObject flashbackMetadata,
+        JsonObject arcadeMetadata,
+        ExtractorRuntime runtime
+    ) throws IOException {
+        // NOTICE: ServerReplay's mods list omits built-in mods, so it never names Minecraft. The
+        // Flashback metadata written with the archive is the only record of the game version.
+        String minecraftVersion = requiredString(flashbackMetadata, "version_string");
+        int protocolVersion = requiredInt(flashbackMetadata, "protocol_version");
+        int dataVersion = requiredInt(flashbackMetadata, "data_version");
+        if (!minecraftVersion.equals(runtime.minecraftVersion())
+            || protocolVersion != runtime.protocolVersion()
+            || dataVersion != runtime.dataVersion()) {
+            throw new IOException(
+                "replay Minecraft " + minecraftVersion + " (protocol " + protocolVersion + ", data "
+                    + dataVersion + ") cannot be decoded by extractor Minecraft " + runtime.minecraftVersion()
+                    + " (protocol " + runtime.protocolVersion() + ", data " + runtime.dataVersion() + ")"
+            );
+        }
+
+        SceneSourceRuntime.Builder result = SceneSourceRuntime.newBuilder()
+            .setSegmentId(segmentId.toString())
+            .setMinecraftVersion(minecraftVersion)
+            .setProtocolVersion(protocolVersion)
+            .setDataVersion(dataVersion);
+        if (arcadeMetadata.has("server_replay_version")) {
+            result.setServerReplayVersion(requiredString(arcadeMetadata, "server_replay_version"));
+        }
+        // A sorted map gives provenance a stable order, so equal inputs give equal results.
+        Map<String, String> sourceMods = new TreeMap<>();
+        for (Map.Entry<String, JsonElement> entry : requiredObject(arcadeMetadata, "mods").entrySet()) {
             if (!entry.getValue().isJsonPrimitive() || !entry.getValue().getAsJsonPrimitive().isString()) {
                 throw new IOException("arcade replay mods must map IDs to version strings");
             }
-            expected.put(entry.getKey(), entry.getValue().getAsString());
+            sourceMods.put(entry.getKey(), entry.getValue().getAsString());
         }
-        verifyModCompatibility(expected, loadedMods);
-    }
-
-    static void verifyModCompatibility(Map<String, String> expected, Map<String, String> loaded)
-        throws IOException {
-        for (Map.Entry<String, String> required : expected.entrySet()) {
-            if (REPLACED_CAPTURE_INFRASTRUCTURE_IDS.contains(required.getKey())) {
+        for (Map.Entry<String, String> mod : sourceMods.entrySet()) {
+            String extractorVersion = runtime.mods().get(mod.getKey());
+            if (mod.getValue().equals(extractorVersion)) {
                 continue;
             }
-            String actual = loaded.get(required.getKey());
-            if (!required.getValue().equals(actual)) {
-                throw new IOException(
-                    "extractor runtime version mismatch for " + required.getKey()
-                        + ": source=" + required.getValue() + ", loaded=" + actual
-                );
+            SceneToleratedMod.Builder tolerated = SceneToleratedMod.newBuilder()
+                .setModId(mod.getKey())
+                .setSourceVersion(mod.getValue());
+            if (extractorVersion == null) {
+                tolerated.setDifference(SceneToleratedMod.Difference.DIFFERENCE_NOT_IN_EXTRACTOR);
+            } else {
+                tolerated.setDifference(SceneToleratedMod.Difference.DIFFERENCE_VERSION_MISMATCH)
+                    .setExtractorVersion(extractorVersion);
             }
+            result.addToleratedMods(tolerated);
         }
-
-        Set<String> unexpected = new HashSet<>();
-        for (String loadedId : loaded.keySet()) {
-            if (expected.containsKey(loadedId) || isInfrastructureDependency(loadedId)) {
-                continue;
-            }
-            unexpected.add(loadedId);
-        }
-        if (!unexpected.isEmpty()) {
-            throw new IOException("extractor has source-incompatible extra mods: " + unexpected);
-        }
-    }
-
-    private static boolean isInfrastructureDependency(String id) {
-        return INFRASTRUCTURE_IDS.contains(id)
-            || id.startsWith("fabric-")
-            || id.startsWith("arcade-")
-            || id.startsWith("kotlin-");
-    }
-
-    private static void putProperty(Map<String, String> values, String modId, String property) {
-        String value = System.getProperty(property);
-        if (value != null && !value.isBlank()) {
-            values.put(modId, value);
-        }
+        return result.build();
     }
 
     private static JsonObject requiredObject(JsonObject object, String name) throws IOException {
@@ -247,5 +249,11 @@ public final class ReplayArchiveValidator {
         }
     }
 
-    public record VerifiedSource(SceneJob.SourceReplay source, Object fileKey, long size, long modifiedMillis) { }
+    public record VerifiedSource(
+        SceneJob.SourceReplay source,
+        Object fileKey,
+        long size,
+        long modifiedMillis,
+        SceneSourceRuntime runtime
+    ) { }
 }

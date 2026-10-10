@@ -37,6 +37,7 @@ private static final long serialVersionUID = 0L;
     scope_ = "";
     metadataPolicy_ = "";
     sourceReplays_ = java.util.Collections.emptyList();
+    sourceRuntimes_ = java.util.Collections.emptyList();
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
@@ -663,6 +664,67 @@ private static final long serialVersionUID = 0L;
     return coveredTickCount_;
   }
 
+  public static final int SOURCE_RUNTIMES_FIELD_NUMBER = 14;
+  @SuppressWarnings("serial")
+  private java.util.List<dev.recorderminecraft.artifacts.v1.SceneSourceRuntime> sourceRuntimes_;
+  /**
+   * <pre>
+   * One entry per source replay, in source_replays order.
+   * </pre>
+   *
+   * <code>repeated .recorder_minecraft.artifacts.v1.SceneSourceRuntime source_runtimes = 14 [json_name = "sourceRuntimes"];</code>
+   */
+  @java.lang.Override
+  public java.util.List<dev.recorderminecraft.artifacts.v1.SceneSourceRuntime> getSourceRuntimesList() {
+    return sourceRuntimes_;
+  }
+  /**
+   * <pre>
+   * One entry per source replay, in source_replays order.
+   * </pre>
+   *
+   * <code>repeated .recorder_minecraft.artifacts.v1.SceneSourceRuntime source_runtimes = 14 [json_name = "sourceRuntimes"];</code>
+   */
+  @java.lang.Override
+  public java.util.List<? extends dev.recorderminecraft.artifacts.v1.SceneSourceRuntimeOrBuilder> 
+      getSourceRuntimesOrBuilderList() {
+    return sourceRuntimes_;
+  }
+  /**
+   * <pre>
+   * One entry per source replay, in source_replays order.
+   * </pre>
+   *
+   * <code>repeated .recorder_minecraft.artifacts.v1.SceneSourceRuntime source_runtimes = 14 [json_name = "sourceRuntimes"];</code>
+   */
+  @java.lang.Override
+  public int getSourceRuntimesCount() {
+    return sourceRuntimes_.size();
+  }
+  /**
+   * <pre>
+   * One entry per source replay, in source_replays order.
+   * </pre>
+   *
+   * <code>repeated .recorder_minecraft.artifacts.v1.SceneSourceRuntime source_runtimes = 14 [json_name = "sourceRuntimes"];</code>
+   */
+  @java.lang.Override
+  public dev.recorderminecraft.artifacts.v1.SceneSourceRuntime getSourceRuntimes(int index) {
+    return sourceRuntimes_.get(index);
+  }
+  /**
+   * <pre>
+   * One entry per source replay, in source_replays order.
+   * </pre>
+   *
+   * <code>repeated .recorder_minecraft.artifacts.v1.SceneSourceRuntime source_runtimes = 14 [json_name = "sourceRuntimes"];</code>
+   */
+  @java.lang.Override
+  public dev.recorderminecraft.artifacts.v1.SceneSourceRuntimeOrBuilder getSourceRuntimesOrBuilder(
+      int index) {
+    return sourceRuntimes_.get(index);
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -718,6 +780,9 @@ private static final long serialVersionUID = 0L;
         12);
     if (coveredTickCount_ != 0L) {
       output.writeUInt64(13, coveredTickCount_);
+    }
+    for (int i = 0; i < sourceRuntimes_.size(); i++) {
+      output.writeMessage(14, sourceRuntimes_.get(i));
     }
     getUnknownFields().writeTo(output);
   }
@@ -779,6 +844,10 @@ private static final long serialVersionUID = 0L;
       size += com.google.protobuf.CodedOutputStream
         .computeUInt64Size(13, coveredTickCount_);
     }
+    for (int i = 0; i < sourceRuntimes_.size(); i++) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(14, sourceRuntimes_.get(i));
+    }
     size += getUnknownFields().getSerializedSize();
     memoizedSize = size;
     return size;
@@ -825,6 +894,8 @@ private static final long serialVersionUID = 0L;
         other.internalGetIgnoredPacketCounts())) return false;
     if (getCoveredTickCount()
         != other.getCoveredTickCount()) return false;
+    if (!getSourceRuntimesList()
+        .equals(other.getSourceRuntimesList())) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -871,6 +942,10 @@ private static final long serialVersionUID = 0L;
     hash = (37 * hash) + COVERED_TICK_COUNT_FIELD_NUMBER;
     hash = (53 * hash) + com.google.protobuf.Internal.hashLong(
         getCoveredTickCount());
+    if (getSourceRuntimesCount() > 0) {
+      hash = (37 * hash) + SOURCE_RUNTIMES_FIELD_NUMBER;
+      hash = (53 * hash) + getSourceRuntimesList().hashCode();
+    }
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
     return hash;
@@ -1026,6 +1101,7 @@ private static final long serialVersionUID = 0L;
         internalGetTicksFieldBuilder();
         internalGetSourceReplaysFieldBuilder();
         internalGetStreamFieldBuilder();
+        internalGetSourceRuntimesFieldBuilder();
       }
     }
     @java.lang.Override
@@ -1059,6 +1135,13 @@ private static final long serialVersionUID = 0L;
       }
       internalGetMutableIgnoredPacketCounts().clear();
       coveredTickCount_ = 0L;
+      if (sourceRuntimesBuilder_ == null) {
+        sourceRuntimes_ = java.util.Collections.emptyList();
+      } else {
+        sourceRuntimes_ = null;
+        sourceRuntimesBuilder_.clear();
+      }
+      bitField0_ = (bitField0_ & ~0x00002000);
       return this;
     }
 
@@ -1100,6 +1183,15 @@ private static final long serialVersionUID = 0L;
         result.sourceReplays_ = sourceReplays_;
       } else {
         result.sourceReplays_ = sourceReplaysBuilder_.build();
+      }
+      if (sourceRuntimesBuilder_ == null) {
+        if (((bitField0_ & 0x00002000) != 0)) {
+          sourceRuntimes_ = java.util.Collections.unmodifiableList(sourceRuntimes_);
+          bitField0_ = (bitField0_ & ~0x00002000);
+        }
+        result.sourceRuntimes_ = sourceRuntimes_;
+      } else {
+        result.sourceRuntimes_ = sourceRuntimesBuilder_.build();
       }
     }
 
@@ -1240,6 +1332,32 @@ private static final long serialVersionUID = 0L;
       if (other.getCoveredTickCount() != 0L) {
         setCoveredTickCount(other.getCoveredTickCount());
       }
+      if (sourceRuntimesBuilder_ == null) {
+        if (!other.sourceRuntimes_.isEmpty()) {
+          if (sourceRuntimes_.isEmpty()) {
+            sourceRuntimes_ = other.sourceRuntimes_;
+            bitField0_ = (bitField0_ & ~0x00002000);
+          } else {
+            ensureSourceRuntimesIsMutable();
+            sourceRuntimes_.addAll(other.sourceRuntimes_);
+          }
+          onChanged();
+        }
+      } else {
+        if (!other.sourceRuntimes_.isEmpty()) {
+          if (sourceRuntimesBuilder_.isEmpty()) {
+            sourceRuntimesBuilder_.dispose();
+            sourceRuntimesBuilder_ = null;
+            sourceRuntimes_ = other.sourceRuntimes_;
+            bitField0_ = (bitField0_ & ~0x00002000);
+            sourceRuntimesBuilder_ = 
+              com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
+                 internalGetSourceRuntimesFieldBuilder() : null;
+          } else {
+            sourceRuntimesBuilder_.addAllMessages(other.sourceRuntimes_);
+          }
+        }
+      }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
       return this;
@@ -1347,6 +1465,19 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00001000;
               break;
             } // case 104
+            case 114: {
+              dev.recorderminecraft.artifacts.v1.SceneSourceRuntime m =
+                  input.readMessage(
+                      dev.recorderminecraft.artifacts.v1.SceneSourceRuntime.parser(),
+                      extensionRegistry);
+              if (sourceRuntimesBuilder_ == null) {
+                ensureSourceRuntimesIsMutable();
+                sourceRuntimes_.add(m);
+              } else {
+                sourceRuntimesBuilder_.addMessage(m);
+              }
+              break;
+            } // case 114
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -2556,6 +2687,318 @@ private static final long serialVersionUID = 0L;
       coveredTickCount_ = 0L;
       onChanged();
       return this;
+    }
+
+    private java.util.List<dev.recorderminecraft.artifacts.v1.SceneSourceRuntime> sourceRuntimes_ =
+      java.util.Collections.emptyList();
+    private void ensureSourceRuntimesIsMutable() {
+      if (!((bitField0_ & 0x00002000) != 0)) {
+        sourceRuntimes_ = new java.util.ArrayList<dev.recorderminecraft.artifacts.v1.SceneSourceRuntime>(sourceRuntimes_);
+        bitField0_ |= 0x00002000;
+       }
+    }
+
+    private com.google.protobuf.RepeatedFieldBuilder<
+        dev.recorderminecraft.artifacts.v1.SceneSourceRuntime, dev.recorderminecraft.artifacts.v1.SceneSourceRuntime.Builder, dev.recorderminecraft.artifacts.v1.SceneSourceRuntimeOrBuilder> sourceRuntimesBuilder_;
+
+    /**
+     * <pre>
+     * One entry per source replay, in source_replays order.
+     * </pre>
+     *
+     * <code>repeated .recorder_minecraft.artifacts.v1.SceneSourceRuntime source_runtimes = 14 [json_name = "sourceRuntimes"];</code>
+     */
+    public java.util.List<dev.recorderminecraft.artifacts.v1.SceneSourceRuntime> getSourceRuntimesList() {
+      if (sourceRuntimesBuilder_ == null) {
+        return java.util.Collections.unmodifiableList(sourceRuntimes_);
+      } else {
+        return sourceRuntimesBuilder_.getMessageList();
+      }
+    }
+    /**
+     * <pre>
+     * One entry per source replay, in source_replays order.
+     * </pre>
+     *
+     * <code>repeated .recorder_minecraft.artifacts.v1.SceneSourceRuntime source_runtimes = 14 [json_name = "sourceRuntimes"];</code>
+     */
+    public int getSourceRuntimesCount() {
+      if (sourceRuntimesBuilder_ == null) {
+        return sourceRuntimes_.size();
+      } else {
+        return sourceRuntimesBuilder_.getCount();
+      }
+    }
+    /**
+     * <pre>
+     * One entry per source replay, in source_replays order.
+     * </pre>
+     *
+     * <code>repeated .recorder_minecraft.artifacts.v1.SceneSourceRuntime source_runtimes = 14 [json_name = "sourceRuntimes"];</code>
+     */
+    public dev.recorderminecraft.artifacts.v1.SceneSourceRuntime getSourceRuntimes(int index) {
+      if (sourceRuntimesBuilder_ == null) {
+        return sourceRuntimes_.get(index);
+      } else {
+        return sourceRuntimesBuilder_.getMessage(index);
+      }
+    }
+    /**
+     * <pre>
+     * One entry per source replay, in source_replays order.
+     * </pre>
+     *
+     * <code>repeated .recorder_minecraft.artifacts.v1.SceneSourceRuntime source_runtimes = 14 [json_name = "sourceRuntimes"];</code>
+     */
+    public Builder setSourceRuntimes(
+        int index, dev.recorderminecraft.artifacts.v1.SceneSourceRuntime value) {
+      if (sourceRuntimesBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        ensureSourceRuntimesIsMutable();
+        sourceRuntimes_.set(index, value);
+        onChanged();
+      } else {
+        sourceRuntimesBuilder_.setMessage(index, value);
+      }
+      return this;
+    }
+    /**
+     * <pre>
+     * One entry per source replay, in source_replays order.
+     * </pre>
+     *
+     * <code>repeated .recorder_minecraft.artifacts.v1.SceneSourceRuntime source_runtimes = 14 [json_name = "sourceRuntimes"];</code>
+     */
+    public Builder setSourceRuntimes(
+        int index, dev.recorderminecraft.artifacts.v1.SceneSourceRuntime.Builder builderForValue) {
+      if (sourceRuntimesBuilder_ == null) {
+        ensureSourceRuntimesIsMutable();
+        sourceRuntimes_.set(index, builderForValue.build());
+        onChanged();
+      } else {
+        sourceRuntimesBuilder_.setMessage(index, builderForValue.build());
+      }
+      return this;
+    }
+    /**
+     * <pre>
+     * One entry per source replay, in source_replays order.
+     * </pre>
+     *
+     * <code>repeated .recorder_minecraft.artifacts.v1.SceneSourceRuntime source_runtimes = 14 [json_name = "sourceRuntimes"];</code>
+     */
+    public Builder addSourceRuntimes(dev.recorderminecraft.artifacts.v1.SceneSourceRuntime value) {
+      if (sourceRuntimesBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        ensureSourceRuntimesIsMutable();
+        sourceRuntimes_.add(value);
+        onChanged();
+      } else {
+        sourceRuntimesBuilder_.addMessage(value);
+      }
+      return this;
+    }
+    /**
+     * <pre>
+     * One entry per source replay, in source_replays order.
+     * </pre>
+     *
+     * <code>repeated .recorder_minecraft.artifacts.v1.SceneSourceRuntime source_runtimes = 14 [json_name = "sourceRuntimes"];</code>
+     */
+    public Builder addSourceRuntimes(
+        int index, dev.recorderminecraft.artifacts.v1.SceneSourceRuntime value) {
+      if (sourceRuntimesBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        ensureSourceRuntimesIsMutable();
+        sourceRuntimes_.add(index, value);
+        onChanged();
+      } else {
+        sourceRuntimesBuilder_.addMessage(index, value);
+      }
+      return this;
+    }
+    /**
+     * <pre>
+     * One entry per source replay, in source_replays order.
+     * </pre>
+     *
+     * <code>repeated .recorder_minecraft.artifacts.v1.SceneSourceRuntime source_runtimes = 14 [json_name = "sourceRuntimes"];</code>
+     */
+    public Builder addSourceRuntimes(
+        dev.recorderminecraft.artifacts.v1.SceneSourceRuntime.Builder builderForValue) {
+      if (sourceRuntimesBuilder_ == null) {
+        ensureSourceRuntimesIsMutable();
+        sourceRuntimes_.add(builderForValue.build());
+        onChanged();
+      } else {
+        sourceRuntimesBuilder_.addMessage(builderForValue.build());
+      }
+      return this;
+    }
+    /**
+     * <pre>
+     * One entry per source replay, in source_replays order.
+     * </pre>
+     *
+     * <code>repeated .recorder_minecraft.artifacts.v1.SceneSourceRuntime source_runtimes = 14 [json_name = "sourceRuntimes"];</code>
+     */
+    public Builder addSourceRuntimes(
+        int index, dev.recorderminecraft.artifacts.v1.SceneSourceRuntime.Builder builderForValue) {
+      if (sourceRuntimesBuilder_ == null) {
+        ensureSourceRuntimesIsMutable();
+        sourceRuntimes_.add(index, builderForValue.build());
+        onChanged();
+      } else {
+        sourceRuntimesBuilder_.addMessage(index, builderForValue.build());
+      }
+      return this;
+    }
+    /**
+     * <pre>
+     * One entry per source replay, in source_replays order.
+     * </pre>
+     *
+     * <code>repeated .recorder_minecraft.artifacts.v1.SceneSourceRuntime source_runtimes = 14 [json_name = "sourceRuntimes"];</code>
+     */
+    public Builder addAllSourceRuntimes(
+        java.lang.Iterable<? extends dev.recorderminecraft.artifacts.v1.SceneSourceRuntime> values) {
+      if (sourceRuntimesBuilder_ == null) {
+        ensureSourceRuntimesIsMutable();
+        com.google.protobuf.AbstractMessageLite.Builder.addAll(
+            values, sourceRuntimes_);
+        onChanged();
+      } else {
+        sourceRuntimesBuilder_.addAllMessages(values);
+      }
+      return this;
+    }
+    /**
+     * <pre>
+     * One entry per source replay, in source_replays order.
+     * </pre>
+     *
+     * <code>repeated .recorder_minecraft.artifacts.v1.SceneSourceRuntime source_runtimes = 14 [json_name = "sourceRuntimes"];</code>
+     */
+    public Builder clearSourceRuntimes() {
+      if (sourceRuntimesBuilder_ == null) {
+        sourceRuntimes_ = java.util.Collections.emptyList();
+        bitField0_ = (bitField0_ & ~0x00002000);
+        onChanged();
+      } else {
+        sourceRuntimesBuilder_.clear();
+      }
+      return this;
+    }
+    /**
+     * <pre>
+     * One entry per source replay, in source_replays order.
+     * </pre>
+     *
+     * <code>repeated .recorder_minecraft.artifacts.v1.SceneSourceRuntime source_runtimes = 14 [json_name = "sourceRuntimes"];</code>
+     */
+    public Builder removeSourceRuntimes(int index) {
+      if (sourceRuntimesBuilder_ == null) {
+        ensureSourceRuntimesIsMutable();
+        sourceRuntimes_.remove(index);
+        onChanged();
+      } else {
+        sourceRuntimesBuilder_.remove(index);
+      }
+      return this;
+    }
+    /**
+     * <pre>
+     * One entry per source replay, in source_replays order.
+     * </pre>
+     *
+     * <code>repeated .recorder_minecraft.artifacts.v1.SceneSourceRuntime source_runtimes = 14 [json_name = "sourceRuntimes"];</code>
+     */
+    public dev.recorderminecraft.artifacts.v1.SceneSourceRuntime.Builder getSourceRuntimesBuilder(
+        int index) {
+      return internalGetSourceRuntimesFieldBuilder().getBuilder(index);
+    }
+    /**
+     * <pre>
+     * One entry per source replay, in source_replays order.
+     * </pre>
+     *
+     * <code>repeated .recorder_minecraft.artifacts.v1.SceneSourceRuntime source_runtimes = 14 [json_name = "sourceRuntimes"];</code>
+     */
+    public dev.recorderminecraft.artifacts.v1.SceneSourceRuntimeOrBuilder getSourceRuntimesOrBuilder(
+        int index) {
+      if (sourceRuntimesBuilder_ == null) {
+        return sourceRuntimes_.get(index);  } else {
+        return sourceRuntimesBuilder_.getMessageOrBuilder(index);
+      }
+    }
+    /**
+     * <pre>
+     * One entry per source replay, in source_replays order.
+     * </pre>
+     *
+     * <code>repeated .recorder_minecraft.artifacts.v1.SceneSourceRuntime source_runtimes = 14 [json_name = "sourceRuntimes"];</code>
+     */
+    public java.util.List<? extends dev.recorderminecraft.artifacts.v1.SceneSourceRuntimeOrBuilder> 
+         getSourceRuntimesOrBuilderList() {
+      if (sourceRuntimesBuilder_ != null) {
+        return sourceRuntimesBuilder_.getMessageOrBuilderList();
+      } else {
+        return java.util.Collections.unmodifiableList(sourceRuntimes_);
+      }
+    }
+    /**
+     * <pre>
+     * One entry per source replay, in source_replays order.
+     * </pre>
+     *
+     * <code>repeated .recorder_minecraft.artifacts.v1.SceneSourceRuntime source_runtimes = 14 [json_name = "sourceRuntimes"];</code>
+     */
+    public dev.recorderminecraft.artifacts.v1.SceneSourceRuntime.Builder addSourceRuntimesBuilder() {
+      return internalGetSourceRuntimesFieldBuilder().addBuilder(
+          dev.recorderminecraft.artifacts.v1.SceneSourceRuntime.getDefaultInstance());
+    }
+    /**
+     * <pre>
+     * One entry per source replay, in source_replays order.
+     * </pre>
+     *
+     * <code>repeated .recorder_minecraft.artifacts.v1.SceneSourceRuntime source_runtimes = 14 [json_name = "sourceRuntimes"];</code>
+     */
+    public dev.recorderminecraft.artifacts.v1.SceneSourceRuntime.Builder addSourceRuntimesBuilder(
+        int index) {
+      return internalGetSourceRuntimesFieldBuilder().addBuilder(
+          index, dev.recorderminecraft.artifacts.v1.SceneSourceRuntime.getDefaultInstance());
+    }
+    /**
+     * <pre>
+     * One entry per source replay, in source_replays order.
+     * </pre>
+     *
+     * <code>repeated .recorder_minecraft.artifacts.v1.SceneSourceRuntime source_runtimes = 14 [json_name = "sourceRuntimes"];</code>
+     */
+    public java.util.List<dev.recorderminecraft.artifacts.v1.SceneSourceRuntime.Builder> 
+         getSourceRuntimesBuilderList() {
+      return internalGetSourceRuntimesFieldBuilder().getBuilderList();
+    }
+    private com.google.protobuf.RepeatedFieldBuilder<
+        dev.recorderminecraft.artifacts.v1.SceneSourceRuntime, dev.recorderminecraft.artifacts.v1.SceneSourceRuntime.Builder, dev.recorderminecraft.artifacts.v1.SceneSourceRuntimeOrBuilder> 
+        internalGetSourceRuntimesFieldBuilder() {
+      if (sourceRuntimesBuilder_ == null) {
+        sourceRuntimesBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
+            dev.recorderminecraft.artifacts.v1.SceneSourceRuntime, dev.recorderminecraft.artifacts.v1.SceneSourceRuntime.Builder, dev.recorderminecraft.artifacts.v1.SceneSourceRuntimeOrBuilder>(
+                sourceRuntimes_,
+                ((bitField0_ & 0x00002000) != 0),
+                getParentForChildren(),
+                isClean());
+        sourceRuntimes_ = null;
+      }
+      return sourceRuntimesBuilder_;
     }
 
     // @@protoc_insertion_point(builder_scope:recorder_minecraft.artifacts.v1.SceneExtractionResult)

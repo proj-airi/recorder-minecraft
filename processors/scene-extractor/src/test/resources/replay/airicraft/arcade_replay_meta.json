@@ -1,0 +1,29 @@
+{
+  "name": "Airi",
+  "mods": {
+    "airicraft": "0.1.1-SNAPSHOT",
+    "airicraft-evaluator": "0.1.1-SNAPSHOT",
+    "airicraft-journeymap-compat": "0.1.1-SNAPSHOT",
+    "airicraft-rei-compat": "0.1.1-SNAPSHOT",
+    "architectury": "17.0.6",
+    "baritone": "1.15.0",
+    "cloth-config": "19.0.147",
+    "dev_babbaj_nether-pathfinder": "1.4.1",
+    "fabric-api": "0.136.1+1.21.8",
+    "fabricloader": "0.19.5",
+    "journeymap": "1.21.8-6.0.0-beta.52",
+    "recorder-profile": "0.1.0+1.21.8",
+    "roughlyenoughitems": "20.0.811"
+  },
+  "recorder-minecraft": {
+    "schema_version": 4,
+    "session_id": "05528100-1a00-46cf-97d3-6f76501d9e7e",
+    "replay_id": "c6dd59e9-4638-4b31-80b9-a23363d7a179",
+    "player_uuid": "2575798e-2b63-3ebe-a39e-5e3a3eba2b3f",
+    "connection_id": "afe03965-030f-469f-8c5b-0dcd6c185c92",
+    "capture_path": "capture/replay.zip",
+    "hotbar_snapshot_contract": "item_stack_copy_v1",
+    "flashback_capture_contract": "client_visible_scene_v1"
+  },
+  "server_replay_version": "3.0.1+1.21.8"
+}

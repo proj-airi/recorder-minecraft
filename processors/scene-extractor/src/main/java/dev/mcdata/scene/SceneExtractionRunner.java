@@ -4,6 +4,7 @@ import dev.mcdata.scene.io.ResultWriter;
 import dev.mcdata.scene.io.SceneSpoolWriter;
 import dev.mcdata.scene.job.SceneJob;
 import dev.mcdata.scene.job.SceneJobLoader;
+import dev.mcdata.scene.replay.ExtractorRuntime;
 import dev.mcdata.scene.replay.FlashbackSceneExtractor;
 import dev.mcdata.scene.replay.ReplayArchiveValidator;
 import net.minecraft.core.RegistryAccess;
@@ -14,25 +15,24 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
 /** Runs one extraction job without owning the process launch mechanism. */
 public final class SceneExtractionRunner {
     private static final Logger LOGGER = LoggerFactory.getLogger("recorder-minecraft-scene-extractor");
 
     private final RegistryAccess registries;
-    private final Map<String, String> runtimeMods;
+    private final ExtractorRuntime runtime;
 
-    public SceneExtractionRunner(RegistryAccess registries, Map<String, String> runtimeMods) {
+    public SceneExtractionRunner(RegistryAccess registries, ExtractorRuntime runtime) {
         this.registries = registries;
-        this.runtimeMods = Map.copyOf(runtimeMods);
+        this.runtime = runtime;
     }
 
     public SceneJob run(Path request) throws IOException {
         SceneJob job = SceneJobLoader.load(request);
         try {
             SceneJobLoader.verifySubjectPosesUnchanged(job);
-            ReplayArchiveValidator validator = new ReplayArchiveValidator(runtimeMods);
+            ReplayArchiveValidator validator = new ReplayArchiveValidator(runtime);
             List<ReplayArchiveValidator.VerifiedSource> verified = new ArrayList<>();
             for (SceneJob.SourceReplay source : job.sourceReplays()) {
                 verified.add(validator.verify(job, source));
@@ -49,7 +49,7 @@ public final class SceneExtractionRunner {
                 SceneJobLoader.verifySubjectPosesUnchanged(job);
                 output = spool.commit();
             }
-            ResultWriter.complete(job, output, extraction);
+            ResultWriter.complete(job, output, extraction, verified);
             LOGGER.info("Scene extraction {} completed with {} frames", job.jobId(), output.frameCount());
             return job;
         } catch (Throwable failure) {

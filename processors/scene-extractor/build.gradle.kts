@@ -14,7 +14,6 @@ application {
     mainClass.set("dev.mcdata.scene.SceneExtractorCli")
     applicationName = "mc-recorder-scene-extractor"
     applicationDefaultJvmArgs = listOf(
-        "-DmcRecorder.minecraftVersion=${project.property("minecraft_version")}",
         "-DmcRecorder.fabricLoaderVersion=${project.property("loader_version")}",
         "-DmcRecorder.fabricVersion=${project.property("fabric_version")}",
         "-DmcRecorder.fabricKotlinVersion=${project.property("fabric_kotlin_version")}",
@@ -67,7 +66,6 @@ tasks.withType<JavaCompile>().configureEach {
 
 tasks.test {
     useJUnitPlatform()
-    systemProperty("mcRecorder.minecraftVersion", project.property("minecraft_version"))
     systemProperty("mcRecorder.fabricLoaderVersion", project.property("loader_version"))
     systemProperty("mcRecorder.fabricVersion", project.property("fabric_version"))
     systemProperty("mcRecorder.fabricKotlinVersion", project.property("fabric_kotlin_version"))
