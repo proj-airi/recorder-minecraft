@@ -20,6 +20,8 @@ artifacts/v1/
         <started-at-utc>--<session-uuid>/
           metadata.json                         # world session ProtoJSON
           world-events.jsonl                    # world stream
+          alignments/                           # optional session alignments
+            <name>.jsonl
     players/
       <player-name>--<player-uuid>/
         plays/
@@ -242,8 +244,9 @@ header, then one sample per sampled server tick. See
 [Perception](#perception) below.
 
 A session alignment contains generated `SessionAlignmentRecord` ProtoJSON
-lines for one world session and several Plays. It is not part of a Play and
-has no reserved path. See [Session alignment](#session-alignment) below.
+lines for one world session and several Plays. It is not part of a Play. The
+reserved location is `world/sessions/<session-dir>/alignments/<name>.jsonl`.
+See [Session alignment](#session-alignment) below.
 
 `renders/render-job.json` and `renders/result.json` are generated `RenderJob`
 and `RenderResult` ProtoJSON messages. `renders/fpv_frames/` contains PNG frames
@@ -267,6 +270,22 @@ play directory identities against their metadata before returning them.
 `/assets/` serves only regular files contained below the configured artifacts
 root and supports HTTP byte ranges so browser decoders can seek in MP4 files.
 Symlinks and path traversal outside that root are rejected.
+Assets are served with fixed media types: `.jsonl` as `application/x-ndjson`,
+`.json` as `application/json`, `.sqlite3` as `application/vnd.sqlite3`, `.mp4`
+as `video/mp4`, `.zip` as `application/zip`, and `.png` as `image/png`.
+
+The catalog lists world sessions beside players (`GET /api/v1/world-sessions`,
+`GET /api/v1/server-instances/{id}/world-sessions/{dir}`, and
+`ServerInstance.world_sessions`). A world session whose metadata is missing,
+invalid, or still open stays visible with a `validation_error`. A Play links to
+the world session named by its `world_container_truth`; without that
+reference, it links to the only world session of the same server instance with
+its `session_id`. The Replay resource carries URLs for `perception.jsonl`,
+`actions.jsonl`, `scene.sqlite3`, and `renders/fpv_frames/frames.jsonl` only
+when those files exist.
+
+The server reuses one walk of the artifacts root for up to two seconds.
+`POST /api/v1/catalog:refresh` discards it and walks the root again.
 
 `scene.sqlite3` is Scene Store V2. It requires exact frame/player-state tick
 coverage and contains typed player state plus the full inventory/effect/ability
@@ -387,8 +406,14 @@ go run ./cmd/recorder-minecraft session align \
 | Causality | Hindsight: `uses_future_context` is `true` (see below) |
 | Owner | `recorder-minecraft session align`; replaceable with `--overwrite` |
 
-Artifacts V1 reserves no path for this output. The participant set is the
-caller's choice, so the caller names the output path. Each Play is given
+The participant set is the caller's choice, so the caller names the output
+path. To publish an alignment in the catalog, write it to
+`world/sessions/<session-dir>/alignments/<name>.jsonl` of the world session it
+aligns. `<name>` is any non-empty file name that does not start with `.`; one
+session can hold several alignments with different participant sets. The
+catalog lists every regular `*.jsonl` file there and reads only its header
+line. A header that is not a schema version 1 header of the same `session_id`
+is reported as a validation error of that alignment. Each Play is given
 explicitly with `metadata`, `events`, and an optional `perception`. The
 processor does not discover Plays. Every Play must have the world session's
 `session_id`, and a Play may appear only once. A perception file must name

@@ -58,6 +58,48 @@ func TestAssetsDoesNotServeExternalSymlinksOrDirectories(t *testing.T) {
 	})
 }
 
+func TestAssetsServeArtifactMediaTypesWithRanges(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	files := map[string]string{
+		"world/sessions/s/alignments/session-alignment.jsonl": "application/x-ndjson",
+		"plays/p/perception.jsonl":                            "application/x-ndjson",
+		"plays/p/renders/fpv_frames/frames.jsonl":             "application/x-ndjson",
+		"plays/p/scene.sqlite3":                               "application/vnd.sqlite3",
+		"plays/p/renders/fpv.mp4":                             "video/mp4",
+		"plays/p/metadata.json":                               "application/json",
+	}
+	for name := range files {
+		path := filepath.Join(root, filepath.FromSlash(name))
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o700))
+		require.NoError(t, os.WriteFile(path, []byte("0123456789"), 0o600))
+	}
+	server := assetsServer(t, root)
+	for name, mediaType := range files {
+		t.Run(name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, "/assets/"+name, nil)
+			request.Header.Set("Range", "bytes=0-3")
+			response := httptest.NewRecorder()
+
+			server.ServeHTTP(response, request)
+
+			assert.Equal(t, http.StatusPartialContent, response.Code)
+			assert.Equal(t, mediaType, response.Header().Get("Content-Type"))
+			assert.Equal(t, "bytes 0-3/10", response.Header().Get("Content-Range"))
+			assert.Equal(t, "0123", response.Body.String())
+		})
+	}
+	t.Run("missing file", func(t *testing.T) {
+		response := httptest.NewRecorder()
+
+		server.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/assets/plays/p/actions.jsonl", nil))
+
+		assert.Equal(t, http.StatusNotFound, response.Code)
+		assert.NotEqual(t, "application/x-ndjson", response.Header().Get("Content-Type"))
+	})
+}
+
 func assetsServer(t *testing.T, root string) *echo.Echo {
 	t.Helper()
 	filesystem, err := os.OpenRoot(root)

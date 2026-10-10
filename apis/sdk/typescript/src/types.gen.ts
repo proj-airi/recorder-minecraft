@@ -15,8 +15,30 @@ export type GoogleRpcStatus = {
     message?: string;
 };
 
+/**
+ * AlignmentParticipant is one Play named in a session alignment header.
+ */
+export type RecorderMinecraftApiV1AlignmentParticipant = {
+    connectionId?: string;
+    endServerTick?: string;
+    /**
+     * True when the alignment was given the Play's perception.jsonl.
+     */
+    perceptionProvided?: boolean;
+    playerName?: string;
+    playerUuid?: string;
+    /**
+     * Connection start and end server tick.
+     */
+    startServerTick?: string;
+};
+
 export type RecorderMinecraftApiV1GetReplayResponse = {
     replay?: RecorderMinecraftApiV1Replay;
+};
+
+export type RecorderMinecraftApiV1GetWorldSessionResponse = {
+    worldSession?: RecorderMinecraftApiV1WorldSession;
 };
 
 export type RecorderMinecraftApiV1ListArtifactsResponse = {
@@ -33,6 +55,10 @@ export type RecorderMinecraftApiV1ListReplaysResponse = {
 
 export type RecorderMinecraftApiV1ListServerInstancesResponse = {
     serverInstances?: Array<RecorderMinecraftApiV1ServerInstanceSummary>;
+};
+
+export type RecorderMinecraftApiV1ListWorldSessionsResponse = {
+    worldSessions?: Array<RecorderMinecraftApiV1WorldSession>;
 };
 
 /**
@@ -68,17 +94,35 @@ export type RecorderMinecraftApiV1PlayerSummary = {
     uuid?: string;
 };
 
+export type RecorderMinecraftApiV1RefreshCatalogResponse = {
+    refreshedAt?: string;
+    replayCount?: string;
+    serverInstanceCount?: string;
+    worldSessionCount?: string;
+};
+
 export type RecorderMinecraftApiV1Replay = {
+    actionsUrl?: string;
     captureFailure?: string;
     connectionId?: string;
     endServerTick?: string;
     endedAt?: string;
     eventsUrl?: string;
     extensions?: Array<RecorderMinecraftApiV1PlayExtension>;
+    /**
+     * renders/fpv_frames/frames.jsonl: the frame to server tick index of a render.
+     */
+    framesIndexUrl?: string;
+    /**
+     * Derived files under the Play directory. Each URL is present only when the
+     * file exists as a regular file.
+     */
+    perceptionUrl?: string;
     playerName?: string;
     playerUuid?: string;
     replayFormat?: string;
     replayUrl?: string;
+    sceneUrl?: string;
     serverInstanceId?: string;
     serverName?: string;
     sessionId?: string;
@@ -88,12 +132,22 @@ export type RecorderMinecraftApiV1Replay = {
     terminalReason?: string;
     validationError?: string;
     video?: RecorderMinecraftApiV1VideoAsset;
+    /**
+     * WorldSession.id of the world session that covers this Play, when one is
+     * readable in the same server instance.
+     */
+    worldSessionId?: string;
+    worldSessionLink?: RecorderMinecraftApiV1WorldSessionLink;
 };
 
 export type RecorderMinecraftApiV1ServerInstance = {
     instanceId?: string;
     name?: string;
     players?: Array<RecorderMinecraftApiV1Player>;
+    /**
+     * World sessions are listed in full; player and time filters do not apply to them.
+     */
+    worldSessions?: Array<RecorderMinecraftApiV1WorldSession>;
 };
 
 export type RecorderMinecraftApiV1ServerInstanceSummary = {
@@ -101,6 +155,7 @@ export type RecorderMinecraftApiV1ServerInstanceSummary = {
     name?: string;
     playerCount?: string;
     replayCount?: string;
+    worldSessionCount?: string;
 };
 
 export type RecorderMinecraftApiV1VideoAsset = {
@@ -111,6 +166,87 @@ export type RecorderMinecraftApiV1VideoAsset = {
     sizeBytes?: string;
     url?: string;
     width?: number;
+};
+
+/**
+ * WorldSession is one directory under world/sessions/ of a server instance.
+ */
+export type RecorderMinecraftApiV1WorldSession = {
+    /**
+     * JSONL files in alignments/, sorted by name.
+     */
+    alignments?: Array<RecorderMinecraftApiV1WorldSessionAlignment>;
+    /**
+     * Absent while recording or after a crash.
+     */
+    endServerTick?: string;
+    endedAt?: string;
+    eventsUrl?: string;
+    /**
+     * Directory name, <started-at>--<session-id>. Unique within a server instance.
+     */
+    id?: string;
+    knownGaps?: Array<string>;
+    metadataUrl?: string;
+    /**
+     * Plays in the same server instance that link to this world session.
+     */
+    plays?: Array<RecorderMinecraftApiV1WorldSessionPlay>;
+    serverInstanceId?: string;
+    serverName?: string;
+    sessionId?: string;
+    startServerTick?: string;
+    startedAt?: string;
+    /**
+     * Set when the world stream stopped early; coverage ends at end_server_tick.
+     */
+    streamFailure?: string;
+    terminalReason?: string;
+    /**
+     * Set when metadata.json is missing, invalid, or describes an open stream.
+     */
+    validationError?: string;
+};
+
+/**
+ * WorldSessionAlignment is one session alignment JSONL under alignments/.
+ */
+export type RecorderMinecraftApiV1WorldSessionAlignment = {
+    divergenceCount?: string;
+    eventCount?: string;
+    /**
+     * File name without the .jsonl suffix.
+     */
+    name?: string;
+    /**
+     * From the header line.
+     */
+    participants?: Array<RecorderMinecraftApiV1AlignmentParticipant>;
+    sizeBytes?: string;
+    url?: string;
+    /**
+     * Set when the header line cannot be read or names another session.
+     */
+    validationError?: string;
+};
+
+/**
+ * WorldSessionLink tells how a Play was joined to its world session.
+ *
+ * - WORLD_SESSION_LINK_CONTAINER_TRUTH: Play metadata names the world session in world_container_truth.
+ * - WORLD_SESSION_LINK_SESSION_ID: Play metadata has no world_container_truth (the stream was not healthy at
+ * connection start); the world session has the same session_id.
+ */
+export type RecorderMinecraftApiV1WorldSessionLink = 'WORLD_SESSION_LINK_UNSPECIFIED' | 'WORLD_SESSION_LINK_CONTAINER_TRUTH' | 'WORLD_SESSION_LINK_SESSION_ID';
+
+/**
+ * WorldSessionPlay identifies one Play linked to a world session.
+ */
+export type RecorderMinecraftApiV1WorldSessionPlay = {
+    connectionId?: string;
+    link?: RecorderMinecraftApiV1WorldSessionLink;
+    playerName?: string;
+    playerUuid?: string;
 };
 
 export type RecorderMinecraftCatalogV1FinalInventoryItem = {
@@ -194,6 +330,31 @@ export type ArtifactsListResponses = {
 };
 
 export type ArtifactsListResponse = ArtifactsListResponses[keyof ArtifactsListResponses];
+
+export type CatalogRefreshData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/catalog:refresh';
+};
+
+export type CatalogRefreshErrors = {
+    /**
+     * An unexpected error response.
+     */
+    default: GoogleRpcStatus;
+};
+
+export type CatalogRefreshError = CatalogRefreshErrors[keyof CatalogRefreshErrors];
+
+export type CatalogRefreshResponses = {
+    /**
+     * A successful response.
+     */
+    200: RecorderMinecraftApiV1RefreshCatalogResponse;
+};
+
+export type CatalogRefreshResponse = CatalogRefreshResponses[keyof CatalogRefreshResponses];
 
 export type PlayersListData = {
     body?: never;
@@ -333,3 +494,71 @@ export type ReplaysGetResponses = {
 };
 
 export type ReplaysGetResponse = ReplaysGetResponses[keyof ReplaysGetResponses];
+
+export type WorldSessionsGetData = {
+    body?: never;
+    path: {
+        /**
+         * Recorder installation UUID.
+         */
+        serverInstanceId: string;
+        /**
+         * World session directory name, <started-at>--<session-id>.
+         */
+        worldSessionId: string;
+    };
+    query?: never;
+    url: '/api/v1/server-instances/{serverInstanceId}/world-sessions/{worldSessionId}';
+};
+
+export type WorldSessionsGetErrors = {
+    /**
+     * An unexpected error response.
+     */
+    default: GoogleRpcStatus;
+};
+
+export type WorldSessionsGetError = WorldSessionsGetErrors[keyof WorldSessionsGetErrors];
+
+export type WorldSessionsGetResponses = {
+    /**
+     * A successful response.
+     */
+    200: RecorderMinecraftApiV1GetWorldSessionResponse;
+};
+
+export type WorldSessionsGetResponse = WorldSessionsGetResponses[keyof WorldSessionsGetResponses];
+
+export type WorldSessionsListData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Restrict results to one recorder installation UUID.
+         */
+        serverInstanceId?: string;
+        /**
+         * Restrict results to one recorder session_id.
+         */
+        sessionId?: string;
+    };
+    url: '/api/v1/world-sessions';
+};
+
+export type WorldSessionsListErrors = {
+    /**
+     * An unexpected error response.
+     */
+    default: GoogleRpcStatus;
+};
+
+export type WorldSessionsListError = WorldSessionsListErrors[keyof WorldSessionsListErrors];
+
+export type WorldSessionsListResponses = {
+    /**
+     * A successful response.
+     */
+    200: RecorderMinecraftApiV1ListWorldSessionsResponse;
+};
+
+export type WorldSessionsListResponse = WorldSessionsListResponses[keyof WorldSessionsListResponses];

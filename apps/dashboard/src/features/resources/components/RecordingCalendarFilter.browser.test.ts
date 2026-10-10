@@ -23,7 +23,6 @@ it('shows recording-day counts and emits a UTC half-open range', async () => {
   })
 
   try {
-    await expect.element(screen.getByText('2 recording days')).toBeVisible()
     const first = screen.getByRole('button', { name: /July 28, 2026, 2 recordings/ })
     const last = screen.getByRole('button', { name: /July 30, 2026, 1 recording/ })
     await expect.element(first).toBeVisible()

@@ -67,6 +67,7 @@ func (service *Service) ListServerInstances(ctx context.Context, _ *apiv1.ListSe
 		}
 		response.ServerInstances = append(response.ServerInstances, &apiv1.ServerInstanceSummary{
 			Name: server.GetName(), InstanceId: server.GetInstanceId(), PlayerCount: uint64(len(server.GetPlayers())), ReplayCount: replayCount,
+			WorldSessionCount: uint64(len(server.GetWorldSessions())),
 		})
 	}
 	return response, nil
@@ -131,6 +132,45 @@ func (service *Service) GetReplay(ctx context.Context, request *apiv1.GetReplayR
 		}
 	}
 	return nil, status.Error(codes.NotFound, "replay not found")
+}
+
+func (service *Service) ListWorldSessions(ctx context.Context, request *apiv1.ListWorldSessionsRequest) (*apiv1.ListWorldSessionsResponse, error) {
+	sessions, err := service.catalog.WorldSessions(ctx, request.GetServerInstanceId(), request.GetSessionId())
+	if err != nil {
+		return nil, catalogError(err)
+	}
+	return &apiv1.ListWorldSessionsResponse{WorldSessions: sessions}, nil
+}
+
+func (service *Service) GetWorldSession(ctx context.Context, request *apiv1.GetWorldSessionRequest) (*apiv1.GetWorldSessionResponse, error) {
+	session, found, err := service.catalog.WorldSession(ctx, request.GetServerInstanceId(), request.GetWorldSessionId())
+	if err != nil {
+		return nil, catalogError(err)
+	}
+	if !found {
+		return nil, status.Error(codes.NotFound, "world session not found")
+	}
+	return &apiv1.GetWorldSessionResponse{WorldSession: session}, nil
+}
+
+func (service *Service) RefreshCatalog(ctx context.Context, _ *apiv1.RefreshCatalogRequest) (*apiv1.RefreshCatalogResponse, error) {
+	result, err := service.catalog.Refresh(ctx)
+	if err != nil {
+		return nil, catalogError(err)
+	}
+	return &apiv1.RefreshCatalogResponse{
+		RefreshedAt:         timestamppb.New(result.RefreshedAt),
+		ServerInstanceCount: uint64(result.ServerInstances),
+		ReplayCount:         uint64(result.Replays),
+		WorldSessionCount:   uint64(result.WorldSessionCount),
+	}, nil
+}
+
+func catalogError(err error) error {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return status.FromContextError(err).Err()
+	}
+	return status.Errorf(codes.Internal, "read artifact catalog: %v", err)
 }
 
 func filter(serverID, playerID string, after, before *timestamppb.Timestamp) catalog.Filter {

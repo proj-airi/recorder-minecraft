@@ -145,11 +145,11 @@ The important separation is source time versus episode time:
 
 ```ts
 interface PlayPlacement {
+  alignment: 'append' | 'manual' | 'preserve-server-tick'
+  episodeStart: Tick
   id: PlacementId
   play: PlayRef
   source: TickRange
-  episodeStart: Tick
-  alignment: 'preserve-server-tick' | 'append' | 'manual'
 }
 ```
 
@@ -328,28 +328,28 @@ The renderer should not receive Vue refs, generated API DTOs or the Episode doma
 consume a compact, serializable `RenderFrame` produced from the current viewport:
 
 ```ts
-type RenderPrimitive =
-  | { kind: 'span'; track: number; start: number; end: number; style: number }
-  | { kind: 'point'; track: number; at: number; glyph: number; style: number }
-  | { kind: 'density'; track: number; values: Float32Array; style: number }
-  | { kind: 'label-band'; start: number; end: number; label: string; style: number }
-
 interface RenderFrame {
-  revision: number
-  viewport: RenderViewport
-  tracks: readonly RenderTrack[]
-  primitives: readonly RenderPrimitive[]
-  selection: SelectionRenderState
   feedback: EditFeedback
+  primitives: readonly RenderPrimitive[]
+  revision: number
+  selection: SelectionRenderState
+  tracks: readonly RenderTrack[]
+  viewport: RenderViewport
 }
 
+type RenderPrimitive
+  = | { at: number, glyph: number, kind: 'point', style: number, track: number }
+    | { end: number, kind: 'label-band', label: string, start: number, style: number }
+    | { end: number, kind: 'span', start: number, style: number, track: number }
+    | { kind: 'density', style: number, track: number, values: Float32Array }
+
 interface TimelineRendererController {
-  mount(canvas: HTMLCanvasElement): void
-  render(frame: RenderFrame): void
-  updatePlayhead(x: number): void
-  resize(width: number, height: number, dpr: number): void
-  setTheme(theme: TimelineCanvasTheme): void
-  dispose(): void
+  dispose: () => void
+  mount: (canvas: HTMLCanvasElement) => void
+  render: (frame: RenderFrame) => void
+  resize: (width: number, height: number, dpr: number) => void
+  setTheme: (theme: TimelineCanvasTheme) => void
+  updatePlayhead: (x: number) => void
 }
 ```
 
@@ -363,12 +363,12 @@ The core-to-renderer event should eventually carry invalidation intent instead o
 `render: void`:
 
 ```ts
-type RenderInvalidation =
-  | { kind: 'viewport' }
-  | { kind: 'content'; range?: TickRange; trackIds?: readonly TrackId[] }
-  | { kind: 'selection'; ids: readonly TimelineEntityRef[] }
-  | { kind: 'feedback' }
-  | { kind: 'playhead'; tick: Tick }
+type RenderInvalidation
+  = | { ids: readonly TimelineEntityRef[], kind: 'selection' }
+    | { kind: 'content', range?: TickRange, trackIds?: readonly TrackId[] }
+    | { kind: 'feedback' }
+    | { kind: 'playhead', tick: Tick }
+    | { kind: 'viewport' }
 ```
 
 This allows the projection/query layer to decide whether it needs a new visible frame, a small
@@ -568,27 +568,27 @@ TimelineSession (viewport/hover/selection/gesture) never enters persisted Episod
 type Tick = bigint
 
 interface TickRange {
-  start: Tick
   end: Tick // exclusive
+  start: Tick
 }
 
+type TimelineHit
+  = | { assignmentId: LabelAssignmentId, kind: 'label' }
+    | { at: Tick, kind: 'empty', trackId: TrackId }
+    | { edge: 'end' | 'start', kind: 'segment-edge', segmentId: SegmentId }
+    | { kind: 'action', playId: PlayId, sequence: bigint }
+    | { kind: 'placement', placementId: PlacementId }
+    | { kind: 'segment-body', segmentId: SegmentId }
+    | { kind: 'world-version', playId: PlayId, versionId: bigint }
+
 interface TimelineViewport {
+  height: number
   origin: Tick
   pixelsPerTick: number
   scrollX: number
   scrollY: number
   width: number
-  height: number
 }
-
-type TimelineHit =
-  | { kind: 'placement'; placementId: PlacementId }
-  | { kind: 'segment-body'; segmentId: SegmentId }
-  | { kind: 'segment-edge'; segmentId: SegmentId; edge: 'start' | 'end' }
-  | { kind: 'label'; assignmentId: LabelAssignmentId }
-  | { kind: 'action'; playId: PlayId; sequence: bigint }
-  | { kind: 'world-version'; playId: PlayId; versionId: bigint }
-  | { kind: 'empty'; trackId: TrackId; at: Tick }
 ```
 
 Use `bigint` or a branded integer at the domain boundary because protobuf `int64` can exceed safe
@@ -601,14 +601,14 @@ small relative delta to `number`.
 The first command set should be narrow:
 
 ```ts
-type EpisodeCommand =
-  | { type: 'placement/add'; play: PlayRef; source: TickRange; at: Tick }
-  | { type: 'placement/move'; placementId: PlacementId; to: Tick }
-  | { type: 'segment/create'; range: TickRange }
-  | { type: 'segment/resize'; segmentId: SegmentId; range: TickRange }
-  | { type: 'segment/split'; segmentId: SegmentId; at: Tick }
-  | { type: 'label/assign'; targetIds: SegmentId[]; labelId: LabelId }
-  | { type: 'group/create'; members: TimelineEntityRef[] }
+type EpisodeCommand
+  = | { at: Tick, play: PlayRef, source: TickRange, type: 'placement/add' }
+    | { at: Tick, segmentId: SegmentId, type: 'segment/split' }
+    | { labelId: LabelId, targetIds: SegmentId[], type: 'label/assign' }
+    | { members: TimelineEntityRef[], type: 'group/create' }
+    | { placementId: PlacementId, to: Tick, type: 'placement/move' }
+    | { range: TickRange, segmentId: SegmentId, type: 'segment/resize' }
+    | { range: TickRange, type: 'segment/create' }
 ```
 
 A pointer gesture creates an ephemeral interaction with original and preview values. Pointer-up
@@ -685,12 +685,12 @@ fixture shapes and counts from real captures, but keep them small or generated o
 
 ```ts
 createTimelineFixture({
-  durationTicks: 36_000n,
-  players: 8,
   actionDensity: 'bursty',
-  sceneVersionCount: 100_000,
-  reconnectGaps: true,
+  durationTicks: 36_000n,
   missingModalities: ['audio', 'lighting'],
+  players: 8,
+  reconnectGaps: true,
+  sceneVersionCount: 100_000,
 })
 ```
 
