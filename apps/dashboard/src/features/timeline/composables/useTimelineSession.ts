@@ -1,37 +1,84 @@
+import type { TimelineDataLaneSelection } from '@proj-airi/canvas-timeline-renderer'
 import type { TimelineEngine } from '@techsquidtv/canvas-timeline-core'
-import type { Ref, ShallowRef } from 'vue'
+import type { ComputedRef, Ref, ShallowRef } from 'vue'
 
+import type { ProjectedDataLane } from '../data-tracks/projection'
+import type {
+  SelectedTimelineDataItem,
+  TimelineDataItemRef,
+  TimelineDataTrack,
+  TimelineDataTrackProvider,
+} from '../data-tracks/types'
 import type { CommitSegmentEdit, EpisodeDraft } from '../domain'
+import type { TimelineLayout } from '../layout'
 
-import { markRaw, onScopeDispose, readonly, shallowRef, watch } from 'vue'
+import { computed, markRaw, onScopeDispose, readonly, shallowRef, watch } from 'vue'
 
 import { createTimelineEngine, toServerTick, toTickTime } from '../core/adapter'
+import { dataLaneEntryAt, resolveDataItem } from '../data-tracks/projection'
+import { timelineDataTrackProviders } from '../data-tracks/registry'
 import { SERVER_TICK_RATE } from '../domain'
+import { buildTimelineLayout } from '../layout'
+import { useTimelineDataTracks } from './useTimelineDataTracks'
 
 export interface TimelineSession {
+  /** Collapsed group ids: session keys hide a session, lane ids hide a player's data tracks. */
+  collapsedGroupIds: Readonly<ShallowRef<ReadonlySet<string>>>
   commitEdit: (edit: CommitSegmentEdit) => void
+  /** Latest-starting item active at an episode tick among tracks that pass `filter`. */
+  dataItemAt: (filter: (track: TimelineDataTrack) => boolean, episodeTick: number) => null | SelectedTimelineDataItem
+  /** Projected lanes keyed by data track id (episode ticks). */
+  dataLanes: ComputedRef<ReadonlyMap<string, ProjectedDataLane>>
+  /** Renderer selection derived from `selectedDataItem`. */
+  dataLaneSelection: ComputedRef<null | TimelineDataLaneSelection>
+  /** Every described data track with load state. */
+  dataTracks: ComputedRef<readonly TimelineDataTrack[]>
   editable: boolean
   engine: ShallowRef<TimelineEngine>
   goToEnd: () => void
   goToStart: () => void
   isPlaying: Readonly<ShallowRef<boolean>>
+  /** Visible rows with offsets; the engine and the track headers are built from it. */
+  layout: ComputedRef<TimelineLayout>
   pause: () => void
   play: () => void
   playheadTick: Readonly<ShallowRef<number>>
   rebuild: () => void
+  reloadDataTrack: (trackId: string) => void
   renderRevision: Readonly<ShallowRef<number>>
   seekByTicks: (deltaTick: number) => void
   seekToTick: (tick: number) => void
+  selectDataItem: (item: null | TimelineDataItemRef) => void
+  selectedDataItem: ComputedRef<null | SelectedTimelineDataItem>
   selectedSegmentId: Readonly<ShallowRef<null | string>>
   selectSegment: (segmentId: null | string) => void
+  setGroupCollapsed: (groupId: string, collapsed: boolean) => void
+  toggleGroup: (groupId: string) => void
   zoomBy: (factor: number) => void
 }
 
-export function useTimelineSession(episode: Ref<EpisodeDraft>, commitEdit: (edit: CommitSegmentEdit) => void, editable = true): TimelineSession {
+export interface TimelineSessionOptions {
+  /** Data track providers; defaults to the global registry. */
+  providers?: () => readonly TimelineDataTrackProvider[]
+}
+
+export function useTimelineSession(
+  episode: Ref<EpisodeDraft>,
+  commitEdit: (edit: CommitSegmentEdit) => void,
+  editable = true,
+  options: TimelineSessionOptions = {},
+): TimelineSession {
   const selectedSegmentId = shallowRef<null | string>(null)
+  const selectedDataItemRef = shallowRef<null | TimelineDataItemRef>(null)
+  const collapsedGroupIds = shallowRef<ReadonlySet<string>>(new Set())
   const renderRevision = shallowRef(0)
   const isPlaying = shallowRef(false)
-  const engine = shallowRef(markRaw(createTimelineEngine(episode.value, null, undefined, editable)))
+  const dataRuntime = useTimelineDataTracks(episode, options.providers ?? (() => timelineDataTrackProviders.value))
+  const layout = computed(() => buildTimelineLayout(episode.value, dataRuntime.tracks.value, collapsedGroupIds.value))
+  // Data track load-state changes recompute the layout object but not its rows; rebuild the engine
+  // only when the row structure changes.
+  const layoutKey = computed(() => layout.value.rows.map(row => `${row.id}:${row.height}`).join('|'))
+  const engine = shallowRef(markRaw(createTimelineEngine(episode.value, { editable, layout: layout.value })))
   const playheadTick = shallowRef(toServerTick(engine.value.playheadTime))
   let playbackFrame = 0
   let playbackStartTick = 0
@@ -66,7 +113,7 @@ export function useTimelineSession(episode: Ref<EpisodeDraft>, commitEdit: (edit
     stopPlaybackFrame()
     const previous = engine.value
     previous.pause()
-    engine.value = markRaw(createTimelineEngine(episode.value, selectedSegmentId.value, previous, editable))
+    engine.value = markRaw(createTimelineEngine(episode.value, { editable, layout: layout.value, previous, selectedSegmentId: selectedSegmentId.value }))
     playheadTick.value = toServerTick(engine.value.playheadTime)
     bindEngineEvents()
     requestRender()
@@ -153,29 +200,103 @@ export function useTimelineSession(episode: Ref<EpisodeDraft>, commitEdit: (edit
     engine.value.setZoomScale(engine.value.zoomScale * factor)
   }
 
+  function setGroupCollapsed(groupId: string, collapsed: boolean): void {
+    if (collapsedGroupIds.value.has(groupId) === collapsed)
+      return
+    const next = new Set(collapsedGroupIds.value)
+    if (collapsed)
+      next.add(groupId)
+    else
+      next.delete(groupId)
+    collapsedGroupIds.value = next
+  }
+
+  function toggleGroup(groupId: string): void {
+    setGroupCollapsed(groupId, !collapsedGroupIds.value.has(groupId))
+  }
+
+  const tracksById = computed(() => new Map(dataRuntime.tracks.value.map(track => [track.id, track])))
+
+  const selectedDataItem = computed(() => {
+    const ref = selectedDataItemRef.value
+    const track = ref ? tracksById.value.get(ref.trackId) : undefined
+    const item = track?.items.find(candidate => candidate.id === ref?.itemId)
+    if (!track || !item)
+      return null
+    return resolveDataItem(episode.value, track, dataRuntime.lanes.value.get(track.id), item)
+  })
+
+  const dataLaneSelection = computed<null | TimelineDataLaneSelection>(() => {
+    const selected = selectedDataItem.value
+    const lane = selected ? dataRuntime.lanes.value.get(selected.track.id) : undefined
+    if (!selected || !lane)
+      return null
+    const itemIndex = selected.track.items.indexOf(selected.item)
+    const index = lane.itemIndexes.indexOf(itemIndex)
+    return index >= 0 ? { index, trackId: selected.track.id } : null
+  })
+
+  function selectDataItem(item: null | TimelineDataItemRef): void {
+    selectedDataItemRef.value = item
+    requestRender()
+  }
+
+  function dataItemAt(filter: (track: TimelineDataTrack) => boolean, episodeTick: number): null | SelectedTimelineDataItem {
+    let best: null | { entry: number, start: number, track: TimelineDataTrack } = null
+    for (const track of dataRuntime.tracks.value) {
+      if (!filter(track))
+        continue
+      const lane = dataRuntime.lanes.value.get(track.id)
+      if (!lane)
+        continue
+      const entry = dataLaneEntryAt(lane, episodeTick)
+      if (entry >= 0 && (!best || lane.starts[entry]! >= best.start))
+        best = { entry, start: lane.starts[entry]!, track }
+    }
+    if (!best)
+      return null
+    const lane = dataRuntime.lanes.value.get(best.track.id)!
+    const item = best.track.items[lane.itemIndexes[best.entry]!]!
+    return resolveDataItem(episode.value, best.track, lane, item, best.entry)
+  }
+
   bindEngineEvents()
-  watch(episode, rebuild)
+  watch([episode, layoutKey], rebuild)
+  watch(layout, (current) => {
+    dataRuntime.ensureLoaded(current.rows.flatMap(row => row.role === 'data' ? [row.id] : []))
+  }, { immediate: true })
   onScopeDispose(() => {
     pause()
     unsubscribeEvents.forEach(unsubscribe => unsubscribe())
   })
 
   return {
+    collapsedGroupIds: readonly(collapsedGroupIds),
     commitEdit,
+    dataItemAt,
+    dataLanes: dataRuntime.lanes,
+    dataLaneSelection,
+    dataTracks: dataRuntime.tracks,
     editable,
     engine,
     goToEnd,
     goToStart,
     isPlaying: readonly(isPlaying),
+    layout,
     pause,
     play,
     playheadTick: readonly(playheadTick),
     rebuild,
+    reloadDataTrack: dataRuntime.reload,
     renderRevision: readonly(renderRevision),
     seekByTicks,
     seekToTick,
+    selectDataItem,
+    selectedDataItem,
     selectedSegmentId: readonly(selectedSegmentId),
     selectSegment,
+    setGroupCollapsed,
+    toggleGroup,
     zoomBy,
   }
 }

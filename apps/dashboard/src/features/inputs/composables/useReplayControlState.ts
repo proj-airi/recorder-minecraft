@@ -22,7 +22,6 @@ export interface ControlStateSample {
 
 export interface ReplayControlSource {
   eventsUrl?: string
-  startServerTick?: string
 }
 
 interface ClickActions {
@@ -130,9 +129,15 @@ export function sampleAtOrBefore(samples: ControlStateSample[], serverTick: numb
   return samples[Math.max(0, high)]!
 }
 
+/**
+ * Streams control-state samples of one Play and exposes the sample at `serverTick`.
+ *
+ * `serverTick` must already be mapped from the playhead through the Play placement, e.g. with
+ * `playServerTickAt(placement, playheadTick)`, so trims and moves are respected.
+ */
 export function useReplayControlState(
   replay: Readonly<Ref<null | ReplayControlSource>>,
-  playheadTick: Readonly<Ref<number>>,
+  serverTick: Readonly<Ref<null | number>>,
 ): ReplayControlState {
   const samples = shallowRef<ControlStateSample[]>([])
   const clicksByTick = shallowRef(new Map<number, ClickActions>())
@@ -143,10 +148,9 @@ export function useReplayControlState(
   const current = computed(() => {
     if (samples.value.length === 0)
       return null
-    const startTick = Number(replay.value?.startServerTick ?? samples.value[0]!.serverTick)
-    const serverTick = startTick + playheadTick.value
-    const sample = sampleAtOrBefore(samples.value, serverTick)
-    const clicks = clicksByTick.value.get(serverTick)
+    const tick = serverTick.value ?? samples.value[0]!.serverTick
+    const sample = sampleAtOrBefore(samples.value, tick)
+    const clicks = clicksByTick.value.get(tick)
     return clicks ? { ...sample, ...clicks } : sample
   })
 

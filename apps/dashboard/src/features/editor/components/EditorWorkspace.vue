@@ -3,7 +3,7 @@ import type { RecorderMinecraftApiV1Replay } from '@proj-airi/recorder-minecraft
 import type { AddPanelOptions, ContextMenuItem, DockviewApi, DockviewIDisposable, DockviewReadyEvent, IDockviewPanel, VueComponent } from 'dockview-vue'
 
 import type { TimelineSession } from '../../timeline/composables/useTimelineSession'
-import type { EpisodeDraft } from '../../timeline/domain'
+import type { EpisodeDraft, TimelineWorldSessionSource } from '../../timeline/domain'
 import type { EditorViewId, EditorViewOption } from '../views'
 
 import { useResizeObserver } from '@vueuse/core'
@@ -17,11 +17,11 @@ import ResourceBrowserPanel from '../../resources/components/ResourceBrowserPane
 import TimelineDockTab from '../../timeline/components/TimelineDockTab.vue'
 import TimelineWorkspacePanel from './TimelineWorkspacePanel.vue'
 
-import { browserExtensionAssetAccess, extensionViewId } from '../../extensions/domain'
+import { browserExtensionAssetAccess } from '../../extensions/domain'
 import { playExtensionModules } from '../../extensions/registry'
 import { useReplayPlayback } from '../../media/composables/useReplayPlayback'
 import { useArtifactCatalog } from '../../resources/composables/useArtifactCatalog'
-import { editorWorkspaceContextKey, findPlayExtensionAt, resolvePlayExtension } from '../workspaceContext'
+import { editorWorkspaceContextKey, isPlayExtensionTrack, toSelectedPlayExtension } from '../workspaceContext'
 
 interface EditorPanelParams {
   tab: {
@@ -47,10 +47,11 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   addReplay: [replay: RecorderMinecraftApiV1Replay]
+  addSession: [sessionId: string, replays: readonly RecorderMinecraftApiV1Replay[], world?: TimelineWorldSessionSource]
   close: []
   cutSegment: [segmentId: string, atTick: number]
   redo: []
-  reorderTrack: [sourceIndex: number, targetIndex: number]
+  reorderTrack: [sourceTrackId: string, targetTrackId: string]
   undo: []
   viewsChange: [views: EditorViewOption[]]
 }>()
@@ -92,26 +93,32 @@ let workspaceListeners: DockviewIDisposable[] = []
 let initialLayoutFrame = 0
 let initialLayoutApplied = false
 const workspaceElement = useTemplateRef<HTMLDivElement>('workspace')
-const selectedExtension = computed(() => {
-  const segment = props.episode.segments.find(candidate => candidate.id === props.session.selectedSegmentId.value)
-  return resolvePlayExtension(props.episode, segment, props.session.playheadTick.value)
-})
+const selectedExtension = computed(() => toSelectedPlayExtension(props.session.selectedDataItem.value, props.session.playheadTick.value))
 
 provide(editorWorkspaceContextKey, {
   addReplay: (replay) => {
     emit('addReplay', replay)
+  },
+  addSession: (sessionId, replays, world) => {
+    emit('addSession', sessionId, replays, world)
   },
   canRedo: toRef(props, 'canRedo'),
   canUndo: toRef(props, 'canUndo'),
   catalog,
   close: () => emit('close'),
   cutSegment: (segmentId, atTick) => emit('cutSegment', segmentId, atTick),
+  dataItemAt: (filter, episodeTick) => props.session.dataItemAt(filter, episodeTick ?? props.session.playheadTick.value),
   episode: () => props.episode,
-  extensionAtPlayhead: extensionType => findPlayExtensionAt(props.episode, extensionType, props.session.playheadTick.value),
+  extensionAtPlayhead: (extensionType) => {
+    const tick = props.session.playheadTick.value
+    return toSelectedPlayExtension(props.session.dataItemAt(isPlayExtensionTrack(extensionType), tick), tick)
+  },
   extensionAssets: browserExtensionAssetAccess,
   redo: () => emit('redo'),
-  reorderTrack: (sourceIndex, targetIndex) => emit('reorderTrack', sourceIndex, targetIndex),
+  reorderTrack: (sourceTrackId, targetTrackId) => emit('reorderTrack', sourceTrackId, targetTrackId),
   replayPlayback,
+  selectDataItem: props.session.selectDataItem,
+  selectedDataItem: props.session.selectedDataItem,
   session: props.session,
   selectedExtension,
   undo: () => emit('undo'),
@@ -231,7 +238,7 @@ function publishViews(): void {
   const api = dockApi
   const availableViews = viewDefinitions.filter(view => view.source === 'built-in'
     || Boolean(api?.getPanel(view.id))
-    || props.episode.tracks.some(track => track.role === 'extension' && extensionViewId(track.extension.descriptor.extensionType) === view.id))
+    || props.session.dataTracks.value.some(track => track.viewId === view.id))
   emit('viewsChange', availableViews.map(view => ({
     active: api?.activePanel?.id === view.id,
     icon: view.icon,
@@ -303,13 +310,12 @@ function onReady({ api }: DockviewReadyEvent): void {
 }
 
 onMounted(() => void catalog.load())
-watch(() => props.session.selectedSegmentId.value, (segmentId) => {
-  const segment = props.episode.segments.find(candidate => candidate.id === segmentId)
-  const track = props.episode.tracks.find(candidate => candidate.id === segment?.trackId)
-  if (track?.role === 'extension')
-    activateView(extensionViewId(track.extension.descriptor.extensionType))
+watch(() => props.session.selectedDataItem.value, (selected, previous) => {
+  const viewId = selected?.track.viewId
+  if (viewId && viewDefinitions.some(view => view.id === viewId) && (selected.item !== previous?.item))
+    activateView(viewId as EditorViewId)
 })
-watch(() => props.episode.revision, publishViews)
+watch([() => props.episode.revision, () => props.session.dataTracks.value.length], publishViews)
 onBeforeUnmount(() => {
   cancelAnimationFrame(initialLayoutFrame)
   initialLayoutObserver.stop()

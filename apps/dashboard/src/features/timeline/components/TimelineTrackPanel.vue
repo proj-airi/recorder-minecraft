@@ -1,14 +1,16 @@
 <script setup lang="ts">
-import { onMounted, useTemplateRef, watch } from 'vue'
+import { computed, onMounted, useTemplateRef, watch } from 'vue'
 
 import TimelineTrackHeaders from './TimelineTrackHeaders.vue'
 
+import { episodeAlignment } from '../replay'
 import { useTimelineDockContext } from './timelineDockContext'
 
 defineOptions({ inheritAttrs: false })
 
 const context = useTimelineDockContext()
 const scrollViewport = useTemplateRef<HTMLDivElement>('scrollViewport')
+const alignment = computed(() => episodeAlignment(context.episode.value))
 
 function onScroll(event: Event): void {
   context.setVerticalScrollTop((event.currentTarget as HTMLDivElement).scrollTop)
@@ -33,10 +35,15 @@ watch(context.verticalScrollTop, syncScrollTop)
     @scroll.passive="onScroll"
   >
     <TimelineTrackHeaders
-      :scroll-container="scrollViewport"
-      :tracks="context.episode.value.tracks"
+      :alignment-label="alignment.label"
       :editable="context.editable.value"
+      :layout="context.session.layout.value"
+      :scroll-container="scrollViewport"
+      :scroll-top="context.verticalScrollTop.value"
+      :sessions="context.episode.value.sessions"
+      @reload="context.session.reloadDataTrack"
       @reorder="context.reorderTrack"
+      @toggle-group="context.session.toggleGroup"
     />
   </div>
 </template>
