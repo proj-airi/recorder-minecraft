@@ -51,6 +51,7 @@ hosted by a game client. Joining a remote server from client does not create a P
 | Recorder mod | Artifacts V1 hierarchy, play metadata, connection-local event stream, replay association, and completion marker | Action extraction, Scene Store V2, renders, downloads, or datasets |
 | ServerReplay | Live Flashback writer and final Flashback ZIP bytes | Recorder events, play layout, or derived outputs |
 | Action processor | Reconstruction of a semantic action stream from one completed capture | Capture discovery, hierarchy creation, or replay mutation |
+| Perception processor | Reconstruction of what one recorded player could see, from that Play's Scene Store | Capture, scene extraction, or claims about pixels on the player's screen |
 | Scene processor | Headless replay reduction, private Scene Store V1 staging, and durable Scene Store V2 output | GUI rendering or omniscient server-world recovery |
 | Renderer | Flashback playback and optional first-person PNG generation | Scene extraction, artifact discovery, or capture mutation |
 | Catalog API | Read-only discovery and media serving for validated Artifacts V1 plays | Capture, processing, rendering, or artifact mutation |
@@ -90,6 +91,7 @@ artifacts/v1/
               replay.zip
             actions.jsonl                       # optional
             scene.sqlite3                       # optional
+            perception.jsonl                    # optional
             renders/                            # optional
               render-job.json
               result.json
@@ -212,6 +214,7 @@ actions between adjacent authoritative states without relying on arrival time.
 | Processor | Explicit command that validates named input files and writes one named output |
 | Actions extraction | Transformation from metadata plus events into `actions.jsonl` |
 | Scene extraction | Transformation from metadata, events, and replay into `scene.sqlite3` |
+| Perception extraction | Transformation from metadata, events, and `scene.sqlite3` into `perception.jsonl` |
 | Rendering | Transformation from metadata, events, and replay into a `renders/` directory |
 | Replay source | Reference to a replay archive used as processor input or dashboard media; it retains the replay identity and may also bind its path, digest, size, format, event stream, or display metadata |
 | Tick selection | Optional inclusive `--from-tick` and `--to-tick` interval applied by a processor |
@@ -267,6 +270,25 @@ adapter details.
 The scene is reconstructed from what the recorded client could see. An unknown
 cell is not air, and missing unopened-container contents are not an empty
 inventory.
+
+## Perception terms
+
+`perception.jsonl` has scope `actor perception` and provenance
+`reconstructed`. It is derived from the client-visible scene under declared
+assumptions; it is not a capture of the player's screen.
+
+| Term | Definition |
+| --- | --- |
+| Perception sample | One `perception.jsonl` line for one sampled Server tick: observer eye pose plus the entities and block entities that were visible or undetermined |
+| Observer | The recorded player of the Play, whose eye position, yaw, pitch, and pose come from Scene Store player state |
+| Sight ray | Straight line from the observer eye to one sample point on a target, walked through the block grid |
+| Occluder | Block state that stops a sight ray: an opaque full cube under vanilla `isSolidRender()`, plus declared overrides |
+| Visible target | Target with at least one clear sight ray to an in-view sample point |
+| Undetermined target | In-view, in-range target with no clear ray where at least one ray reached an Unknown cell before any occluder; visibility is unknown, not false |
+| Ray support | Per-target counts of sample points, in-view points, and clear, blocked, and unknown rays |
+
+A target absent from a sample was determined not visible. An Unknown cell
+never becomes air or an occluder in this reconstruction.
 
 ## Render terms
 
