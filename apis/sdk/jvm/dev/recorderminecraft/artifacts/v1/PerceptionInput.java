@@ -7,7 +7,8 @@ package dev.recorderminecraft.artifacts.v1;
 
 /**
  * <pre>
- * PerceptionInput identifies one input by role and content digest.
+ * PerceptionInput identifies one input by role and content digest. Session
+ * alignment reuses it for its own lineage.
  * </pre>
  *
  * Protobuf type {@code recorder_minecraft.artifacts.v1.PerceptionInput}
@@ -54,7 +55,7 @@ private static final long serialVersionUID = 0L;
   private volatile java.lang.Object role_ = "";
   /**
    * <pre>
-   * One of "capture_metadata", "capture_events", or "scene_store".
+   * Perception uses "capture_metadata", "capture_events", or "scene_store".
    * </pre>
    *
    * <code>string role = 1 [json_name = "role"];</code>
@@ -75,7 +76,7 @@ private static final long serialVersionUID = 0L;
   }
   /**
    * <pre>
-   * One of "capture_metadata", "capture_events", or "scene_store".
+   * Perception uses "capture_metadata", "capture_events", or "scene_store".
    * </pre>
    *
    * <code>string role = 1 [json_name = "role"];</code>
@@ -100,7 +101,7 @@ private static final long serialVersionUID = 0L;
   private dev.recorderminecraft.artifacts.v1.ArtifactFile file_;
   /**
    * <pre>
-   * path is relative to the directory that contains perception.jsonl when the
+   * path is relative to the directory that contains the output when the
    * input is inside it, and absolute otherwise.
    * </pre>
    *
@@ -113,7 +114,7 @@ private static final long serialVersionUID = 0L;
   }
   /**
    * <pre>
-   * path is relative to the directory that contains perception.jsonl when the
+   * path is relative to the directory that contains the output when the
    * input is inside it, and absolute otherwise.
    * </pre>
    *
@@ -126,7 +127,7 @@ private static final long serialVersionUID = 0L;
   }
   /**
    * <pre>
-   * path is relative to the directory that contains perception.jsonl when the
+   * path is relative to the directory that contains the output when the
    * input is inside it, and absolute otherwise.
    * </pre>
    *
@@ -311,7 +312,8 @@ private static final long serialVersionUID = 0L;
   }
   /**
    * <pre>
-   * PerceptionInput identifies one input by role and content digest.
+   * PerceptionInput identifies one input by role and content digest. Session
+   * alignment reuses it for its own lineage.
    * </pre>
    *
    * Protobuf type {@code recorder_minecraft.artifacts.v1.PerceptionInput}
@@ -483,7 +485,7 @@ private static final long serialVersionUID = 0L;
     private java.lang.Object role_ = "";
     /**
      * <pre>
-     * One of "capture_metadata", "capture_events", or "scene_store".
+     * Perception uses "capture_metadata", "capture_events", or "scene_store".
      * </pre>
      *
      * <code>string role = 1 [json_name = "role"];</code>
@@ -503,7 +505,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * One of "capture_metadata", "capture_events", or "scene_store".
+     * Perception uses "capture_metadata", "capture_events", or "scene_store".
      * </pre>
      *
      * <code>string role = 1 [json_name = "role"];</code>
@@ -524,7 +526,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * One of "capture_metadata", "capture_events", or "scene_store".
+     * Perception uses "capture_metadata", "capture_events", or "scene_store".
      * </pre>
      *
      * <code>string role = 1 [json_name = "role"];</code>
@@ -541,7 +543,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * One of "capture_metadata", "capture_events", or "scene_store".
+     * Perception uses "capture_metadata", "capture_events", or "scene_store".
      * </pre>
      *
      * <code>string role = 1 [json_name = "role"];</code>
@@ -555,7 +557,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * One of "capture_metadata", "capture_events", or "scene_store".
+     * Perception uses "capture_metadata", "capture_events", or "scene_store".
      * </pre>
      *
      * <code>string role = 1 [json_name = "role"];</code>
@@ -577,7 +579,7 @@ private static final long serialVersionUID = 0L;
         dev.recorderminecraft.artifacts.v1.ArtifactFile, dev.recorderminecraft.artifacts.v1.ArtifactFile.Builder, dev.recorderminecraft.artifacts.v1.ArtifactFileOrBuilder> fileBuilder_;
     /**
      * <pre>
-     * path is relative to the directory that contains perception.jsonl when the
+     * path is relative to the directory that contains the output when the
      * input is inside it, and absolute otherwise.
      * </pre>
      *
@@ -589,7 +591,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * path is relative to the directory that contains perception.jsonl when the
+     * path is relative to the directory that contains the output when the
      * input is inside it, and absolute otherwise.
      * </pre>
      *
@@ -605,7 +607,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * path is relative to the directory that contains perception.jsonl when the
+     * path is relative to the directory that contains the output when the
      * input is inside it, and absolute otherwise.
      * </pre>
      *
@@ -626,7 +628,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * path is relative to the directory that contains perception.jsonl when the
+     * path is relative to the directory that contains the output when the
      * input is inside it, and absolute otherwise.
      * </pre>
      *
@@ -645,7 +647,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * path is relative to the directory that contains perception.jsonl when the
+     * path is relative to the directory that contains the output when the
      * input is inside it, and absolute otherwise.
      * </pre>
      *
@@ -671,7 +673,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * path is relative to the directory that contains perception.jsonl when the
+     * path is relative to the directory that contains the output when the
      * input is inside it, and absolute otherwise.
      * </pre>
      *
@@ -689,7 +691,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * path is relative to the directory that contains perception.jsonl when the
+     * path is relative to the directory that contains the output when the
      * input is inside it, and absolute otherwise.
      * </pre>
      *
@@ -702,7 +704,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * path is relative to the directory that contains perception.jsonl when the
+     * path is relative to the directory that contains the output when the
      * input is inside it, and absolute otherwise.
      * </pre>
      *
@@ -718,7 +720,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * path is relative to the directory that contains perception.jsonl when the
+     * path is relative to the directory that contains the output when the
      * input is inside it, and absolute otherwise.
      * </pre>
      *

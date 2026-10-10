@@ -241,6 +241,10 @@ owns the generic manifest and catalog descriptor.
 header, then one sample per sampled server tick. See
 [Perception](#perception) below.
 
+A session alignment contains generated `SessionAlignmentRecord` ProtoJSON
+lines for one world session and several Plays. It is not part of a Play and
+has no reserved path. See [Session alignment](#session-alignment) below.
+
 `renders/render-job.json` and `renders/result.json` are generated `RenderJob`
 and `RenderResult` ProtoJSON messages. `renders/fpv_frames/` contains PNG frames
 plus generated `RenderFrameIndex` ProtoJSON lines mapping every frame to server
@@ -353,3 +357,201 @@ are assumed because they never reach the server; dynamic FOV is ignored;
 rotation is sampled once per server tick; partial block shapes, cutout
 texels, entities, lighting, and invisibility do not affect sight; the scene
 is client-visible, so cells outside it are unknown.
+
+## Session alignment
+
+A session alignment joins one world session with several Plays of the same
+`session_id` on the shared server tick timeline. It answers, for each actor
+and container: "since this actor last observed this container, did the
+world contents differ from what it observed, and from when to when?" It
+records observations and differences only. It never states what an actor
+knows, expects, or thinks; consumers interpret these facts.
+
+```sh
+WORLD='artifacts/v1/<server>--<instance>/world/sessions/<start>--<session>'
+ALICE='artifacts/v1/<server>--<instance>/players/alice--<uuid>/plays/<start>--<connection>'
+BOB='artifacts/v1/<server>--<instance>/players/bob--<uuid>/plays/<start>--<connection>'
+
+go run ./cmd/recorder-minecraft session align \
+  --world-metadata "$WORLD/metadata.json" \
+  --world-events "$WORLD/world-events.jsonl" \
+  --play "metadata=$ALICE/metadata.json,events=$ALICE/capture/events.jsonl,perception=$ALICE/perception.jsonl" \
+  --play "metadata=$BOB/metadata.json,events=$BOB/capture/events.jsonl" \
+  --output out/session-alignment.jsonl
+```
+
+| Property | Session alignment |
+| --- | --- |
+| Scope | `session`: one world stream plus the named Plays. World records have no actor; every other record names its actor by `connection_id` |
+| Provenance | `deterministic transform`: computed from the inputs only; equal inputs give equal output |
+| Causality | Hindsight: `uses_future_context` is `true` (see below) |
+| Owner | `recorder-minecraft session align`; replaceable with `--overwrite` |
+
+Artifacts V1 reserves no path for this output. The participant set is the
+caller's choice, so the caller names the output path. Each Play is given
+explicitly with `metadata`, `events`, and an optional `perception`. The
+processor does not discover Plays. Every Play must have the world session's
+`session_id`, and a Play may appear only once. A perception file must name
+the same session, player, and connection, and its header must record the
+SHA-256 of the given `capture/events.jsonl`. Inputs are only read. The
+output is staged and published atomically.
+
+Every line is the ProtoJSON form of one `SessionAlignmentRecord`. The first
+line is the `header`. Then come the `event` lines in tick order and the
+`divergence` lines in start tick order.
+
+The header has the processor name and version, scope, provenance,
+`uses_future_context`, a `future_context` statement, the world coverage, the
+lineage (path, SHA-256, size) of every input, the assumptions, and the
+known limitations. It lists each participant: player UUID and name,
+connection id, Play coverage, terminal reason, perception coverage and
+sampling interval when given, and the numbers of world containers the actor
+observed and never observed. An actor is one Play, not one player. Two connections of the
+same player are two actors, and observations do not carry across them.
+
+Records reference sources instead of copying them. A `RecordRef` names the
+stream (world events, capture metadata, capture events, or perception), the
+actor's `connection_id` for actor streams, the server tick, and the stream
+`sequence` for world and capture events. Messages are reused from other
+contracts where possible: `BlockPosition`, `TickRange`, and `ArtifactFile`
+from common, `InventorySlot` and `ContainerViewKind` from events, and
+`PerceptionProcessor` and `PerceptionInput` from perception.
+
+### Aligned events
+
+The event index is bounded to records that the divergences can join:
+
+- `WORLD_CONTAINER_SNAPSHOT` and `WORLD_CONTAINER_REMOVED`, only for
+  containers that some participant observed. Other world records remain in
+  `world-events.jsonl`.
+- `ACTOR_JOINED` and `ACTOR_LEFT` at the Play start and end ticks, from
+  capture metadata.
+- `ACTOR_CONTAINER_VIEW` for every container-backed `container_view` except
+  `CARRIED`, and `ACTOR_CONTAINER_CLICK` for applied container clicks while
+  such a menu was open. `block_pos` is the menu's `source.block_pos`.
+- `ACTOR_BLOCK_ENTITY_VISIBILITY` for observed containers and
+  `ACTOR_ENTITY_VISIBILITY` for `minecraft:player` entities, from
+  perception samples. An event is written only when the state changes to
+  `VISIBLE`, `NOT_VISIBLE`, or `UNDETERMINED`. Other entities stay in
+  `perception.jsonl`.
+
+Within a tick, joins come first, then world records, then container views
+and clicks, then visibility, then leaves.
+
+### Observations and divergences
+
+An actor observes a container when the server sends the actor:
+
+- a `CONTENTS` view of a menu whose `source` is that container: its complete
+  contents, or
+- a `SLOT` view of one of its slots in such a menu, applied to the last
+  observed contents. A `SLOT` view without an earlier `CONTENTS` view of
+  the container is not an observation.
+
+Menu slot `i` below `container_slot_count` is container slot `i`. For a
+double chest, the first half of these slots belongs to `source.block_pos`
+and the second half to `source.secondary_block_pos`. Each half is a separate
+container. Menu slots at or above the world `container_size` are not
+compared.
+
+Vanilla does not send a `SLOT` view for a change that the actor's client
+already predicted. When the actor clicks in the menu, the server adopts the
+client's predicted slots and sends only the slots that still differ. So an
+applied `container_click` while a container-backed menu is open sets the
+actor's observation to the world contents at the end of that tick. Captured
+click records carry no container id, so the click is attributed to the menu
+that was open when it was applied.
+
+The truth for a container is its latest world `container_snapshot` at or
+before the tick. Truth is unknown before the first snapshot, after
+`container_removed`, and for `LOOT_UNGENERATED` contents. Stacks are equal
+when `item_id`, `count`, and `damage` match, and `components_snbt` matches
+when both records carry it.
+
+Observation and truth are compared at the end of each tick, after all world
+records of that tick and then the actor's records in stream order. Only
+ticks inside both the Play and the world stream are evaluated.
+
+A divergence starts at the first tick where the truth is known and differs
+from the actor's last observed contents. The actor must have observed the
+container before. A container the actor never observed has no divergence;
+the participant's `unobserved_container_count` counts these containers. The
+divergence ends with one of these `end` values:
+
+| End | Meaning | `end_tick` |
+| --- | --- | --- |
+| `REOBSERVED` | The actor observed the container again | Tick of that observation |
+| `TRUTH_MATCHES` | The world contents changed back to the observed contents | Tick of that snapshot |
+| `CONTAINER_REMOVED` | `container_removed`: chunk unloaded or block destroyed | Tick of the removal |
+| `TRUTH_UNDETERMINED` | The world contents became undetermined | Tick of that snapshot |
+| `ACTOR_COVERAGE_END` | The Play ended first | Absent |
+| `WORLD_COVERAGE_END` | The world stream ended first | Absent |
+
+`start_tick` is the first and `last_tick` the last tick at whose end the
+difference held. `end_source` refers to the record that ended it. For a
+coverage end, `end_tick` and `end_source` are absent, because the state
+after `last_tick` is unknown. A divergence does not extend past either
+coverage. If a re-observation still differs from the truth, a new
+divergence starts at the same tick.
+
+A divergence also has:
+
+- `observed`: the last observed contents before the start, with the
+  records that produced them (the `CONTENTS` view, then any `SLOT` views, or
+  the click and the world snapshot it confirmed).
+- `truth`: the world contents at the end of `start_tick`, with the
+  snapshot reference.
+- `truth_changes`: the number of world snapshots of the container after
+  the start and inside the interval.
+
+Slot numbers in `observed` and `truth` are container slots. The diagnostic
+`components_debug` field is omitted.
+
+### Co-presence evidence
+
+`co_presence` copies facts from the observer's own `perception.jsonl` at
+the divergence start:
+
+- `status` is `PERCEPTION_NOT_PROVIDED` when no perception was given (this
+  is unknown, not false), `NO_SAMPLE` when no sample is at or less than one
+  sampling interval before the start tick, and `SAMPLED` otherwise.
+- `sample` refers to the sample that was used: the latest at or before the
+  start tick.
+- `container` is the visibility of the container block entity in that
+  sample: `VISIBLE`, `UNDETERMINED`, or `NOT_VISIBLE`.
+- `entities` lists the visible and undetermined entities of the sample with
+  UUID and type. For a player entity whose Play is a participant and covers
+  the start tick, `participant_connection_id` names that Play, and
+  `participant_container_open` tells whether that participant had a menu
+  backed by this container open at the start tick. `participant_menu`
+  refers to that menu's `OPENED` view.
+
+These are facts with no conclusion. For example, an actor can have a
+divergence while the actor who changed the container was visible beside it
+with the container open. Deciding what that means belongs to the consumer.
+
+### Causal and hindsight fields
+
+The processor is hindsight. Only `last_tick`, `end_tick`, `end`,
+`end_source`, and `truth_changes` of a divergence read records after its
+`start_tick`. `start_tick`, `observed`, `truth`, and `co_presence` use only
+records at or before the start tick. Every aligned event uses only its own
+record and earlier records of the same stream. A later live processor can
+therefore emit aligned events and divergence starts causally, and close
+the intervals as the ends occur.
+
+### Limitations
+
+The header lists the known limitations. The main ones:
+
+- A click is attributed to the menu that was open, because captured click
+  records carry no container id.
+- Entity inventories (chest boats, minecarts, donkeys) are not in the world
+  stream, and ender chests have no container source. They are never
+  observed or compared.
+- A `SLOT` view sent in the tick after the world change gives a one-tick
+  divergence that ends `REOBSERVED`.
+- Co-presence copies perception verdicts, which keep all the perception
+  assumptions and limitations.
+- There is no tick selection. The output covers the whole world stream and
+  every named Play.

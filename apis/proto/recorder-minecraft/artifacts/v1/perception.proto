@@ -51,11 +51,12 @@ message PerceptionProcessor {
   string version = 2;
 }
 
-// PerceptionInput identifies one input by role and content digest.
+// PerceptionInput identifies one input by role and content digest. Session
+// alignment reuses it for its own lineage.
 message PerceptionInput {
-  // One of "capture_metadata", "capture_events", or "scene_store".
+  // Perception uses "capture_metadata", "capture_events", or "scene_store".
   string role = 1;
-  // path is relative to the directory that contains perception.jsonl when the
+  // path is relative to the directory that contains the output when the
   // input is inside it, and absolute otherwise.
   ArtifactFile file = 2;
 }
