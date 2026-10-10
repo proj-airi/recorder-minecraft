@@ -4,12 +4,11 @@ import { computed } from 'vue'
 import MonitorVideoTile from './MonitorVideoTile.vue'
 
 import { useEditorWorkspaceContext } from '../../editor/composables/useEditorWorkspaceContext'
+import { monitorLaneViews } from '../videoTime'
 
 const context = useEditorWorkspaceContext()
-const views = computed(() => context.episode().tracks.flatMap((track) => {
-  const segment = context.episode().segments.find(candidate => candidate.trackId === track.id)
-  return track.replay?.videoUrl && segment ? [{ segment, source: track.replay, trackId: track.id }] : []
-}))
+// One tile per player lane, so every player at the playhead is visible at once.
+const views = computed(() => monitorLaneViews(context.episode(), context.session.playheadTick.value))
 </script>
 
 <template>
@@ -18,10 +17,10 @@ const views = computed(() => context.episode().tracks.flatMap((track) => {
       <div class="grid auto-rows-fr grid-cols-[repeat(auto-fit,minmax(min(18rem,100%),1fr))] min-h-full content-center gap-2">
         <MonitorVideoTile
           v-for="view in views"
-          :key="view.trackId"
-          :segment="view.segment"
+          :key="view.lane.id"
+          :data-lane-id="view.lane.id"
+          :placement="view.placement"
           :session="context.session"
-          :source="view.source"
         />
       </div>
     </div>

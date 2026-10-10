@@ -1,9 +1,11 @@
+import { defaultTimelineRendererTheme } from '@proj-airi/canvas-timeline-renderer'
 import { createPinia } from 'pinia'
 import { expect, it, vi } from 'vitest'
 import { render } from 'vitest-browser-vue'
 
 import IndexPage from '../../../pages/index.vue'
 
+import { TIMELINE_SESSION_ROW_HEIGHT, TIMELINE_TRACK_HEIGHT, TIMELINE_WORLD_ROW_HEIGHT } from '../domain'
 import { createEpisode, stressOptions } from '../fixtures/episode'
 import { useEpisodeStore } from '../stores/episode'
 
@@ -63,7 +65,12 @@ it('renders the stress fixture before the browser-test timeout', async () => {
     expect(screen.container.querySelector('[aria-label="Reorder Video 1"]')).not.toBeNull()
     await expect.poll(() => screen.container.querySelectorAll('canvas').length).toBeGreaterThanOrEqual(2)
 
-    await expect.poll(() => screen.container.querySelectorAll('[data-track-id]').length).toBe(stressOptions.trackCount)
+    // One session header, one world slot, and one lane per player. Rows are virtualized from the
+    // scroll viewport; this route test mounts without Dockview CSS, so the viewport may be tall.
+    await expect.poll(() => screen.container.querySelector('[aria-label="Timeline rows"]')?.getAttribute('data-row-count')).toBe(String(stressOptions.trackCount + 2))
+    const mountedRows = screen.container.querySelectorAll('[data-track-id]').length
+    expect(mountedRows).toBeGreaterThan(2)
+    expect(mountedRows).toBeLessThanOrEqual(stressOptions.trackCount + 2)
 
     const playbackItems = Array.from(screen.container.querySelector('[aria-label="Timeline toolbar"] [aria-label="Current timecode"]')?.parentElement?.children ?? [])
       .map(element => element.getAttribute('aria-label'))
@@ -153,6 +160,7 @@ it('renders the stress fixture before the browser-test timeout', async () => {
     window.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, code: 'ControlLeft', key: 'Control' }))
 
     const segmentCount = episodeStore.episode.segments.length
+    const firstLaneY = defaultTimelineRendererTheme.metrics.rulerHeight + TIMELINE_SESSION_ROW_HEIGHT + TIMELINE_WORLD_ROW_HEIGHT + TIMELINE_TRACK_HEIGHT / 2
     const timelineCanvas = screen.container.querySelector<HTMLCanvasElement>('[role="application"]')
     if (!timelineCanvas)
       throw new Error('Timeline interaction canvas did not mount')
@@ -163,7 +171,7 @@ it('renders the stress fixture before the browser-test timeout', async () => {
       button: 0,
       buttons: 1,
       clientX: canvasBounds.left + 80,
-      clientY: canvasBounds.top + 64,
+      clientY: canvasBounds.top + firstLaneY,
       pointerId: 1,
       pointerType: 'mouse',
     }))
@@ -171,7 +179,7 @@ it('renders the stress fixture before the browser-test timeout', async () => {
       bubbles: true,
       button: 0,
       clientX: canvasBounds.left + 80,
-      clientY: canvasBounds.top + 64,
+      clientY: canvasBounds.top + firstLaneY,
       pointerId: 1,
       pointerType: 'mouse',
     }))

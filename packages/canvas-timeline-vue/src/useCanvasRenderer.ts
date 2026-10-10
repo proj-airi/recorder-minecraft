@@ -44,6 +44,8 @@ export function useCanvasRenderer(
   let unsubscribeEngine: (() => void)[] = []
   let stopClassNameWatch: (() => void) | null = null
   let stopEngineWatch: (() => void) | null = null
+  let stopDataLanesWatch: (() => void) | null = null
+  let stopDataSelectionWatch: (() => void) | null = null
   let resolvedTheme: null | TimelineRendererTheme = null
   let containerSize = { height: 0, width: 0 }
 
@@ -123,6 +125,15 @@ export function useCanvasRenderer(
       keyframesRequested: props.showKeyframes ?? props.keyframeProperty !== undefined,
       state: props.engine.getState(),
       type: 'UPDATE_STATE',
+    })
+  }
+
+  function postDataLanes(includeLanes: boolean): void {
+    // Typed arrays are structured-cloned, not transferred, so the caller keeps its copy for hit tests.
+    worker?.postMessage({
+      lanes: includeLanes ? [...(props.dataLanes ?? [])] : undefined,
+      selection: props.dataSelection ?? null,
+      type: 'UPDATE_DATA_LANES',
     })
   }
 
@@ -229,6 +240,7 @@ export function useCanvasRenderer(
     }, [offscreen])
 
     subscribeToEngine()
+    postDataLanes(true)
 
     resizeObserver = new ResizeObserver((entries) => {
       for (const entry of entries) {
@@ -266,6 +278,8 @@ export function useCanvasRenderer(
       },
     )
     stopClassNameWatch = watch(() => props.className, updateCanvasClassName)
+    stopDataLanesWatch = watch(() => props.dataLanes, () => postDataLanes(true))
+    stopDataSelectionWatch = watch(() => props.dataSelection, () => postDataLanes(false))
   })
 
   watch(
@@ -299,6 +313,8 @@ export function useCanvasRenderer(
   onBeforeUnmount(() => {
     stopClassNameWatch?.()
     stopEngineWatch?.()
+    stopDataLanesWatch?.()
+    stopDataSelectionWatch?.()
     teardown()
   })
 }

@@ -6,16 +6,25 @@ import KeyboardInputView from './KeyboardInputView.vue'
 import MouseInputView from './MouseInputView.vue'
 
 import { useEditorWorkspaceContext } from '../../editor/composables/useEditorWorkspaceContext'
+import { playServerTickAt } from '../../timeline/ticks'
 import { useReplayControlState } from '../composables/useReplayControlState'
 
 const { episode, session } = useEditorWorkspaceContext()
-const selectedSegment = computed(() => episode().segments.find(segment => segment.id === session.selectedSegmentId.value) ?? null)
-const selectedReplay = computed(() => {
-  const trackId = selectedSegment.value?.trackId
-  return trackId ? episode().tracks.find(track => track.id === trackId)?.replay ?? null : null
+const selectedPlacement = computed(() => {
+  const segment = episode().segments.find(candidate => candidate.id === session.selectedSegmentId.value)
+  return segment?.placementId ? episode().placements.find(placement => placement.id === segment.placementId) ?? null : null
 })
-const replayPlayheadTick = computed(() => Math.max(0, session.playheadTick.value - (selectedSegment.value?.startTick ?? 0)))
-const controls = useReplayControlState(selectedReplay, replayPlayheadTick)
+const selectedReplay = computed(() => selectedPlacement.value?.source ?? null)
+// The playhead is clamped to the selected clip, then mapped through the placement so trimmed and
+// moved clips read the Server tick they actually show.
+const replayServerTick = computed(() => {
+  const placement = selectedPlacement.value
+  if (!placement)
+    return null
+  const tick = Math.min(placement.endTick, Math.max(placement.startTick, session.playheadTick.value))
+  return playServerTickAt(placement, tick)
+})
+const controls = useReplayControlState(selectedReplay, replayServerTick)
 </script>
 
 <template>

@@ -1,11 +1,13 @@
 /* SPDX-License-Identifier: MPL-2.0 */
-// NOTICE: Ported without behavioral or styling changes from
+// NOTICE: Ported from
 // `https://github.com/techsquidtv/canvas-timeline/blob/1536a2dbc54e3a333ace360894a2e4508b295cf1/packages/renderer/src/worker.ts#L1-L180`.
+// Recorder adds the `UPDATE_DATA_LANES` message for data lanes.
 
 import type { TimelineState } from '@techsquidtv/canvas-timeline-core';
 import { renderTimeline } from '#renderer/renderTimeline';
 import type { CanvasRendererRenderReason, CanvasRendererStats } from '#renderer/CanvasRenderer';
 import type { TimelineRenderOptions } from '#renderer/render/types';
+import type { TimelineDataLane, TimelineDataLaneSelection } from '#renderer/render/dataLanes';
 
 let canvas: OffscreenCanvas | null = null;
 let ctx: OffscreenCanvasRenderingContext2D | null = null;
@@ -16,6 +18,8 @@ let diagnosticsEnabled = false;
 let dpr = 1;
 let options: TimelineRenderOptions = {};
 let keyframesRequested = false;
+let dataLanes: ReadonlyMap<string, TimelineDataLane> = new Map();
+let dataSelection: TimelineDataLaneSelection | null = null;
 
 type CanvasRendererWorkerMessage =
   | {
@@ -53,6 +57,11 @@ type CanvasRendererWorkerMessage =
   | {
       type: 'SET_DIAGNOSTICS';
       enabled: boolean;
+    }
+  | {
+      type: 'UPDATE_DATA_LANES';
+      lanes?: TimelineDataLane[];
+      selection?: TimelineDataLaneSelection | null;
     };
 
 interface CanvasRendererWorkerRenderError {
@@ -117,6 +126,14 @@ self.onmessage = (event: MessageEvent<CanvasRendererWorkerMessage>) => {
     }
   } else if (message.type === 'SET_DIAGNOSTICS') {
     diagnosticsEnabled = message.enabled;
+  } else if (message.type === 'UPDATE_DATA_LANES') {
+    if (message.lanes) {
+      dataLanes = new Map(message.lanes.map((lane) => [lane.trackId, lane]));
+    }
+    if (message.selection !== undefined) {
+      dataSelection = message.selection;
+    }
+    requestRender('state');
   }
 };
 
@@ -148,7 +165,7 @@ function draw() {
 
   const startedAt = performance.now();
   try {
-    renderTimeline(ctx, canvas, state, dpr, options);
+    renderTimeline(ctx, canvas, state, dpr, options, { lanes: dataLanes, selection: dataSelection });
   } catch (renderError: unknown) {
     self.postMessage({
       type: 'RENDER_ERROR',
