@@ -59,3 +59,50 @@ jobs:
 
       - name: Build renderer mod
         run: gradle --project-dir mods/renderer-mod build
+
+  dashboard:
+    name: Dashboard
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Set up proto
+        uses: moonrepo/setup-toolchain@v0.6.4
+        with:
+          proto-version: 0.58.2
+          auto-install: false
+          cache: true
+
+      # Node, Go, and buf come from .prototools. hack/proto-gen runs buf and Go through proto.
+      - name: Install pinned toolchains
+        run: |
+          proto install node --config-mode local
+          proto install go --config-mode local
+          proto install buf --config-mode local
+
+      # The pnpm version comes from packageManager in package.json.
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check generated OpenAPI and TypeScript SDK
+        run: |
+          hack/proto-gen
+          git diff --exit-code -- apis/openapi apis/sdk
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Install Playwright Chromium
+        run: pnpm --filter @proj-airi/recorder-minecraft-dashboard exec playwright install --with-deps chromium
+
+      - name: Test dashboard in the browser
+        run: pnpm --filter @proj-airi/recorder-minecraft-dashboard run test:browser
