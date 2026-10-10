@@ -9,8 +9,13 @@ services:
     environment:
       EULA: '${MC_EULA}'
       TYPE: FABRIC
-      VERSION: '${MC_VERSION}'
-      FABRIC_LOADER_VERSION: '${MC_FABRIC_LOADER_VERSION}'
+      # Runtime pins: keep in sync with deploy/minecraft-server.Dockerfile,
+      # mods/recorder-mod/build.gradle.kts, and
+      # processors/scene-extractor/gradle.properties. The scene extractor
+      # requires the exact loader, Fabric API, and Kotlin versions recorded in
+      # each replay; `verifyServerRuntimePins` checks these values.
+      VERSION: '1.21.8'
+      FABRIC_LOADER_VERSION: '0.19.3'
       MEMORY: '${MC_MEMORY}'
       SEED: '${MC_SEED}'
       MODE: '${MC_GAME_MODE}'
@@ -23,8 +28,11 @@ services:
       MOTD: '${MC_MOTD}'
       ENABLE_RCON: 'false'
       PAUSE_WHEN_EMPTY_SECONDS: '-1'
-      MODRINTH_PROJECTS: '${MC_MODRINTH_PROJECTS}'
-      MODRINTH_DOWNLOAD_DEPENDENCIES: required
+      # Every server mod is an immutable Modrinth version ID. Automatic
+      # dependency resolution picks the newest compatible release, which can
+      # require a newer loader than the pin above.
+      MODRINTH_PROJECTS: 'server-replay:TbWIikrT,fabric-api:g58ofrov,fabric-language-kotlin:bdhiINYC'
+      MODRINTH_DOWNLOAD_DEPENDENCIES: none
       SYNC_SKIP_NEWER_IN_DESTINATION: 'false'
     volumes:
       - '${MC_DATA_HOST_DIR}:/data'
