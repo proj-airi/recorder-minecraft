@@ -76,3 +76,69 @@ func TestListReplaysMapsCompletedSummaryFailureToDataLoss(t *testing.T) {
 	assert.Contains(t, recorder.Body.String(), "connection_id="+connectionID)
 	assert.NotContains(t, recorder.Body.String(), root)
 }
+
+func TestWorldSessionEndpoints(t *testing.T) {
+	t.Parallel()
+
+	const (
+		serverID  = "e9fe419a-022b-451d-8598-806887b987b5"
+		sessionID = "d6dda5df-652f-4727-a081-a1853a4fb0be"
+	)
+	root := t.TempDir()
+	startedAt := time.Date(2026, time.October, 10, 8, 0, 3, 300000000, time.UTC)
+	directory := "20261010T080003.300Z--" + sessionID
+	sessionPath := filepath.Join(root, "v1", "server--"+serverID, "world", "sessions", directory)
+	require.NoError(t, os.MkdirAll(sessionPath, 0o750))
+	endTick := int64(1106)
+	raw, err := protojson.Marshal(&artifacts.WorldSessionMetadata{
+		SchemaVersion: 1, LayoutVersion: "v1", SessionId: sessionID, Scope: "world", Provenance: "engine-reported",
+		Server:    &artifacts.ServerIdentity{Name: "server", InstanceId: serverID},
+		StartedAt: timestamppb.New(startedAt), EndServerTick: &endTick, Events: "world-events.jsonl",
+	})
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(sessionPath, "metadata.json"), raw, 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(sessionPath, "world-events.jsonl"), nil, 0o600))
+	catalogService, err := catalog.New(root)
+	require.NoError(t, err)
+	service := New(catalogService)
+	mux := runtime.NewServeMux()
+	require.NoError(t, apiv1.RegisterArtifactCatalogServiceHandlerServer(context.Background(), mux, service))
+	get := func(method, path string) *httptest.ResponseRecorder {
+		recorder := httptest.NewRecorder()
+		mux.ServeHTTP(recorder, httptest.NewRequest(method, path, nil))
+		return recorder
+	}
+
+	list := get(http.MethodGet, "/api/v1/world-sessions?server_instance_id="+serverID)
+	require.Equal(t, http.StatusOK, list.Code, list.Body.String())
+	response := &apiv1.ListWorldSessionsResponse{}
+	require.NoError(t, protojson.Unmarshal(list.Body.Bytes(), response))
+	require.Len(t, response.GetWorldSessions(), 1)
+	assert.Equal(t, directory, response.GetWorldSessions()[0].GetId())
+	assert.Equal(t, "/assets/v1/server--"+serverID+"/world/sessions/"+directory+"/world-events.jsonl", response.GetWorldSessions()[0].GetEventsUrl())
+
+	empty := get(http.MethodGet, "/api/v1/world-sessions?session_id=other")
+	require.Equal(t, http.StatusOK, empty.Code)
+	assert.JSONEq(t, `{"worldSessions":[]}`, empty.Body.String())
+
+	one := get(http.MethodGet, "/api/v1/server-instances/"+serverID+"/world-sessions/"+directory)
+	require.Equal(t, http.StatusOK, one.Code, one.Body.String())
+	assert.Contains(t, one.Body.String(), `"sessionId":"`+sessionID+`"`)
+
+	missing, err := service.GetWorldSession(context.Background(), &apiv1.GetWorldSessionRequest{ServerInstanceId: serverID, WorldSessionId: "20200101T000000Z--missing"})
+	assert.Nil(t, missing)
+	assert.Equal(t, codes.NotFound, status.Code(err))
+
+	summaries, err := service.ListServerInstances(context.Background(), &apiv1.ListServerInstancesRequest{})
+	require.NoError(t, err)
+	require.Len(t, summaries.GetServerInstances(), 1)
+	assert.Equal(t, uint64(1), summaries.GetServerInstances()[0].GetWorldSessionCount())
+
+	refresh := get(http.MethodPost, "/api/v1/catalog:refresh")
+	require.Equal(t, http.StatusOK, refresh.Code, refresh.Body.String())
+	refreshed := &apiv1.RefreshCatalogResponse{}
+	require.NoError(t, protojson.Unmarshal(refresh.Body.Bytes(), refreshed))
+	assert.Equal(t, uint64(1), refreshed.GetWorldSessionCount())
+	assert.Equal(t, uint64(1), refreshed.GetServerInstanceCount())
+	assert.NotNil(t, refreshed.GetRefreshedAt())
+}

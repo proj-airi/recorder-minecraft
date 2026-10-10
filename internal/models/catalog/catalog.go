@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	apiv1 "github.com/proj-airi/recorder-minecraft/apis/sdk/go/recorder-minecraft/api/v1"
@@ -19,6 +20,7 @@ import (
 	"github.com/proj-airi/recorder-minecraft/internal/models/captures"
 	"github.com/proj-airi/recorder-minecraft/internal/models/plays"
 	"github.com/proj-airi/recorder-minecraft/internal/models/replays"
+	"github.com/proj-airi/recorder-minecraft/internal/models/worldcaptures"
 	"github.com/samber/do/v2"
 	"go.uber.org/fx"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -37,10 +39,36 @@ type Filter struct {
 	StartedBefore    time.Time
 }
 
+// DefaultCacheTTL bounds how long a catalog snapshot is reused. Every read in that window, such as
+// the burst of list requests a dashboard sends on load, shares one walk of the artifacts root.
+const DefaultCacheTTL = 2 * time.Second
+
 type Service struct {
 	root      string
 	inspector *replays.Service
 	summaries *plays.Service
+	worlds    *worldcaptures.Service
+	cacheTTL  time.Duration
+	now       func() time.Time
+
+	mutex  sync.Mutex
+	cached *snapshotState
+}
+
+// snapshotState is one unfiltered walk of the artifacts root. Its messages are shared and must be
+// cloned before they leave the package.
+type snapshotState struct {
+	builtAt time.Time
+	servers []*apiv1.ServerInstance
+	plays   map[*apiv1.Replay]playSource
+}
+
+type playSource struct {
+	path string
+	// startedAt is the directory start time, which time filters compare.
+	startedAt time.Time
+	// readErr is the metadata failure behind an invalid Replay resource.
+	readErr error
 }
 
 type SummaryError struct {
@@ -95,7 +123,10 @@ func New(root string) (*Service, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve artifacts root: %w", err)
 	}
-	return &Service{root: resolved, inspector: &replays.Service{}, summaries: plays.New(&captures.Service{})}, nil
+	return &Service{
+		root: resolved, inspector: &replays.Service{}, summaries: plays.New(&captures.Service{}), worlds: &worldcaptures.Service{},
+		cacheTTL: DefaultCacheTTL, now: time.Now,
+	}, nil
 }
 
 func (service *Service) Root() string {
@@ -105,50 +136,195 @@ func (service *Service) Root() string {
 // Snapshot derives a catalog from the canonical V1 hierarchy. Directory names locate candidates,
 // while metadata.json remains authoritative for identity and time values.
 func (service *Service) Snapshot(ctx context.Context, filter Filter) ([]*apiv1.ServerInstance, error) {
-	return service.snapshot(ctx, filter, false)
+	state, err := service.state(ctx, false)
+	if err != nil {
+		return nil, err
+	}
+	servers, _ := filterServers(state, filter)
+	return servers, nil
 }
 
 // SnapshotWithSummaries calculates summaries for selected completed Plays. Unlike Snapshot,
 // this operation fails atomically when a completed Play violates capture invariants.
 func (service *Service) SnapshotWithSummaries(ctx context.Context, filter Filter) ([]*apiv1.ServerInstance, error) {
-	return service.snapshot(ctx, filter, true)
+	state, err := service.state(ctx, false)
+	if err != nil {
+		return nil, err
+	}
+	servers, sources := filterServers(state, filter)
+	for _, server := range servers {
+		for _, player := range server.GetPlayers() {
+			for _, replay := range player.GetReplays() {
+				if err := ctx.Err(); err != nil {
+					return nil, err
+				}
+				source := sources[replay]
+				if source.readErr != nil {
+					return nil, summaryError(source.path, server.GetInstanceId(), player.GetUuid(), replay.GetConnectionId(), source.readErr)
+				}
+				if replay.EndServerTick == nil {
+					continue
+				}
+				summary, err := service.summaries.Summarize(ctx, source.path)
+				if err != nil {
+					if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+						return nil, err
+					}
+					return nil, summaryError(source.path, server.GetInstanceId(), player.GetUuid(), replay.GetConnectionId(), err)
+				}
+				replay.Summary = toPlaySummary(summary)
+			}
+		}
+	}
+	return servers, nil
 }
 
-func (service *Service) snapshot(ctx context.Context, filter Filter, includeSummaries bool) ([]*apiv1.ServerInstance, error) {
+// WorldSessions lists world sessions, optionally restricted to one server instance or session_id.
+func (service *Service) WorldSessions(ctx context.Context, serverID, sessionID string) ([]*apiv1.WorldSession, error) {
+	state, err := service.state(ctx, false)
+	if err != nil {
+		return nil, err
+	}
+	sessions := []*apiv1.WorldSession{}
+	for _, server := range state.servers {
+		if serverID != "" && server.GetInstanceId() != serverID {
+			continue
+		}
+		for _, session := range server.GetWorldSessions() {
+			if sessionID == "" || session.GetSessionId() == sessionID {
+				sessions = append(sessions, proto.CloneOf(session))
+			}
+		}
+	}
+	return sessions, nil
+}
+
+// WorldSession returns one world session by server instance and directory name.
+func (service *Service) WorldSession(ctx context.Context, serverID, worldSessionID string) (*apiv1.WorldSession, bool, error) {
+	sessions, err := service.WorldSessions(ctx, serverID, "")
+	if err != nil {
+		return nil, false, err
+	}
+	for _, session := range sessions {
+		if session.GetId() == worldSessionID {
+			return session, true, nil
+		}
+	}
+	return nil, false, nil
+}
+
+// RefreshResult describes the snapshot a Refresh produced.
+type RefreshResult struct {
+	RefreshedAt       time.Time
+	ServerInstances   int
+	Replays           int
+	WorldSessionCount int
+}
+
+// Refresh discards the cached snapshot and walks the artifacts root again.
+func (service *Service) Refresh(ctx context.Context) (RefreshResult, error) {
+	state, err := service.state(ctx, true)
+	if err != nil {
+		return RefreshResult{}, err
+	}
+	result := RefreshResult{RefreshedAt: state.builtAt, ServerInstances: len(state.servers), Replays: len(state.plays)}
+	for _, server := range state.servers {
+		result.WorldSessionCount += len(server.GetWorldSessions())
+	}
+	return result, nil
+}
+
+// state returns a snapshot no older than the cache TTL. Concurrent callers wait for one walk.
+func (service *Service) state(ctx context.Context, force bool) (*snapshotState, error) {
+	service.mutex.Lock()
+	defer service.mutex.Unlock()
+	now := service.now()
+	if !force && service.cached != nil && now.Sub(service.cached.builtAt) < service.cacheTTL {
+		return service.cached, nil
+	}
+	state, err := service.build(ctx)
+	if err != nil {
+		return nil, err
+	}
+	state.builtAt = now
+	service.cached = state
+	return state, nil
+}
+
+func (service *Service) build(ctx context.Context) (*snapshotState, error) {
+	state := &snapshotState{servers: []*apiv1.ServerInstance{}, plays: map[*apiv1.Replay]playSource{}}
 	root := filepath.Join(service.root, "v1")
 	serverEntries, err := readDirectory(root)
 	if errors.Is(err, os.ErrNotExist) {
-		return []*apiv1.ServerInstance{}, nil
+		return state, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("read artifact layout %s: %w", root, err)
 	}
 
-	servers := make([]*apiv1.ServerInstance, 0, len(serverEntries))
 	for _, serverEntry := range serverEntries {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
 		serverName, serverID, ok := splitIdentity(serverEntry.Name())
-		if !ok || (filter.ServerInstanceID != "" && serverID != filter.ServerInstanceID) {
+		if !ok {
 			continue
 		}
 		serverPath := filepath.Join(root, serverEntry.Name())
 		if !safeDirectory(serverPath, serverEntry) {
 			continue
 		}
-		players, err := service.players(ctx, serverPath, serverName, serverID, filter, includeSummaries)
+		sessions := service.worldSessions(serverPath, serverName, serverID)
+		players, err := service.players(ctx, state, serverPath, serverName, serverID, newSessionIndex(sessions))
 		if err != nil {
 			return nil, err
 		}
-		if len(players) > 0 || filter.PlayerUUID == "" {
-			servers = append(servers, &apiv1.ServerInstance{Name: serverName, InstanceId: serverID, Players: players})
-		}
+		linkPlays(sessions, players)
+		state.servers = append(state.servers, &apiv1.ServerInstance{Name: serverName, InstanceId: serverID, Players: players, WorldSessions: sessions})
 	}
-	return servers, nil
+	return state, nil
 }
 
-func (service *Service) players(ctx context.Context, serverPath, serverName, serverID string, filter Filter, includeSummaries bool) ([]*apiv1.Player, error) {
+// filterServers applies a Filter to a shared snapshot. It returns independent copies and the
+// source of each copied Replay.
+func filterServers(state *snapshotState, filter Filter) ([]*apiv1.ServerInstance, map[*apiv1.Replay]playSource) {
+	result := make([]*apiv1.ServerInstance, 0, len(state.servers))
+	sources := map[*apiv1.Replay]playSource{}
+	timeFiltered := !filter.StartedAtOrAfter.IsZero() || !filter.StartedBefore.IsZero()
+	for _, server := range state.servers {
+		if filter.ServerInstanceID != "" && server.GetInstanceId() != filter.ServerInstanceID {
+			continue
+		}
+		players := make([]*apiv1.Player, 0, len(server.GetPlayers()))
+		for _, player := range server.GetPlayers() {
+			if filter.PlayerUUID != "" && player.GetUuid() != filter.PlayerUUID {
+				continue
+			}
+			replays := make([]*apiv1.Replay, 0, len(player.GetReplays()))
+			for _, replay := range player.GetReplays() {
+				source := state.plays[replay]
+				if matchesTime(source.startedAt, filter) {
+					clone := proto.CloneOf(replay)
+					sources[clone] = source
+					replays = append(replays, clone)
+				}
+			}
+			if len(replays) > 0 || !timeFiltered {
+				players = append(players, &apiv1.Player{Name: player.GetName(), Uuid: player.GetUuid(), Replays: replays})
+			}
+		}
+		if len(players) > 0 || filter.PlayerUUID == "" {
+			sessions := make([]*apiv1.WorldSession, 0, len(server.GetWorldSessions()))
+			for _, session := range server.GetWorldSessions() {
+				sessions = append(sessions, proto.CloneOf(session))
+			}
+			result = append(result, &apiv1.ServerInstance{Name: server.GetName(), InstanceId: server.GetInstanceId(), Players: players, WorldSessions: sessions})
+		}
+	}
+	return result, sources
+}
+
+func (service *Service) players(ctx context.Context, state *snapshotState, serverPath, serverName, serverID string, sessions sessionIndex) ([]*apiv1.Player, error) {
 	root := filepath.Join(serverPath, "players")
 	entries, err := readDirectory(root)
 	if errors.Is(err, os.ErrNotExist) {
@@ -163,25 +339,23 @@ func (service *Service) players(ctx context.Context, serverPath, serverName, ser
 			return nil, err
 		}
 		name, id, ok := splitIdentity(entry.Name())
-		if !ok || (filter.PlayerUUID != "" && id != filter.PlayerUUID) {
+		if !ok {
 			continue
 		}
 		playerPath := filepath.Join(root, entry.Name())
 		if !safeDirectory(playerPath, entry) {
 			continue
 		}
-		replays, err := service.replays(ctx, playerPath, serverName, serverID, name, id, filter, includeSummaries)
+		replays, err := service.replays(ctx, state, playerPath, serverName, serverID, name, id, sessions)
 		if err != nil {
 			return nil, err
 		}
-		if len(replays) > 0 || (filter.StartedAtOrAfter.IsZero() && filter.StartedBefore.IsZero()) {
-			players = append(players, &apiv1.Player{Name: name, Uuid: id, Replays: replays})
-		}
+		players = append(players, &apiv1.Player{Name: name, Uuid: id, Replays: replays})
 	}
 	return players, nil
 }
 
-func (service *Service) replays(ctx context.Context, playerPath, serverName, serverID, playerName, playerID string, filter Filter, includeSummaries bool) ([]*apiv1.Replay, error) {
+func (service *Service) replays(ctx context.Context, state *snapshotState, playerPath, serverName, serverID, playerName, playerID string, sessions sessionIndex) ([]*apiv1.Replay, error) {
 	root := filepath.Join(playerPath, "plays")
 	entries, err := readDirectory(root)
 	if errors.Is(err, os.ErrNotExist) {
@@ -199,34 +373,26 @@ func (service *Service) replays(ctx context.Context, playerPath, serverName, ser
 		if !ok {
 			continue
 		}
-		startedAt, err := time.Parse("20060102T150405.999999999Z", startedName)
-		if err != nil || !matchesTime(startedAt, filter) {
+		startedAt, err := parseDirectoryTime(startedName)
+		if err != nil {
 			continue
 		}
 		playPath := filepath.Join(root, entry.Name())
 		if !safeDirectory(playPath, entry) {
 			continue
 		}
-		replay, err := service.readReplay(playPath, serverName, serverID, playerName, playerID, connectionID, startedAt)
+		replay, err := service.readReplay(playPath, serverName, serverID, playerName, playerID, connectionID, startedAt, sessions)
 		if err != nil {
-			if includeSummaries {
-				return nil, summaryError(playPath, serverID, playerID, connectionID, err)
-			}
 			replay = service.invalidReplay(playPath, serverName, serverID, playerName, playerID, connectionID, startedAt, err)
 		}
-		if includeSummaries && replay.EndServerTick != nil {
-			summary, err := service.summaries.Summarize(ctx, playPath)
-			if err != nil {
-				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-					return nil, err
-				}
-				return nil, summaryError(playPath, serverID, playerID, connectionID, err)
-			}
-			replay.Summary = toPlaySummary(summary)
-		}
+		state.plays[replay] = playSource{path: playPath, startedAt: startedAt, readErr: err}
 		replays = append(replays, replay)
 	}
 	return replays, nil
+}
+
+func parseDirectoryTime(value string) (time.Time, error) {
+	return time.Parse("20060102T150405.999999999Z", value)
 }
 
 func summaryError(playPath, serverID, playerID, connectionID string, cause error) *SummaryError {
@@ -255,7 +421,7 @@ func toPlaySummary(summary plays.Summary) *catalogv1.PlaySummary {
 	return result
 }
 
-func (service *Service) readReplay(playPath, serverName, serverID, playerName, playerID, connectionID string, directoryStartedAt time.Time) (*apiv1.Replay, error) {
+func (service *Service) readReplay(playPath, serverName, serverID, playerName, playerID, connectionID string, directoryStartedAt time.Time, sessions sessionIndex) (*apiv1.Replay, error) {
 	metadata := &artifactsv1.ServerMetadata{}
 	if err := readProtoJSON(filepath.Join(playPath, "metadata.json"), metadata); err != nil {
 		return nil, err
@@ -290,6 +456,14 @@ func (service *Service) readReplay(playPath, serverName, serverID, playerName, p
 	}
 	replay.Video = service.video(playPath)
 	replay.Extensions = service.extensions(playPath, serverID, playerID, connectionID)
+	replay.PerceptionUrl = service.optionalAssetURL(playPath, "perception.jsonl")
+	replay.ActionsUrl = service.optionalAssetURL(playPath, "actions.jsonl")
+	replay.SceneUrl = service.optionalAssetURL(playPath, "scene.sqlite3")
+	replay.FramesIndexUrl = service.optionalAssetURL(playPath, "renders/fpv_frames/frames.jsonl")
+	if id, link := sessions.resolve(metadata); link != apiv1.WorldSessionLink_WORLD_SESSION_LINK_UNSPECIFIED {
+		replay.WorldSessionId = &id
+		replay.WorldSessionLink = link
+	}
 	if _, err := service.inspector.Inspect(filepath.Join(playPath, metadata.GetCapture().GetReplay()), playerID, connectionID); err != nil {
 		message := publicValidationError(playPath, err)
 		replay.ValidationError = &message
@@ -398,6 +572,19 @@ func (service *Service) video(playPath string) *apiv1.VideoAsset {
 		video.FrameCount = result.GetFrameCount()
 	}
 	return video
+}
+
+// optionalAssetURL returns the URL of a derived file only when it is a regular, non-symlinked file.
+func (service *Service) optionalAssetURL(playPath, relative string) *string {
+	info, err := os.Lstat(filepath.Join(playPath, filepath.FromSlash(relative)))
+	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return nil
+	}
+	value := service.assetURL(playPath, relative)
+	if value == "" {
+		return nil
+	}
+	return &value
 }
 
 func (service *Service) assetURL(playPath, relative string) string {
