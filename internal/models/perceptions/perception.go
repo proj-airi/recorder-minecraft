@@ -1,21 +1,18 @@
 package perceptions
 
 import (
-	"bufio"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"math"
-	"os"
 	"path/filepath"
 	"sort"
 
 	artifactsv1 "github.com/proj-airi/recorder-minecraft/apis/sdk/go/recorder-minecraft/artifacts/v1"
 	"github.com/proj-airi/recorder-minecraft/internal/datastore"
 	"github.com/proj-airi/recorder-minecraft/internal/models/captures"
+	"github.com/proj-airi/recorder-minecraft/internal/models/processorfiles"
 	"github.com/samber/do/v2"
 	"google.golang.org/protobuf/encoding/protojson"
 )
@@ -92,7 +89,7 @@ func (service *Service) Extract(ctx context.Context, options Options) (Result, e
 	if err != nil {
 		return Result{}, err
 	}
-	destination, err := prepareOutput(options.Output, options.Overwrite)
+	destination, err := processorfiles.PrepareOutput("perception", options.Output, options.Overwrite, ownedOutput)
 	if err != nil {
 		return Result{}, err
 	}
@@ -105,16 +102,16 @@ func (service *Service) Extract(ctx context.Context, options Options) (Result, e
 	if err != nil {
 		return Result{}, err
 	}
-	metadataFile, err := digestFile(metadata.Path)
+	metadataFile, err := processorfiles.Digest(metadata.Path)
 	if err != nil {
 		return Result{}, err
 	}
-	sceneFile, err := digestFile(options.Scene)
+	sceneFile, err := processorfiles.Digest(options.Scene)
 	if err != nil {
 		return Result{}, err
 	}
 
-	client, err := datastore.OpenScene(sceneFile.path)
+	client, err := datastore.OpenScene(sceneFile.Path)
 	if err != nil {
 		return Result{}, err
 	}
@@ -157,10 +154,10 @@ func (service *Service) Extract(ctx context.Context, options Options) (Result, e
 		SessionId: metadata.SessionID, PlayerUuid: metadata.PlayerUUID, ConnectionId: metadata.ConnectionID,
 		Ticks: &artifactsv1.TickRange{FirstTick: first, LastTick: lastSample},
 		Inputs: []*artifactsv1.PerceptionInput{
-			metadataFile.input("capture_metadata", "application/json", outputDirectory),
-			{Role: "capture_events", File: &artifactsv1.ArtifactFile{Path: relativeInput(events.Path, outputDirectory), Sha256: events.SHA256,
+			metadataFile.Lineage("capture_metadata", "application/json", outputDirectory),
+			{Role: "capture_events", File: &artifactsv1.ArtifactFile{Path: processorfiles.RelativeInput(events.Path, outputDirectory), Sha256: events.SHA256,
 				SizeBytes: uint64(events.SizeBytes), MediaType: "application/x-ndjson"}},
-			sceneFile.input("scene_store", "application/vnd.sqlite3", outputDirectory),
+			sceneFile.Lineage("scene_store", "application/vnd.sqlite3", outputDirectory),
 		},
 		Assumptions:      assumptions(options),
 		KnownLimitations: knownLimitations(),
@@ -174,7 +171,7 @@ func (service *Service) Extract(ctx context.Context, options Options) (Result, e
 		blocks:     newActiveSet(view.blocks, func(t blockEntityTarget) int64 { return t.start }, func(t blockEntityTarget) int64 { return t.end }),
 	}
 	result := Result{Output: destination, SampleCount: sampleCount, FirstTick: first, LastTick: lastSample}
-	err = publish(destination, options.Overwrite, func(writer io.Writer) error {
+	err = processorfiles.Publish("perception", destination, options.Overwrite, func(writer io.Writer) error {
 		if err := writeRecord(writer, &artifactsv1.PerceptionRecord{SchemaVersion: 1, Record: &artifactsv1.PerceptionRecord_Header{Header: header}}); err != nil {
 			return err
 		}
@@ -195,7 +192,7 @@ func (service *Service) Extract(ctx context.Context, options Options) (Result, e
 		}
 		// The scene must not have changed underneath the samples; the event
 		// stream and metadata were already checked when they were read.
-		return sceneFile.unchanged()
+		return sceneFile.Unchanged()
 	})
 	if err != nil {
 		return Result{}, err
@@ -415,65 +412,6 @@ func (w *voxelWorld) spanCount() int {
 	return count
 }
 
-// inputFile is a read-only input with its identity captured before use.
-type inputFile struct {
-	path   string
-	sha256 string
-	info   os.FileInfo
-}
-
-func digestFile(path string) (inputFile, error) {
-	resolved, err := filepath.Abs(path)
-	if err != nil {
-		return inputFile{}, fmt.Errorf("resolve input %s: %w", path, err)
-	}
-	info, err := os.Lstat(resolved)
-	if err != nil {
-		return inputFile{}, fmt.Errorf("inspect input: %w", err)
-	}
-	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-		return inputFile{}, fmt.Errorf("input must be a non-symlinked regular file: %s", resolved)
-	}
-	file, err := os.Open(resolved)
-	if err != nil {
-		return inputFile{}, err
-	}
-	defer func() { _ = file.Close() }()
-	hash := sha256.New()
-	if _, err := io.Copy(hash, file); err != nil {
-		return inputFile{}, fmt.Errorf("hash input %s: %w", resolved, err)
-	}
-	value := inputFile{path: resolved, sha256: hex.EncodeToString(hash.Sum(nil)), info: info}
-	if err := value.unchanged(); err != nil {
-		return inputFile{}, err
-	}
-	return value, nil
-}
-
-func (file inputFile) unchanged() error {
-	after, err := os.Stat(file.path)
-	if err != nil || !os.SameFile(file.info, after) || after.Size() != file.info.Size() || !after.ModTime().Equal(file.info.ModTime()) {
-		return fmt.Errorf("input changed while it was being processed: %s", file.path)
-	}
-	return nil
-}
-
-func (file inputFile) input(role, mediaType, outputDirectory string) *artifactsv1.PerceptionInput {
-	return &artifactsv1.PerceptionInput{Role: role, File: &artifactsv1.ArtifactFile{
-		Path: relativeInput(file.path, outputDirectory), Sha256: file.sha256, SizeBytes: uint64(file.info.Size()), MediaType: mediaType,
-	}}
-}
-
-// relativeInput names an input relative to the output directory when it is
-// inside it (the conventional play layout) and absolutely otherwise.
-func relativeInput(path, outputDirectory string) string {
-	relative, err := filepath.Rel(outputDirectory, path)
-	if err != nil || !filepath.IsLocal(relative) {
-		return filepath.ToSlash(path)
-	}
-	return filepath.ToSlash(relative)
-}
-
 func writeRecord(writer io.Writer, record *artifactsv1.PerceptionRecord) error {
 	encoded, err := protojson.Marshal(record)
 	if err != nil {
@@ -485,97 +423,15 @@ func writeRecord(writer io.Writer, record *artifactsv1.PerceptionRecord) error {
 	return nil
 }
 
-// publish stages the output beside its destination, then exposes it in one
-// rename. Without overwrite a hard link publishes it, which fails instead of
-// replacing a file that appeared after the ownership check.
-func publish(destination string, overwrite bool, write func(io.Writer) error) error {
-	temporary, err := os.CreateTemp(filepath.Dir(destination), "."+filepath.Base(destination)+".*.inprogress")
-	if err != nil {
-		return fmt.Errorf("create perception staging file: %w", err)
-	}
-	staging := temporary.Name()
-	defer func() { _ = os.Remove(staging) }()
-	if err := temporary.Chmod(0o600); err != nil {
-		_ = temporary.Close()
-		return err
-	}
-	buffered := bufio.NewWriterSize(temporary, 1024*1024)
-	if err := write(buffered); err != nil {
-		_ = temporary.Close()
-		return err
-	}
-	if err := buffered.Flush(); err != nil {
-		_ = temporary.Close()
-		return fmt.Errorf("flush perception output: %w", err)
-	}
-	if err := temporary.Sync(); err != nil {
-		_ = temporary.Close()
-		return fmt.Errorf("sync perception output: %w", err)
-	}
-	if err := temporary.Close(); err != nil {
-		return fmt.Errorf("close perception output: %w", err)
-	}
-	if overwrite {
-		if err := os.Rename(staging, destination); err != nil {
-			return fmt.Errorf("publish perception output: %w", err)
-		}
-	} else if err := os.Link(staging, destination); err != nil {
-		return fmt.Errorf("publish perception output: %w", err)
-	}
-	directory, err := os.Open(filepath.Dir(destination))
-	if err != nil {
-		return err
-	}
-	syncErr := directory.Sync()
-	closeErr := directory.Close()
-	if syncErr != nil {
-		return syncErr
-	}
-	return closeErr
-}
-
-func prepareOutput(path string, overwrite bool) (string, error) {
-	if path == "" {
-		return "", errors.New("perception output path is required")
-	}
-	destination, err := filepath.Abs(path)
-	if err != nil {
-		return "", fmt.Errorf("resolve perception output: %w", err)
-	}
-	if info, err := os.Lstat(destination); err == nil {
-		if !overwrite {
-			return "", fmt.Errorf("perception output exists: %s; pass --overwrite to replace it", destination)
-		}
-		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-			return "", fmt.Errorf("perception output is not a replaceable regular file: %s", destination)
-		}
-		if !ownedOutput(destination) {
-			return "", fmt.Errorf("refusing to replace a file this processor did not write: %s", destination)
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return "", fmt.Errorf("inspect perception output: %w", err)
-	}
-	if err := os.MkdirAll(filepath.Dir(destination), 0o750); err != nil {
-		return "", fmt.Errorf("create perception output directory: %w", err)
-	}
-	return destination, nil
-}
-
 // ownedOutput recognizes a previous result by its header line: the first
 // record must be a schema 1 header written by this processor.
 func ownedOutput(path string) bool {
-	file, err := os.Open(path)
-	if err != nil {
-		return false
-	}
-	defer func() { _ = file.Close() }()
-	reader := bufio.NewReaderSize(file, 1024*1024)
-	line, err := reader.ReadSlice('\n')
-	if err != nil || len(line) < 2 {
+	line, ok := processorfiles.FirstLine(path)
+	if !ok {
 		return false
 	}
 	record := &artifactsv1.PerceptionRecord{}
-	if protojson.Unmarshal(line[:len(line)-1], record) != nil || record.GetSchemaVersion() != 1 {
+	if protojson.Unmarshal(line, record) != nil || record.GetSchemaVersion() != 1 {
 		return false
 	}
 	header := record.GetHeader()
