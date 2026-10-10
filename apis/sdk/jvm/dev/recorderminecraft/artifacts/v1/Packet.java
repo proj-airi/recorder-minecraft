@@ -36,6 +36,7 @@ private static final long serialVersionUID = 0L;
     interaction_ = "";
     changedSlots_ = "";
     carriedItem_ = "";
+    changedSlotStacks_ = java.util.Collections.emptyList();
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
@@ -668,19 +669,37 @@ private static final long serialVersionUID = 0L;
   @SuppressWarnings("serial")
   private volatile java.lang.Object changedSlots_ = "";
   /**
-   * <code>optional string changed_slots = 23 [json_name = "changedSlots"];</code>
+   * <pre>
+   * Free-form text of a container click's changed slots and carried stack.
+   * Production recorders never filled these: the reflective lookup that set
+   * them could not find Mojang method names in the remapped game. Use
+   * changed_slot_stacks and carried_stack.
+   * </pre>
+   *
+   * <code>optional string changed_slots = 23 [json_name = "changedSlots", deprecated = true];</code>
+   * @deprecated recorder_minecraft.artifacts.v1.Packet.changed_slots is deprecated.
+   *     See recorder-minecraft/artifacts/v1/events.proto;l=87
    * @return Whether the changedSlots field is set.
    */
   @java.lang.Override
-  public boolean hasChangedSlots() {
+  @java.lang.Deprecated public boolean hasChangedSlots() {
     return ((bitField0_ & 0x00100000) != 0);
   }
   /**
-   * <code>optional string changed_slots = 23 [json_name = "changedSlots"];</code>
+   * <pre>
+   * Free-form text of a container click's changed slots and carried stack.
+   * Production recorders never filled these: the reflective lookup that set
+   * them could not find Mojang method names in the remapped game. Use
+   * changed_slot_stacks and carried_stack.
+   * </pre>
+   *
+   * <code>optional string changed_slots = 23 [json_name = "changedSlots", deprecated = true];</code>
+   * @deprecated recorder_minecraft.artifacts.v1.Packet.changed_slots is deprecated.
+   *     See recorder-minecraft/artifacts/v1/events.proto;l=87
    * @return The changedSlots.
    */
   @java.lang.Override
-  public java.lang.String getChangedSlots() {
+  @java.lang.Deprecated public java.lang.String getChangedSlots() {
     java.lang.Object ref = changedSlots_;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
@@ -693,11 +712,20 @@ private static final long serialVersionUID = 0L;
     }
   }
   /**
-   * <code>optional string changed_slots = 23 [json_name = "changedSlots"];</code>
+   * <pre>
+   * Free-form text of a container click's changed slots and carried stack.
+   * Production recorders never filled these: the reflective lookup that set
+   * them could not find Mojang method names in the remapped game. Use
+   * changed_slot_stacks and carried_stack.
+   * </pre>
+   *
+   * <code>optional string changed_slots = 23 [json_name = "changedSlots", deprecated = true];</code>
+   * @deprecated recorder_minecraft.artifacts.v1.Packet.changed_slots is deprecated.
+   *     See recorder-minecraft/artifacts/v1/events.proto;l=87
    * @return The bytes for changedSlots.
    */
   @java.lang.Override
-  public com.google.protobuf.ByteString
+  @java.lang.Deprecated public com.google.protobuf.ByteString
       getChangedSlotsBytes() {
     java.lang.Object ref = changedSlots_;
     if (ref instanceof java.lang.String) {
@@ -715,19 +743,23 @@ private static final long serialVersionUID = 0L;
   @SuppressWarnings("serial")
   private volatile java.lang.Object carriedItem_ = "";
   /**
-   * <code>optional string carried_item = 24 [json_name = "carriedItem"];</code>
+   * <code>optional string carried_item = 24 [json_name = "carriedItem", deprecated = true];</code>
+   * @deprecated recorder_minecraft.artifacts.v1.Packet.carried_item is deprecated.
+   *     See recorder-minecraft/artifacts/v1/events.proto;l=88
    * @return Whether the carriedItem field is set.
    */
   @java.lang.Override
-  public boolean hasCarriedItem() {
+  @java.lang.Deprecated public boolean hasCarriedItem() {
     return ((bitField0_ & 0x00200000) != 0);
   }
   /**
-   * <code>optional string carried_item = 24 [json_name = "carriedItem"];</code>
+   * <code>optional string carried_item = 24 [json_name = "carriedItem", deprecated = true];</code>
+   * @deprecated recorder_minecraft.artifacts.v1.Packet.carried_item is deprecated.
+   *     See recorder-minecraft/artifacts/v1/events.proto;l=88
    * @return The carriedItem.
    */
   @java.lang.Override
-  public java.lang.String getCarriedItem() {
+  @java.lang.Deprecated public java.lang.String getCarriedItem() {
     java.lang.Object ref = carriedItem_;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
@@ -740,11 +772,13 @@ private static final long serialVersionUID = 0L;
     }
   }
   /**
-   * <code>optional string carried_item = 24 [json_name = "carriedItem"];</code>
+   * <code>optional string carried_item = 24 [json_name = "carriedItem", deprecated = true];</code>
+   * @deprecated recorder_minecraft.artifacts.v1.Packet.carried_item is deprecated.
+   *     See recorder-minecraft/artifacts/v1/events.proto;l=88
    * @return The bytes for carriedItem.
    */
   @java.lang.Override
-  public com.google.protobuf.ByteString
+  @java.lang.Deprecated public com.google.protobuf.ByteString
       getCarriedItemBytes() {
     java.lang.Object ref = carriedItem_;
     if (ref instanceof java.lang.String) {
@@ -756,6 +790,113 @@ private static final long serialVersionUID = 0L;
     } else {
       return (com.google.protobuf.ByteString) ref;
     }
+  }
+
+  public static final int CHANGED_SLOT_STACKS_FIELD_NUMBER = 25;
+  @SuppressWarnings("serial")
+  private java.util.List<dev.recorderminecraft.artifacts.v1.HashedItemStack> changedSlotStacks_;
+  /**
+   * <pre>
+   * The client's prediction of every slot a container click changed, in
+   * ascending slot order. An emptied slot is minecraft:air with count 0.
+   * </pre>
+   *
+   * <code>repeated .recorder_minecraft.artifacts.v1.HashedItemStack changed_slot_stacks = 25 [json_name = "changedSlotStacks"];</code>
+   */
+  @java.lang.Override
+  public java.util.List<dev.recorderminecraft.artifacts.v1.HashedItemStack> getChangedSlotStacksList() {
+    return changedSlotStacks_;
+  }
+  /**
+   * <pre>
+   * The client's prediction of every slot a container click changed, in
+   * ascending slot order. An emptied slot is minecraft:air with count 0.
+   * </pre>
+   *
+   * <code>repeated .recorder_minecraft.artifacts.v1.HashedItemStack changed_slot_stacks = 25 [json_name = "changedSlotStacks"];</code>
+   */
+  @java.lang.Override
+  public java.util.List<? extends dev.recorderminecraft.artifacts.v1.HashedItemStackOrBuilder> 
+      getChangedSlotStacksOrBuilderList() {
+    return changedSlotStacks_;
+  }
+  /**
+   * <pre>
+   * The client's prediction of every slot a container click changed, in
+   * ascending slot order. An emptied slot is minecraft:air with count 0.
+   * </pre>
+   *
+   * <code>repeated .recorder_minecraft.artifacts.v1.HashedItemStack changed_slot_stacks = 25 [json_name = "changedSlotStacks"];</code>
+   */
+  @java.lang.Override
+  public int getChangedSlotStacksCount() {
+    return changedSlotStacks_.size();
+  }
+  /**
+   * <pre>
+   * The client's prediction of every slot a container click changed, in
+   * ascending slot order. An emptied slot is minecraft:air with count 0.
+   * </pre>
+   *
+   * <code>repeated .recorder_minecraft.artifacts.v1.HashedItemStack changed_slot_stacks = 25 [json_name = "changedSlotStacks"];</code>
+   */
+  @java.lang.Override
+  public dev.recorderminecraft.artifacts.v1.HashedItemStack getChangedSlotStacks(int index) {
+    return changedSlotStacks_.get(index);
+  }
+  /**
+   * <pre>
+   * The client's prediction of every slot a container click changed, in
+   * ascending slot order. An emptied slot is minecraft:air with count 0.
+   * </pre>
+   *
+   * <code>repeated .recorder_minecraft.artifacts.v1.HashedItemStack changed_slot_stacks = 25 [json_name = "changedSlotStacks"];</code>
+   */
+  @java.lang.Override
+  public dev.recorderminecraft.artifacts.v1.HashedItemStackOrBuilder getChangedSlotStacksOrBuilder(
+      int index) {
+    return changedSlotStacks_.get(index);
+  }
+
+  public static final int CARRIED_STACK_FIELD_NUMBER = 26;
+  private dev.recorderminecraft.artifacts.v1.HashedItemStack carriedStack_;
+  /**
+   * <pre>
+   * The client's prediction of the cursor stack after a container click,
+   * with slot -1.
+   * </pre>
+   *
+   * <code>optional .recorder_minecraft.artifacts.v1.HashedItemStack carried_stack = 26 [json_name = "carriedStack"];</code>
+   * @return Whether the carriedStack field is set.
+   */
+  @java.lang.Override
+  public boolean hasCarriedStack() {
+    return ((bitField0_ & 0x00400000) != 0);
+  }
+  /**
+   * <pre>
+   * The client's prediction of the cursor stack after a container click,
+   * with slot -1.
+   * </pre>
+   *
+   * <code>optional .recorder_minecraft.artifacts.v1.HashedItemStack carried_stack = 26 [json_name = "carriedStack"];</code>
+   * @return The carriedStack.
+   */
+  @java.lang.Override
+  public dev.recorderminecraft.artifacts.v1.HashedItemStack getCarriedStack() {
+    return carriedStack_ == null ? dev.recorderminecraft.artifacts.v1.HashedItemStack.getDefaultInstance() : carriedStack_;
+  }
+  /**
+   * <pre>
+   * The client's prediction of the cursor stack after a container click,
+   * with slot -1.
+   * </pre>
+   *
+   * <code>optional .recorder_minecraft.artifacts.v1.HashedItemStack carried_stack = 26 [json_name = "carriedStack"];</code>
+   */
+  @java.lang.Override
+  public dev.recorderminecraft.artifacts.v1.HashedItemStackOrBuilder getCarriedStackOrBuilder() {
+    return carriedStack_ == null ? dev.recorderminecraft.artifacts.v1.HashedItemStack.getDefaultInstance() : carriedStack_;
   }
 
   private byte memoizedIsInitialized = -1;
@@ -843,6 +984,12 @@ private static final long serialVersionUID = 0L;
     }
     if (((bitField0_ & 0x00200000) != 0)) {
       com.google.protobuf.GeneratedMessage.writeString(output, 24, carriedItem_);
+    }
+    for (int i = 0; i < changedSlotStacks_.size(); i++) {
+      output.writeMessage(25, changedSlotStacks_.get(i));
+    }
+    if (((bitField0_ & 0x00400000) != 0)) {
+      output.writeMessage(26, getCarriedStack());
     }
     getUnknownFields().writeTo(output);
   }
@@ -940,6 +1087,14 @@ private static final long serialVersionUID = 0L;
     }
     if (((bitField0_ & 0x00200000) != 0)) {
       size += com.google.protobuf.GeneratedMessage.computeStringSize(24, carriedItem_);
+    }
+    for (int i = 0; i < changedSlotStacks_.size(); i++) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(25, changedSlotStacks_.get(i));
+    }
+    if (((bitField0_ & 0x00400000) != 0)) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(26, getCarriedStack());
     }
     size += getUnknownFields().getSerializedSize();
     memoizedSize = size;
@@ -1070,6 +1225,13 @@ private static final long serialVersionUID = 0L;
       if (!getCarriedItem()
           .equals(other.getCarriedItem())) return false;
     }
+    if (!getChangedSlotStacksList()
+        .equals(other.getChangedSlotStacksList())) return false;
+    if (hasCarriedStack() != other.hasCarriedStack()) return false;
+    if (hasCarriedStack()) {
+      if (!getCarriedStack()
+          .equals(other.getCarriedStack())) return false;
+    }
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -1174,6 +1336,14 @@ private static final long serialVersionUID = 0L;
     if (hasCarriedItem()) {
       hash = (37 * hash) + CARRIED_ITEM_FIELD_NUMBER;
       hash = (53 * hash) + getCarriedItem().hashCode();
+    }
+    if (getChangedSlotStacksCount() > 0) {
+      hash = (37 * hash) + CHANGED_SLOT_STACKS_FIELD_NUMBER;
+      hash = (53 * hash) + getChangedSlotStacksList().hashCode();
+    }
+    if (hasCarriedStack()) {
+      hash = (37 * hash) + CARRIED_STACK_FIELD_NUMBER;
+      hash = (53 * hash) + getCarriedStack().hashCode();
     }
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
@@ -1311,6 +1481,8 @@ private static final long serialVersionUID = 0L;
         internalGetBlockPositionFieldBuilder();
         internalGetBlockHitFieldBuilder();
         internalGetTargetFieldBuilder();
+        internalGetChangedSlotStacksFieldBuilder();
+        internalGetCarriedStackFieldBuilder();
       }
     }
     @java.lang.Override
@@ -1365,6 +1537,18 @@ private static final long serialVersionUID = 0L;
       }
       changedSlots_ = "";
       carriedItem_ = "";
+      if (changedSlotStacksBuilder_ == null) {
+        changedSlotStacks_ = java.util.Collections.emptyList();
+      } else {
+        changedSlotStacks_ = null;
+        changedSlotStacksBuilder_.clear();
+      }
+      bitField0_ = (bitField0_ & ~0x01000000);
+      carriedStack_ = null;
+      if (carriedStackBuilder_ != null) {
+        carriedStackBuilder_.dispose();
+        carriedStackBuilder_ = null;
+      }
       return this;
     }
 
@@ -1391,9 +1575,22 @@ private static final long serialVersionUID = 0L;
     @java.lang.Override
     public dev.recorderminecraft.artifacts.v1.Packet buildPartial() {
       dev.recorderminecraft.artifacts.v1.Packet result = new dev.recorderminecraft.artifacts.v1.Packet(this);
+      buildPartialRepeatedFields(result);
       if (bitField0_ != 0) { buildPartial0(result); }
       onBuilt();
       return result;
+    }
+
+    private void buildPartialRepeatedFields(dev.recorderminecraft.artifacts.v1.Packet result) {
+      if (changedSlotStacksBuilder_ == null) {
+        if (((bitField0_ & 0x01000000) != 0)) {
+          changedSlotStacks_ = java.util.Collections.unmodifiableList(changedSlotStacks_);
+          bitField0_ = (bitField0_ & ~0x01000000);
+        }
+        result.changedSlotStacks_ = changedSlotStacks_;
+      } else {
+        result.changedSlotStacks_ = changedSlotStacksBuilder_.build();
+      }
     }
 
     private void buildPartial0(dev.recorderminecraft.artifacts.v1.Packet result) {
@@ -1505,6 +1702,12 @@ private static final long serialVersionUID = 0L;
         result.carriedItem_ = carriedItem_;
         to_bitField0_ |= 0x00200000;
       }
+      if (((from_bitField0_ & 0x02000000) != 0)) {
+        result.carriedStack_ = carriedStackBuilder_ == null
+            ? carriedStack_
+            : carriedStackBuilder_.build();
+        to_bitField0_ |= 0x00400000;
+      }
       result.bitField0_ |= to_bitField0_;
     }
 
@@ -1607,6 +1810,35 @@ private static final long serialVersionUID = 0L;
         carriedItem_ = other.carriedItem_;
         bitField0_ |= 0x00800000;
         onChanged();
+      }
+      if (changedSlotStacksBuilder_ == null) {
+        if (!other.changedSlotStacks_.isEmpty()) {
+          if (changedSlotStacks_.isEmpty()) {
+            changedSlotStacks_ = other.changedSlotStacks_;
+            bitField0_ = (bitField0_ & ~0x01000000);
+          } else {
+            ensureChangedSlotStacksIsMutable();
+            changedSlotStacks_.addAll(other.changedSlotStacks_);
+          }
+          onChanged();
+        }
+      } else {
+        if (!other.changedSlotStacks_.isEmpty()) {
+          if (changedSlotStacksBuilder_.isEmpty()) {
+            changedSlotStacksBuilder_.dispose();
+            changedSlotStacksBuilder_ = null;
+            changedSlotStacks_ = other.changedSlotStacks_;
+            bitField0_ = (bitField0_ & ~0x01000000);
+            changedSlotStacksBuilder_ = 
+              com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
+                 internalGetChangedSlotStacksFieldBuilder() : null;
+          } else {
+            changedSlotStacksBuilder_.addAllMessages(other.changedSlotStacks_);
+          }
+        }
+      }
+      if (other.hasCarriedStack()) {
+        mergeCarriedStack(other.getCarriedStack());
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -1766,6 +1998,26 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00800000;
               break;
             } // case 194
+            case 202: {
+              dev.recorderminecraft.artifacts.v1.HashedItemStack m =
+                  input.readMessage(
+                      dev.recorderminecraft.artifacts.v1.HashedItemStack.parser(),
+                      extensionRegistry);
+              if (changedSlotStacksBuilder_ == null) {
+                ensureChangedSlotStacksIsMutable();
+                changedSlotStacks_.add(m);
+              } else {
+                changedSlotStacksBuilder_.addMessage(m);
+              }
+              break;
+            } // case 202
+            case 210: {
+              input.readMessage(
+                  internalGetCarriedStackFieldBuilder().getBuilder(),
+                  extensionRegistry);
+              bitField0_ |= 0x02000000;
+              break;
+            } // case 210
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -3370,17 +3622,35 @@ private static final long serialVersionUID = 0L;
 
     private java.lang.Object changedSlots_ = "";
     /**
-     * <code>optional string changed_slots = 23 [json_name = "changedSlots"];</code>
+     * <pre>
+     * Free-form text of a container click's changed slots and carried stack.
+     * Production recorders never filled these: the reflective lookup that set
+     * them could not find Mojang method names in the remapped game. Use
+     * changed_slot_stacks and carried_stack.
+     * </pre>
+     *
+     * <code>optional string changed_slots = 23 [json_name = "changedSlots", deprecated = true];</code>
+     * @deprecated recorder_minecraft.artifacts.v1.Packet.changed_slots is deprecated.
+     *     See recorder-minecraft/artifacts/v1/events.proto;l=87
      * @return Whether the changedSlots field is set.
      */
-    public boolean hasChangedSlots() {
+    @java.lang.Deprecated public boolean hasChangedSlots() {
       return ((bitField0_ & 0x00400000) != 0);
     }
     /**
-     * <code>optional string changed_slots = 23 [json_name = "changedSlots"];</code>
+     * <pre>
+     * Free-form text of a container click's changed slots and carried stack.
+     * Production recorders never filled these: the reflective lookup that set
+     * them could not find Mojang method names in the remapped game. Use
+     * changed_slot_stacks and carried_stack.
+     * </pre>
+     *
+     * <code>optional string changed_slots = 23 [json_name = "changedSlots", deprecated = true];</code>
+     * @deprecated recorder_minecraft.artifacts.v1.Packet.changed_slots is deprecated.
+     *     See recorder-minecraft/artifacts/v1/events.proto;l=87
      * @return The changedSlots.
      */
-    public java.lang.String getChangedSlots() {
+    @java.lang.Deprecated public java.lang.String getChangedSlots() {
       java.lang.Object ref = changedSlots_;
       if (!(ref instanceof java.lang.String)) {
         com.google.protobuf.ByteString bs =
@@ -3393,10 +3663,19 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>optional string changed_slots = 23 [json_name = "changedSlots"];</code>
+     * <pre>
+     * Free-form text of a container click's changed slots and carried stack.
+     * Production recorders never filled these: the reflective lookup that set
+     * them could not find Mojang method names in the remapped game. Use
+     * changed_slot_stacks and carried_stack.
+     * </pre>
+     *
+     * <code>optional string changed_slots = 23 [json_name = "changedSlots", deprecated = true];</code>
+     * @deprecated recorder_minecraft.artifacts.v1.Packet.changed_slots is deprecated.
+     *     See recorder-minecraft/artifacts/v1/events.proto;l=87
      * @return The bytes for changedSlots.
      */
-    public com.google.protobuf.ByteString
+    @java.lang.Deprecated public com.google.protobuf.ByteString
         getChangedSlotsBytes() {
       java.lang.Object ref = changedSlots_;
       if (ref instanceof String) {
@@ -3410,11 +3689,20 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>optional string changed_slots = 23 [json_name = "changedSlots"];</code>
+     * <pre>
+     * Free-form text of a container click's changed slots and carried stack.
+     * Production recorders never filled these: the reflective lookup that set
+     * them could not find Mojang method names in the remapped game. Use
+     * changed_slot_stacks and carried_stack.
+     * </pre>
+     *
+     * <code>optional string changed_slots = 23 [json_name = "changedSlots", deprecated = true];</code>
+     * @deprecated recorder_minecraft.artifacts.v1.Packet.changed_slots is deprecated.
+     *     See recorder-minecraft/artifacts/v1/events.proto;l=87
      * @param value The changedSlots to set.
      * @return This builder for chaining.
      */
-    public Builder setChangedSlots(
+    @java.lang.Deprecated public Builder setChangedSlots(
         java.lang.String value) {
       if (value == null) { throw new NullPointerException(); }
       changedSlots_ = value;
@@ -3423,21 +3711,39 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>optional string changed_slots = 23 [json_name = "changedSlots"];</code>
+     * <pre>
+     * Free-form text of a container click's changed slots and carried stack.
+     * Production recorders never filled these: the reflective lookup that set
+     * them could not find Mojang method names in the remapped game. Use
+     * changed_slot_stacks and carried_stack.
+     * </pre>
+     *
+     * <code>optional string changed_slots = 23 [json_name = "changedSlots", deprecated = true];</code>
+     * @deprecated recorder_minecraft.artifacts.v1.Packet.changed_slots is deprecated.
+     *     See recorder-minecraft/artifacts/v1/events.proto;l=87
      * @return This builder for chaining.
      */
-    public Builder clearChangedSlots() {
+    @java.lang.Deprecated public Builder clearChangedSlots() {
       changedSlots_ = getDefaultInstance().getChangedSlots();
       bitField0_ = (bitField0_ & ~0x00400000);
       onChanged();
       return this;
     }
     /**
-     * <code>optional string changed_slots = 23 [json_name = "changedSlots"];</code>
+     * <pre>
+     * Free-form text of a container click's changed slots and carried stack.
+     * Production recorders never filled these: the reflective lookup that set
+     * them could not find Mojang method names in the remapped game. Use
+     * changed_slot_stacks and carried_stack.
+     * </pre>
+     *
+     * <code>optional string changed_slots = 23 [json_name = "changedSlots", deprecated = true];</code>
+     * @deprecated recorder_minecraft.artifacts.v1.Packet.changed_slots is deprecated.
+     *     See recorder-minecraft/artifacts/v1/events.proto;l=87
      * @param value The bytes for changedSlots to set.
      * @return This builder for chaining.
      */
-    public Builder setChangedSlotsBytes(
+    @java.lang.Deprecated public Builder setChangedSlotsBytes(
         com.google.protobuf.ByteString value) {
       if (value == null) { throw new NullPointerException(); }
       checkByteStringIsUtf8(value);
@@ -3449,17 +3755,21 @@ private static final long serialVersionUID = 0L;
 
     private java.lang.Object carriedItem_ = "";
     /**
-     * <code>optional string carried_item = 24 [json_name = "carriedItem"];</code>
+     * <code>optional string carried_item = 24 [json_name = "carriedItem", deprecated = true];</code>
+     * @deprecated recorder_minecraft.artifacts.v1.Packet.carried_item is deprecated.
+     *     See recorder-minecraft/artifacts/v1/events.proto;l=88
      * @return Whether the carriedItem field is set.
      */
-    public boolean hasCarriedItem() {
+    @java.lang.Deprecated public boolean hasCarriedItem() {
       return ((bitField0_ & 0x00800000) != 0);
     }
     /**
-     * <code>optional string carried_item = 24 [json_name = "carriedItem"];</code>
+     * <code>optional string carried_item = 24 [json_name = "carriedItem", deprecated = true];</code>
+     * @deprecated recorder_minecraft.artifacts.v1.Packet.carried_item is deprecated.
+     *     See recorder-minecraft/artifacts/v1/events.proto;l=88
      * @return The carriedItem.
      */
-    public java.lang.String getCarriedItem() {
+    @java.lang.Deprecated public java.lang.String getCarriedItem() {
       java.lang.Object ref = carriedItem_;
       if (!(ref instanceof java.lang.String)) {
         com.google.protobuf.ByteString bs =
@@ -3472,10 +3782,12 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>optional string carried_item = 24 [json_name = "carriedItem"];</code>
+     * <code>optional string carried_item = 24 [json_name = "carriedItem", deprecated = true];</code>
+     * @deprecated recorder_minecraft.artifacts.v1.Packet.carried_item is deprecated.
+     *     See recorder-minecraft/artifacts/v1/events.proto;l=88
      * @return The bytes for carriedItem.
      */
-    public com.google.protobuf.ByteString
+    @java.lang.Deprecated public com.google.protobuf.ByteString
         getCarriedItemBytes() {
       java.lang.Object ref = carriedItem_;
       if (ref instanceof String) {
@@ -3489,11 +3801,13 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>optional string carried_item = 24 [json_name = "carriedItem"];</code>
+     * <code>optional string carried_item = 24 [json_name = "carriedItem", deprecated = true];</code>
+     * @deprecated recorder_minecraft.artifacts.v1.Packet.carried_item is deprecated.
+     *     See recorder-minecraft/artifacts/v1/events.proto;l=88
      * @param value The carriedItem to set.
      * @return This builder for chaining.
      */
-    public Builder setCarriedItem(
+    @java.lang.Deprecated public Builder setCarriedItem(
         java.lang.String value) {
       if (value == null) { throw new NullPointerException(); }
       carriedItem_ = value;
@@ -3502,21 +3816,25 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>optional string carried_item = 24 [json_name = "carriedItem"];</code>
+     * <code>optional string carried_item = 24 [json_name = "carriedItem", deprecated = true];</code>
+     * @deprecated recorder_minecraft.artifacts.v1.Packet.carried_item is deprecated.
+     *     See recorder-minecraft/artifacts/v1/events.proto;l=88
      * @return This builder for chaining.
      */
-    public Builder clearCarriedItem() {
+    @java.lang.Deprecated public Builder clearCarriedItem() {
       carriedItem_ = getDefaultInstance().getCarriedItem();
       bitField0_ = (bitField0_ & ~0x00800000);
       onChanged();
       return this;
     }
     /**
-     * <code>optional string carried_item = 24 [json_name = "carriedItem"];</code>
+     * <code>optional string carried_item = 24 [json_name = "carriedItem", deprecated = true];</code>
+     * @deprecated recorder_minecraft.artifacts.v1.Packet.carried_item is deprecated.
+     *     See recorder-minecraft/artifacts/v1/events.proto;l=88
      * @param value The bytes for carriedItem to set.
      * @return This builder for chaining.
      */
-    public Builder setCarriedItemBytes(
+    @java.lang.Deprecated public Builder setCarriedItemBytes(
         com.google.protobuf.ByteString value) {
       if (value == null) { throw new NullPointerException(); }
       checkByteStringIsUtf8(value);
@@ -3524,6 +3842,502 @@ private static final long serialVersionUID = 0L;
       bitField0_ |= 0x00800000;
       onChanged();
       return this;
+    }
+
+    private java.util.List<dev.recorderminecraft.artifacts.v1.HashedItemStack> changedSlotStacks_ =
+      java.util.Collections.emptyList();
+    private void ensureChangedSlotStacksIsMutable() {
+      if (!((bitField0_ & 0x01000000) != 0)) {
+        changedSlotStacks_ = new java.util.ArrayList<dev.recorderminecraft.artifacts.v1.HashedItemStack>(changedSlotStacks_);
+        bitField0_ |= 0x01000000;
+       }
+    }
+
+    private com.google.protobuf.RepeatedFieldBuilder<
+        dev.recorderminecraft.artifacts.v1.HashedItemStack, dev.recorderminecraft.artifacts.v1.HashedItemStack.Builder, dev.recorderminecraft.artifacts.v1.HashedItemStackOrBuilder> changedSlotStacksBuilder_;
+
+    /**
+     * <pre>
+     * The client's prediction of every slot a container click changed, in
+     * ascending slot order. An emptied slot is minecraft:air with count 0.
+     * </pre>
+     *
+     * <code>repeated .recorder_minecraft.artifacts.v1.HashedItemStack changed_slot_stacks = 25 [json_name = "changedSlotStacks"];</code>
+     */
+    public java.util.List<dev.recorderminecraft.artifacts.v1.HashedItemStack> getChangedSlotStacksList() {
+      if (changedSlotStacksBuilder_ == null) {
+        return java.util.Collections.unmodifiableList(changedSlotStacks_);
+      } else {
+        return changedSlotStacksBuilder_.getMessageList();
+      }
+    }
+    /**
+     * <pre>
+     * The client's prediction of every slot a container click changed, in
+     * ascending slot order. An emptied slot is minecraft:air with count 0.
+     * </pre>
+     *
+     * <code>repeated .recorder_minecraft.artifacts.v1.HashedItemStack changed_slot_stacks = 25 [json_name = "changedSlotStacks"];</code>
+     */
+    public int getChangedSlotStacksCount() {
+      if (changedSlotStacksBuilder_ == null) {
+        return changedSlotStacks_.size();
+      } else {
+        return changedSlotStacksBuilder_.getCount();
+      }
+    }
+    /**
+     * <pre>
+     * The client's prediction of every slot a container click changed, in
+     * ascending slot order. An emptied slot is minecraft:air with count 0.
+     * </pre>
+     *
+     * <code>repeated .recorder_minecraft.artifacts.v1.HashedItemStack changed_slot_stacks = 25 [json_name = "changedSlotStacks"];</code>
+     */
+    public dev.recorderminecraft.artifacts.v1.HashedItemStack getChangedSlotStacks(int index) {
+      if (changedSlotStacksBuilder_ == null) {
+        return changedSlotStacks_.get(index);
+      } else {
+        return changedSlotStacksBuilder_.getMessage(index);
+      }
+    }
+    /**
+     * <pre>
+     * The client's prediction of every slot a container click changed, in
+     * ascending slot order. An emptied slot is minecraft:air with count 0.
+     * </pre>
+     *
+     * <code>repeated .recorder_minecraft.artifacts.v1.HashedItemStack changed_slot_stacks = 25 [json_name = "changedSlotStacks"];</code>
+     */
+    public Builder setChangedSlotStacks(
+        int index, dev.recorderminecraft.artifacts.v1.HashedItemStack value) {
+      if (changedSlotStacksBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        ensureChangedSlotStacksIsMutable();
+        changedSlotStacks_.set(index, value);
+        onChanged();
+      } else {
+        changedSlotStacksBuilder_.setMessage(index, value);
+      }
+      return this;
+    }
+    /**
+     * <pre>
+     * The client's prediction of every slot a container click changed, in
+     * ascending slot order. An emptied slot is minecraft:air with count 0.
+     * </pre>
+     *
+     * <code>repeated .recorder_minecraft.artifacts.v1.HashedItemStack changed_slot_stacks = 25 [json_name = "changedSlotStacks"];</code>
+     */
+    public Builder setChangedSlotStacks(
+        int index, dev.recorderminecraft.artifacts.v1.HashedItemStack.Builder builderForValue) {
+      if (changedSlotStacksBuilder_ == null) {
+        ensureChangedSlotStacksIsMutable();
+        changedSlotStacks_.set(index, builderForValue.build());
+        onChanged();
+      } else {
+        changedSlotStacksBuilder_.setMessage(index, builderForValue.build());
+      }
+      return this;
+    }
+    /**
+     * <pre>
+     * The client's prediction of every slot a container click changed, in
+     * ascending slot order. An emptied slot is minecraft:air with count 0.
+     * </pre>
+     *
+     * <code>repeated .recorder_minecraft.artifacts.v1.HashedItemStack changed_slot_stacks = 25 [json_name = "changedSlotStacks"];</code>
+     */
+    public Builder addChangedSlotStacks(dev.recorderminecraft.artifacts.v1.HashedItemStack value) {
+      if (changedSlotStacksBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        ensureChangedSlotStacksIsMutable();
+        changedSlotStacks_.add(value);
+        onChanged();
+      } else {
+        changedSlotStacksBuilder_.addMessage(value);
+      }
+      return this;
+    }
+    /**
+     * <pre>
+     * The client's prediction of every slot a container click changed, in
+     * ascending slot order. An emptied slot is minecraft:air with count 0.
+     * </pre>
+     *
+     * <code>repeated .recorder_minecraft.artifacts.v1.HashedItemStack changed_slot_stacks = 25 [json_name = "changedSlotStacks"];</code>
+     */
+    public Builder addChangedSlotStacks(
+        int index, dev.recorderminecraft.artifacts.v1.HashedItemStack value) {
+      if (changedSlotStacksBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        ensureChangedSlotStacksIsMutable();
+        changedSlotStacks_.add(index, value);
+        onChanged();
+      } else {
+        changedSlotStacksBuilder_.addMessage(index, value);
+      }
+      return this;
+    }
+    /**
+     * <pre>
+     * The client's prediction of every slot a container click changed, in
+     * ascending slot order. An emptied slot is minecraft:air with count 0.
+     * </pre>
+     *
+     * <code>repeated .recorder_minecraft.artifacts.v1.HashedItemStack changed_slot_stacks = 25 [json_name = "changedSlotStacks"];</code>
+     */
+    public Builder addChangedSlotStacks(
+        dev.recorderminecraft.artifacts.v1.HashedItemStack.Builder builderForValue) {
+      if (changedSlotStacksBuilder_ == null) {
+        ensureChangedSlotStacksIsMutable();
+        changedSlotStacks_.add(builderForValue.build());
+        onChanged();
+      } else {
+        changedSlotStacksBuilder_.addMessage(builderForValue.build());
+      }
+      return this;
+    }
+    /**
+     * <pre>
+     * The client's prediction of every slot a container click changed, in
+     * ascending slot order. An emptied slot is minecraft:air with count 0.
+     * </pre>
+     *
+     * <code>repeated .recorder_minecraft.artifacts.v1.HashedItemStack changed_slot_stacks = 25 [json_name = "changedSlotStacks"];</code>
+     */
+    public Builder addChangedSlotStacks(
+        int index, dev.recorderminecraft.artifacts.v1.HashedItemStack.Builder builderForValue) {
+      if (changedSlotStacksBuilder_ == null) {
+        ensureChangedSlotStacksIsMutable();
+        changedSlotStacks_.add(index, builderForValue.build());
+        onChanged();
+      } else {
+        changedSlotStacksBuilder_.addMessage(index, builderForValue.build());
+      }
+      return this;
+    }
+    /**
+     * <pre>
+     * The client's prediction of every slot a container click changed, in
+     * ascending slot order. An emptied slot is minecraft:air with count 0.
+     * </pre>
+     *
+     * <code>repeated .recorder_minecraft.artifacts.v1.HashedItemStack changed_slot_stacks = 25 [json_name = "changedSlotStacks"];</code>
+     */
+    public Builder addAllChangedSlotStacks(
+        java.lang.Iterable<? extends dev.recorderminecraft.artifacts.v1.HashedItemStack> values) {
+      if (changedSlotStacksBuilder_ == null) {
+        ensureChangedSlotStacksIsMutable();
+        com.google.protobuf.AbstractMessageLite.Builder.addAll(
+            values, changedSlotStacks_);
+        onChanged();
+      } else {
+        changedSlotStacksBuilder_.addAllMessages(values);
+      }
+      return this;
+    }
+    /**
+     * <pre>
+     * The client's prediction of every slot a container click changed, in
+     * ascending slot order. An emptied slot is minecraft:air with count 0.
+     * </pre>
+     *
+     * <code>repeated .recorder_minecraft.artifacts.v1.HashedItemStack changed_slot_stacks = 25 [json_name = "changedSlotStacks"];</code>
+     */
+    public Builder clearChangedSlotStacks() {
+      if (changedSlotStacksBuilder_ == null) {
+        changedSlotStacks_ = java.util.Collections.emptyList();
+        bitField0_ = (bitField0_ & ~0x01000000);
+        onChanged();
+      } else {
+        changedSlotStacksBuilder_.clear();
+      }
+      return this;
+    }
+    /**
+     * <pre>
+     * The client's prediction of every slot a container click changed, in
+     * ascending slot order. An emptied slot is minecraft:air with count 0.
+     * </pre>
+     *
+     * <code>repeated .recorder_minecraft.artifacts.v1.HashedItemStack changed_slot_stacks = 25 [json_name = "changedSlotStacks"];</code>
+     */
+    public Builder removeChangedSlotStacks(int index) {
+      if (changedSlotStacksBuilder_ == null) {
+        ensureChangedSlotStacksIsMutable();
+        changedSlotStacks_.remove(index);
+        onChanged();
+      } else {
+        changedSlotStacksBuilder_.remove(index);
+      }
+      return this;
+    }
+    /**
+     * <pre>
+     * The client's prediction of every slot a container click changed, in
+     * ascending slot order. An emptied slot is minecraft:air with count 0.
+     * </pre>
+     *
+     * <code>repeated .recorder_minecraft.artifacts.v1.HashedItemStack changed_slot_stacks = 25 [json_name = "changedSlotStacks"];</code>
+     */
+    public dev.recorderminecraft.artifacts.v1.HashedItemStack.Builder getChangedSlotStacksBuilder(
+        int index) {
+      return internalGetChangedSlotStacksFieldBuilder().getBuilder(index);
+    }
+    /**
+     * <pre>
+     * The client's prediction of every slot a container click changed, in
+     * ascending slot order. An emptied slot is minecraft:air with count 0.
+     * </pre>
+     *
+     * <code>repeated .recorder_minecraft.artifacts.v1.HashedItemStack changed_slot_stacks = 25 [json_name = "changedSlotStacks"];</code>
+     */
+    public dev.recorderminecraft.artifacts.v1.HashedItemStackOrBuilder getChangedSlotStacksOrBuilder(
+        int index) {
+      if (changedSlotStacksBuilder_ == null) {
+        return changedSlotStacks_.get(index);  } else {
+        return changedSlotStacksBuilder_.getMessageOrBuilder(index);
+      }
+    }
+    /**
+     * <pre>
+     * The client's prediction of every slot a container click changed, in
+     * ascending slot order. An emptied slot is minecraft:air with count 0.
+     * </pre>
+     *
+     * <code>repeated .recorder_minecraft.artifacts.v1.HashedItemStack changed_slot_stacks = 25 [json_name = "changedSlotStacks"];</code>
+     */
+    public java.util.List<? extends dev.recorderminecraft.artifacts.v1.HashedItemStackOrBuilder> 
+         getChangedSlotStacksOrBuilderList() {
+      if (changedSlotStacksBuilder_ != null) {
+        return changedSlotStacksBuilder_.getMessageOrBuilderList();
+      } else {
+        return java.util.Collections.unmodifiableList(changedSlotStacks_);
+      }
+    }
+    /**
+     * <pre>
+     * The client's prediction of every slot a container click changed, in
+     * ascending slot order. An emptied slot is minecraft:air with count 0.
+     * </pre>
+     *
+     * <code>repeated .recorder_minecraft.artifacts.v1.HashedItemStack changed_slot_stacks = 25 [json_name = "changedSlotStacks"];</code>
+     */
+    public dev.recorderminecraft.artifacts.v1.HashedItemStack.Builder addChangedSlotStacksBuilder() {
+      return internalGetChangedSlotStacksFieldBuilder().addBuilder(
+          dev.recorderminecraft.artifacts.v1.HashedItemStack.getDefaultInstance());
+    }
+    /**
+     * <pre>
+     * The client's prediction of every slot a container click changed, in
+     * ascending slot order. An emptied slot is minecraft:air with count 0.
+     * </pre>
+     *
+     * <code>repeated .recorder_minecraft.artifacts.v1.HashedItemStack changed_slot_stacks = 25 [json_name = "changedSlotStacks"];</code>
+     */
+    public dev.recorderminecraft.artifacts.v1.HashedItemStack.Builder addChangedSlotStacksBuilder(
+        int index) {
+      return internalGetChangedSlotStacksFieldBuilder().addBuilder(
+          index, dev.recorderminecraft.artifacts.v1.HashedItemStack.getDefaultInstance());
+    }
+    /**
+     * <pre>
+     * The client's prediction of every slot a container click changed, in
+     * ascending slot order. An emptied slot is minecraft:air with count 0.
+     * </pre>
+     *
+     * <code>repeated .recorder_minecraft.artifacts.v1.HashedItemStack changed_slot_stacks = 25 [json_name = "changedSlotStacks"];</code>
+     */
+    public java.util.List<dev.recorderminecraft.artifacts.v1.HashedItemStack.Builder> 
+         getChangedSlotStacksBuilderList() {
+      return internalGetChangedSlotStacksFieldBuilder().getBuilderList();
+    }
+    private com.google.protobuf.RepeatedFieldBuilder<
+        dev.recorderminecraft.artifacts.v1.HashedItemStack, dev.recorderminecraft.artifacts.v1.HashedItemStack.Builder, dev.recorderminecraft.artifacts.v1.HashedItemStackOrBuilder> 
+        internalGetChangedSlotStacksFieldBuilder() {
+      if (changedSlotStacksBuilder_ == null) {
+        changedSlotStacksBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
+            dev.recorderminecraft.artifacts.v1.HashedItemStack, dev.recorderminecraft.artifacts.v1.HashedItemStack.Builder, dev.recorderminecraft.artifacts.v1.HashedItemStackOrBuilder>(
+                changedSlotStacks_,
+                ((bitField0_ & 0x01000000) != 0),
+                getParentForChildren(),
+                isClean());
+        changedSlotStacks_ = null;
+      }
+      return changedSlotStacksBuilder_;
+    }
+
+    private dev.recorderminecraft.artifacts.v1.HashedItemStack carriedStack_;
+    private com.google.protobuf.SingleFieldBuilder<
+        dev.recorderminecraft.artifacts.v1.HashedItemStack, dev.recorderminecraft.artifacts.v1.HashedItemStack.Builder, dev.recorderminecraft.artifacts.v1.HashedItemStackOrBuilder> carriedStackBuilder_;
+    /**
+     * <pre>
+     * The client's prediction of the cursor stack after a container click,
+     * with slot -1.
+     * </pre>
+     *
+     * <code>optional .recorder_minecraft.artifacts.v1.HashedItemStack carried_stack = 26 [json_name = "carriedStack"];</code>
+     * @return Whether the carriedStack field is set.
+     */
+    public boolean hasCarriedStack() {
+      return ((bitField0_ & 0x02000000) != 0);
+    }
+    /**
+     * <pre>
+     * The client's prediction of the cursor stack after a container click,
+     * with slot -1.
+     * </pre>
+     *
+     * <code>optional .recorder_minecraft.artifacts.v1.HashedItemStack carried_stack = 26 [json_name = "carriedStack"];</code>
+     * @return The carriedStack.
+     */
+    public dev.recorderminecraft.artifacts.v1.HashedItemStack getCarriedStack() {
+      if (carriedStackBuilder_ == null) {
+        return carriedStack_ == null ? dev.recorderminecraft.artifacts.v1.HashedItemStack.getDefaultInstance() : carriedStack_;
+      } else {
+        return carriedStackBuilder_.getMessage();
+      }
+    }
+    /**
+     * <pre>
+     * The client's prediction of the cursor stack after a container click,
+     * with slot -1.
+     * </pre>
+     *
+     * <code>optional .recorder_minecraft.artifacts.v1.HashedItemStack carried_stack = 26 [json_name = "carriedStack"];</code>
+     */
+    public Builder setCarriedStack(dev.recorderminecraft.artifacts.v1.HashedItemStack value) {
+      if (carriedStackBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        carriedStack_ = value;
+      } else {
+        carriedStackBuilder_.setMessage(value);
+      }
+      bitField0_ |= 0x02000000;
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * The client's prediction of the cursor stack after a container click,
+     * with slot -1.
+     * </pre>
+     *
+     * <code>optional .recorder_minecraft.artifacts.v1.HashedItemStack carried_stack = 26 [json_name = "carriedStack"];</code>
+     */
+    public Builder setCarriedStack(
+        dev.recorderminecraft.artifacts.v1.HashedItemStack.Builder builderForValue) {
+      if (carriedStackBuilder_ == null) {
+        carriedStack_ = builderForValue.build();
+      } else {
+        carriedStackBuilder_.setMessage(builderForValue.build());
+      }
+      bitField0_ |= 0x02000000;
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * The client's prediction of the cursor stack after a container click,
+     * with slot -1.
+     * </pre>
+     *
+     * <code>optional .recorder_minecraft.artifacts.v1.HashedItemStack carried_stack = 26 [json_name = "carriedStack"];</code>
+     */
+    public Builder mergeCarriedStack(dev.recorderminecraft.artifacts.v1.HashedItemStack value) {
+      if (carriedStackBuilder_ == null) {
+        if (((bitField0_ & 0x02000000) != 0) &&
+          carriedStack_ != null &&
+          carriedStack_ != dev.recorderminecraft.artifacts.v1.HashedItemStack.getDefaultInstance()) {
+          getCarriedStackBuilder().mergeFrom(value);
+        } else {
+          carriedStack_ = value;
+        }
+      } else {
+        carriedStackBuilder_.mergeFrom(value);
+      }
+      if (carriedStack_ != null) {
+        bitField0_ |= 0x02000000;
+        onChanged();
+      }
+      return this;
+    }
+    /**
+     * <pre>
+     * The client's prediction of the cursor stack after a container click,
+     * with slot -1.
+     * </pre>
+     *
+     * <code>optional .recorder_minecraft.artifacts.v1.HashedItemStack carried_stack = 26 [json_name = "carriedStack"];</code>
+     */
+    public Builder clearCarriedStack() {
+      bitField0_ = (bitField0_ & ~0x02000000);
+      carriedStack_ = null;
+      if (carriedStackBuilder_ != null) {
+        carriedStackBuilder_.dispose();
+        carriedStackBuilder_ = null;
+      }
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * The client's prediction of the cursor stack after a container click,
+     * with slot -1.
+     * </pre>
+     *
+     * <code>optional .recorder_minecraft.artifacts.v1.HashedItemStack carried_stack = 26 [json_name = "carriedStack"];</code>
+     */
+    public dev.recorderminecraft.artifacts.v1.HashedItemStack.Builder getCarriedStackBuilder() {
+      bitField0_ |= 0x02000000;
+      onChanged();
+      return internalGetCarriedStackFieldBuilder().getBuilder();
+    }
+    /**
+     * <pre>
+     * The client's prediction of the cursor stack after a container click,
+     * with slot -1.
+     * </pre>
+     *
+     * <code>optional .recorder_minecraft.artifacts.v1.HashedItemStack carried_stack = 26 [json_name = "carriedStack"];</code>
+     */
+    public dev.recorderminecraft.artifacts.v1.HashedItemStackOrBuilder getCarriedStackOrBuilder() {
+      if (carriedStackBuilder_ != null) {
+        return carriedStackBuilder_.getMessageOrBuilder();
+      } else {
+        return carriedStack_ == null ?
+            dev.recorderminecraft.artifacts.v1.HashedItemStack.getDefaultInstance() : carriedStack_;
+      }
+    }
+    /**
+     * <pre>
+     * The client's prediction of the cursor stack after a container click,
+     * with slot -1.
+     * </pre>
+     *
+     * <code>optional .recorder_minecraft.artifacts.v1.HashedItemStack carried_stack = 26 [json_name = "carriedStack"];</code>
+     */
+    private com.google.protobuf.SingleFieldBuilder<
+        dev.recorderminecraft.artifacts.v1.HashedItemStack, dev.recorderminecraft.artifacts.v1.HashedItemStack.Builder, dev.recorderminecraft.artifacts.v1.HashedItemStackOrBuilder> 
+        internalGetCarriedStackFieldBuilder() {
+      if (carriedStackBuilder_ == null) {
+        carriedStackBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            dev.recorderminecraft.artifacts.v1.HashedItemStack, dev.recorderminecraft.artifacts.v1.HashedItemStack.Builder, dev.recorderminecraft.artifacts.v1.HashedItemStackOrBuilder>(
+                getCarriedStack(),
+                getParentForChildren(),
+                isClean());
+        carriedStack_ = null;
+      }
+      return carriedStackBuilder_;
     }
 
     // @@protoc_insertion_point(builder_scope:recorder_minecraft.artifacts.v1.Packet)

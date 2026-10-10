@@ -57,6 +57,16 @@ public final class Events extends com.google.protobuf.GeneratedFile {
     com.google.protobuf.GeneratedMessage.FieldAccessorTable
       internal_static_recorder_minecraft_artifacts_v1_Packet_fieldAccessorTable;
   static final com.google.protobuf.Descriptors.Descriptor
+    internal_static_recorder_minecraft_artifacts_v1_HashedItemStack_descriptor;
+  static final 
+    com.google.protobuf.GeneratedMessage.FieldAccessorTable
+      internal_static_recorder_minecraft_artifacts_v1_HashedItemStack_fieldAccessorTable;
+  static final com.google.protobuf.Descriptors.Descriptor
+    internal_static_recorder_minecraft_artifacts_v1_HashedItemStack_ComponentHashesEntry_descriptor;
+  static final 
+    com.google.protobuf.GeneratedMessage.FieldAccessorTable
+      internal_static_recorder_minecraft_artifacts_v1_HashedItemStack_ComponentHashesEntry_fieldAccessorTable;
+  static final com.google.protobuf.Descriptors.Descriptor
     internal_static_recorder_minecraft_artifacts_v1_BlockHit_descriptor;
   static final 
     com.google.protobuf.GeneratedMessage.FieldAccessorTable
@@ -181,7 +191,7 @@ public final class Events extends com.google.protobuf.GeneratedFile {
       "g\030\007 \001(\010R\016arrivalMissing\022?\n\006packet\030\010 \001(\0132" +
       "\'.recorder_minecraft.artifacts.v1.Packet" +
       "R\006packetB\023\n\021_arrival_sequenceB\026\n\024_arriva" +
-      "l_server_tick\"\340\013\n\006Packet\022K\n\010identity\030\001 \001" +
+      "l_server_tick\"\270\r\n\006Packet\022K\n\010identity\030\001 \001" +
       "(\0132/.recorder_minecraft.artifacts.v1.Pac" +
       "ketIdentityR\010identity\022\037\n\013action_kind\030\002 \001" +
       "(\tR\nactionKind\022j\n\022camera_or_position\030\003 \001" +
@@ -209,136 +219,149 @@ public final class Events extends com.google.protobuf.GeneratedFile {
       "ock_hit\030\025 \001(\0132).recorder_minecraft.artif" +
       "acts.v1.BlockHitR\010blockHit\022E\n\006target\030\026 \001" +
       "(\0132-.recorder_minecraft.artifacts.v1.Ent" +
-      "ityTargetR\006target\022(\n\rchanged_slots\030\027 \001(\t" +
-      "H\020R\014changedSlots\210\001\001\022&\n\014carried_item\030\030 \001(" +
-      "\tH\021R\013carriedItem\210\001\001B\025\n\023_camera_or_positi" +
-      "onB\021\n\017_movement_inputB\t\n\007_actionB\014\n\n_dir" +
-      "ectionB\007\n\005_handB\027\n\025_interaction_sequence" +
-      "B\007\n\005_slotB\017\n\r_container_idB\025\n\023_container" +
-      "_state_idB\016\n\014_slot_numberB\020\n\016_button_num" +
-      "berB\r\n\013_click_typeB\016\n\014_action_dataB\014\n\n_e" +
-      "ntity_idB\023\n\021_secondary_actionB\016\n\014_intera" +
-      "ctionB\020\n\016_changed_slotsB\017\n\r_carried_item" +
-      "\"\327\001\n\010BlockHit\022O\n\016block_position\030\001 \001(\0132(." +
-      "recorder_minecraft.artifacts.v1.Vector3R" +
-      "\rblockPosition\022\034\n\tdirection\030\002 \001(\tR\tdirec" +
-      "tion\022D\n\010location\030\003 \001(\0132(.recorder_minecr" +
-      "aft.artifacts.v1.Vector3R\010location\022\026\n\006in" +
-      "side\030\004 \001(\010R\006inside\"p\n\014EntityTarget\022\033\n\ten" +
-      "tity_id\030\001 \001(\005R\010entityId\022\022\n\004uuid\030\002 \001(\tR\004u" +
-      "uid\022\027\n\007type_id\030\003 \001(\tR\006typeId\022\026\n\006player\030\004" +
-      " \001(\010R\006player\"1\n\023ReplayTimelineEvent\022\032\n\010p" +
-      "rotocol\030\001 \001(\tR\010protocol\"\315\013\n\020PlayerStateE" +
-      "vent\022\034\n\tdimension\030\001 \001(\tR\tdimension\022D\n\010po" +
-      "sition\030\002 \001(\0132(.recorder_minecraft.artifa" +
-      "cts.v1.Vector3R\010position\022E\n\010rotation\030\003 \001" +
-      "(\0132).recorder_minecraft.artifacts.v1.Rot" +
-      "ationR\010rotation\022D\n\010velocity\030\004 \001(\0132(.reco" +
-      "rder_minecraft.artifacts.v1.Vector3R\010vel" +
-      "ocity\022\024\n\005alive\030\005 \001(\010R\005alive\022\033\n\ton_ground" +
-      "\030\006 \001(\010R\010onGround\022\022\n\004pose\030\007 \001(\tR\004pose\022\034\n\t" +
-      "sprinting\030\010 \001(\010R\tsprinting\022\032\n\010sneaking\030\t" +
-      " \001(\010R\010sneaking\022\032\n\010swimming\030\n \001(\010R\010swimmi" +
-      "ng\022\037\n\013fall_flying\030\013 \001(\010R\nfallFlying\022\035\n\nu" +
-      "sing_item\030\014 \001(\010R\tusingItem\0227\n\030use_item_r" +
-      "emaining_ticks\030\r \001(\005R\025useItemRemainingTi" +
-      "cks\022\033\n\tgame_mode\030\016 \001(\tR\010gameMode\022\026\n\006heal" +
-      "th\030\017 \001(\001R\006health\022\035\n\nmax_health\030\020 \001(\001R\tma" +
-      "xHealth\022\036\n\nabsorption\030\021 \001(\001R\nabsorption\022" +
-      "\024\n\005armor\030\022 \001(\005R\005armor\022\020\n\003air\030\023 \001(\005R\003air\022" +
-      "\027\n\007max_air\030\024 \001(\005R\006maxAir\022\035\n\nfood_level\030\025" +
-      " \001(\005R\tfoodLevel\022\036\n\nsaturation\030\026 \001(\001R\nsat" +
-      "uration\022)\n\020experience_level\030\027 \001(\005R\017exper" +
-      "ienceLevel\022/\n\023experience_progress\030\030 \001(\001R" +
-      "\022experienceProgress\022)\n\020total_experience\030" +
-      "\031 \001(\005R\017totalExperience\022#\n\rselected_slot\030" +
-      "\032 \001(\rR\014selectedSlot\022H\n\tabilities\030\033 \001(\0132*" +
-      ".recorder_minecraft.artifacts.v1.Abiliti" +
-      "esR\tabilities\022G\n\007effects\030\034 \003(\0132-.recorde" +
-      "r_minecraft.artifacts.v1.StatusEffectR\007e" +
-      "ffects\022J\n\npassengers\030\035 \003(\0132*.recorder_mi" +
-      "necraft.artifacts.v1.PassengerR\npassenge" +
-      "rs\022L\n\tinventory\030\036 \003(\0132..recorder_minecra" +
-      "ft.artifacts.v1.InventorySlotR\tinventory" +
-      "\022?\n\034state_barrier_apply_sequence\030\037 \001(\004R\031" +
-      "stateBarrierApplySequence\022X\n\017replay_cove" +
-      "rage\030  \001(\0132/.recorder_minecraft.artifact" +
-      "s.v1.ReplayCoverageR\016replayCoverage\022J\n\007v" +
-      "ehicle\030! \001(\01320.recorder_minecraft.artifa" +
-      "cts.v1.EntityReferenceR\007vehicle\"\242\001\n\tAbil" +
-      "ities\022\"\n\014invulnerable\030\001 \001(\010R\014invulnerabl" +
-      "e\022\026\n\006flying\030\002 \001(\010R\006flying\022\027\n\007may_fly\030\003 \001" +
-      "(\010R\006mayFly\022#\n\rinstant_build\030\004 \001(\010R\014insta" +
-      "ntBuild\022\033\n\tmay_build\030\005 \001(\010R\010mayBuild\"\301\001\n" +
-      "\014StatusEffect\022\033\n\teffect_id\030\001 \001(\tR\010effect" +
-      "Id\022\034\n\tamplifier\030\002 \001(\005R\tamplifier\022%\n\016dura" +
-      "tion_ticks\030\003 \001(\005R\rdurationTicks\022\030\n\007ambie" +
-      "nt\030\004 \001(\010R\007ambient\022\030\n\007visible\030\005 \001(\010R\007visi" +
-      "ble\022\033\n\tshow_icon\030\006 \001(\010R\010showIcon\"8\n\tPass" +
-      "enger\022\022\n\004uuid\030\001 \001(\tR\004uuid\022\027\n\007type_id\030\002 \001" +
-      "(\tR\006typeId\"[\n\017EntityReference\022\033\n\tentity_" +
-      "id\030\001 \001(\005R\010entityId\022\022\n\004uuid\030\002 \001(\tR\004uuid\022\027" +
-      "\n\007type_id\030\003 \001(\tR\006typeId\"\335\001\n\rInventorySlo" +
-      "t\022\022\n\004slot\030\001 \001(\005R\004slot\022\027\n\007item_id\030\002 \001(\tR\006" +
-      "itemId\022\024\n\005count\030\003 \001(\005R\005count\022\'\n\017componen" +
-      "ts_snbt\030\004 \001(\tR\016componentsSnbt\022\026\n\006damage\030" +
-      "\005 \001(\005R\006damage\022\035\n\nmax_damage\030\006 \001(\005R\tmaxDa" +
-      "mage\022)\n\020components_debug\030\007 \001(\tR\017componen" +
-      "tsDebug\"\276\001\n\016ReplayCoverage\022\022\n\004kind\030\001 \001(\t" +
-      "R\004kind\022$\n\016center_chunk_x\030\002 \001(\005R\014centerCh" +
-      "unkX\022$\n\016center_chunk_z\030\003 \001(\005R\014centerChun" +
-      "kZ\0220\n\024view_distance_chunks\030\004 \001(\005R\022viewDi" +
-      "stanceChunks\022\032\n\010complete\030\005 \001(\010R\010complete" +
-      "\"\272\003\n\026ClientInformationEvent\022P\n\006source\030\001 " +
-      "\001(\01628.recorder_minecraft.artifacts.v1.Cl" +
-      "ientInformationSourceR\006source\022\032\n\010languag" +
-      "e\030\002 \001(\tR\010language\022#\n\rview_distance\030\003 \001(\005" +
-      "R\014viewDistance\022\'\n\017chat_visibility\030\004 \001(\tR" +
-      "\016chatVisibility\022\037\n\013chat_colors\030\005 \001(\010R\nch" +
-      "atColors\022/\n\023model_customisation\030\006 \001(\005R\022m" +
-      "odelCustomisation\022\033\n\tmain_hand\030\007 \001(\tR\010ma" +
-      "inHand\022%\n\016text_filtering\030\010 \001(\010R\rtextFilt" +
-      "ering\022%\n\016allows_listing\030\t \001(\010R\rallowsLis" +
-      "ting\022\'\n\017particle_status\030\n \001(\tR\016particleS" +
-      "tatus\"\316\004\n\022ContainerViewEvent\022F\n\004kind\030\001 \001" +
-      "(\01622.recorder_minecraft.artifacts.v1.Con" +
-      "tainerViewKindR\004kind\022L\n\006origin\030\002 \001(\01624.r" +
-      "ecorder_minecraft.artifacts.v1.Container" +
-      "ViewOriginR\006origin\022!\n\014container_id\030\003 \001(\005" +
-      "R\013containerId\022\036\n\010state_id\030\004 \001(\005H\000R\007state" +
-      "Id\210\001\001\022\033\n\tmenu_type\030\005 \001(\tR\010menuType\022L\n\006so" +
-      "urce\030\006 \001(\01324.recorder_minecraft.artifact" +
-      "s.v1.ContainerViewSourceR\006source\0225\n\024cont" +
-      "ainer_slot_count\030\007 \001(\005H\001R\022containerSlotC" +
-      "ount\210\001\001\022D\n\005slots\030\010 \003(\0132..recorder_minecr" +
-      "aft.artifacts.v1.InventorySlotR\005slots\022Q\n" +
-      "\014carried_item\030\t \001(\0132..recorder_minecraft" +
-      ".artifacts.v1.InventorySlotR\013carriedItem" +
-      "B\013\n\t_state_idB\027\n\025_container_slot_count\"\214" +
-      "\002\n\023ContainerViewSource\022\034\n\tdimension\030\001 \001(" +
-      "\tR\tdimension\022K\n\tblock_pos\030\002 \001(\0132..record" +
-      "er_minecraft.artifacts.v1.BlockPositionR" +
-      "\010blockPos\022*\n\021block_entity_type\030\003 \001(\tR\017bl" +
-      "ockEntityType\022^\n\023secondary_block_pos\030\004 \001" +
-      "(\0132..recorder_minecraft.artifacts.v1.Blo" +
-      "ckPositionR\021secondaryBlockPos*\227\001\n\027Client" +
-      "InformationSource\022)\n%CLIENT_INFORMATION_" +
-      "SOURCE_UNSPECIFIED\020\000\022+\n\'CLIENT_INFORMATI" +
-      "ON_SOURCE_JOIN_SNAPSHOT\020\001\022$\n CLIENT_INFO" +
-      "RMATION_SOURCE_PACKET\020\002*\331\001\n\021ContainerVie" +
-      "wKind\022#\n\037CONTAINER_VIEW_KIND_UNSPECIFIED" +
-      "\020\000\022\036\n\032CONTAINER_VIEW_KIND_OPENED\020\001\022 \n\034CO" +
-      "NTAINER_VIEW_KIND_CONTENTS\020\002\022\034\n\030CONTAINE" +
-      "R_VIEW_KIND_SLOT\020\003\022\037\n\033CONTAINER_VIEW_KIN" +
-      "D_CARRIED\020\004\022\036\n\032CONTAINER_VIEW_KIND_CLOSE" +
-      "D\020\005*\212\001\n\023ContainerViewOrigin\022%\n!CONTAINER" +
-      "_VIEW_ORIGIN_UNSPECIFIED\020\000\022%\n!CONTAINER_" +
-      "VIEW_ORIGIN_CLIENTBOUND\020\001\022%\n!CONTAINER_V" +
-      "IEW_ORIGIN_SERVERBOUND\020\002B\207\001\n\"dev.recorde" +
-      "rminecraft.artifacts.v1P\001Z_github.com/pr" +
-      "oj-airi/recorder-minecraft/apis/sdk/go/r" +
-      "ecorder-minecraft/artifacts/v1;artifacts" +
-      "v1b\006proto3"
+      "ityTargetR\006target\022,\n\rchanged_slots\030\027 \001(\t" +
+      "B\002\030\001H\020R\014changedSlots\210\001\001\022*\n\014carried_item\030" +
+      "\030 \001(\tB\002\030\001H\021R\013carriedItem\210\001\001\022`\n\023changed_s" +
+      "lot_stacks\030\031 \003(\01320.recorder_minecraft.ar" +
+      "tifacts.v1.HashedItemStackR\021changedSlotS" +
+      "tacks\022Z\n\rcarried_stack\030\032 \001(\01320.recorder_" +
+      "minecraft.artifacts.v1.HashedItemStackH\022" +
+      "R\014carriedStack\210\001\001B\025\n\023_camera_or_position" +
+      "B\021\n\017_movement_inputB\t\n\007_actionB\014\n\n_direc" +
+      "tionB\007\n\005_handB\027\n\025_interaction_sequenceB\007" +
+      "\n\005_slotB\017\n\r_container_idB\025\n\023_container_s" +
+      "tate_idB\016\n\014_slot_numberB\020\n\016_button_numbe" +
+      "rB\r\n\013_click_typeB\016\n\014_action_dataB\014\n\n_ent" +
+      "ity_idB\023\n\021_secondary_actionB\016\n\014_interact" +
+      "ionB\020\n\016_changed_slotsB\017\n\r_carried_itemB\020" +
+      "\n\016_carried_stack\"\271\002\n\017HashedItemStack\022\022\n\004" +
+      "slot\030\001 \001(\005R\004slot\022\027\n\007item_id\030\002 \001(\tR\006itemI" +
+      "d\022\024\n\005count\030\003 \001(\005R\005count\022p\n\020component_has" +
+      "hes\030\004 \003(\0132E.recorder_minecraft.artifacts" +
+      ".v1.HashedItemStack.ComponentHashesEntry" +
+      "R\017componentHashes\022-\n\022removed_components\030" +
+      "\005 \003(\tR\021removedComponents\032B\n\024ComponentHas" +
+      "hesEntry\022\020\n\003key\030\001 \001(\tR\003key\022\024\n\005value\030\002 \001(" +
+      "\005R\005value:\0028\001\"\327\001\n\010BlockHit\022O\n\016block_posit" +
+      "ion\030\001 \001(\0132(.recorder_minecraft.artifacts" +
+      ".v1.Vector3R\rblockPosition\022\034\n\tdirection\030" +
+      "\002 \001(\tR\tdirection\022D\n\010location\030\003 \001(\0132(.rec" +
+      "order_minecraft.artifacts.v1.Vector3R\010lo" +
+      "cation\022\026\n\006inside\030\004 \001(\010R\006inside\"p\n\014Entity" +
+      "Target\022\033\n\tentity_id\030\001 \001(\005R\010entityId\022\022\n\004u" +
+      "uid\030\002 \001(\tR\004uuid\022\027\n\007type_id\030\003 \001(\tR\006typeId" +
+      "\022\026\n\006player\030\004 \001(\010R\006player\"1\n\023ReplayTimeli" +
+      "neEvent\022\032\n\010protocol\030\001 \001(\tR\010protocol\"\315\013\n\020" +
+      "PlayerStateEvent\022\034\n\tdimension\030\001 \001(\tR\tdim" +
+      "ension\022D\n\010position\030\002 \001(\0132(.recorder_mine" +
+      "craft.artifacts.v1.Vector3R\010position\022E\n\010" +
+      "rotation\030\003 \001(\0132).recorder_minecraft.arti" +
+      "facts.v1.RotationR\010rotation\022D\n\010velocity\030" +
+      "\004 \001(\0132(.recorder_minecraft.artifacts.v1." +
+      "Vector3R\010velocity\022\024\n\005alive\030\005 \001(\010R\005alive\022" +
+      "\033\n\ton_ground\030\006 \001(\010R\010onGround\022\022\n\004pose\030\007 \001" +
+      "(\tR\004pose\022\034\n\tsprinting\030\010 \001(\010R\tsprinting\022\032" +
+      "\n\010sneaking\030\t \001(\010R\010sneaking\022\032\n\010swimming\030\n" +
+      " \001(\010R\010swimming\022\037\n\013fall_flying\030\013 \001(\010R\nfal" +
+      "lFlying\022\035\n\nusing_item\030\014 \001(\010R\tusingItem\0227" +
+      "\n\030use_item_remaining_ticks\030\r \001(\005R\025useIte" +
+      "mRemainingTicks\022\033\n\tgame_mode\030\016 \001(\tR\010game" +
+      "Mode\022\026\n\006health\030\017 \001(\001R\006health\022\035\n\nmax_heal" +
+      "th\030\020 \001(\001R\tmaxHealth\022\036\n\nabsorption\030\021 \001(\001R" +
+      "\nabsorption\022\024\n\005armor\030\022 \001(\005R\005armor\022\020\n\003air" +
+      "\030\023 \001(\005R\003air\022\027\n\007max_air\030\024 \001(\005R\006maxAir\022\035\n\n" +
+      "food_level\030\025 \001(\005R\tfoodLevel\022\036\n\nsaturatio" +
+      "n\030\026 \001(\001R\nsaturation\022)\n\020experience_level\030" +
+      "\027 \001(\005R\017experienceLevel\022/\n\023experience_pro" +
+      "gress\030\030 \001(\001R\022experienceProgress\022)\n\020total" +
+      "_experience\030\031 \001(\005R\017totalExperience\022#\n\rse" +
+      "lected_slot\030\032 \001(\rR\014selectedSlot\022H\n\tabili" +
+      "ties\030\033 \001(\0132*.recorder_minecraft.artifact" +
+      "s.v1.AbilitiesR\tabilities\022G\n\007effects\030\034 \003" +
+      "(\0132-.recorder_minecraft.artifacts.v1.Sta" +
+      "tusEffectR\007effects\022J\n\npassengers\030\035 \003(\0132*" +
+      ".recorder_minecraft.artifacts.v1.Passeng" +
+      "erR\npassengers\022L\n\tinventory\030\036 \003(\0132..reco" +
+      "rder_minecraft.artifacts.v1.InventorySlo" +
+      "tR\tinventory\022?\n\034state_barrier_apply_sequ" +
+      "ence\030\037 \001(\004R\031stateBarrierApplySequence\022X\n" +
+      "\017replay_coverage\030  \001(\0132/.recorder_minecr" +
+      "aft.artifacts.v1.ReplayCoverageR\016replayC" +
+      "overage\022J\n\007vehicle\030! \001(\01320.recorder_mine" +
+      "craft.artifacts.v1.EntityReferenceR\007vehi" +
+      "cle\"\242\001\n\tAbilities\022\"\n\014invulnerable\030\001 \001(\010R" +
+      "\014invulnerable\022\026\n\006flying\030\002 \001(\010R\006flying\022\027\n" +
+      "\007may_fly\030\003 \001(\010R\006mayFly\022#\n\rinstant_build\030" +
+      "\004 \001(\010R\014instantBuild\022\033\n\tmay_build\030\005 \001(\010R\010" +
+      "mayBuild\"\301\001\n\014StatusEffect\022\033\n\teffect_id\030\001" +
+      " \001(\tR\010effectId\022\034\n\tamplifier\030\002 \001(\005R\tampli" +
+      "fier\022%\n\016duration_ticks\030\003 \001(\005R\rdurationTi" +
+      "cks\022\030\n\007ambient\030\004 \001(\010R\007ambient\022\030\n\007visible" +
+      "\030\005 \001(\010R\007visible\022\033\n\tshow_icon\030\006 \001(\010R\010show" +
+      "Icon\"8\n\tPassenger\022\022\n\004uuid\030\001 \001(\tR\004uuid\022\027\n" +
+      "\007type_id\030\002 \001(\tR\006typeId\"[\n\017EntityReferenc" +
+      "e\022\033\n\tentity_id\030\001 \001(\005R\010entityId\022\022\n\004uuid\030\002" +
+      " \001(\tR\004uuid\022\027\n\007type_id\030\003 \001(\tR\006typeId\"\335\001\n\r" +
+      "InventorySlot\022\022\n\004slot\030\001 \001(\005R\004slot\022\027\n\007ite" +
+      "m_id\030\002 \001(\tR\006itemId\022\024\n\005count\030\003 \001(\005R\005count" +
+      "\022\'\n\017components_snbt\030\004 \001(\tR\016componentsSnb" +
+      "t\022\026\n\006damage\030\005 \001(\005R\006damage\022\035\n\nmax_damage\030" +
+      "\006 \001(\005R\tmaxDamage\022)\n\020components_debug\030\007 \001" +
+      "(\tR\017componentsDebug\"\276\001\n\016ReplayCoverage\022\022" +
+      "\n\004kind\030\001 \001(\tR\004kind\022$\n\016center_chunk_x\030\002 \001" +
+      "(\005R\014centerChunkX\022$\n\016center_chunk_z\030\003 \001(\005" +
+      "R\014centerChunkZ\0220\n\024view_distance_chunks\030\004" +
+      " \001(\005R\022viewDistanceChunks\022\032\n\010complete\030\005 \001" +
+      "(\010R\010complete\"\272\003\n\026ClientInformationEvent\022" +
+      "P\n\006source\030\001 \001(\01628.recorder_minecraft.art" +
+      "ifacts.v1.ClientInformationSourceR\006sourc" +
+      "e\022\032\n\010language\030\002 \001(\tR\010language\022#\n\rview_di" +
+      "stance\030\003 \001(\005R\014viewDistance\022\'\n\017chat_visib" +
+      "ility\030\004 \001(\tR\016chatVisibility\022\037\n\013chat_colo" +
+      "rs\030\005 \001(\010R\nchatColors\022/\n\023model_customisat" +
+      "ion\030\006 \001(\005R\022modelCustomisation\022\033\n\tmain_ha" +
+      "nd\030\007 \001(\tR\010mainHand\022%\n\016text_filtering\030\010 \001" +
+      "(\010R\rtextFiltering\022%\n\016allows_listing\030\t \001(" +
+      "\010R\rallowsListing\022\'\n\017particle_status\030\n \001(" +
+      "\tR\016particleStatus\"\316\004\n\022ContainerViewEvent" +
+      "\022F\n\004kind\030\001 \001(\01622.recorder_minecraft.arti" +
+      "facts.v1.ContainerViewKindR\004kind\022L\n\006orig" +
+      "in\030\002 \001(\01624.recorder_minecraft.artifacts." +
+      "v1.ContainerViewOriginR\006origin\022!\n\014contai" +
+      "ner_id\030\003 \001(\005R\013containerId\022\036\n\010state_id\030\004 " +
+      "\001(\005H\000R\007stateId\210\001\001\022\033\n\tmenu_type\030\005 \001(\tR\010me" +
+      "nuType\022L\n\006source\030\006 \001(\01324.recorder_minecr" +
+      "aft.artifacts.v1.ContainerViewSourceR\006so" +
+      "urce\0225\n\024container_slot_count\030\007 \001(\005H\001R\022co" +
+      "ntainerSlotCount\210\001\001\022D\n\005slots\030\010 \003(\0132..rec" +
+      "order_minecraft.artifacts.v1.InventorySl" +
+      "otR\005slots\022Q\n\014carried_item\030\t \001(\0132..record" +
+      "er_minecraft.artifacts.v1.InventorySlotR" +
+      "\013carriedItemB\013\n\t_state_idB\027\n\025_container_" +
+      "slot_count\"\214\002\n\023ContainerViewSource\022\034\n\tdi" +
+      "mension\030\001 \001(\tR\tdimension\022K\n\tblock_pos\030\002 " +
+      "\001(\0132..recorder_minecraft.artifacts.v1.Bl" +
+      "ockPositionR\010blockPos\022*\n\021block_entity_ty" +
+      "pe\030\003 \001(\tR\017blockEntityType\022^\n\023secondary_b" +
+      "lock_pos\030\004 \001(\0132..recorder_minecraft.arti" +
+      "facts.v1.BlockPositionR\021secondaryBlockPo" +
+      "s*\227\001\n\027ClientInformationSource\022)\n%CLIENT_" +
+      "INFORMATION_SOURCE_UNSPECIFIED\020\000\022+\n\'CLIE" +
+      "NT_INFORMATION_SOURCE_JOIN_SNAPSHOT\020\001\022$\n" +
+      " CLIENT_INFORMATION_SOURCE_PACKET\020\002*\331\001\n\021" +
+      "ContainerViewKind\022#\n\037CONTAINER_VIEW_KIND" +
+      "_UNSPECIFIED\020\000\022\036\n\032CONTAINER_VIEW_KIND_OP" +
+      "ENED\020\001\022 \n\034CONTAINER_VIEW_KIND_CONTENTS\020\002" +
+      "\022\034\n\030CONTAINER_VIEW_KIND_SLOT\020\003\022\037\n\033CONTAI" +
+      "NER_VIEW_KIND_CARRIED\020\004\022\036\n\032CONTAINER_VIE" +
+      "W_KIND_CLOSED\020\005*\212\001\n\023ContainerViewOrigin\022" +
+      "%\n!CONTAINER_VIEW_ORIGIN_UNSPECIFIED\020\000\022%" +
+      "\n!CONTAINER_VIEW_ORIGIN_CLIENTBOUND\020\001\022%\n" +
+      "!CONTAINER_VIEW_ORIGIN_SERVERBOUND\020\002B\207\001\n" +
+      "\"dev.recorderminecraft.artifacts.v1P\001Z_g" +
+      "ithub.com/proj-airi/recorder-minecraft/a" +
+      "pis/sdk/go/recorder-minecraft/artifacts/" +
+      "v1;artifactsv1b\006proto3"
     };
     descriptor = com.google.protobuf.Descriptors.FileDescriptor
       .internalBuildGeneratedFileFrom(descriptorData,
@@ -381,81 +404,93 @@ public final class Events extends com.google.protobuf.GeneratedFile {
     internal_static_recorder_minecraft_artifacts_v1_Packet_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_recorder_minecraft_artifacts_v1_Packet_descriptor,
-        new java.lang.String[] { "Identity", "ActionKind", "CameraOrPosition", "MovementInput", "PayloadRedacted", "Action", "Direction", "Hand", "InteractionSequence", "Slot", "ContainerId", "ContainerStateId", "SlotNumber", "ButtonNumber", "ClickType", "ActionData", "EntityId", "SecondaryAction", "Interaction", "BlockPosition", "BlockHit", "Target", "ChangedSlots", "CarriedItem", });
-    internal_static_recorder_minecraft_artifacts_v1_BlockHit_descriptor =
+        new java.lang.String[] { "Identity", "ActionKind", "CameraOrPosition", "MovementInput", "PayloadRedacted", "Action", "Direction", "Hand", "InteractionSequence", "Slot", "ContainerId", "ContainerStateId", "SlotNumber", "ButtonNumber", "ClickType", "ActionData", "EntityId", "SecondaryAction", "Interaction", "BlockPosition", "BlockHit", "Target", "ChangedSlots", "CarriedItem", "ChangedSlotStacks", "CarriedStack", });
+    internal_static_recorder_minecraft_artifacts_v1_HashedItemStack_descriptor =
       getDescriptor().getMessageType(6);
+    internal_static_recorder_minecraft_artifacts_v1_HashedItemStack_fieldAccessorTable = new
+      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
+        internal_static_recorder_minecraft_artifacts_v1_HashedItemStack_descriptor,
+        new java.lang.String[] { "Slot", "ItemId", "Count", "ComponentHashes", "RemovedComponents", });
+    internal_static_recorder_minecraft_artifacts_v1_HashedItemStack_ComponentHashesEntry_descriptor =
+      internal_static_recorder_minecraft_artifacts_v1_HashedItemStack_descriptor.getNestedType(0);
+    internal_static_recorder_minecraft_artifacts_v1_HashedItemStack_ComponentHashesEntry_fieldAccessorTable = new
+      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
+        internal_static_recorder_minecraft_artifacts_v1_HashedItemStack_ComponentHashesEntry_descriptor,
+        new java.lang.String[] { "Key", "Value", });
+    internal_static_recorder_minecraft_artifacts_v1_BlockHit_descriptor =
+      getDescriptor().getMessageType(7);
     internal_static_recorder_minecraft_artifacts_v1_BlockHit_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_recorder_minecraft_artifacts_v1_BlockHit_descriptor,
         new java.lang.String[] { "BlockPosition", "Direction", "Location", "Inside", });
     internal_static_recorder_minecraft_artifacts_v1_EntityTarget_descriptor =
-      getDescriptor().getMessageType(7);
+      getDescriptor().getMessageType(8);
     internal_static_recorder_minecraft_artifacts_v1_EntityTarget_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_recorder_minecraft_artifacts_v1_EntityTarget_descriptor,
         new java.lang.String[] { "EntityId", "Uuid", "TypeId", "Player", });
     internal_static_recorder_minecraft_artifacts_v1_ReplayTimelineEvent_descriptor =
-      getDescriptor().getMessageType(8);
+      getDescriptor().getMessageType(9);
     internal_static_recorder_minecraft_artifacts_v1_ReplayTimelineEvent_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_recorder_minecraft_artifacts_v1_ReplayTimelineEvent_descriptor,
         new java.lang.String[] { "Protocol", });
     internal_static_recorder_minecraft_artifacts_v1_PlayerStateEvent_descriptor =
-      getDescriptor().getMessageType(9);
+      getDescriptor().getMessageType(10);
     internal_static_recorder_minecraft_artifacts_v1_PlayerStateEvent_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_recorder_minecraft_artifacts_v1_PlayerStateEvent_descriptor,
         new java.lang.String[] { "Dimension", "Position", "Rotation", "Velocity", "Alive", "OnGround", "Pose", "Sprinting", "Sneaking", "Swimming", "FallFlying", "UsingItem", "UseItemRemainingTicks", "GameMode", "Health", "MaxHealth", "Absorption", "Armor", "Air", "MaxAir", "FoodLevel", "Saturation", "ExperienceLevel", "ExperienceProgress", "TotalExperience", "SelectedSlot", "Abilities", "Effects", "Passengers", "Inventory", "StateBarrierApplySequence", "ReplayCoverage", "Vehicle", });
     internal_static_recorder_minecraft_artifacts_v1_Abilities_descriptor =
-      getDescriptor().getMessageType(10);
+      getDescriptor().getMessageType(11);
     internal_static_recorder_minecraft_artifacts_v1_Abilities_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_recorder_minecraft_artifacts_v1_Abilities_descriptor,
         new java.lang.String[] { "Invulnerable", "Flying", "MayFly", "InstantBuild", "MayBuild", });
     internal_static_recorder_minecraft_artifacts_v1_StatusEffect_descriptor =
-      getDescriptor().getMessageType(11);
+      getDescriptor().getMessageType(12);
     internal_static_recorder_minecraft_artifacts_v1_StatusEffect_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_recorder_minecraft_artifacts_v1_StatusEffect_descriptor,
         new java.lang.String[] { "EffectId", "Amplifier", "DurationTicks", "Ambient", "Visible", "ShowIcon", });
     internal_static_recorder_minecraft_artifacts_v1_Passenger_descriptor =
-      getDescriptor().getMessageType(12);
+      getDescriptor().getMessageType(13);
     internal_static_recorder_minecraft_artifacts_v1_Passenger_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_recorder_minecraft_artifacts_v1_Passenger_descriptor,
         new java.lang.String[] { "Uuid", "TypeId", });
     internal_static_recorder_minecraft_artifacts_v1_EntityReference_descriptor =
-      getDescriptor().getMessageType(13);
+      getDescriptor().getMessageType(14);
     internal_static_recorder_minecraft_artifacts_v1_EntityReference_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_recorder_minecraft_artifacts_v1_EntityReference_descriptor,
         new java.lang.String[] { "EntityId", "Uuid", "TypeId", });
     internal_static_recorder_minecraft_artifacts_v1_InventorySlot_descriptor =
-      getDescriptor().getMessageType(14);
+      getDescriptor().getMessageType(15);
     internal_static_recorder_minecraft_artifacts_v1_InventorySlot_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_recorder_minecraft_artifacts_v1_InventorySlot_descriptor,
         new java.lang.String[] { "Slot", "ItemId", "Count", "ComponentsSnbt", "Damage", "MaxDamage", "ComponentsDebug", });
     internal_static_recorder_minecraft_artifacts_v1_ReplayCoverage_descriptor =
-      getDescriptor().getMessageType(15);
+      getDescriptor().getMessageType(16);
     internal_static_recorder_minecraft_artifacts_v1_ReplayCoverage_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_recorder_minecraft_artifacts_v1_ReplayCoverage_descriptor,
         new java.lang.String[] { "Kind", "CenterChunkX", "CenterChunkZ", "ViewDistanceChunks", "Complete", });
     internal_static_recorder_minecraft_artifacts_v1_ClientInformationEvent_descriptor =
-      getDescriptor().getMessageType(16);
+      getDescriptor().getMessageType(17);
     internal_static_recorder_minecraft_artifacts_v1_ClientInformationEvent_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_recorder_minecraft_artifacts_v1_ClientInformationEvent_descriptor,
         new java.lang.String[] { "Source", "Language", "ViewDistance", "ChatVisibility", "ChatColors", "ModelCustomisation", "MainHand", "TextFiltering", "AllowsListing", "ParticleStatus", });
     internal_static_recorder_minecraft_artifacts_v1_ContainerViewEvent_descriptor =
-      getDescriptor().getMessageType(17);
+      getDescriptor().getMessageType(18);
     internal_static_recorder_minecraft_artifacts_v1_ContainerViewEvent_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_recorder_minecraft_artifacts_v1_ContainerViewEvent_descriptor,
         new java.lang.String[] { "Kind", "Origin", "ContainerId", "StateId", "MenuType", "Source", "ContainerSlotCount", "Slots", "CarriedItem", });
     internal_static_recorder_minecraft_artifacts_v1_ContainerViewSource_descriptor =
-      getDescriptor().getMessageType(18);
+      getDescriptor().getMessageType(19);
     internal_static_recorder_minecraft_artifacts_v1_ContainerViewSource_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_recorder_minecraft_artifacts_v1_ContainerViewSource_descriptor,

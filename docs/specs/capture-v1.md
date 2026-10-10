@@ -89,6 +89,48 @@ physical keyboard or raw mouse telemetry. `replay_timeline` is also written
 inside Flashback as `mc_recorder:timeline/v1`, aligning server ticks to replay
 ticks without filenames or file timestamps.
 
+## Packet payload
+
+Both packet records carry one `Packet`. `identity.packet_type` is the protocol
+id, such as `serverbound/minecraft:container_click`, and is the stable packet
+identity. `identity.packet_class` is diagnostic: the intermediary class name,
+such as `net.minecraft.class_2813`, in every runtime. Without Fabric mappings,
+as in plain unit tests, it falls back to the JVM class name.
+
+The recorder fills these fields for each packet. Enum values are lower-case
+constant names, such as `main_hand`, `quick_move`, and `start_destroy_block`.
+
+| Packet type | Fields |
+| --- | --- |
+| `player_input` | `movement_input` |
+| `move_player_*` | `camera_or_position` |
+| `interact` | `entity_id`, `secondary_action`, `interaction`, `hand` (not for attacks), `block_position` (the hit location, `interact_at` only), `target` (at apply) |
+| `container_click` | `container_id`, `container_state_id`, `slot_number`, `button_number`, `click_type`, `changed_slot_stacks`, `carried_stack` |
+| `container_button_click` | `container_id`, `button_number` |
+| `container_close`, `place_recipe` | `container_id` |
+| `container_slot_state_changed` | `container_id`, `slot_number` |
+| `set_creative_mode_slot` | `slot_number` |
+| `set_carried_item` | `slot` |
+| `swing` | `hand` |
+| `use_item` | `hand`, `interaction_sequence` |
+| `use_item_on` | `hand`, `interaction_sequence`, `block_hit` |
+| `player_action` | `action`, `block_position`, `direction`, `interaction_sequence` |
+| `pick_item_from_block` | `block_position` |
+| `pick_item_from_entity` | `entity_id` |
+| `seen_advancements` | `action` |
+| `sign_update`, `block_entity_tag_query`, `set_structure_block`, `set_jigsaw_block`, `jigsaw_generate` | `block_position` |
+
+Other packet types carry only identity and `action_kind`. `changed_slot_stacks`
+and `carried_stack` are the client's prediction, as `HashedItemStack`. The
+client sends hashes of component values, not the values, so these stacks
+can be compared with `InventorySlot` records but not reconstructed. An
+emptied slot is `minecraft:air` with count 0, and the carried stack has slot
+-1. The deprecated text fields `changed_slots` and `carried_item` are never
+written. Captures recorded by a production server before this change carry
+only identity and `action_kind` for every packet type except
+`player_input`, `move_player_*`, and `interact`. Those `interact` records
+also lack `secondary_action`.
+
 ## Actor perception records
 
 `client_information` and `container_view` describe what this player could

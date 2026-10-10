@@ -712,10 +712,23 @@ type Packet struct {
 	BlockPosition       *Vector3                `protobuf:"bytes,20,opt,name=block_position,json=blockPosition,proto3" json:"block_position,omitempty"`
 	BlockHit            *BlockHit               `protobuf:"bytes,21,opt,name=block_hit,json=blockHit,proto3" json:"block_hit,omitempty"`
 	Target              *EntityTarget           `protobuf:"bytes,22,opt,name=target,proto3" json:"target,omitempty"`
-	ChangedSlots        *string                 `protobuf:"bytes,23,opt,name=changed_slots,json=changedSlots,proto3,oneof" json:"changed_slots,omitempty"`
-	CarriedItem         *string                 `protobuf:"bytes,24,opt,name=carried_item,json=carriedItem,proto3,oneof" json:"carried_item,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	// Free-form text of a container click's changed slots and carried stack.
+	// Production recorders never filled these: the reflective lookup that set
+	// them could not find Mojang method names in the remapped game. Use
+	// changed_slot_stacks and carried_stack.
+	//
+	// Deprecated: Marked as deprecated in recorder-minecraft/artifacts/v1/events.proto.
+	ChangedSlots *string `protobuf:"bytes,23,opt,name=changed_slots,json=changedSlots,proto3,oneof" json:"changed_slots,omitempty"`
+	// Deprecated: Marked as deprecated in recorder-minecraft/artifacts/v1/events.proto.
+	CarriedItem *string `protobuf:"bytes,24,opt,name=carried_item,json=carriedItem,proto3,oneof" json:"carried_item,omitempty"`
+	// The client's prediction of every slot a container click changed, in
+	// ascending slot order. An emptied slot is minecraft:air with count 0.
+	ChangedSlotStacks []*HashedItemStack `protobuf:"bytes,25,rep,name=changed_slot_stacks,json=changedSlotStacks,proto3" json:"changed_slot_stacks,omitempty"`
+	// The client's prediction of the cursor stack after a container click,
+	// with slot -1.
+	CarriedStack  *HashedItemStack `protobuf:"bytes,26,opt,name=carried_stack,json=carriedStack,proto3,oneof" json:"carried_stack,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Packet) Reset() {
@@ -902,6 +915,7 @@ func (x *Packet) GetTarget() *EntityTarget {
 	return nil
 }
 
+// Deprecated: Marked as deprecated in recorder-minecraft/artifacts/v1/events.proto.
 func (x *Packet) GetChangedSlots() string {
 	if x != nil && x.ChangedSlots != nil {
 		return *x.ChangedSlots
@@ -909,11 +923,109 @@ func (x *Packet) GetChangedSlots() string {
 	return ""
 }
 
+// Deprecated: Marked as deprecated in recorder-minecraft/artifacts/v1/events.proto.
 func (x *Packet) GetCarriedItem() string {
 	if x != nil && x.CarriedItem != nil {
 		return *x.CarriedItem
 	}
 	return ""
+}
+
+func (x *Packet) GetChangedSlotStacks() []*HashedItemStack {
+	if x != nil {
+		return x.ChangedSlotStacks
+	}
+	return nil
+}
+
+func (x *Packet) GetCarriedStack() *HashedItemStack {
+	if x != nil {
+		return x.CarriedStack
+	}
+	return nil
+}
+
+// An item stack as a container click reports it. The client sends component
+// hashes, not component values, so the stack can be compared with an
+// authoritative InventorySlot but not reconstructed from this message.
+type HashedItemStack struct {
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Slot   int32                  `protobuf:"varint,1,opt,name=slot,proto3" json:"slot,omitempty"`
+	ItemId string                 `protobuf:"bytes,2,opt,name=item_id,json=itemId,proto3" json:"item_id,omitempty"`
+	Count  int32                  `protobuf:"varint,3,opt,name=count,proto3" json:"count,omitempty"`
+	// Added or changed data components, keyed by component type id, to the
+	// 32-bit hash the client computed for the component value.
+	ComponentHashes map[string]int32 `protobuf:"bytes,4,rep,name=component_hashes,json=componentHashes,proto3" json:"component_hashes,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
+	// Data component type ids the stack removes from its item's defaults, in
+	// id order.
+	RemovedComponents []string `protobuf:"bytes,5,rep,name=removed_components,json=removedComponents,proto3" json:"removed_components,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *HashedItemStack) Reset() {
+	*x = HashedItemStack{}
+	mi := &file_recorder_minecraft_artifacts_v1_events_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HashedItemStack) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HashedItemStack) ProtoMessage() {}
+
+func (x *HashedItemStack) ProtoReflect() protoreflect.Message {
+	mi := &file_recorder_minecraft_artifacts_v1_events_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HashedItemStack.ProtoReflect.Descriptor instead.
+func (*HashedItemStack) Descriptor() ([]byte, []int) {
+	return file_recorder_minecraft_artifacts_v1_events_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *HashedItemStack) GetSlot() int32 {
+	if x != nil {
+		return x.Slot
+	}
+	return 0
+}
+
+func (x *HashedItemStack) GetItemId() string {
+	if x != nil {
+		return x.ItemId
+	}
+	return ""
+}
+
+func (x *HashedItemStack) GetCount() int32 {
+	if x != nil {
+		return x.Count
+	}
+	return 0
+}
+
+func (x *HashedItemStack) GetComponentHashes() map[string]int32 {
+	if x != nil {
+		return x.ComponentHashes
+	}
+	return nil
+}
+
+func (x *HashedItemStack) GetRemovedComponents() []string {
+	if x != nil {
+		return x.RemovedComponents
+	}
+	return nil
 }
 
 type BlockHit struct {
@@ -928,7 +1040,7 @@ type BlockHit struct {
 
 func (x *BlockHit) Reset() {
 	*x = BlockHit{}
-	mi := &file_recorder_minecraft_artifacts_v1_events_proto_msgTypes[6]
+	mi := &file_recorder_minecraft_artifacts_v1_events_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -940,7 +1052,7 @@ func (x *BlockHit) String() string {
 func (*BlockHit) ProtoMessage() {}
 
 func (x *BlockHit) ProtoReflect() protoreflect.Message {
-	mi := &file_recorder_minecraft_artifacts_v1_events_proto_msgTypes[6]
+	mi := &file_recorder_minecraft_artifacts_v1_events_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -953,7 +1065,7 @@ func (x *BlockHit) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BlockHit.ProtoReflect.Descriptor instead.
 func (*BlockHit) Descriptor() ([]byte, []int) {
-	return file_recorder_minecraft_artifacts_v1_events_proto_rawDescGZIP(), []int{6}
+	return file_recorder_minecraft_artifacts_v1_events_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *BlockHit) GetBlockPosition() *Vector3 {
@@ -996,7 +1108,7 @@ type EntityTarget struct {
 
 func (x *EntityTarget) Reset() {
 	*x = EntityTarget{}
-	mi := &file_recorder_minecraft_artifacts_v1_events_proto_msgTypes[7]
+	mi := &file_recorder_minecraft_artifacts_v1_events_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1008,7 +1120,7 @@ func (x *EntityTarget) String() string {
 func (*EntityTarget) ProtoMessage() {}
 
 func (x *EntityTarget) ProtoReflect() protoreflect.Message {
-	mi := &file_recorder_minecraft_artifacts_v1_events_proto_msgTypes[7]
+	mi := &file_recorder_minecraft_artifacts_v1_events_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1021,7 +1133,7 @@ func (x *EntityTarget) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EntityTarget.ProtoReflect.Descriptor instead.
 func (*EntityTarget) Descriptor() ([]byte, []int) {
-	return file_recorder_minecraft_artifacts_v1_events_proto_rawDescGZIP(), []int{7}
+	return file_recorder_minecraft_artifacts_v1_events_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *EntityTarget) GetEntityId() int32 {
@@ -1061,7 +1173,7 @@ type ReplayTimelineEvent struct {
 
 func (x *ReplayTimelineEvent) Reset() {
 	*x = ReplayTimelineEvent{}
-	mi := &file_recorder_minecraft_artifacts_v1_events_proto_msgTypes[8]
+	mi := &file_recorder_minecraft_artifacts_v1_events_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1073,7 +1185,7 @@ func (x *ReplayTimelineEvent) String() string {
 func (*ReplayTimelineEvent) ProtoMessage() {}
 
 func (x *ReplayTimelineEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_recorder_minecraft_artifacts_v1_events_proto_msgTypes[8]
+	mi := &file_recorder_minecraft_artifacts_v1_events_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1086,7 +1198,7 @@ func (x *ReplayTimelineEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReplayTimelineEvent.ProtoReflect.Descriptor instead.
 func (*ReplayTimelineEvent) Descriptor() ([]byte, []int) {
-	return file_recorder_minecraft_artifacts_v1_events_proto_rawDescGZIP(), []int{8}
+	return file_recorder_minecraft_artifacts_v1_events_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *ReplayTimelineEvent) GetProtocol() string {
@@ -1137,7 +1249,7 @@ type PlayerStateEvent struct {
 
 func (x *PlayerStateEvent) Reset() {
 	*x = PlayerStateEvent{}
-	mi := &file_recorder_minecraft_artifacts_v1_events_proto_msgTypes[9]
+	mi := &file_recorder_minecraft_artifacts_v1_events_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1149,7 +1261,7 @@ func (x *PlayerStateEvent) String() string {
 func (*PlayerStateEvent) ProtoMessage() {}
 
 func (x *PlayerStateEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_recorder_minecraft_artifacts_v1_events_proto_msgTypes[9]
+	mi := &file_recorder_minecraft_artifacts_v1_events_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1162,7 +1274,7 @@ func (x *PlayerStateEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlayerStateEvent.ProtoReflect.Descriptor instead.
 func (*PlayerStateEvent) Descriptor() ([]byte, []int) {
-	return file_recorder_minecraft_artifacts_v1_events_proto_rawDescGZIP(), []int{9}
+	return file_recorder_minecraft_artifacts_v1_events_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *PlayerStateEvent) GetDimension() string {
@@ -1409,7 +1521,7 @@ type Abilities struct {
 
 func (x *Abilities) Reset() {
 	*x = Abilities{}
-	mi := &file_recorder_minecraft_artifacts_v1_events_proto_msgTypes[10]
+	mi := &file_recorder_minecraft_artifacts_v1_events_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1421,7 +1533,7 @@ func (x *Abilities) String() string {
 func (*Abilities) ProtoMessage() {}
 
 func (x *Abilities) ProtoReflect() protoreflect.Message {
-	mi := &file_recorder_minecraft_artifacts_v1_events_proto_msgTypes[10]
+	mi := &file_recorder_minecraft_artifacts_v1_events_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1434,7 +1546,7 @@ func (x *Abilities) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Abilities.ProtoReflect.Descriptor instead.
 func (*Abilities) Descriptor() ([]byte, []int) {
-	return file_recorder_minecraft_artifacts_v1_events_proto_rawDescGZIP(), []int{10}
+	return file_recorder_minecraft_artifacts_v1_events_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *Abilities) GetInvulnerable() bool {
@@ -1486,7 +1598,7 @@ type StatusEffect struct {
 
 func (x *StatusEffect) Reset() {
 	*x = StatusEffect{}
-	mi := &file_recorder_minecraft_artifacts_v1_events_proto_msgTypes[11]
+	mi := &file_recorder_minecraft_artifacts_v1_events_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1498,7 +1610,7 @@ func (x *StatusEffect) String() string {
 func (*StatusEffect) ProtoMessage() {}
 
 func (x *StatusEffect) ProtoReflect() protoreflect.Message {
-	mi := &file_recorder_minecraft_artifacts_v1_events_proto_msgTypes[11]
+	mi := &file_recorder_minecraft_artifacts_v1_events_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1511,7 +1623,7 @@ func (x *StatusEffect) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StatusEffect.ProtoReflect.Descriptor instead.
 func (*StatusEffect) Descriptor() ([]byte, []int) {
-	return file_recorder_minecraft_artifacts_v1_events_proto_rawDescGZIP(), []int{11}
+	return file_recorder_minecraft_artifacts_v1_events_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *StatusEffect) GetEffectId() string {
@@ -1566,7 +1678,7 @@ type Passenger struct {
 
 func (x *Passenger) Reset() {
 	*x = Passenger{}
-	mi := &file_recorder_minecraft_artifacts_v1_events_proto_msgTypes[12]
+	mi := &file_recorder_minecraft_artifacts_v1_events_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1578,7 +1690,7 @@ func (x *Passenger) String() string {
 func (*Passenger) ProtoMessage() {}
 
 func (x *Passenger) ProtoReflect() protoreflect.Message {
-	mi := &file_recorder_minecraft_artifacts_v1_events_proto_msgTypes[12]
+	mi := &file_recorder_minecraft_artifacts_v1_events_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1591,7 +1703,7 @@ func (x *Passenger) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Passenger.ProtoReflect.Descriptor instead.
 func (*Passenger) Descriptor() ([]byte, []int) {
-	return file_recorder_minecraft_artifacts_v1_events_proto_rawDescGZIP(), []int{12}
+	return file_recorder_minecraft_artifacts_v1_events_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *Passenger) GetUuid() string {
@@ -1619,7 +1731,7 @@ type EntityReference struct {
 
 func (x *EntityReference) Reset() {
 	*x = EntityReference{}
-	mi := &file_recorder_minecraft_artifacts_v1_events_proto_msgTypes[13]
+	mi := &file_recorder_minecraft_artifacts_v1_events_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1631,7 +1743,7 @@ func (x *EntityReference) String() string {
 func (*EntityReference) ProtoMessage() {}
 
 func (x *EntityReference) ProtoReflect() protoreflect.Message {
-	mi := &file_recorder_minecraft_artifacts_v1_events_proto_msgTypes[13]
+	mi := &file_recorder_minecraft_artifacts_v1_events_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1644,7 +1756,7 @@ func (x *EntityReference) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EntityReference.ProtoReflect.Descriptor instead.
 func (*EntityReference) Descriptor() ([]byte, []int) {
-	return file_recorder_minecraft_artifacts_v1_events_proto_rawDescGZIP(), []int{13}
+	return file_recorder_minecraft_artifacts_v1_events_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *EntityReference) GetEntityId() int32 {
@@ -1683,7 +1795,7 @@ type InventorySlot struct {
 
 func (x *InventorySlot) Reset() {
 	*x = InventorySlot{}
-	mi := &file_recorder_minecraft_artifacts_v1_events_proto_msgTypes[14]
+	mi := &file_recorder_minecraft_artifacts_v1_events_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1695,7 +1807,7 @@ func (x *InventorySlot) String() string {
 func (*InventorySlot) ProtoMessage() {}
 
 func (x *InventorySlot) ProtoReflect() protoreflect.Message {
-	mi := &file_recorder_minecraft_artifacts_v1_events_proto_msgTypes[14]
+	mi := &file_recorder_minecraft_artifacts_v1_events_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1708,7 +1820,7 @@ func (x *InventorySlot) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InventorySlot.ProtoReflect.Descriptor instead.
 func (*InventorySlot) Descriptor() ([]byte, []int) {
-	return file_recorder_minecraft_artifacts_v1_events_proto_rawDescGZIP(), []int{14}
+	return file_recorder_minecraft_artifacts_v1_events_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *InventorySlot) GetSlot() int32 {
@@ -1773,7 +1885,7 @@ type ReplayCoverage struct {
 
 func (x *ReplayCoverage) Reset() {
 	*x = ReplayCoverage{}
-	mi := &file_recorder_minecraft_artifacts_v1_events_proto_msgTypes[15]
+	mi := &file_recorder_minecraft_artifacts_v1_events_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1785,7 +1897,7 @@ func (x *ReplayCoverage) String() string {
 func (*ReplayCoverage) ProtoMessage() {}
 
 func (x *ReplayCoverage) ProtoReflect() protoreflect.Message {
-	mi := &file_recorder_minecraft_artifacts_v1_events_proto_msgTypes[15]
+	mi := &file_recorder_minecraft_artifacts_v1_events_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1798,7 +1910,7 @@ func (x *ReplayCoverage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReplayCoverage.ProtoReflect.Descriptor instead.
 func (*ReplayCoverage) Descriptor() ([]byte, []int) {
-	return file_recorder_minecraft_artifacts_v1_events_proto_rawDescGZIP(), []int{15}
+	return file_recorder_minecraft_artifacts_v1_events_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *ReplayCoverage) GetKind() string {
@@ -1861,7 +1973,7 @@ type ClientInformationEvent struct {
 
 func (x *ClientInformationEvent) Reset() {
 	*x = ClientInformationEvent{}
-	mi := &file_recorder_minecraft_artifacts_v1_events_proto_msgTypes[16]
+	mi := &file_recorder_minecraft_artifacts_v1_events_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1873,7 +1985,7 @@ func (x *ClientInformationEvent) String() string {
 func (*ClientInformationEvent) ProtoMessage() {}
 
 func (x *ClientInformationEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_recorder_minecraft_artifacts_v1_events_proto_msgTypes[16]
+	mi := &file_recorder_minecraft_artifacts_v1_events_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1886,7 +1998,7 @@ func (x *ClientInformationEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ClientInformationEvent.ProtoReflect.Descriptor instead.
 func (*ClientInformationEvent) Descriptor() ([]byte, []int) {
-	return file_recorder_minecraft_artifacts_v1_events_proto_rawDescGZIP(), []int{16}
+	return file_recorder_minecraft_artifacts_v1_events_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *ClientInformationEvent) GetSource() ClientInformationSource {
@@ -1990,7 +2102,7 @@ type ContainerViewEvent struct {
 
 func (x *ContainerViewEvent) Reset() {
 	*x = ContainerViewEvent{}
-	mi := &file_recorder_minecraft_artifacts_v1_events_proto_msgTypes[17]
+	mi := &file_recorder_minecraft_artifacts_v1_events_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2002,7 +2114,7 @@ func (x *ContainerViewEvent) String() string {
 func (*ContainerViewEvent) ProtoMessage() {}
 
 func (x *ContainerViewEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_recorder_minecraft_artifacts_v1_events_proto_msgTypes[17]
+	mi := &file_recorder_minecraft_artifacts_v1_events_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2015,7 +2127,7 @@ func (x *ContainerViewEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContainerViewEvent.ProtoReflect.Descriptor instead.
 func (*ContainerViewEvent) Descriptor() ([]byte, []int) {
-	return file_recorder_minecraft_artifacts_v1_events_proto_rawDescGZIP(), []int{17}
+	return file_recorder_minecraft_artifacts_v1_events_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *ContainerViewEvent) GetKind() ContainerViewKind {
@@ -2097,7 +2209,7 @@ type ContainerViewSource struct {
 
 func (x *ContainerViewSource) Reset() {
 	*x = ContainerViewSource{}
-	mi := &file_recorder_minecraft_artifacts_v1_events_proto_msgTypes[18]
+	mi := &file_recorder_minecraft_artifacts_v1_events_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2109,7 +2221,7 @@ func (x *ContainerViewSource) String() string {
 func (*ContainerViewSource) ProtoMessage() {}
 
 func (x *ContainerViewSource) ProtoReflect() protoreflect.Message {
-	mi := &file_recorder_minecraft_artifacts_v1_events_proto_msgTypes[18]
+	mi := &file_recorder_minecraft_artifacts_v1_events_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2122,7 +2234,7 @@ func (x *ContainerViewSource) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContainerViewSource.ProtoReflect.Descriptor instead.
 func (*ContainerViewSource) Descriptor() ([]byte, []int) {
-	return file_recorder_minecraft_artifacts_v1_events_proto_rawDescGZIP(), []int{18}
+	return file_recorder_minecraft_artifacts_v1_events_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *ContainerViewSource) GetDimension() string {
@@ -2205,7 +2317,7 @@ const file_recorder_minecraft_artifacts_v1_events_proto_rawDesc = "" +
 	"\x0farrival_missing\x18\a \x01(\bR\x0earrivalMissing\x12?\n" +
 	"\x06packet\x18\b \x01(\v2'.recorder_minecraft.artifacts.v1.PacketR\x06packetB\x13\n" +
 	"\x11_arrival_sequenceB\x16\n" +
-	"\x14_arrival_server_tick\"\xe0\v\n" +
+	"\x14_arrival_server_tick\"\xb8\r\n" +
 	"\x06Packet\x12K\n" +
 	"\bidentity\x18\x01 \x01(\v2/.recorder_minecraft.artifacts.v1.PacketIdentityR\bidentity\x12\x1f\n" +
 	"\vaction_kind\x18\x02 \x01(\tR\n" +
@@ -2234,9 +2346,11 @@ const file_recorder_minecraft_artifacts_v1_events_proto_rawDesc = "" +
 	"\vinteraction\x18\x13 \x01(\tH\x0fR\vinteraction\x88\x01\x01\x12O\n" +
 	"\x0eblock_position\x18\x14 \x01(\v2(.recorder_minecraft.artifacts.v1.Vector3R\rblockPosition\x12F\n" +
 	"\tblock_hit\x18\x15 \x01(\v2).recorder_minecraft.artifacts.v1.BlockHitR\bblockHit\x12E\n" +
-	"\x06target\x18\x16 \x01(\v2-.recorder_minecraft.artifacts.v1.EntityTargetR\x06target\x12(\n" +
-	"\rchanged_slots\x18\x17 \x01(\tH\x10R\fchangedSlots\x88\x01\x01\x12&\n" +
-	"\fcarried_item\x18\x18 \x01(\tH\x11R\vcarriedItem\x88\x01\x01B\x15\n" +
+	"\x06target\x18\x16 \x01(\v2-.recorder_minecraft.artifacts.v1.EntityTargetR\x06target\x12,\n" +
+	"\rchanged_slots\x18\x17 \x01(\tB\x02\x18\x01H\x10R\fchangedSlots\x88\x01\x01\x12*\n" +
+	"\fcarried_item\x18\x18 \x01(\tB\x02\x18\x01H\x11R\vcarriedItem\x88\x01\x01\x12`\n" +
+	"\x13changed_slot_stacks\x18\x19 \x03(\v20.recorder_minecraft.artifacts.v1.HashedItemStackR\x11changedSlotStacks\x12Z\n" +
+	"\rcarried_stack\x18\x1a \x01(\v20.recorder_minecraft.artifacts.v1.HashedItemStackH\x12R\fcarriedStack\x88\x01\x01B\x15\n" +
 	"\x13_camera_or_positionB\x11\n" +
 	"\x0f_movement_inputB\t\n" +
 	"\a_actionB\f\n" +
@@ -2256,7 +2370,17 @@ const file_recorder_minecraft_artifacts_v1_events_proto_rawDesc = "" +
 	"\x11_secondary_actionB\x0e\n" +
 	"\f_interactionB\x10\n" +
 	"\x0e_changed_slotsB\x0f\n" +
-	"\r_carried_item\"\xd7\x01\n" +
+	"\r_carried_itemB\x10\n" +
+	"\x0e_carried_stack\"\xb9\x02\n" +
+	"\x0fHashedItemStack\x12\x12\n" +
+	"\x04slot\x18\x01 \x01(\x05R\x04slot\x12\x17\n" +
+	"\aitem_id\x18\x02 \x01(\tR\x06itemId\x12\x14\n" +
+	"\x05count\x18\x03 \x01(\x05R\x05count\x12p\n" +
+	"\x10component_hashes\x18\x04 \x03(\v2E.recorder_minecraft.artifacts.v1.HashedItemStack.ComponentHashesEntryR\x0fcomponentHashes\x12-\n" +
+	"\x12removed_components\x18\x05 \x03(\tR\x11removedComponents\x1aB\n" +
+	"\x14ComponentHashesEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\x05R\x05value:\x028\x01\"\xd7\x01\n" +
 	"\bBlockHit\x12O\n" +
 	"\x0eblock_position\x18\x01 \x01(\v2(.recorder_minecraft.artifacts.v1.Vector3R\rblockPosition\x12\x1c\n" +
 	"\tdirection\x18\x02 \x01(\tR\tdirection\x12D\n" +
@@ -2409,7 +2533,7 @@ func file_recorder_minecraft_artifacts_v1_events_proto_rawDescGZIP() []byte {
 }
 
 var file_recorder_minecraft_artifacts_v1_events_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_recorder_minecraft_artifacts_v1_events_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
+var file_recorder_minecraft_artifacts_v1_events_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
 var file_recorder_minecraft_artifacts_v1_events_proto_goTypes = []any{
 	(ClientInformationSource)(0),   // 0: recorder_minecraft.artifacts.v1.ClientInformationSource
 	(ContainerViewKind)(0),         // 1: recorder_minecraft.artifacts.v1.ContainerViewKind
@@ -2420,69 +2544,74 @@ var file_recorder_minecraft_artifacts_v1_events_proto_goTypes = []any{
 	(*PacketArrivalEvent)(nil),     // 6: recorder_minecraft.artifacts.v1.PacketArrivalEvent
 	(*PacketApplyEvent)(nil),       // 7: recorder_minecraft.artifacts.v1.PacketApplyEvent
 	(*Packet)(nil),                 // 8: recorder_minecraft.artifacts.v1.Packet
-	(*BlockHit)(nil),               // 9: recorder_minecraft.artifacts.v1.BlockHit
-	(*EntityTarget)(nil),           // 10: recorder_minecraft.artifacts.v1.EntityTarget
-	(*ReplayTimelineEvent)(nil),    // 11: recorder_minecraft.artifacts.v1.ReplayTimelineEvent
-	(*PlayerStateEvent)(nil),       // 12: recorder_minecraft.artifacts.v1.PlayerStateEvent
-	(*Abilities)(nil),              // 13: recorder_minecraft.artifacts.v1.Abilities
-	(*StatusEffect)(nil),           // 14: recorder_minecraft.artifacts.v1.StatusEffect
-	(*Passenger)(nil),              // 15: recorder_minecraft.artifacts.v1.Passenger
-	(*EntityReference)(nil),        // 16: recorder_minecraft.artifacts.v1.EntityReference
-	(*InventorySlot)(nil),          // 17: recorder_minecraft.artifacts.v1.InventorySlot
-	(*ReplayCoverage)(nil),         // 18: recorder_minecraft.artifacts.v1.ReplayCoverage
-	(*ClientInformationEvent)(nil), // 19: recorder_minecraft.artifacts.v1.ClientInformationEvent
-	(*ContainerViewEvent)(nil),     // 20: recorder_minecraft.artifacts.v1.ContainerViewEvent
-	(*ContainerViewSource)(nil),    // 21: recorder_minecraft.artifacts.v1.ContainerViewSource
-	(*ControlState)(nil),           // 22: recorder_minecraft.artifacts.v1.ControlState
-	(*PacketIdentity)(nil),         // 23: recorder_minecraft.artifacts.v1.PacketIdentity
-	(*CameraOrPositionAction)(nil), // 24: recorder_minecraft.artifacts.v1.CameraOrPositionAction
-	(*MovementInput)(nil),          // 25: recorder_minecraft.artifacts.v1.MovementInput
-	(*Vector3)(nil),                // 26: recorder_minecraft.artifacts.v1.Vector3
-	(*Rotation)(nil),               // 27: recorder_minecraft.artifacts.v1.Rotation
-	(*BlockPosition)(nil),          // 28: recorder_minecraft.artifacts.v1.BlockPosition
+	(*HashedItemStack)(nil),        // 9: recorder_minecraft.artifacts.v1.HashedItemStack
+	(*BlockHit)(nil),               // 10: recorder_minecraft.artifacts.v1.BlockHit
+	(*EntityTarget)(nil),           // 11: recorder_minecraft.artifacts.v1.EntityTarget
+	(*ReplayTimelineEvent)(nil),    // 12: recorder_minecraft.artifacts.v1.ReplayTimelineEvent
+	(*PlayerStateEvent)(nil),       // 13: recorder_minecraft.artifacts.v1.PlayerStateEvent
+	(*Abilities)(nil),              // 14: recorder_minecraft.artifacts.v1.Abilities
+	(*StatusEffect)(nil),           // 15: recorder_minecraft.artifacts.v1.StatusEffect
+	(*Passenger)(nil),              // 16: recorder_minecraft.artifacts.v1.Passenger
+	(*EntityReference)(nil),        // 17: recorder_minecraft.artifacts.v1.EntityReference
+	(*InventorySlot)(nil),          // 18: recorder_minecraft.artifacts.v1.InventorySlot
+	(*ReplayCoverage)(nil),         // 19: recorder_minecraft.artifacts.v1.ReplayCoverage
+	(*ClientInformationEvent)(nil), // 20: recorder_minecraft.artifacts.v1.ClientInformationEvent
+	(*ContainerViewEvent)(nil),     // 21: recorder_minecraft.artifacts.v1.ContainerViewEvent
+	(*ContainerViewSource)(nil),    // 22: recorder_minecraft.artifacts.v1.ContainerViewSource
+	nil,                            // 23: recorder_minecraft.artifacts.v1.HashedItemStack.ComponentHashesEntry
+	(*ControlState)(nil),           // 24: recorder_minecraft.artifacts.v1.ControlState
+	(*PacketIdentity)(nil),         // 25: recorder_minecraft.artifacts.v1.PacketIdentity
+	(*CameraOrPositionAction)(nil), // 26: recorder_minecraft.artifacts.v1.CameraOrPositionAction
+	(*MovementInput)(nil),          // 27: recorder_minecraft.artifacts.v1.MovementInput
+	(*Vector3)(nil),                // 28: recorder_minecraft.artifacts.v1.Vector3
+	(*Rotation)(nil),               // 29: recorder_minecraft.artifacts.v1.Rotation
+	(*BlockPosition)(nil),          // 30: recorder_minecraft.artifacts.v1.BlockPosition
 }
 var file_recorder_minecraft_artifacts_v1_events_proto_depIdxs = []int32{
 	4,  // 0: recorder_minecraft.artifacts.v1.CaptureEvent.identity:type_name -> recorder_minecraft.artifacts.v1.EventIdentity
 	5,  // 1: recorder_minecraft.artifacts.v1.CaptureEvent.control_state:type_name -> recorder_minecraft.artifacts.v1.ControlStateEvent
 	6,  // 2: recorder_minecraft.artifacts.v1.CaptureEvent.packet_arrival:type_name -> recorder_minecraft.artifacts.v1.PacketArrivalEvent
 	7,  // 3: recorder_minecraft.artifacts.v1.CaptureEvent.packet_apply:type_name -> recorder_minecraft.artifacts.v1.PacketApplyEvent
-	12, // 4: recorder_minecraft.artifacts.v1.CaptureEvent.player_state:type_name -> recorder_minecraft.artifacts.v1.PlayerStateEvent
-	11, // 5: recorder_minecraft.artifacts.v1.CaptureEvent.replay_timeline:type_name -> recorder_minecraft.artifacts.v1.ReplayTimelineEvent
-	19, // 6: recorder_minecraft.artifacts.v1.CaptureEvent.client_information:type_name -> recorder_minecraft.artifacts.v1.ClientInformationEvent
-	20, // 7: recorder_minecraft.artifacts.v1.CaptureEvent.container_view:type_name -> recorder_minecraft.artifacts.v1.ContainerViewEvent
-	22, // 8: recorder_minecraft.artifacts.v1.ControlStateEvent.state:type_name -> recorder_minecraft.artifacts.v1.ControlState
+	13, // 4: recorder_minecraft.artifacts.v1.CaptureEvent.player_state:type_name -> recorder_minecraft.artifacts.v1.PlayerStateEvent
+	12, // 5: recorder_minecraft.artifacts.v1.CaptureEvent.replay_timeline:type_name -> recorder_minecraft.artifacts.v1.ReplayTimelineEvent
+	20, // 6: recorder_minecraft.artifacts.v1.CaptureEvent.client_information:type_name -> recorder_minecraft.artifacts.v1.ClientInformationEvent
+	21, // 7: recorder_minecraft.artifacts.v1.CaptureEvent.container_view:type_name -> recorder_minecraft.artifacts.v1.ContainerViewEvent
+	24, // 8: recorder_minecraft.artifacts.v1.ControlStateEvent.state:type_name -> recorder_minecraft.artifacts.v1.ControlState
 	8,  // 9: recorder_minecraft.artifacts.v1.PacketArrivalEvent.packet:type_name -> recorder_minecraft.artifacts.v1.Packet
 	8,  // 10: recorder_minecraft.artifacts.v1.PacketApplyEvent.packet:type_name -> recorder_minecraft.artifacts.v1.Packet
-	23, // 11: recorder_minecraft.artifacts.v1.Packet.identity:type_name -> recorder_minecraft.artifacts.v1.PacketIdentity
-	24, // 12: recorder_minecraft.artifacts.v1.Packet.camera_or_position:type_name -> recorder_minecraft.artifacts.v1.CameraOrPositionAction
-	25, // 13: recorder_minecraft.artifacts.v1.Packet.movement_input:type_name -> recorder_minecraft.artifacts.v1.MovementInput
-	26, // 14: recorder_minecraft.artifacts.v1.Packet.block_position:type_name -> recorder_minecraft.artifacts.v1.Vector3
-	9,  // 15: recorder_minecraft.artifacts.v1.Packet.block_hit:type_name -> recorder_minecraft.artifacts.v1.BlockHit
-	10, // 16: recorder_minecraft.artifacts.v1.Packet.target:type_name -> recorder_minecraft.artifacts.v1.EntityTarget
-	26, // 17: recorder_minecraft.artifacts.v1.BlockHit.block_position:type_name -> recorder_minecraft.artifacts.v1.Vector3
-	26, // 18: recorder_minecraft.artifacts.v1.BlockHit.location:type_name -> recorder_minecraft.artifacts.v1.Vector3
-	26, // 19: recorder_minecraft.artifacts.v1.PlayerStateEvent.position:type_name -> recorder_minecraft.artifacts.v1.Vector3
-	27, // 20: recorder_minecraft.artifacts.v1.PlayerStateEvent.rotation:type_name -> recorder_minecraft.artifacts.v1.Rotation
-	26, // 21: recorder_minecraft.artifacts.v1.PlayerStateEvent.velocity:type_name -> recorder_minecraft.artifacts.v1.Vector3
-	13, // 22: recorder_minecraft.artifacts.v1.PlayerStateEvent.abilities:type_name -> recorder_minecraft.artifacts.v1.Abilities
-	14, // 23: recorder_minecraft.artifacts.v1.PlayerStateEvent.effects:type_name -> recorder_minecraft.artifacts.v1.StatusEffect
-	15, // 24: recorder_minecraft.artifacts.v1.PlayerStateEvent.passengers:type_name -> recorder_minecraft.artifacts.v1.Passenger
-	17, // 25: recorder_minecraft.artifacts.v1.PlayerStateEvent.inventory:type_name -> recorder_minecraft.artifacts.v1.InventorySlot
-	18, // 26: recorder_minecraft.artifacts.v1.PlayerStateEvent.replay_coverage:type_name -> recorder_minecraft.artifacts.v1.ReplayCoverage
-	16, // 27: recorder_minecraft.artifacts.v1.PlayerStateEvent.vehicle:type_name -> recorder_minecraft.artifacts.v1.EntityReference
-	0,  // 28: recorder_minecraft.artifacts.v1.ClientInformationEvent.source:type_name -> recorder_minecraft.artifacts.v1.ClientInformationSource
-	1,  // 29: recorder_minecraft.artifacts.v1.ContainerViewEvent.kind:type_name -> recorder_minecraft.artifacts.v1.ContainerViewKind
-	2,  // 30: recorder_minecraft.artifacts.v1.ContainerViewEvent.origin:type_name -> recorder_minecraft.artifacts.v1.ContainerViewOrigin
-	21, // 31: recorder_minecraft.artifacts.v1.ContainerViewEvent.source:type_name -> recorder_minecraft.artifacts.v1.ContainerViewSource
-	17, // 32: recorder_minecraft.artifacts.v1.ContainerViewEvent.slots:type_name -> recorder_minecraft.artifacts.v1.InventorySlot
-	17, // 33: recorder_minecraft.artifacts.v1.ContainerViewEvent.carried_item:type_name -> recorder_minecraft.artifacts.v1.InventorySlot
-	28, // 34: recorder_minecraft.artifacts.v1.ContainerViewSource.block_pos:type_name -> recorder_minecraft.artifacts.v1.BlockPosition
-	28, // 35: recorder_minecraft.artifacts.v1.ContainerViewSource.secondary_block_pos:type_name -> recorder_minecraft.artifacts.v1.BlockPosition
-	36, // [36:36] is the sub-list for method output_type
-	36, // [36:36] is the sub-list for method input_type
-	36, // [36:36] is the sub-list for extension type_name
-	36, // [36:36] is the sub-list for extension extendee
-	0,  // [0:36] is the sub-list for field type_name
+	25, // 11: recorder_minecraft.artifacts.v1.Packet.identity:type_name -> recorder_minecraft.artifacts.v1.PacketIdentity
+	26, // 12: recorder_minecraft.artifacts.v1.Packet.camera_or_position:type_name -> recorder_minecraft.artifacts.v1.CameraOrPositionAction
+	27, // 13: recorder_minecraft.artifacts.v1.Packet.movement_input:type_name -> recorder_minecraft.artifacts.v1.MovementInput
+	28, // 14: recorder_minecraft.artifacts.v1.Packet.block_position:type_name -> recorder_minecraft.artifacts.v1.Vector3
+	10, // 15: recorder_minecraft.artifacts.v1.Packet.block_hit:type_name -> recorder_minecraft.artifacts.v1.BlockHit
+	11, // 16: recorder_minecraft.artifacts.v1.Packet.target:type_name -> recorder_minecraft.artifacts.v1.EntityTarget
+	9,  // 17: recorder_minecraft.artifacts.v1.Packet.changed_slot_stacks:type_name -> recorder_minecraft.artifacts.v1.HashedItemStack
+	9,  // 18: recorder_minecraft.artifacts.v1.Packet.carried_stack:type_name -> recorder_minecraft.artifacts.v1.HashedItemStack
+	23, // 19: recorder_minecraft.artifacts.v1.HashedItemStack.component_hashes:type_name -> recorder_minecraft.artifacts.v1.HashedItemStack.ComponentHashesEntry
+	28, // 20: recorder_minecraft.artifacts.v1.BlockHit.block_position:type_name -> recorder_minecraft.artifacts.v1.Vector3
+	28, // 21: recorder_minecraft.artifacts.v1.BlockHit.location:type_name -> recorder_minecraft.artifacts.v1.Vector3
+	28, // 22: recorder_minecraft.artifacts.v1.PlayerStateEvent.position:type_name -> recorder_minecraft.artifacts.v1.Vector3
+	29, // 23: recorder_minecraft.artifacts.v1.PlayerStateEvent.rotation:type_name -> recorder_minecraft.artifacts.v1.Rotation
+	28, // 24: recorder_minecraft.artifacts.v1.PlayerStateEvent.velocity:type_name -> recorder_minecraft.artifacts.v1.Vector3
+	14, // 25: recorder_minecraft.artifacts.v1.PlayerStateEvent.abilities:type_name -> recorder_minecraft.artifacts.v1.Abilities
+	15, // 26: recorder_minecraft.artifacts.v1.PlayerStateEvent.effects:type_name -> recorder_minecraft.artifacts.v1.StatusEffect
+	16, // 27: recorder_minecraft.artifacts.v1.PlayerStateEvent.passengers:type_name -> recorder_minecraft.artifacts.v1.Passenger
+	18, // 28: recorder_minecraft.artifacts.v1.PlayerStateEvent.inventory:type_name -> recorder_minecraft.artifacts.v1.InventorySlot
+	19, // 29: recorder_minecraft.artifacts.v1.PlayerStateEvent.replay_coverage:type_name -> recorder_minecraft.artifacts.v1.ReplayCoverage
+	17, // 30: recorder_minecraft.artifacts.v1.PlayerStateEvent.vehicle:type_name -> recorder_minecraft.artifacts.v1.EntityReference
+	0,  // 31: recorder_minecraft.artifacts.v1.ClientInformationEvent.source:type_name -> recorder_minecraft.artifacts.v1.ClientInformationSource
+	1,  // 32: recorder_minecraft.artifacts.v1.ContainerViewEvent.kind:type_name -> recorder_minecraft.artifacts.v1.ContainerViewKind
+	2,  // 33: recorder_minecraft.artifacts.v1.ContainerViewEvent.origin:type_name -> recorder_minecraft.artifacts.v1.ContainerViewOrigin
+	22, // 34: recorder_minecraft.artifacts.v1.ContainerViewEvent.source:type_name -> recorder_minecraft.artifacts.v1.ContainerViewSource
+	18, // 35: recorder_minecraft.artifacts.v1.ContainerViewEvent.slots:type_name -> recorder_minecraft.artifacts.v1.InventorySlot
+	18, // 36: recorder_minecraft.artifacts.v1.ContainerViewEvent.carried_item:type_name -> recorder_minecraft.artifacts.v1.InventorySlot
+	30, // 37: recorder_minecraft.artifacts.v1.ContainerViewSource.block_pos:type_name -> recorder_minecraft.artifacts.v1.BlockPosition
+	30, // 38: recorder_minecraft.artifacts.v1.ContainerViewSource.secondary_block_pos:type_name -> recorder_minecraft.artifacts.v1.BlockPosition
+	39, // [39:39] is the sub-list for method output_type
+	39, // [39:39] is the sub-list for method input_type
+	39, // [39:39] is the sub-list for extension type_name
+	39, // [39:39] is the sub-list for extension extendee
+	0,  // [0:39] is the sub-list for field type_name
 }
 
 func init() { file_recorder_minecraft_artifacts_v1_events_proto_init() }
@@ -2503,14 +2632,14 @@ func file_recorder_minecraft_artifacts_v1_events_proto_init() {
 	}
 	file_recorder_minecraft_artifacts_v1_events_proto_msgTypes[4].OneofWrappers = []any{}
 	file_recorder_minecraft_artifacts_v1_events_proto_msgTypes[5].OneofWrappers = []any{}
-	file_recorder_minecraft_artifacts_v1_events_proto_msgTypes[17].OneofWrappers = []any{}
+	file_recorder_minecraft_artifacts_v1_events_proto_msgTypes[18].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_recorder_minecraft_artifacts_v1_events_proto_rawDesc), len(file_recorder_minecraft_artifacts_v1_events_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   19,
+			NumMessages:   21,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
