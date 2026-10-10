@@ -30,6 +30,7 @@ artifacts/v1/
               replay.zip
             actions.jsonl                       # optional post-process result
             scene.sqlite3                       # optional post-process result
+            perception.jsonl                    # optional post-process result
             renders/                            # optional render result
               render-job.json
               result.json
@@ -165,6 +166,12 @@ go run ./cmd/recorder-minecraft scene extract \
   --replay "$PLAY/capture/replay.zip" \
   --output "$PLAY/scene.sqlite3"
 
+go run ./cmd/recorder-minecraft perception extract \
+  --metadata "$PLAY/metadata.json" \
+  --events "$PLAY/capture/events.jsonl" \
+  --scene "$PLAY/scene.sqlite3" \
+  --output "$PLAY/perception.jsonl"
+
 go run ./cmd/recorder-minecraft render \
   --metadata "$PLAY/metadata.json" \
   --events "$PLAY/capture/events.jsonl" \
@@ -182,7 +189,8 @@ private Scene Store V1 spool live under `.recorder/minecraft/runtime/`. They are
 part of Artifacts V1. Durable results alone are written to the explicit output.
 
 Independent workers can copy complete plays with SSH/rsync, process them, and
-copy back only `actions.jsonl`, `scene.sqlite3`, or `renders/`. Coordination and
+copy back only `actions.jsonl`, `scene.sqlite3`, `perception.jsonl`, or
+`renders/`. Coordination and
 dataset assembly are deliberately outside V1.
 
 ## Play extensions
@@ -229,6 +237,10 @@ owns the generic manifest and catalog descriptor.
 `packet_apply` records and 20 Hz `control_state`. It excludes diagnostic
 `packet_arrival`, physical keyboard events, raw mouse samples, and raw bytes.
 
+`perception.jsonl` contains generated `PerceptionRecord` ProtoJSON lines: one
+header, then one sample per sampled server tick. See
+[Perception](#perception) below.
+
 `renders/render-job.json` and `renders/result.json` are generated `RenderJob`
 and `RenderResult` ProtoJSON messages. `renders/fpv_frames/` contains PNG frames
 plus generated `RenderFrameIndex` ProtoJSON lines mapping every frame to server
@@ -266,3 +278,78 @@ Scene data has the same client-visible limits as the replay. Unknown cells and
 unopened-container contents remain unknown in the scene; they are never
 fabricated as air or empty inventories. Container truth comes from the world
 stream, not from the scene.
+
+## Perception
+
+`perception.jsonl` answers, for one Play, "could this player see entity E or
+block entity B at tick T?". It climbs one step past `container_view`: that
+record says what was sent to the client, while a perception sample says what
+was inside the player's view and not hidden behind blocks.
+
+| Property | Perception (`perception.jsonl`) |
+| --- | --- |
+| Scope | `actor perception`: what the recorded player could see |
+| Provenance | `reconstructed`: recomputed from `scene.sqlite3`, never observed on the player's computer |
+| Causality | `uses_future_context` is `false`: a sample at tick T reads only scene state valid at T and settings recorded at or before T |
+| Owner | `recorder-minecraft perception extract`; replaceable with `--overwrite` |
+
+The processor reads `scene.sqlite3` (read-only) for the observer pose,
+entities, block entities, and blocks, and reads `metadata.json` plus
+`capture/events.jsonl` for identity and view distance. The first line is a
+`header`: processor name and version, Play identity, sampled tick range,
+SHA-256 and size of every input, every assumption, and the known
+limitations. Every later line is a `sample`, in increasing `server_tick`.
+
+A sample holds the observer eye position, yaw, pitch, and pose, and four
+lists: `visible_entities`, `visible_block_entities`,
+`undetermined_entities`, and `undetermined_block_entities`. Entities carry
+the Scene Store `instance_id`, network id, UUID when known, and type. Block
+entities carry `dimension`, a `BlockPosition`, and type, so they join the
+world stream and `container_view` by position. Each target has a
+`RaySupport`: sample points, points in view, and clear, blocked, and unknown
+rays. A sample lists the full sets, not changes, so one sample answers a
+question about its tick without replaying earlier lines. A target absent from
+all lists was determined not visible.
+
+Visibility is target-centric. For each entity and block entity in the
+observer's dimension, within the distance limit:
+
+1. Sample points are the target box center and its 8 corners pulled toward
+   the center (factor 0.8 for entity boxes, 0.75 for a block entity cell).
+2. Only points inside the view frustum are cast. The frustum is the vanilla
+   perspective projection: vertical FOV, aspect, and near plane 0.05.
+3. Each ray walks the block grid from the eye (voxel DDA) until it enters
+   the target box. The eye's own cell is skipped.
+4. The target is visible when at least one ray is clear. It is undetermined
+   when no ray is clear and at least one ray met an unknown cell first.
+   Otherwise it is not visible and is omitted.
+
+Defaults, all recorded in the header and overridable by flags:
+
+| Assumption | Default | Flag |
+| --- | --- | --- |
+| Sampling interval | every 4 server ticks | `--interval-ticks` |
+| Vertical FOV (vanilla FOV option) | 70 degrees, about 102.4 degrees horizontal at 16:9 | `--fov` |
+| Aspect ratio | 16:9 | `--aspect` |
+| Distance limit | 64 blocks, capped by min(client, server) view distance x 16 | `--max-distance` |
+| Eye height | standing 1.62, crouching 1.27, swimming/fall_flying/spin_attack 0.4, sleeping 0.2, otherwise 1.62 | none |
+| Occluder | opaque full cube under vanilla 1.21.8 `BlockState.isSolidRender()`, plus lava and powder snow | none |
+
+The occluder table is generated from the vanilla block registry by
+`hack/generate-perception-occluders`. Glass, leaves (fancy graphics), water,
+plants, and every non-full block let rays pass. Slabs block only as double
+slabs, snow only at 8 layers, pistons only when retracted. A block missing
+from the table, such as a mod block, blocks rays.
+
+A cell whose section has no version at the sample tick is unknown: never
+sent, or unloaded. It is not air and it is not an occluder. A ray that
+reaches an unknown cell before any occluder stops with an unknown outcome.
+An unknown ray never counts as clear, so it can make a target undetermined
+but never visible. This keeps missing scene data distinct from evidence of
+absence.
+
+Known limitations are listed in the header. The main ones: FOV and aspect
+are assumed because they never reach the server; dynamic FOV is ignored;
+rotation is sampled once per server tick; partial block shapes, cutout
+texels, entities, lighting, and invisibility do not affect sight; the scene
+is client-visible, so cells outside it are unknown.
