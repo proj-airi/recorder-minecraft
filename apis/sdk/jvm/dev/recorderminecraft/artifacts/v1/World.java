@@ -37,11 +37,6 @@ public final class World extends com.google.protobuf.GeneratedFile {
     com.google.protobuf.GeneratedMessage.FieldAccessorTable
       internal_static_recorder_minecraft_artifacts_v1_WorldEventIdentity_fieldAccessorTable;
   static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_recorder_minecraft_artifacts_v1_BlockPosition_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_recorder_minecraft_artifacts_v1_BlockPosition_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
     internal_static_recorder_minecraft_artifacts_v1_ContainerSnapshot_descriptor;
   static final 
     com.google.protobuf.GeneratedMessage.FieldAccessorTable
@@ -68,75 +63,76 @@ public final class World extends com.google.protobuf.GeneratedFile {
       "\n+recorder-minecraft/artifacts/v1/world." +
       "proto\022\037recorder_minecraft.artifacts.v1\032\037" +
       "google/protobuf/timestamp.proto\032,recorde" +
-      "r-minecraft/artifacts/v1/events.proto\032.r" +
-      "ecorder-minecraft/artifacts/v1/metadata." +
-      "proto\"\256\002\n\nWorldEvent\022O\n\010identity\030\001 \001(\01323" +
-      ".recorder_minecraft.artifacts.v1.WorldEv" +
-      "entIdentityR\010identity\022c\n\022container_snaps" +
-      "hot\030\024 \001(\01322.recorder_minecraft.artifacts" +
-      ".v1.ContainerSnapshotH\000R\021containerSnapsh" +
-      "ot\022`\n\021container_removed\030\025 \001(\01321.recorder" +
-      "_minecraft.artifacts.v1.ContainerRemoved" +
-      "H\000R\020containerRemovedB\010\n\006record\"\354\001\n\022World" +
-      "EventIdentity\022%\n\016schema_version\030\001 \001(\rR\rs" +
-      "chemaVersion\022\035\n\nsession_id\030\002 \001(\tR\tsessio" +
-      "nId\022\037\n\013server_tick\030\003 \001(\003R\nserverTick\022\032\n\010" +
-      "sequence\030\004 \001(\004R\010sequence\022$\n\016recorded_at_" +
-      "ns\030\005 \001(\003R\014recordedAtNs\022-\n\023recorded_at_un" +
-      "ix_ms\030\006 \001(\003R\020recordedAtUnixMs\"9\n\rBlockPo" +
-      "sition\022\014\n\001x\030\001 \001(\005R\001x\022\014\n\001y\030\002 \001(\005R\001y\022\014\n\001z\030" +
-      "\003 \001(\005R\001z\"\305\005\n\021ContainerSnapshot\022\034\n\tdimens" +
-      "ion\030\001 \001(\tR\tdimension\022K\n\tblock_pos\030\002 \001(\0132" +
-      "..recorder_minecraft.artifacts.v1.BlockP" +
-      "ositionR\010blockPos\022*\n\021block_entity_type\030\003" +
-      " \001(\tR\017blockEntityType\022Q\n\006reason\030\004 \001(\01629." +
-      "recorder_minecraft.artifacts.v1.Containe" +
-      "rSnapshot.ReasonR\006reason\022g\n\016contents_sta" +
-      "te\030\005 \001(\0162@.recorder_minecraft.artifacts." +
-      "v1.ContainerSnapshot.ContentsStateR\rcont" +
-      "entsState\022%\n\016container_size\030\006 \001(\005R\rconta" +
-      "inerSize\022D\n\005slots\030\007 \003(\0132..recorder_minec" +
-      "raft.artifacts.v1.InventorySlotR\005slots\022\035" +
-      "\n\nloot_table\030\010 \001(\tR\tlootTable\"a\n\006Reason\022" +
-      "\026\n\022REASON_UNSPECIFIED\020\000\022\030\n\024REASON_SESSIO" +
-      "N_START\020\001\022\021\n\rREASON_LOADED\020\002\022\022\n\016REASON_C" +
-      "HANGED\020\003\"n\n\rContentsState\022\036\n\032CONTENTS_ST" +
-      "ATE_UNSPECIFIED\020\000\022\030\n\024CONTENTS_STATE_KNOW" +
-      "N\020\001\022#\n\037CONTENTS_STATE_LOOT_UNGENERATED\020\002" +
-      "\"\307\002\n\020ContainerRemoved\022\034\n\tdimension\030\001 \001(\t" +
-      "R\tdimension\022K\n\tblock_pos\030\002 \001(\0132..recorde" +
-      "r_minecraft.artifacts.v1.BlockPositionR\010" +
-      "blockPos\022*\n\021block_entity_type\030\003 \001(\tR\017blo" +
-      "ckEntityType\022M\n\005cause\030\004 \001(\01627.recorder_m" +
-      "inecraft.artifacts.v1.ContainerRemoved.C" +
-      "auseR\005cause\"M\n\005Cause\022\025\n\021CAUSE_UNSPECIFIE" +
-      "D\020\000\022\030\n\024CAUSE_CHUNK_UNLOADED\020\001\022\023\n\017CAUSE_D" +
-      "ESTROYED\020\002\"\231\005\n\024WorldSessionMetadata\022%\n\016s" +
-      "chema_version\030\001 \001(\rR\rschemaVersion\022%\n\016la" +
-      "yout_version\030\002 \001(\tR\rlayoutVersion\022G\n\006ser" +
-      "ver\030\003 \001(\0132/.recorder_minecraft.artifacts" +
-      ".v1.ServerIdentityR\006server\022\035\n\nsession_id" +
-      "\030\004 \001(\tR\tsessionId\022\024\n\005scope\030\005 \001(\tR\005scope\022" +
-      "\036\n\nprovenance\030\006 \001(\tR\nprovenance\0229\n\nstart" +
-      "ed_at\030\007 \001(\0132\032.google.protobuf.TimestampR" +
-      "\tstartedAt\022*\n\021start_server_tick\030\010 \001(\003R\017s" +
-      "tartServerTick\0225\n\010ended_at\030\t \001(\0132\032.googl" +
-      "e.protobuf.TimestampR\007endedAt\022+\n\017end_ser" +
-      "ver_tick\030\n \001(\003H\000R\rendServerTick\210\001\001\022,\n\017te" +
-      "rminal_reason\030\013 \001(\tH\001R\016terminalReason\210\001\001" +
-      "\022*\n\016stream_failure\030\014 \001(\tH\002R\rstreamFailur" +
-      "e\210\001\001\022\035\n\nknown_gaps\030\r \003(\tR\tknownGaps\022\026\n\006e" +
-      "vents\030\016 \001(\tR\006eventsB\022\n\020_end_server_tickB" +
-      "\022\n\020_terminal_reasonB\021\n\017_stream_failureB\207" +
-      "\001\n\"dev.recorderminecraft.artifacts.v1P\001Z" +
-      "_github.com/proj-airi/recorder-minecraft" +
-      "/apis/sdk/go/recorder-minecraft/artifact" +
-      "s/v1;artifactsv1b\006proto3"
+      "r-minecraft/artifacts/v1/common.proto\032,r" +
+      "ecorder-minecraft/artifacts/v1/events.pr" +
+      "oto\032.recorder-minecraft/artifacts/v1/met" +
+      "adata.proto\"\256\002\n\nWorldEvent\022O\n\010identity\030\001" +
+      " \001(\01323.recorder_minecraft.artifacts.v1.W" +
+      "orldEventIdentityR\010identity\022c\n\022container" +
+      "_snapshot\030\024 \001(\01322.recorder_minecraft.art" +
+      "ifacts.v1.ContainerSnapshotH\000R\021container" +
+      "Snapshot\022`\n\021container_removed\030\025 \001(\01321.re" +
+      "corder_minecraft.artifacts.v1.ContainerR" +
+      "emovedH\000R\020containerRemovedB\010\n\006record\"\354\001\n" +
+      "\022WorldEventIdentity\022%\n\016schema_version\030\001 " +
+      "\001(\rR\rschemaVersion\022\035\n\nsession_id\030\002 \001(\tR\t" +
+      "sessionId\022\037\n\013server_tick\030\003 \001(\003R\nserverTi" +
+      "ck\022\032\n\010sequence\030\004 \001(\004R\010sequence\022$\n\016record" +
+      "ed_at_ns\030\005 \001(\003R\014recordedAtNs\022-\n\023recorded" +
+      "_at_unix_ms\030\006 \001(\003R\020recordedAtUnixMs\"\305\005\n\021" +
+      "ContainerSnapshot\022\034\n\tdimension\030\001 \001(\tR\tdi" +
+      "mension\022K\n\tblock_pos\030\002 \001(\0132..recorder_mi" +
+      "necraft.artifacts.v1.BlockPositionR\010bloc" +
+      "kPos\022*\n\021block_entity_type\030\003 \001(\tR\017blockEn" +
+      "tityType\022Q\n\006reason\030\004 \001(\01629.recorder_mine" +
+      "craft.artifacts.v1.ContainerSnapshot.Rea" +
+      "sonR\006reason\022g\n\016contents_state\030\005 \001(\0162@.re" +
+      "corder_minecraft.artifacts.v1.ContainerS" +
+      "napshot.ContentsStateR\rcontentsState\022%\n\016" +
+      "container_size\030\006 \001(\005R\rcontainerSize\022D\n\005s" +
+      "lots\030\007 \003(\0132..recorder_minecraft.artifact" +
+      "s.v1.InventorySlotR\005slots\022\035\n\nloot_table\030" +
+      "\010 \001(\tR\tlootTable\"a\n\006Reason\022\026\n\022REASON_UNS" +
+      "PECIFIED\020\000\022\030\n\024REASON_SESSION_START\020\001\022\021\n\r" +
+      "REASON_LOADED\020\002\022\022\n\016REASON_CHANGED\020\003\"n\n\rC" +
+      "ontentsState\022\036\n\032CONTENTS_STATE_UNSPECIFI" +
+      "ED\020\000\022\030\n\024CONTENTS_STATE_KNOWN\020\001\022#\n\037CONTEN" +
+      "TS_STATE_LOOT_UNGENERATED\020\002\"\307\002\n\020Containe" +
+      "rRemoved\022\034\n\tdimension\030\001 \001(\tR\tdimension\022K" +
+      "\n\tblock_pos\030\002 \001(\0132..recorder_minecraft.a" +
+      "rtifacts.v1.BlockPositionR\010blockPos\022*\n\021b" +
+      "lock_entity_type\030\003 \001(\tR\017blockEntityType\022" +
+      "M\n\005cause\030\004 \001(\01627.recorder_minecraft.arti" +
+      "facts.v1.ContainerRemoved.CauseR\005cause\"M" +
+      "\n\005Cause\022\025\n\021CAUSE_UNSPECIFIED\020\000\022\030\n\024CAUSE_" +
+      "CHUNK_UNLOADED\020\001\022\023\n\017CAUSE_DESTROYED\020\002\"\231\005" +
+      "\n\024WorldSessionMetadata\022%\n\016schema_version" +
+      "\030\001 \001(\rR\rschemaVersion\022%\n\016layout_version\030" +
+      "\002 \001(\tR\rlayoutVersion\022G\n\006server\030\003 \001(\0132/.r" +
+      "ecorder_minecraft.artifacts.v1.ServerIde" +
+      "ntityR\006server\022\035\n\nsession_id\030\004 \001(\tR\tsessi" +
+      "onId\022\024\n\005scope\030\005 \001(\tR\005scope\022\036\n\nprovenance" +
+      "\030\006 \001(\tR\nprovenance\0229\n\nstarted_at\030\007 \001(\0132\032" +
+      ".google.protobuf.TimestampR\tstartedAt\022*\n" +
+      "\021start_server_tick\030\010 \001(\003R\017startServerTic" +
+      "k\0225\n\010ended_at\030\t \001(\0132\032.google.protobuf.Ti" +
+      "mestampR\007endedAt\022+\n\017end_server_tick\030\n \001(" +
+      "\003H\000R\rendServerTick\210\001\001\022,\n\017terminal_reason" +
+      "\030\013 \001(\tH\001R\016terminalReason\210\001\001\022*\n\016stream_fa" +
+      "ilure\030\014 \001(\tH\002R\rstreamFailure\210\001\001\022\035\n\nknown" +
+      "_gaps\030\r \003(\tR\tknownGaps\022\026\n\006events\030\016 \001(\tR\006" +
+      "eventsB\022\n\020_end_server_tickB\022\n\020_terminal_" +
+      "reasonB\021\n\017_stream_failureB\207\001\n\"dev.record" +
+      "erminecraft.artifacts.v1P\001Z_github.com/p" +
+      "roj-airi/recorder-minecraft/apis/sdk/go/" +
+      "recorder-minecraft/artifacts/v1;artifact" +
+      "sv1b\006proto3"
     };
     descriptor = com.google.protobuf.Descriptors.FileDescriptor
       .internalBuildGeneratedFileFrom(descriptorData,
         new com.google.protobuf.Descriptors.FileDescriptor[] {
           com.google.protobuf.TimestampProto.getDescriptor(),
+          dev.recorderminecraft.artifacts.v1.Common.getDescriptor(),
           dev.recorderminecraft.artifacts.v1.Events.getDescriptor(),
           dev.recorderminecraft.artifacts.v1.Metadata.getDescriptor(),
         });
@@ -152,32 +148,27 @@ public final class World extends com.google.protobuf.GeneratedFile {
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_recorder_minecraft_artifacts_v1_WorldEventIdentity_descriptor,
         new java.lang.String[] { "SchemaVersion", "SessionId", "ServerTick", "Sequence", "RecordedAtNs", "RecordedAtUnixMs", });
-    internal_static_recorder_minecraft_artifacts_v1_BlockPosition_descriptor =
-      getDescriptor().getMessageType(2);
-    internal_static_recorder_minecraft_artifacts_v1_BlockPosition_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_recorder_minecraft_artifacts_v1_BlockPosition_descriptor,
-        new java.lang.String[] { "X", "Y", "Z", });
     internal_static_recorder_minecraft_artifacts_v1_ContainerSnapshot_descriptor =
-      getDescriptor().getMessageType(3);
+      getDescriptor().getMessageType(2);
     internal_static_recorder_minecraft_artifacts_v1_ContainerSnapshot_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_recorder_minecraft_artifacts_v1_ContainerSnapshot_descriptor,
         new java.lang.String[] { "Dimension", "BlockPos", "BlockEntityType", "Reason", "ContentsState", "ContainerSize", "Slots", "LootTable", });
     internal_static_recorder_minecraft_artifacts_v1_ContainerRemoved_descriptor =
-      getDescriptor().getMessageType(4);
+      getDescriptor().getMessageType(3);
     internal_static_recorder_minecraft_artifacts_v1_ContainerRemoved_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_recorder_minecraft_artifacts_v1_ContainerRemoved_descriptor,
         new java.lang.String[] { "Dimension", "BlockPos", "BlockEntityType", "Cause", });
     internal_static_recorder_minecraft_artifacts_v1_WorldSessionMetadata_descriptor =
-      getDescriptor().getMessageType(5);
+      getDescriptor().getMessageType(4);
     internal_static_recorder_minecraft_artifacts_v1_WorldSessionMetadata_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_recorder_minecraft_artifacts_v1_WorldSessionMetadata_descriptor,
         new java.lang.String[] { "SchemaVersion", "LayoutVersion", "Server", "SessionId", "Scope", "Provenance", "StartedAt", "StartServerTick", "EndedAt", "EndServerTick", "TerminalReason", "StreamFailure", "KnownGaps", "Events", });
     descriptor.resolveAllFeaturesImmutable();
     com.google.protobuf.TimestampProto.getDescriptor();
+    dev.recorderminecraft.artifacts.v1.Common.getDescriptor();
     dev.recorderminecraft.artifacts.v1.Events.getDescriptor();
     dev.recorderminecraft.artifacts.v1.Metadata.getDescriptor();
   }

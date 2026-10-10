@@ -314,30 +314,31 @@ public final class Events extends com.google.protobuf.GeneratedFile {
       "aft.artifacts.v1.InventorySlotR\005slots\022Q\n" +
       "\014carried_item\030\t \001(\0132..recorder_minecraft" +
       ".artifacts.v1.InventorySlotR\013carriedItem" +
-      "B\013\n\t_state_idB\027\n\025_container_slot_count\"\200" +
+      "B\013\n\t_state_idB\027\n\025_container_slot_count\"\214" +
       "\002\n\023ContainerViewSource\022\034\n\tdimension\030\001 \001(" +
-      "\tR\tdimension\022E\n\tblock_pos\030\002 \001(\0132(.record" +
-      "er_minecraft.artifacts.v1.Vector3R\010block" +
-      "Pos\022*\n\021block_entity_type\030\003 \001(\tR\017blockEnt" +
-      "ityType\022X\n\023secondary_block_pos\030\004 \001(\0132(.r" +
-      "ecorder_minecraft.artifacts.v1.Vector3R\021" +
-      "secondaryBlockPos*\227\001\n\027ClientInformationS" +
-      "ource\022)\n%CLIENT_INFORMATION_SOURCE_UNSPE" +
-      "CIFIED\020\000\022+\n\'CLIENT_INFORMATION_SOURCE_JO" +
-      "IN_SNAPSHOT\020\001\022$\n CLIENT_INFORMATION_SOUR" +
-      "CE_PACKET\020\002*\331\001\n\021ContainerViewKind\022#\n\037CON" +
-      "TAINER_VIEW_KIND_UNSPECIFIED\020\000\022\036\n\032CONTAI" +
-      "NER_VIEW_KIND_OPENED\020\001\022 \n\034CONTAINER_VIEW" +
-      "_KIND_CONTENTS\020\002\022\034\n\030CONTAINER_VIEW_KIND_" +
-      "SLOT\020\003\022\037\n\033CONTAINER_VIEW_KIND_CARRIED\020\004\022" +
-      "\036\n\032CONTAINER_VIEW_KIND_CLOSED\020\005*\212\001\n\023Cont" +
-      "ainerViewOrigin\022%\n!CONTAINER_VIEW_ORIGIN" +
-      "_UNSPECIFIED\020\000\022%\n!CONTAINER_VIEW_ORIGIN_" +
-      "CLIENTBOUND\020\001\022%\n!CONTAINER_VIEW_ORIGIN_S" +
-      "ERVERBOUND\020\002B\207\001\n\"dev.recorderminecraft.a" +
-      "rtifacts.v1P\001Z_github.com/proj-airi/reco" +
-      "rder-minecraft/apis/sdk/go/recorder-mine" +
-      "craft/artifacts/v1;artifactsv1b\006proto3"
+      "\tR\tdimension\022K\n\tblock_pos\030\002 \001(\0132..record" +
+      "er_minecraft.artifacts.v1.BlockPositionR" +
+      "\010blockPos\022*\n\021block_entity_type\030\003 \001(\tR\017bl" +
+      "ockEntityType\022^\n\023secondary_block_pos\030\004 \001" +
+      "(\0132..recorder_minecraft.artifacts.v1.Blo" +
+      "ckPositionR\021secondaryBlockPos*\227\001\n\027Client" +
+      "InformationSource\022)\n%CLIENT_INFORMATION_" +
+      "SOURCE_UNSPECIFIED\020\000\022+\n\'CLIENT_INFORMATI" +
+      "ON_SOURCE_JOIN_SNAPSHOT\020\001\022$\n CLIENT_INFO" +
+      "RMATION_SOURCE_PACKET\020\002*\331\001\n\021ContainerVie" +
+      "wKind\022#\n\037CONTAINER_VIEW_KIND_UNSPECIFIED" +
+      "\020\000\022\036\n\032CONTAINER_VIEW_KIND_OPENED\020\001\022 \n\034CO" +
+      "NTAINER_VIEW_KIND_CONTENTS\020\002\022\034\n\030CONTAINE" +
+      "R_VIEW_KIND_SLOT\020\003\022\037\n\033CONTAINER_VIEW_KIN" +
+      "D_CARRIED\020\004\022\036\n\032CONTAINER_VIEW_KIND_CLOSE" +
+      "D\020\005*\212\001\n\023ContainerViewOrigin\022%\n!CONTAINER" +
+      "_VIEW_ORIGIN_UNSPECIFIED\020\000\022%\n!CONTAINER_" +
+      "VIEW_ORIGIN_CLIENTBOUND\020\001\022%\n!CONTAINER_V" +
+      "IEW_ORIGIN_SERVERBOUND\020\002B\207\001\n\"dev.recorde" +
+      "rminecraft.artifacts.v1P\001Z_github.com/pr" +
+      "oj-airi/recorder-minecraft/apis/sdk/go/r" +
+      "ecorder-minecraft/artifacts/v1;artifacts" +
+      "v1b\006proto3"
     };
     descriptor = com.google.protobuf.Descriptors.FileDescriptor
       .internalBuildGeneratedFileFrom(descriptorData,

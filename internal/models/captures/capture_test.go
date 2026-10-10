@@ -55,7 +55,7 @@ func TestScanEventsAcceptsActorPerceptionRecords(t *testing.T) {
 		&artifactsv1.CaptureEvent{Identity: identity(11, 2), Record: &artifactsv1.CaptureEvent_ContainerView{ContainerView: &artifactsv1.ContainerViewEvent{
 			Kind: artifactsv1.ContainerViewKind_CONTAINER_VIEW_KIND_CONTENTS, Origin: artifactsv1.ContainerViewOrigin_CONTAINER_VIEW_ORIGIN_CLIENTBOUND,
 			ContainerId: 4, StateId: &stateID, MenuType: "minecraft:generic_9x3",
-			Source: &artifactsv1.ContainerViewSource{Dimension: "minecraft:overworld", BlockPos: &artifactsv1.Vector3{X: 1, Y: 64, Z: -2}},
+			Source: &artifactsv1.ContainerViewSource{Dimension: "minecraft:overworld", BlockPos: &artifactsv1.BlockPosition{X: 1, Y: 64, Z: -2}},
 			Slots:  []*artifactsv1.InventorySlot{{Slot: 0, ItemId: "minecraft:diamond", Count: 1}},
 		}}},
 	)
@@ -75,7 +75,40 @@ func TestScanEventsAcceptsActorPerceptionRecords(t *testing.T) {
 	assert.Equal(t, int32(12), seen[0].Message.GetClientInformation().GetViewDistance())
 	assert.Equal(t, "container_view", seen[1].RecordType)
 	assert.Equal(t, "minecraft:diamond", seen[1].Message.GetContainerView().GetSlots()[0].GetItemId())
-	assert.Equal(t, float64(64), seen[1].Message.GetContainerView().GetSource().GetBlockPos().GetY())
+	assert.Equal(t, int32(64), seen[1].Message.GetContainerView().GetSource().GetBlockPos().GetY())
+}
+
+func TestScanEventsReadsDoubleContainerViewPositions(t *testing.T) {
+	// Captures written before ContainerViewSource used BlockPosition encode the same field numbers
+	// as Vector3 doubles. ProtoJSON keeps the field names, and int32 parsing accepts integral
+	// numbers such as `2.0`, so those Plays must stay readable without a migration.
+	root := t.TempDir()
+	metadataPath := filepath.Join(root, "metadata.json")
+	eventsPath := filepath.Join(root, "events.jsonl")
+	end := int64(11)
+	writeProtoJSONLines(t, metadataPath, &artifactsv1.ServerMetadata{
+		SchemaVersion: 1, LayoutVersion: "v1", SessionId: "session-a",
+		Player:     &artifactsv1.PlayerIdentity{Uuid: testPlayer},
+		Connection: &artifactsv1.Connection{Id: testConnection, StartServerTick: 10, EndServerTick: &end},
+		Capture:    &artifactsv1.CaptureMetadata{Events: "capture/events.jsonl", Replay: "capture/replay.zip", ReplayFormat: "flashback"},
+	})
+	identityJSON, err := protojson.Marshal(identity(11, 1))
+	require.NoError(t, err)
+	line := `{"identity":` + string(identityJSON) + `,"containerView":{"kind":"CONTAINER_VIEW_KIND_OPENED","origin":"CONTAINER_VIEW_ORIGIN_CLIENTBOUND","containerId":1,` +
+		`"source":{"dimension":"minecraft:overworld","blockPos":{"x":2.0,"y":-60.0},"blockEntityType":"minecraft:chest","secondaryBlockPos":{"x":2.0,"y":-60.0,"z":1.0}}}}` + "\n"
+	require.NoError(t, os.WriteFile(eventsPath, []byte(line), 0o600))
+
+	service := &Service{}
+	metadata, err := service.LoadMetadata(metadataPath)
+	require.NoError(t, err)
+	var source *artifactsv1.ContainerViewSource
+	_, err = service.ScanEvents(eventsPath, metadata, func(event Event) error {
+		source = event.Message.GetContainerView().GetSource()
+		return nil
+	})
+	require.NoError(t, err)
+	assert.True(t, proto.Equal(&artifactsv1.BlockPosition{X: 2, Y: -60}, source.GetBlockPos()))
+	assert.True(t, proto.Equal(&artifactsv1.BlockPosition{X: 2, Y: -60, Z: 1}, source.GetSecondaryBlockPos()))
 }
 
 func identity(tick int64, sequence uint64) *artifactsv1.EventIdentity {

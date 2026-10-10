@@ -24,30 +24,36 @@ public interface ContainerViewSourceOrBuilder extends
 
   /**
    * <pre>
-   * Integer block coordinates. For a double chest this is the first half.
+   * For a double chest this is the first half. Captures written before this
+   * field became BlockPosition carry integral ProtoJSON doubles such as `2.0`,
+   * which ProtoJSON int32 parsing accepts.
    * </pre>
    *
-   * <code>.recorder_minecraft.artifacts.v1.Vector3 block_pos = 2 [json_name = "blockPos"];</code>
+   * <code>.recorder_minecraft.artifacts.v1.BlockPosition block_pos = 2 [json_name = "blockPos"];</code>
    * @return Whether the blockPos field is set.
    */
   boolean hasBlockPos();
   /**
    * <pre>
-   * Integer block coordinates. For a double chest this is the first half.
+   * For a double chest this is the first half. Captures written before this
+   * field became BlockPosition carry integral ProtoJSON doubles such as `2.0`,
+   * which ProtoJSON int32 parsing accepts.
    * </pre>
    *
-   * <code>.recorder_minecraft.artifacts.v1.Vector3 block_pos = 2 [json_name = "blockPos"];</code>
+   * <code>.recorder_minecraft.artifacts.v1.BlockPosition block_pos = 2 [json_name = "blockPos"];</code>
    * @return The blockPos.
    */
-  dev.recorderminecraft.artifacts.v1.Vector3 getBlockPos();
+  dev.recorderminecraft.artifacts.v1.BlockPosition getBlockPos();
   /**
    * <pre>
-   * Integer block coordinates. For a double chest this is the first half.
+   * For a double chest this is the first half. Captures written before this
+   * field became BlockPosition carry integral ProtoJSON doubles such as `2.0`,
+   * which ProtoJSON int32 parsing accepts.
    * </pre>
    *
-   * <code>.recorder_minecraft.artifacts.v1.Vector3 block_pos = 2 [json_name = "blockPos"];</code>
+   * <code>.recorder_minecraft.artifacts.v1.BlockPosition block_pos = 2 [json_name = "blockPos"];</code>
    */
-  dev.recorderminecraft.artifacts.v1.Vector3OrBuilder getBlockPosOrBuilder();
+  dev.recorderminecraft.artifacts.v1.BlockPositionOrBuilder getBlockPosOrBuilder();
 
   /**
    * <code>string block_entity_type = 3 [json_name = "blockEntityType"];</code>
@@ -66,7 +72,7 @@ public interface ContainerViewSourceOrBuilder extends
    * Second half of a double chest.
    * </pre>
    *
-   * <code>.recorder_minecraft.artifacts.v1.Vector3 secondary_block_pos = 4 [json_name = "secondaryBlockPos"];</code>
+   * <code>.recorder_minecraft.artifacts.v1.BlockPosition secondary_block_pos = 4 [json_name = "secondaryBlockPos"];</code>
    * @return Whether the secondaryBlockPos field is set.
    */
   boolean hasSecondaryBlockPos();
@@ -75,16 +81,16 @@ public interface ContainerViewSourceOrBuilder extends
    * Second half of a double chest.
    * </pre>
    *
-   * <code>.recorder_minecraft.artifacts.v1.Vector3 secondary_block_pos = 4 [json_name = "secondaryBlockPos"];</code>
+   * <code>.recorder_minecraft.artifacts.v1.BlockPosition secondary_block_pos = 4 [json_name = "secondaryBlockPos"];</code>
    * @return The secondaryBlockPos.
    */
-  dev.recorderminecraft.artifacts.v1.Vector3 getSecondaryBlockPos();
+  dev.recorderminecraft.artifacts.v1.BlockPosition getSecondaryBlockPos();
   /**
    * <pre>
    * Second half of a double chest.
    * </pre>
    *
-   * <code>.recorder_minecraft.artifacts.v1.Vector3 secondary_block_pos = 4 [json_name = "secondaryBlockPos"];</code>
+   * <code>.recorder_minecraft.artifacts.v1.BlockPosition secondary_block_pos = 4 [json_name = "secondaryBlockPos"];</code>
    */
-  dev.recorderminecraft.artifacts.v1.Vector3OrBuilder getSecondaryBlockPosOrBuilder();
+  dev.recorderminecraft.artifacts.v1.BlockPositionOrBuilder getSecondaryBlockPosOrBuilder();
 }

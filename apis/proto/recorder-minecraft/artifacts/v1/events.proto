@@ -259,9 +259,11 @@ enum ContainerViewOrigin {
 
 message ContainerViewSource {
   string dimension = 1;
-  // Integer block coordinates. For a double chest this is the first half.
-  Vector3 block_pos = 2;
+  // For a double chest this is the first half. Captures written before this
+  // field became BlockPosition carry integral ProtoJSON doubles such as `2.0`,
+  // which ProtoJSON int32 parsing accepts.
+  BlockPosition block_pos = 2;
   string block_entity_type = 3;
   // Second half of a double chest.
-  Vector3 secondary_block_pos = 4;
+  BlockPosition secondary_block_pos = 4;
 }

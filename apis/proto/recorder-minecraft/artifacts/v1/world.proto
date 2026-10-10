@@ -3,6 +3,7 @@ syntax = "proto3";
 package recorder_minecraft.artifacts.v1;
 
 import "google/protobuf/timestamp.proto";
+import "recorder-minecraft/artifacts/v1/common.proto";
 import "recorder-minecraft/artifacts/v1/events.proto";
 import "recorder-minecraft/artifacts/v1/metadata.proto";
 
@@ -31,12 +32,6 @@ message WorldEventIdentity {
   uint64 sequence = 4;
   int64 recorded_at_ns = 5;
   int64 recorded_at_unix_ms = 6;
-}
-
-message BlockPosition {
-  int32 x = 1;
-  int32 y = 2;
-  int32 z = 3;
 }
 
 // ContainerSnapshot is the complete server-side contents of one container

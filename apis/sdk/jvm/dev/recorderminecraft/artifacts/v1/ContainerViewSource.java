@@ -86,13 +86,15 @@ private static final long serialVersionUID = 0L;
   }
 
   public static final int BLOCK_POS_FIELD_NUMBER = 2;
-  private dev.recorderminecraft.artifacts.v1.Vector3 blockPos_;
+  private dev.recorderminecraft.artifacts.v1.BlockPosition blockPos_;
   /**
    * <pre>
-   * Integer block coordinates. For a double chest this is the first half.
+   * For a double chest this is the first half. Captures written before this
+   * field became BlockPosition carry integral ProtoJSON doubles such as `2.0`,
+   * which ProtoJSON int32 parsing accepts.
    * </pre>
    *
-   * <code>.recorder_minecraft.artifacts.v1.Vector3 block_pos = 2 [json_name = "blockPos"];</code>
+   * <code>.recorder_minecraft.artifacts.v1.BlockPosition block_pos = 2 [json_name = "blockPos"];</code>
    * @return Whether the blockPos field is set.
    */
   @java.lang.Override
@@ -101,26 +103,30 @@ private static final long serialVersionUID = 0L;
   }
   /**
    * <pre>
-   * Integer block coordinates. For a double chest this is the first half.
+   * For a double chest this is the first half. Captures written before this
+   * field became BlockPosition carry integral ProtoJSON doubles such as `2.0`,
+   * which ProtoJSON int32 parsing accepts.
    * </pre>
    *
-   * <code>.recorder_minecraft.artifacts.v1.Vector3 block_pos = 2 [json_name = "blockPos"];</code>
+   * <code>.recorder_minecraft.artifacts.v1.BlockPosition block_pos = 2 [json_name = "blockPos"];</code>
    * @return The blockPos.
    */
   @java.lang.Override
-  public dev.recorderminecraft.artifacts.v1.Vector3 getBlockPos() {
-    return blockPos_ == null ? dev.recorderminecraft.artifacts.v1.Vector3.getDefaultInstance() : blockPos_;
+  public dev.recorderminecraft.artifacts.v1.BlockPosition getBlockPos() {
+    return blockPos_ == null ? dev.recorderminecraft.artifacts.v1.BlockPosition.getDefaultInstance() : blockPos_;
   }
   /**
    * <pre>
-   * Integer block coordinates. For a double chest this is the first half.
+   * For a double chest this is the first half. Captures written before this
+   * field became BlockPosition carry integral ProtoJSON doubles such as `2.0`,
+   * which ProtoJSON int32 parsing accepts.
    * </pre>
    *
-   * <code>.recorder_minecraft.artifacts.v1.Vector3 block_pos = 2 [json_name = "blockPos"];</code>
+   * <code>.recorder_minecraft.artifacts.v1.BlockPosition block_pos = 2 [json_name = "blockPos"];</code>
    */
   @java.lang.Override
-  public dev.recorderminecraft.artifacts.v1.Vector3OrBuilder getBlockPosOrBuilder() {
-    return blockPos_ == null ? dev.recorderminecraft.artifacts.v1.Vector3.getDefaultInstance() : blockPos_;
+  public dev.recorderminecraft.artifacts.v1.BlockPositionOrBuilder getBlockPosOrBuilder() {
+    return blockPos_ == null ? dev.recorderminecraft.artifacts.v1.BlockPosition.getDefaultInstance() : blockPos_;
   }
 
   public static final int BLOCK_ENTITY_TYPE_FIELD_NUMBER = 3;
@@ -163,13 +169,13 @@ private static final long serialVersionUID = 0L;
   }
 
   public static final int SECONDARY_BLOCK_POS_FIELD_NUMBER = 4;
-  private dev.recorderminecraft.artifacts.v1.Vector3 secondaryBlockPos_;
+  private dev.recorderminecraft.artifacts.v1.BlockPosition secondaryBlockPos_;
   /**
    * <pre>
    * Second half of a double chest.
    * </pre>
    *
-   * <code>.recorder_minecraft.artifacts.v1.Vector3 secondary_block_pos = 4 [json_name = "secondaryBlockPos"];</code>
+   * <code>.recorder_minecraft.artifacts.v1.BlockPosition secondary_block_pos = 4 [json_name = "secondaryBlockPos"];</code>
    * @return Whether the secondaryBlockPos field is set.
    */
   @java.lang.Override
@@ -181,23 +187,23 @@ private static final long serialVersionUID = 0L;
    * Second half of a double chest.
    * </pre>
    *
-   * <code>.recorder_minecraft.artifacts.v1.Vector3 secondary_block_pos = 4 [json_name = "secondaryBlockPos"];</code>
+   * <code>.recorder_minecraft.artifacts.v1.BlockPosition secondary_block_pos = 4 [json_name = "secondaryBlockPos"];</code>
    * @return The secondaryBlockPos.
    */
   @java.lang.Override
-  public dev.recorderminecraft.artifacts.v1.Vector3 getSecondaryBlockPos() {
-    return secondaryBlockPos_ == null ? dev.recorderminecraft.artifacts.v1.Vector3.getDefaultInstance() : secondaryBlockPos_;
+  public dev.recorderminecraft.artifacts.v1.BlockPosition getSecondaryBlockPos() {
+    return secondaryBlockPos_ == null ? dev.recorderminecraft.artifacts.v1.BlockPosition.getDefaultInstance() : secondaryBlockPos_;
   }
   /**
    * <pre>
    * Second half of a double chest.
    * </pre>
    *
-   * <code>.recorder_minecraft.artifacts.v1.Vector3 secondary_block_pos = 4 [json_name = "secondaryBlockPos"];</code>
+   * <code>.recorder_minecraft.artifacts.v1.BlockPosition secondary_block_pos = 4 [json_name = "secondaryBlockPos"];</code>
    */
   @java.lang.Override
-  public dev.recorderminecraft.artifacts.v1.Vector3OrBuilder getSecondaryBlockPosOrBuilder() {
-    return secondaryBlockPos_ == null ? dev.recorderminecraft.artifacts.v1.Vector3.getDefaultInstance() : secondaryBlockPos_;
+  public dev.recorderminecraft.artifacts.v1.BlockPositionOrBuilder getSecondaryBlockPosOrBuilder() {
+    return secondaryBlockPos_ == null ? dev.recorderminecraft.artifacts.v1.BlockPosition.getDefaultInstance() : secondaryBlockPos_;
   }
 
   private byte memoizedIsInitialized = -1;
@@ -673,15 +679,17 @@ private static final long serialVersionUID = 0L;
       return this;
     }
 
-    private dev.recorderminecraft.artifacts.v1.Vector3 blockPos_;
+    private dev.recorderminecraft.artifacts.v1.BlockPosition blockPos_;
     private com.google.protobuf.SingleFieldBuilder<
-        dev.recorderminecraft.artifacts.v1.Vector3, dev.recorderminecraft.artifacts.v1.Vector3.Builder, dev.recorderminecraft.artifacts.v1.Vector3OrBuilder> blockPosBuilder_;
+        dev.recorderminecraft.artifacts.v1.BlockPosition, dev.recorderminecraft.artifacts.v1.BlockPosition.Builder, dev.recorderminecraft.artifacts.v1.BlockPositionOrBuilder> blockPosBuilder_;
     /**
      * <pre>
-     * Integer block coordinates. For a double chest this is the first half.
+     * For a double chest this is the first half. Captures written before this
+     * field became BlockPosition carry integral ProtoJSON doubles such as `2.0`,
+     * which ProtoJSON int32 parsing accepts.
      * </pre>
      *
-     * <code>.recorder_minecraft.artifacts.v1.Vector3 block_pos = 2 [json_name = "blockPos"];</code>
+     * <code>.recorder_minecraft.artifacts.v1.BlockPosition block_pos = 2 [json_name = "blockPos"];</code>
      * @return Whether the blockPos field is set.
      */
     public boolean hasBlockPos() {
@@ -689,27 +697,31 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Integer block coordinates. For a double chest this is the first half.
+     * For a double chest this is the first half. Captures written before this
+     * field became BlockPosition carry integral ProtoJSON doubles such as `2.0`,
+     * which ProtoJSON int32 parsing accepts.
      * </pre>
      *
-     * <code>.recorder_minecraft.artifacts.v1.Vector3 block_pos = 2 [json_name = "blockPos"];</code>
+     * <code>.recorder_minecraft.artifacts.v1.BlockPosition block_pos = 2 [json_name = "blockPos"];</code>
      * @return The blockPos.
      */
-    public dev.recorderminecraft.artifacts.v1.Vector3 getBlockPos() {
+    public dev.recorderminecraft.artifacts.v1.BlockPosition getBlockPos() {
       if (blockPosBuilder_ == null) {
-        return blockPos_ == null ? dev.recorderminecraft.artifacts.v1.Vector3.getDefaultInstance() : blockPos_;
+        return blockPos_ == null ? dev.recorderminecraft.artifacts.v1.BlockPosition.getDefaultInstance() : blockPos_;
       } else {
         return blockPosBuilder_.getMessage();
       }
     }
     /**
      * <pre>
-     * Integer block coordinates. For a double chest this is the first half.
+     * For a double chest this is the first half. Captures written before this
+     * field became BlockPosition carry integral ProtoJSON doubles such as `2.0`,
+     * which ProtoJSON int32 parsing accepts.
      * </pre>
      *
-     * <code>.recorder_minecraft.artifacts.v1.Vector3 block_pos = 2 [json_name = "blockPos"];</code>
+     * <code>.recorder_minecraft.artifacts.v1.BlockPosition block_pos = 2 [json_name = "blockPos"];</code>
      */
-    public Builder setBlockPos(dev.recorderminecraft.artifacts.v1.Vector3 value) {
+    public Builder setBlockPos(dev.recorderminecraft.artifacts.v1.BlockPosition value) {
       if (blockPosBuilder_ == null) {
         if (value == null) {
           throw new NullPointerException();
@@ -724,13 +736,15 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Integer block coordinates. For a double chest this is the first half.
+     * For a double chest this is the first half. Captures written before this
+     * field became BlockPosition carry integral ProtoJSON doubles such as `2.0`,
+     * which ProtoJSON int32 parsing accepts.
      * </pre>
      *
-     * <code>.recorder_minecraft.artifacts.v1.Vector3 block_pos = 2 [json_name = "blockPos"];</code>
+     * <code>.recorder_minecraft.artifacts.v1.BlockPosition block_pos = 2 [json_name = "blockPos"];</code>
      */
     public Builder setBlockPos(
-        dev.recorderminecraft.artifacts.v1.Vector3.Builder builderForValue) {
+        dev.recorderminecraft.artifacts.v1.BlockPosition.Builder builderForValue) {
       if (blockPosBuilder_ == null) {
         blockPos_ = builderForValue.build();
       } else {
@@ -742,16 +756,18 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Integer block coordinates. For a double chest this is the first half.
+     * For a double chest this is the first half. Captures written before this
+     * field became BlockPosition carry integral ProtoJSON doubles such as `2.0`,
+     * which ProtoJSON int32 parsing accepts.
      * </pre>
      *
-     * <code>.recorder_minecraft.artifacts.v1.Vector3 block_pos = 2 [json_name = "blockPos"];</code>
+     * <code>.recorder_minecraft.artifacts.v1.BlockPosition block_pos = 2 [json_name = "blockPos"];</code>
      */
-    public Builder mergeBlockPos(dev.recorderminecraft.artifacts.v1.Vector3 value) {
+    public Builder mergeBlockPos(dev.recorderminecraft.artifacts.v1.BlockPosition value) {
       if (blockPosBuilder_ == null) {
         if (((bitField0_ & 0x00000002) != 0) &&
           blockPos_ != null &&
-          blockPos_ != dev.recorderminecraft.artifacts.v1.Vector3.getDefaultInstance()) {
+          blockPos_ != dev.recorderminecraft.artifacts.v1.BlockPosition.getDefaultInstance()) {
           getBlockPosBuilder().mergeFrom(value);
         } else {
           blockPos_ = value;
@@ -767,10 +783,12 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Integer block coordinates. For a double chest this is the first half.
+     * For a double chest this is the first half. Captures written before this
+     * field became BlockPosition carry integral ProtoJSON doubles such as `2.0`,
+     * which ProtoJSON int32 parsing accepts.
      * </pre>
      *
-     * <code>.recorder_minecraft.artifacts.v1.Vector3 block_pos = 2 [json_name = "blockPos"];</code>
+     * <code>.recorder_minecraft.artifacts.v1.BlockPosition block_pos = 2 [json_name = "blockPos"];</code>
      */
     public Builder clearBlockPos() {
       bitField0_ = (bitField0_ & ~0x00000002);
@@ -784,44 +802,50 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Integer block coordinates. For a double chest this is the first half.
+     * For a double chest this is the first half. Captures written before this
+     * field became BlockPosition carry integral ProtoJSON doubles such as `2.0`,
+     * which ProtoJSON int32 parsing accepts.
      * </pre>
      *
-     * <code>.recorder_minecraft.artifacts.v1.Vector3 block_pos = 2 [json_name = "blockPos"];</code>
+     * <code>.recorder_minecraft.artifacts.v1.BlockPosition block_pos = 2 [json_name = "blockPos"];</code>
      */
-    public dev.recorderminecraft.artifacts.v1.Vector3.Builder getBlockPosBuilder() {
+    public dev.recorderminecraft.artifacts.v1.BlockPosition.Builder getBlockPosBuilder() {
       bitField0_ |= 0x00000002;
       onChanged();
       return internalGetBlockPosFieldBuilder().getBuilder();
     }
     /**
      * <pre>
-     * Integer block coordinates. For a double chest this is the first half.
+     * For a double chest this is the first half. Captures written before this
+     * field became BlockPosition carry integral ProtoJSON doubles such as `2.0`,
+     * which ProtoJSON int32 parsing accepts.
      * </pre>
      *
-     * <code>.recorder_minecraft.artifacts.v1.Vector3 block_pos = 2 [json_name = "blockPos"];</code>
+     * <code>.recorder_minecraft.artifacts.v1.BlockPosition block_pos = 2 [json_name = "blockPos"];</code>
      */
-    public dev.recorderminecraft.artifacts.v1.Vector3OrBuilder getBlockPosOrBuilder() {
+    public dev.recorderminecraft.artifacts.v1.BlockPositionOrBuilder getBlockPosOrBuilder() {
       if (blockPosBuilder_ != null) {
         return blockPosBuilder_.getMessageOrBuilder();
       } else {
         return blockPos_ == null ?
-            dev.recorderminecraft.artifacts.v1.Vector3.getDefaultInstance() : blockPos_;
+            dev.recorderminecraft.artifacts.v1.BlockPosition.getDefaultInstance() : blockPos_;
       }
     }
     /**
      * <pre>
-     * Integer block coordinates. For a double chest this is the first half.
+     * For a double chest this is the first half. Captures written before this
+     * field became BlockPosition carry integral ProtoJSON doubles such as `2.0`,
+     * which ProtoJSON int32 parsing accepts.
      * </pre>
      *
-     * <code>.recorder_minecraft.artifacts.v1.Vector3 block_pos = 2 [json_name = "blockPos"];</code>
+     * <code>.recorder_minecraft.artifacts.v1.BlockPosition block_pos = 2 [json_name = "blockPos"];</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        dev.recorderminecraft.artifacts.v1.Vector3, dev.recorderminecraft.artifacts.v1.Vector3.Builder, dev.recorderminecraft.artifacts.v1.Vector3OrBuilder> 
+        dev.recorderminecraft.artifacts.v1.BlockPosition, dev.recorderminecraft.artifacts.v1.BlockPosition.Builder, dev.recorderminecraft.artifacts.v1.BlockPositionOrBuilder> 
         internalGetBlockPosFieldBuilder() {
       if (blockPosBuilder_ == null) {
         blockPosBuilder_ = new com.google.protobuf.SingleFieldBuilder<
-            dev.recorderminecraft.artifacts.v1.Vector3, dev.recorderminecraft.artifacts.v1.Vector3.Builder, dev.recorderminecraft.artifacts.v1.Vector3OrBuilder>(
+            dev.recorderminecraft.artifacts.v1.BlockPosition, dev.recorderminecraft.artifacts.v1.BlockPosition.Builder, dev.recorderminecraft.artifacts.v1.BlockPositionOrBuilder>(
                 getBlockPos(),
                 getParentForChildren(),
                 isClean());
@@ -902,15 +926,15 @@ private static final long serialVersionUID = 0L;
       return this;
     }
 
-    private dev.recorderminecraft.artifacts.v1.Vector3 secondaryBlockPos_;
+    private dev.recorderminecraft.artifacts.v1.BlockPosition secondaryBlockPos_;
     private com.google.protobuf.SingleFieldBuilder<
-        dev.recorderminecraft.artifacts.v1.Vector3, dev.recorderminecraft.artifacts.v1.Vector3.Builder, dev.recorderminecraft.artifacts.v1.Vector3OrBuilder> secondaryBlockPosBuilder_;
+        dev.recorderminecraft.artifacts.v1.BlockPosition, dev.recorderminecraft.artifacts.v1.BlockPosition.Builder, dev.recorderminecraft.artifacts.v1.BlockPositionOrBuilder> secondaryBlockPosBuilder_;
     /**
      * <pre>
      * Second half of a double chest.
      * </pre>
      *
-     * <code>.recorder_minecraft.artifacts.v1.Vector3 secondary_block_pos = 4 [json_name = "secondaryBlockPos"];</code>
+     * <code>.recorder_minecraft.artifacts.v1.BlockPosition secondary_block_pos = 4 [json_name = "secondaryBlockPos"];</code>
      * @return Whether the secondaryBlockPos field is set.
      */
     public boolean hasSecondaryBlockPos() {
@@ -921,12 +945,12 @@ private static final long serialVersionUID = 0L;
      * Second half of a double chest.
      * </pre>
      *
-     * <code>.recorder_minecraft.artifacts.v1.Vector3 secondary_block_pos = 4 [json_name = "secondaryBlockPos"];</code>
+     * <code>.recorder_minecraft.artifacts.v1.BlockPosition secondary_block_pos = 4 [json_name = "secondaryBlockPos"];</code>
      * @return The secondaryBlockPos.
      */
-    public dev.recorderminecraft.artifacts.v1.Vector3 getSecondaryBlockPos() {
+    public dev.recorderminecraft.artifacts.v1.BlockPosition getSecondaryBlockPos() {
       if (secondaryBlockPosBuilder_ == null) {
-        return secondaryBlockPos_ == null ? dev.recorderminecraft.artifacts.v1.Vector3.getDefaultInstance() : secondaryBlockPos_;
+        return secondaryBlockPos_ == null ? dev.recorderminecraft.artifacts.v1.BlockPosition.getDefaultInstance() : secondaryBlockPos_;
       } else {
         return secondaryBlockPosBuilder_.getMessage();
       }
@@ -936,9 +960,9 @@ private static final long serialVersionUID = 0L;
      * Second half of a double chest.
      * </pre>
      *
-     * <code>.recorder_minecraft.artifacts.v1.Vector3 secondary_block_pos = 4 [json_name = "secondaryBlockPos"];</code>
+     * <code>.recorder_minecraft.artifacts.v1.BlockPosition secondary_block_pos = 4 [json_name = "secondaryBlockPos"];</code>
      */
-    public Builder setSecondaryBlockPos(dev.recorderminecraft.artifacts.v1.Vector3 value) {
+    public Builder setSecondaryBlockPos(dev.recorderminecraft.artifacts.v1.BlockPosition value) {
       if (secondaryBlockPosBuilder_ == null) {
         if (value == null) {
           throw new NullPointerException();
@@ -956,10 +980,10 @@ private static final long serialVersionUID = 0L;
      * Second half of a double chest.
      * </pre>
      *
-     * <code>.recorder_minecraft.artifacts.v1.Vector3 secondary_block_pos = 4 [json_name = "secondaryBlockPos"];</code>
+     * <code>.recorder_minecraft.artifacts.v1.BlockPosition secondary_block_pos = 4 [json_name = "secondaryBlockPos"];</code>
      */
     public Builder setSecondaryBlockPos(
-        dev.recorderminecraft.artifacts.v1.Vector3.Builder builderForValue) {
+        dev.recorderminecraft.artifacts.v1.BlockPosition.Builder builderForValue) {
       if (secondaryBlockPosBuilder_ == null) {
         secondaryBlockPos_ = builderForValue.build();
       } else {
@@ -974,13 +998,13 @@ private static final long serialVersionUID = 0L;
      * Second half of a double chest.
      * </pre>
      *
-     * <code>.recorder_minecraft.artifacts.v1.Vector3 secondary_block_pos = 4 [json_name = "secondaryBlockPos"];</code>
+     * <code>.recorder_minecraft.artifacts.v1.BlockPosition secondary_block_pos = 4 [json_name = "secondaryBlockPos"];</code>
      */
-    public Builder mergeSecondaryBlockPos(dev.recorderminecraft.artifacts.v1.Vector3 value) {
+    public Builder mergeSecondaryBlockPos(dev.recorderminecraft.artifacts.v1.BlockPosition value) {
       if (secondaryBlockPosBuilder_ == null) {
         if (((bitField0_ & 0x00000008) != 0) &&
           secondaryBlockPos_ != null &&
-          secondaryBlockPos_ != dev.recorderminecraft.artifacts.v1.Vector3.getDefaultInstance()) {
+          secondaryBlockPos_ != dev.recorderminecraft.artifacts.v1.BlockPosition.getDefaultInstance()) {
           getSecondaryBlockPosBuilder().mergeFrom(value);
         } else {
           secondaryBlockPos_ = value;
@@ -999,7 +1023,7 @@ private static final long serialVersionUID = 0L;
      * Second half of a double chest.
      * </pre>
      *
-     * <code>.recorder_minecraft.artifacts.v1.Vector3 secondary_block_pos = 4 [json_name = "secondaryBlockPos"];</code>
+     * <code>.recorder_minecraft.artifacts.v1.BlockPosition secondary_block_pos = 4 [json_name = "secondaryBlockPos"];</code>
      */
     public Builder clearSecondaryBlockPos() {
       bitField0_ = (bitField0_ & ~0x00000008);
@@ -1016,9 +1040,9 @@ private static final long serialVersionUID = 0L;
      * Second half of a double chest.
      * </pre>
      *
-     * <code>.recorder_minecraft.artifacts.v1.Vector3 secondary_block_pos = 4 [json_name = "secondaryBlockPos"];</code>
+     * <code>.recorder_minecraft.artifacts.v1.BlockPosition secondary_block_pos = 4 [json_name = "secondaryBlockPos"];</code>
      */
-    public dev.recorderminecraft.artifacts.v1.Vector3.Builder getSecondaryBlockPosBuilder() {
+    public dev.recorderminecraft.artifacts.v1.BlockPosition.Builder getSecondaryBlockPosBuilder() {
       bitField0_ |= 0x00000008;
       onChanged();
       return internalGetSecondaryBlockPosFieldBuilder().getBuilder();
@@ -1028,14 +1052,14 @@ private static final long serialVersionUID = 0L;
      * Second half of a double chest.
      * </pre>
      *
-     * <code>.recorder_minecraft.artifacts.v1.Vector3 secondary_block_pos = 4 [json_name = "secondaryBlockPos"];</code>
+     * <code>.recorder_minecraft.artifacts.v1.BlockPosition secondary_block_pos = 4 [json_name = "secondaryBlockPos"];</code>
      */
-    public dev.recorderminecraft.artifacts.v1.Vector3OrBuilder getSecondaryBlockPosOrBuilder() {
+    public dev.recorderminecraft.artifacts.v1.BlockPositionOrBuilder getSecondaryBlockPosOrBuilder() {
       if (secondaryBlockPosBuilder_ != null) {
         return secondaryBlockPosBuilder_.getMessageOrBuilder();
       } else {
         return secondaryBlockPos_ == null ?
-            dev.recorderminecraft.artifacts.v1.Vector3.getDefaultInstance() : secondaryBlockPos_;
+            dev.recorderminecraft.artifacts.v1.BlockPosition.getDefaultInstance() : secondaryBlockPos_;
       }
     }
     /**
@@ -1043,14 +1067,14 @@ private static final long serialVersionUID = 0L;
      * Second half of a double chest.
      * </pre>
      *
-     * <code>.recorder_minecraft.artifacts.v1.Vector3 secondary_block_pos = 4 [json_name = "secondaryBlockPos"];</code>
+     * <code>.recorder_minecraft.artifacts.v1.BlockPosition secondary_block_pos = 4 [json_name = "secondaryBlockPos"];</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        dev.recorderminecraft.artifacts.v1.Vector3, dev.recorderminecraft.artifacts.v1.Vector3.Builder, dev.recorderminecraft.artifacts.v1.Vector3OrBuilder> 
+        dev.recorderminecraft.artifacts.v1.BlockPosition, dev.recorderminecraft.artifacts.v1.BlockPosition.Builder, dev.recorderminecraft.artifacts.v1.BlockPositionOrBuilder> 
         internalGetSecondaryBlockPosFieldBuilder() {
       if (secondaryBlockPosBuilder_ == null) {
         secondaryBlockPosBuilder_ = new com.google.protobuf.SingleFieldBuilder<
-            dev.recorderminecraft.artifacts.v1.Vector3, dev.recorderminecraft.artifacts.v1.Vector3.Builder, dev.recorderminecraft.artifacts.v1.Vector3OrBuilder>(
+            dev.recorderminecraft.artifacts.v1.BlockPosition, dev.recorderminecraft.artifacts.v1.BlockPosition.Builder, dev.recorderminecraft.artifacts.v1.BlockPositionOrBuilder>(
                 getSecondaryBlockPos(),
                 getParentForChildren(),
                 isClean());

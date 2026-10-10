@@ -5,8 +5,6 @@ import dev.recorderminecraft.artifacts.v1.ContainerViewEvent
 import dev.recorderminecraft.artifacts.v1.ContainerViewKind
 import dev.recorderminecraft.artifacts.v1.ContainerViewOrigin
 import dev.recorderminecraft.artifacts.v1.ContainerViewSource
-import dev.recorderminecraft.artifacts.v1.Vector3
-import net.minecraft.core.BlockPos
 import net.minecraft.core.registries.BuiltInRegistries
 import net.minecraft.network.protocol.Packet
 import net.minecraft.network.protocol.game.ClientboundContainerClosePacket
@@ -97,10 +95,10 @@ object ContainerViews {
         val blocks = if (provider is BlockEntity) listOf(provider) else containerBlocks((menu as? ChestMenu)?.container)
         val primary = blocks.firstOrNull() ?: return null
         val source = ContainerViewSource.newBuilder()
-            .setBlockPos(blockPos(primary.blockPos))
+            .setBlockPos(blockPosition(primary.blockPos))
             .setBlockEntityType(BuiltInRegistries.BLOCK_ENTITY_TYPE.getKey(primary.type).toString())
         primary.level?.let { source.dimension = it.dimension().location().toString() }
-        blocks.getOrNull(1)?.let { source.secondaryBlockPos = blockPos(it.blockPos) }
+        blocks.getOrNull(1)?.let { source.secondaryBlockPos = blockPosition(it.blockPos) }
         return source.build()
     }
 
@@ -122,10 +120,4 @@ object ContainerViews {
         }
         else -> emptyList()
     }
-
-    private fun blockPos(pos: BlockPos): Vector3 = Vector3.newBuilder()
-        .setX(pos.x.toDouble())
-        .setY(pos.y.toDouble())
-        .setZ(pos.z.toDouble())
-        .build()
 }

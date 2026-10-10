@@ -12,6 +12,14 @@ message Vector3 {
   double z = 3;
 }
 
+// Integer block coordinates. The world stream and actor perception records
+// both use this type, so a dimension plus block position joins them directly.
+message BlockPosition {
+  int32 x = 1;
+  int32 y = 2;
+  int32 z = 3;
+}
+
 message Rotation {
   double yaw = 1;
   double pitch = 2;

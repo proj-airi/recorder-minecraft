@@ -75,7 +75,7 @@ func (x ContainerSnapshot_Reason) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ContainerSnapshot_Reason.Descriptor instead.
 func (ContainerSnapshot_Reason) EnumDescriptor() ([]byte, []int) {
-	return file_recorder_minecraft_artifacts_v1_world_proto_rawDescGZIP(), []int{3, 0}
+	return file_recorder_minecraft_artifacts_v1_world_proto_rawDescGZIP(), []int{2, 0}
 }
 
 type ContainerSnapshot_ContentsState int32
@@ -127,7 +127,7 @@ func (x ContainerSnapshot_ContentsState) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ContainerSnapshot_ContentsState.Descriptor instead.
 func (ContainerSnapshot_ContentsState) EnumDescriptor() ([]byte, []int) {
-	return file_recorder_minecraft_artifacts_v1_world_proto_rawDescGZIP(), []int{3, 1}
+	return file_recorder_minecraft_artifacts_v1_world_proto_rawDescGZIP(), []int{2, 1}
 }
 
 type ContainerRemoved_Cause int32
@@ -179,7 +179,7 @@ func (x ContainerRemoved_Cause) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ContainerRemoved_Cause.Descriptor instead.
 func (ContainerRemoved_Cause) EnumDescriptor() ([]byte, []int) {
-	return file_recorder_minecraft_artifacts_v1_world_proto_rawDescGZIP(), []int{4, 0}
+	return file_recorder_minecraft_artifacts_v1_world_proto_rawDescGZIP(), []int{3, 0}
 }
 
 // WorldEvent is one ProtoJSON line of a session-level world stream. Its scope
@@ -362,66 +362,6 @@ func (x *WorldEventIdentity) GetRecordedAtUnixMs() int64 {
 	return 0
 }
 
-type BlockPosition struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	X             int32                  `protobuf:"varint,1,opt,name=x,proto3" json:"x,omitempty"`
-	Y             int32                  `protobuf:"varint,2,opt,name=y,proto3" json:"y,omitempty"`
-	Z             int32                  `protobuf:"varint,3,opt,name=z,proto3" json:"z,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *BlockPosition) Reset() {
-	*x = BlockPosition{}
-	mi := &file_recorder_minecraft_artifacts_v1_world_proto_msgTypes[2]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *BlockPosition) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*BlockPosition) ProtoMessage() {}
-
-func (x *BlockPosition) ProtoReflect() protoreflect.Message {
-	mi := &file_recorder_minecraft_artifacts_v1_world_proto_msgTypes[2]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use BlockPosition.ProtoReflect.Descriptor instead.
-func (*BlockPosition) Descriptor() ([]byte, []int) {
-	return file_recorder_minecraft_artifacts_v1_world_proto_rawDescGZIP(), []int{2}
-}
-
-func (x *BlockPosition) GetX() int32 {
-	if x != nil {
-		return x.X
-	}
-	return 0
-}
-
-func (x *BlockPosition) GetY() int32 {
-	if x != nil {
-		return x.Y
-	}
-	return 0
-}
-
-func (x *BlockPosition) GetZ() int32 {
-	if x != nil {
-		return x.Z
-	}
-	return 0
-}
-
 // ContainerSnapshot is the complete server-side contents of one container
 // block entity at the end of server_tick.
 type ContainerSnapshot struct {
@@ -441,7 +381,7 @@ type ContainerSnapshot struct {
 
 func (x *ContainerSnapshot) Reset() {
 	*x = ContainerSnapshot{}
-	mi := &file_recorder_minecraft_artifacts_v1_world_proto_msgTypes[3]
+	mi := &file_recorder_minecraft_artifacts_v1_world_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -453,7 +393,7 @@ func (x *ContainerSnapshot) String() string {
 func (*ContainerSnapshot) ProtoMessage() {}
 
 func (x *ContainerSnapshot) ProtoReflect() protoreflect.Message {
-	mi := &file_recorder_minecraft_artifacts_v1_world_proto_msgTypes[3]
+	mi := &file_recorder_minecraft_artifacts_v1_world_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -466,7 +406,7 @@ func (x *ContainerSnapshot) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContainerSnapshot.ProtoReflect.Descriptor instead.
 func (*ContainerSnapshot) Descriptor() ([]byte, []int) {
-	return file_recorder_minecraft_artifacts_v1_world_proto_rawDescGZIP(), []int{3}
+	return file_recorder_minecraft_artifacts_v1_world_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *ContainerSnapshot) GetDimension() string {
@@ -538,7 +478,7 @@ type ContainerRemoved struct {
 
 func (x *ContainerRemoved) Reset() {
 	*x = ContainerRemoved{}
-	mi := &file_recorder_minecraft_artifacts_v1_world_proto_msgTypes[4]
+	mi := &file_recorder_minecraft_artifacts_v1_world_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -550,7 +490,7 @@ func (x *ContainerRemoved) String() string {
 func (*ContainerRemoved) ProtoMessage() {}
 
 func (x *ContainerRemoved) ProtoReflect() protoreflect.Message {
-	mi := &file_recorder_minecraft_artifacts_v1_world_proto_msgTypes[4]
+	mi := &file_recorder_minecraft_artifacts_v1_world_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -563,7 +503,7 @@ func (x *ContainerRemoved) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContainerRemoved.ProtoReflect.Descriptor instead.
 func (*ContainerRemoved) Descriptor() ([]byte, []int) {
-	return file_recorder_minecraft_artifacts_v1_world_proto_rawDescGZIP(), []int{4}
+	return file_recorder_minecraft_artifacts_v1_world_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *ContainerRemoved) GetDimension() string {
@@ -623,7 +563,7 @@ type WorldSessionMetadata struct {
 
 func (x *WorldSessionMetadata) Reset() {
 	*x = WorldSessionMetadata{}
-	mi := &file_recorder_minecraft_artifacts_v1_world_proto_msgTypes[5]
+	mi := &file_recorder_minecraft_artifacts_v1_world_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -635,7 +575,7 @@ func (x *WorldSessionMetadata) String() string {
 func (*WorldSessionMetadata) ProtoMessage() {}
 
 func (x *WorldSessionMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_recorder_minecraft_artifacts_v1_world_proto_msgTypes[5]
+	mi := &file_recorder_minecraft_artifacts_v1_world_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -648,7 +588,7 @@ func (x *WorldSessionMetadata) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorldSessionMetadata.ProtoReflect.Descriptor instead.
 func (*WorldSessionMetadata) Descriptor() ([]byte, []int) {
-	return file_recorder_minecraft_artifacts_v1_world_proto_rawDescGZIP(), []int{5}
+	return file_recorder_minecraft_artifacts_v1_world_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *WorldSessionMetadata) GetSchemaVersion() uint32 {
@@ -753,7 +693,7 @@ var File_recorder_minecraft_artifacts_v1_world_proto protoreflect.FileDescriptor
 
 const file_recorder_minecraft_artifacts_v1_world_proto_rawDesc = "" +
 	"\n" +
-	"+recorder-minecraft/artifacts/v1/world.proto\x12\x1frecorder_minecraft.artifacts.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a,recorder-minecraft/artifacts/v1/events.proto\x1a.recorder-minecraft/artifacts/v1/metadata.proto\"\xae\x02\n" +
+	"+recorder-minecraft/artifacts/v1/world.proto\x12\x1frecorder_minecraft.artifacts.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a,recorder-minecraft/artifacts/v1/common.proto\x1a,recorder-minecraft/artifacts/v1/events.proto\x1a.recorder-minecraft/artifacts/v1/metadata.proto\"\xae\x02\n" +
 	"\n" +
 	"WorldEvent\x12O\n" +
 	"\bidentity\x18\x01 \x01(\v23.recorder_minecraft.artifacts.v1.WorldEventIdentityR\bidentity\x12c\n" +
@@ -768,11 +708,7 @@ const file_recorder_minecraft_artifacts_v1_world_proto_rawDesc = "" +
 	"serverTick\x12\x1a\n" +
 	"\bsequence\x18\x04 \x01(\x04R\bsequence\x12$\n" +
 	"\x0erecorded_at_ns\x18\x05 \x01(\x03R\frecordedAtNs\x12-\n" +
-	"\x13recorded_at_unix_ms\x18\x06 \x01(\x03R\x10recordedAtUnixMs\"9\n" +
-	"\rBlockPosition\x12\f\n" +
-	"\x01x\x18\x01 \x01(\x05R\x01x\x12\f\n" +
-	"\x01y\x18\x02 \x01(\x05R\x01y\x12\f\n" +
-	"\x01z\x18\x03 \x01(\x05R\x01z\"\xc5\x05\n" +
+	"\x13recorded_at_unix_ms\x18\x06 \x01(\x03R\x10recordedAtUnixMs\"\xc5\x05\n" +
 	"\x11ContainerSnapshot\x12\x1c\n" +
 	"\tdimension\x18\x01 \x01(\tR\tdimension\x12K\n" +
 	"\tblock_pos\x18\x02 \x01(\v2..recorder_minecraft.artifacts.v1.BlockPositionR\bblockPos\x12*\n" +
@@ -840,30 +776,30 @@ func file_recorder_minecraft_artifacts_v1_world_proto_rawDescGZIP() []byte {
 }
 
 var file_recorder_minecraft_artifacts_v1_world_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_recorder_minecraft_artifacts_v1_world_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_recorder_minecraft_artifacts_v1_world_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
 var file_recorder_minecraft_artifacts_v1_world_proto_goTypes = []any{
 	(ContainerSnapshot_Reason)(0),        // 0: recorder_minecraft.artifacts.v1.ContainerSnapshot.Reason
 	(ContainerSnapshot_ContentsState)(0), // 1: recorder_minecraft.artifacts.v1.ContainerSnapshot.ContentsState
 	(ContainerRemoved_Cause)(0),          // 2: recorder_minecraft.artifacts.v1.ContainerRemoved.Cause
 	(*WorldEvent)(nil),                   // 3: recorder_minecraft.artifacts.v1.WorldEvent
 	(*WorldEventIdentity)(nil),           // 4: recorder_minecraft.artifacts.v1.WorldEventIdentity
-	(*BlockPosition)(nil),                // 5: recorder_minecraft.artifacts.v1.BlockPosition
-	(*ContainerSnapshot)(nil),            // 6: recorder_minecraft.artifacts.v1.ContainerSnapshot
-	(*ContainerRemoved)(nil),             // 7: recorder_minecraft.artifacts.v1.ContainerRemoved
-	(*WorldSessionMetadata)(nil),         // 8: recorder_minecraft.artifacts.v1.WorldSessionMetadata
+	(*ContainerSnapshot)(nil),            // 5: recorder_minecraft.artifacts.v1.ContainerSnapshot
+	(*ContainerRemoved)(nil),             // 6: recorder_minecraft.artifacts.v1.ContainerRemoved
+	(*WorldSessionMetadata)(nil),         // 7: recorder_minecraft.artifacts.v1.WorldSessionMetadata
+	(*BlockPosition)(nil),                // 8: recorder_minecraft.artifacts.v1.BlockPosition
 	(*InventorySlot)(nil),                // 9: recorder_minecraft.artifacts.v1.InventorySlot
 	(*ServerIdentity)(nil),               // 10: recorder_minecraft.artifacts.v1.ServerIdentity
 	(*timestamppb.Timestamp)(nil),        // 11: google.protobuf.Timestamp
 }
 var file_recorder_minecraft_artifacts_v1_world_proto_depIdxs = []int32{
 	4,  // 0: recorder_minecraft.artifacts.v1.WorldEvent.identity:type_name -> recorder_minecraft.artifacts.v1.WorldEventIdentity
-	6,  // 1: recorder_minecraft.artifacts.v1.WorldEvent.container_snapshot:type_name -> recorder_minecraft.artifacts.v1.ContainerSnapshot
-	7,  // 2: recorder_minecraft.artifacts.v1.WorldEvent.container_removed:type_name -> recorder_minecraft.artifacts.v1.ContainerRemoved
-	5,  // 3: recorder_minecraft.artifacts.v1.ContainerSnapshot.block_pos:type_name -> recorder_minecraft.artifacts.v1.BlockPosition
+	5,  // 1: recorder_minecraft.artifacts.v1.WorldEvent.container_snapshot:type_name -> recorder_minecraft.artifacts.v1.ContainerSnapshot
+	6,  // 2: recorder_minecraft.artifacts.v1.WorldEvent.container_removed:type_name -> recorder_minecraft.artifacts.v1.ContainerRemoved
+	8,  // 3: recorder_minecraft.artifacts.v1.ContainerSnapshot.block_pos:type_name -> recorder_minecraft.artifacts.v1.BlockPosition
 	0,  // 4: recorder_minecraft.artifacts.v1.ContainerSnapshot.reason:type_name -> recorder_minecraft.artifacts.v1.ContainerSnapshot.Reason
 	1,  // 5: recorder_minecraft.artifacts.v1.ContainerSnapshot.contents_state:type_name -> recorder_minecraft.artifacts.v1.ContainerSnapshot.ContentsState
 	9,  // 6: recorder_minecraft.artifacts.v1.ContainerSnapshot.slots:type_name -> recorder_minecraft.artifacts.v1.InventorySlot
-	5,  // 7: recorder_minecraft.artifacts.v1.ContainerRemoved.block_pos:type_name -> recorder_minecraft.artifacts.v1.BlockPosition
+	8,  // 7: recorder_minecraft.artifacts.v1.ContainerRemoved.block_pos:type_name -> recorder_minecraft.artifacts.v1.BlockPosition
 	2,  // 8: recorder_minecraft.artifacts.v1.ContainerRemoved.cause:type_name -> recorder_minecraft.artifacts.v1.ContainerRemoved.Cause
 	10, // 9: recorder_minecraft.artifacts.v1.WorldSessionMetadata.server:type_name -> recorder_minecraft.artifacts.v1.ServerIdentity
 	11, // 10: recorder_minecraft.artifacts.v1.WorldSessionMetadata.started_at:type_name -> google.protobuf.Timestamp
@@ -880,20 +816,21 @@ func file_recorder_minecraft_artifacts_v1_world_proto_init() {
 	if File_recorder_minecraft_artifacts_v1_world_proto != nil {
 		return
 	}
+	file_recorder_minecraft_artifacts_v1_common_proto_init()
 	file_recorder_minecraft_artifacts_v1_events_proto_init()
 	file_recorder_minecraft_artifacts_v1_metadata_proto_init()
 	file_recorder_minecraft_artifacts_v1_world_proto_msgTypes[0].OneofWrappers = []any{
 		(*WorldEvent_ContainerSnapshot)(nil),
 		(*WorldEvent_ContainerRemoved)(nil),
 	}
-	file_recorder_minecraft_artifacts_v1_world_proto_msgTypes[5].OneofWrappers = []any{}
+	file_recorder_minecraft_artifacts_v1_world_proto_msgTypes[4].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_recorder_minecraft_artifacts_v1_world_proto_rawDesc), len(file_recorder_minecraft_artifacts_v1_world_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   6,
+			NumMessages:   5,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
