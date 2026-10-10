@@ -1,9 +1,11 @@
 /* SPDX-License-Identifier: MPL-2.0 */
-// NOTICE: Ported without behavioral or styling changes from
+// NOTICE: Ported from
 // `https://github.com/techsquidtv/canvas-timeline/blob/1536a2dbc54e3a333ace360894a2e4508b295cf1/packages/renderer/src/render/tracks.ts#L1-L122`.
+// Recorder adds data lane drawing for tracks listed in `renderContext.dataLanes`.
 
 import type { Clip } from '@techsquidtv/canvas-timeline-core';
 import { drawClip } from '#renderer/render/clips';
+import { drawDataLane } from '#renderer/render/dataLanes';
 import { getActiveWidth } from '#renderer/render/geometry';
 import type { RenderContext } from '#renderer/render/types';
 
@@ -88,6 +90,19 @@ export function drawTracks(renderContext: RenderContext) {
     if (dividerWidth > 0 && dividerY < visibleBottom && trackBottom > visibleY) {
       ctx.fillStyle = theme.colors.track.divider;
       ctx.fillRect(0, dividerY, drawWidth, dividerWidth);
+    }
+
+    const dataLane = renderContext.dataLanes?.get(track.id);
+    if (dataLane) {
+      const selection = renderContext.dataSelection;
+      drawDataLane(
+        renderContext,
+        dataLane,
+        y,
+        trackHeight,
+        drawWidth,
+        selection && selection.trackId === track.id ? selection.index : -1
+      );
     }
 
     if (renderContext.options.showClips) {
