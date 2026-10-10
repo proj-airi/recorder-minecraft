@@ -81,8 +81,33 @@ message Packet {
   Vector3 block_position = 20;
   BlockHit block_hit = 21;
   EntityTarget target = 22;
-  optional string changed_slots = 23;
-  optional string carried_item = 24;
+  // Free-form text of a container click's changed slots and carried stack.
+  // Production recorders never filled these: the reflective lookup that set
+  // them could not find Mojang method names in the remapped game. Use
+  // changed_slot_stacks and carried_stack.
+  optional string changed_slots = 23 [deprecated = true];
+  optional string carried_item = 24 [deprecated = true];
+  // The client's prediction of every slot a container click changed, in
+  // ascending slot order. An emptied slot is minecraft:air with count 0.
+  repeated HashedItemStack changed_slot_stacks = 25;
+  // The client's prediction of the cursor stack after a container click,
+  // with slot -1.
+  optional HashedItemStack carried_stack = 26;
+}
+
+// An item stack as a container click reports it. The client sends component
+// hashes, not component values, so the stack can be compared with an
+// authoritative InventorySlot but not reconstructed from this message.
+message HashedItemStack {
+  int32 slot = 1;
+  string item_id = 2;
+  int32 count = 3;
+  // Added or changed data components, keyed by component type id, to the
+  // 32-bit hash the client computed for the component value.
+  map<string, int32> component_hashes = 4;
+  // Data component type ids the stack removes from its item's defaults, in
+  // id order.
+  repeated string removed_components = 5;
 }
 
 message BlockHit {

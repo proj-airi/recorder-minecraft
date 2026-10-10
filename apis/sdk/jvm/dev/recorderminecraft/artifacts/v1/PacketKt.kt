@@ -562,9 +562,16 @@ public object PacketKt {
       get() = _builder.targetOrNull
 
     /**
-     * `optional string changed_slots = 23 [json_name = "changedSlots"];`
+     * ```
+     * Free-form text of a container click's changed slots and carried stack.
+     * Production recorders never filled these: the reflective lookup that set
+     * them could not find Mojang method names in the remapped game. Use
+     * changed_slot_stacks and carried_stack.
+     * ```
+     *
+     * `optional string changed_slots = 23 [json_name = "changedSlots", deprecated = true];`
      */
-    public var changedSlots: kotlin.String
+    @kotlin.Deprecated(message = "Field changedSlots is deprecated") public var changedSlots: kotlin.String
       @kotlin.jvm.JvmName("getChangedSlots")
         get() = _builder.changedSlots
       @kotlin.jvm.JvmName("setChangedSlots")
@@ -572,13 +579,27 @@ public object PacketKt {
         _builder.changedSlots = value
       }
     /**
-     * `optional string changed_slots = 23 [json_name = "changedSlots"];`
+     * ```
+     * Free-form text of a container click's changed slots and carried stack.
+     * Production recorders never filled these: the reflective lookup that set
+     * them could not find Mojang method names in the remapped game. Use
+     * changed_slot_stacks and carried_stack.
+     * ```
+     *
+     * `optional string changed_slots = 23 [json_name = "changedSlots", deprecated = true];`
      */
     public fun clearChangedSlots() {
       _builder.clearChangedSlots()
     }
     /**
-     * `optional string changed_slots = 23 [json_name = "changedSlots"];`
+     * ```
+     * Free-form text of a container click's changed slots and carried stack.
+     * Production recorders never filled these: the reflective lookup that set
+     * them could not find Mojang method names in the remapped game. Use
+     * changed_slot_stacks and carried_stack.
+     * ```
+     *
+     * `optional string changed_slots = 23 [json_name = "changedSlots", deprecated = true];`
      * @return Whether the changedSlots field is set.
      */
     public fun hasChangedSlots(): kotlin.Boolean {
@@ -586,9 +607,9 @@ public object PacketKt {
     }
 
     /**
-     * `optional string carried_item = 24 [json_name = "carriedItem"];`
+     * `optional string carried_item = 24 [json_name = "carriedItem", deprecated = true];`
      */
-    public var carriedItem: kotlin.String
+    @kotlin.Deprecated(message = "Field carriedItem is deprecated") public var carriedItem: kotlin.String
       @kotlin.jvm.JvmName("getCarriedItem")
         get() = _builder.carriedItem
       @kotlin.jvm.JvmName("setCarriedItem")
@@ -596,18 +617,166 @@ public object PacketKt {
         _builder.carriedItem = value
       }
     /**
-     * `optional string carried_item = 24 [json_name = "carriedItem"];`
+     * `optional string carried_item = 24 [json_name = "carriedItem", deprecated = true];`
      */
     public fun clearCarriedItem() {
       _builder.clearCarriedItem()
     }
     /**
-     * `optional string carried_item = 24 [json_name = "carriedItem"];`
+     * `optional string carried_item = 24 [json_name = "carriedItem", deprecated = true];`
      * @return Whether the carriedItem field is set.
      */
     public fun hasCarriedItem(): kotlin.Boolean {
       return _builder.hasCarriedItem()
     }
+
+    /**
+     * An uninstantiable, behaviorless type to represent the field in
+     * generics.
+     */
+    @kotlin.OptIn(com.google.protobuf.kotlin.OnlyForUseByGeneratedProtoCode::class)
+    public class ChangedSlotStacksProxy private constructor() : com.google.protobuf.kotlin.DslProxy()
+    /**
+     * ```
+     * The client's prediction of every slot a container click changed, in
+     * ascending slot order. An emptied slot is minecraft:air with count 0.
+     * ```
+     *
+     * `repeated .recorder_minecraft.artifacts.v1.HashedItemStack changed_slot_stacks = 25 [json_name = "changedSlotStacks"];`
+     */
+     public val changedSlotStacks: com.google.protobuf.kotlin.DslList<dev.recorderminecraft.artifacts.v1.HashedItemStack, ChangedSlotStacksProxy>
+      @kotlin.jvm.JvmSynthetic
+  get() = com.google.protobuf.kotlin.DslList(
+        _builder.changedSlotStacksList
+      )
+    /**
+     * ```
+     * The client's prediction of every slot a container click changed, in
+     * ascending slot order. An emptied slot is minecraft:air with count 0.
+     * ```
+     *
+     * `repeated .recorder_minecraft.artifacts.v1.HashedItemStack changed_slot_stacks = 25 [json_name = "changedSlotStacks"];`
+     * @param value The changedSlotStacks to add.
+     */
+    @kotlin.jvm.JvmSynthetic
+@kotlin.jvm.JvmName("addChangedSlotStacks")
+    public fun com.google.protobuf.kotlin.DslList<dev.recorderminecraft.artifacts.v1.HashedItemStack, ChangedSlotStacksProxy>.add(value: dev.recorderminecraft.artifacts.v1.HashedItemStack) {
+      _builder.addChangedSlotStacks(value)
+    }
+    /**
+     * ```
+     * The client's prediction of every slot a container click changed, in
+     * ascending slot order. An emptied slot is minecraft:air with count 0.
+     * ```
+     *
+     * `repeated .recorder_minecraft.artifacts.v1.HashedItemStack changed_slot_stacks = 25 [json_name = "changedSlotStacks"];`
+     * @param value The changedSlotStacks to add.
+     */
+    @kotlin.jvm.JvmSynthetic
+@kotlin.jvm.JvmName("plusAssignChangedSlotStacks")
+    @Suppress("NOTHING_TO_INLINE")
+    public inline operator fun com.google.protobuf.kotlin.DslList<dev.recorderminecraft.artifacts.v1.HashedItemStack, ChangedSlotStacksProxy>.plusAssign(value: dev.recorderminecraft.artifacts.v1.HashedItemStack) {
+      add(value)
+    }
+    /**
+     * ```
+     * The client's prediction of every slot a container click changed, in
+     * ascending slot order. An emptied slot is minecraft:air with count 0.
+     * ```
+     *
+     * `repeated .recorder_minecraft.artifacts.v1.HashedItemStack changed_slot_stacks = 25 [json_name = "changedSlotStacks"];`
+     * @param values The changedSlotStacks to add.
+     */
+    @kotlin.jvm.JvmSynthetic
+@kotlin.jvm.JvmName("addAllChangedSlotStacks")
+    public fun com.google.protobuf.kotlin.DslList<dev.recorderminecraft.artifacts.v1.HashedItemStack, ChangedSlotStacksProxy>.addAll(values: kotlin.collections.Iterable<dev.recorderminecraft.artifacts.v1.HashedItemStack>) {
+      _builder.addAllChangedSlotStacks(values)
+    }
+    /**
+     * ```
+     * The client's prediction of every slot a container click changed, in
+     * ascending slot order. An emptied slot is minecraft:air with count 0.
+     * ```
+     *
+     * `repeated .recorder_minecraft.artifacts.v1.HashedItemStack changed_slot_stacks = 25 [json_name = "changedSlotStacks"];`
+     * @param values The changedSlotStacks to add.
+     */
+    @kotlin.jvm.JvmSynthetic
+@kotlin.jvm.JvmName("plusAssignAllChangedSlotStacks")
+    @Suppress("NOTHING_TO_INLINE")
+    public inline operator fun com.google.protobuf.kotlin.DslList<dev.recorderminecraft.artifacts.v1.HashedItemStack, ChangedSlotStacksProxy>.plusAssign(values: kotlin.collections.Iterable<dev.recorderminecraft.artifacts.v1.HashedItemStack>) {
+      addAll(values)
+    }
+    /**
+     * ```
+     * The client's prediction of every slot a container click changed, in
+     * ascending slot order. An emptied slot is minecraft:air with count 0.
+     * ```
+     *
+     * `repeated .recorder_minecraft.artifacts.v1.HashedItemStack changed_slot_stacks = 25 [json_name = "changedSlotStacks"];`
+     * @param index The index to set the value at.
+     * @param value The changedSlotStacks to set.
+     */
+    @kotlin.jvm.JvmSynthetic
+@kotlin.jvm.JvmName("setChangedSlotStacks")
+    public operator fun com.google.protobuf.kotlin.DslList<dev.recorderminecraft.artifacts.v1.HashedItemStack, ChangedSlotStacksProxy>.set(index: kotlin.Int, value: dev.recorderminecraft.artifacts.v1.HashedItemStack) {
+      _builder.setChangedSlotStacks(index, value)
+    }
+    /**
+     * ```
+     * The client's prediction of every slot a container click changed, in
+     * ascending slot order. An emptied slot is minecraft:air with count 0.
+     * ```
+     *
+     * `repeated .recorder_minecraft.artifacts.v1.HashedItemStack changed_slot_stacks = 25 [json_name = "changedSlotStacks"];`
+     */
+    @kotlin.jvm.JvmSynthetic
+@kotlin.jvm.JvmName("clearChangedSlotStacks")
+    public fun com.google.protobuf.kotlin.DslList<dev.recorderminecraft.artifacts.v1.HashedItemStack, ChangedSlotStacksProxy>.clear() {
+      _builder.clearChangedSlotStacks()
+    }
+
+    /**
+     * ```
+     * The client's prediction of the cursor stack after a container click,
+     * with slot -1.
+     * ```
+     *
+     * `optional .recorder_minecraft.artifacts.v1.HashedItemStack carried_stack = 26 [json_name = "carriedStack"];`
+     */
+    public var carriedStack: dev.recorderminecraft.artifacts.v1.HashedItemStack
+      @kotlin.jvm.JvmName("getCarriedStack")
+        get() = _builder.carriedStack
+      @kotlin.jvm.JvmName("setCarriedStack")
+        set(value) {
+        _builder.carriedStack = value
+      }
+    /**
+     * ```
+     * The client's prediction of the cursor stack after a container click,
+     * with slot -1.
+     * ```
+     *
+     * `optional .recorder_minecraft.artifacts.v1.HashedItemStack carried_stack = 26 [json_name = "carriedStack"];`
+     */
+    public fun clearCarriedStack() {
+      _builder.clearCarriedStack()
+    }
+    /**
+     * ```
+     * The client's prediction of the cursor stack after a container click,
+     * with slot -1.
+     * ```
+     *
+     * `optional .recorder_minecraft.artifacts.v1.HashedItemStack carried_stack = 26 [json_name = "carriedStack"];`
+     * @return Whether the carriedStack field is set.
+     */
+    public fun hasCarriedStack(): kotlin.Boolean {
+      return _builder.hasCarriedStack()
+    }
+
+    public val PacketKt.Dsl.carriedStackOrNull: dev.recorderminecraft.artifacts.v1.HashedItemStack?
+      get() = _builder.carriedStackOrNull
   }
 }
 @kotlin.jvm.JvmSynthetic
@@ -631,4 +800,7 @@ public val dev.recorderminecraft.artifacts.v1.PacketOrBuilder.blockHitOrNull: de
 
 public val dev.recorderminecraft.artifacts.v1.PacketOrBuilder.targetOrNull: dev.recorderminecraft.artifacts.v1.EntityTarget?
   get() = if (hasTarget()) getTarget() else null
+
+public val dev.recorderminecraft.artifacts.v1.PacketOrBuilder.carriedStackOrNull: dev.recorderminecraft.artifacts.v1.HashedItemStack?
+  get() = if (hasCarriedStack()) getCarriedStack() else null
 

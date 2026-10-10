@@ -303,36 +303,148 @@ public interface PacketOrBuilder extends
   dev.recorderminecraft.artifacts.v1.EntityTargetOrBuilder getTargetOrBuilder();
 
   /**
-   * <code>optional string changed_slots = 23 [json_name = "changedSlots"];</code>
+   * <pre>
+   * Free-form text of a container click's changed slots and carried stack.
+   * Production recorders never filled these: the reflective lookup that set
+   * them could not find Mojang method names in the remapped game. Use
+   * changed_slot_stacks and carried_stack.
+   * </pre>
+   *
+   * <code>optional string changed_slots = 23 [json_name = "changedSlots", deprecated = true];</code>
+   * @deprecated recorder_minecraft.artifacts.v1.Packet.changed_slots is deprecated.
+   *     See recorder-minecraft/artifacts/v1/events.proto;l=87
    * @return Whether the changedSlots field is set.
    */
-  boolean hasChangedSlots();
+  @java.lang.Deprecated boolean hasChangedSlots();
   /**
-   * <code>optional string changed_slots = 23 [json_name = "changedSlots"];</code>
+   * <pre>
+   * Free-form text of a container click's changed slots and carried stack.
+   * Production recorders never filled these: the reflective lookup that set
+   * them could not find Mojang method names in the remapped game. Use
+   * changed_slot_stacks and carried_stack.
+   * </pre>
+   *
+   * <code>optional string changed_slots = 23 [json_name = "changedSlots", deprecated = true];</code>
+   * @deprecated recorder_minecraft.artifacts.v1.Packet.changed_slots is deprecated.
+   *     See recorder-minecraft/artifacts/v1/events.proto;l=87
    * @return The changedSlots.
    */
-  java.lang.String getChangedSlots();
+  @java.lang.Deprecated java.lang.String getChangedSlots();
   /**
-   * <code>optional string changed_slots = 23 [json_name = "changedSlots"];</code>
+   * <pre>
+   * Free-form text of a container click's changed slots and carried stack.
+   * Production recorders never filled these: the reflective lookup that set
+   * them could not find Mojang method names in the remapped game. Use
+   * changed_slot_stacks and carried_stack.
+   * </pre>
+   *
+   * <code>optional string changed_slots = 23 [json_name = "changedSlots", deprecated = true];</code>
+   * @deprecated recorder_minecraft.artifacts.v1.Packet.changed_slots is deprecated.
+   *     See recorder-minecraft/artifacts/v1/events.proto;l=87
    * @return The bytes for changedSlots.
    */
-  com.google.protobuf.ByteString
+  @java.lang.Deprecated com.google.protobuf.ByteString
       getChangedSlotsBytes();
 
   /**
-   * <code>optional string carried_item = 24 [json_name = "carriedItem"];</code>
+   * <code>optional string carried_item = 24 [json_name = "carriedItem", deprecated = true];</code>
+   * @deprecated recorder_minecraft.artifacts.v1.Packet.carried_item is deprecated.
+   *     See recorder-minecraft/artifacts/v1/events.proto;l=88
    * @return Whether the carriedItem field is set.
    */
-  boolean hasCarriedItem();
+  @java.lang.Deprecated boolean hasCarriedItem();
   /**
-   * <code>optional string carried_item = 24 [json_name = "carriedItem"];</code>
+   * <code>optional string carried_item = 24 [json_name = "carriedItem", deprecated = true];</code>
+   * @deprecated recorder_minecraft.artifacts.v1.Packet.carried_item is deprecated.
+   *     See recorder-minecraft/artifacts/v1/events.proto;l=88
    * @return The carriedItem.
    */
-  java.lang.String getCarriedItem();
+  @java.lang.Deprecated java.lang.String getCarriedItem();
   /**
-   * <code>optional string carried_item = 24 [json_name = "carriedItem"];</code>
+   * <code>optional string carried_item = 24 [json_name = "carriedItem", deprecated = true];</code>
+   * @deprecated recorder_minecraft.artifacts.v1.Packet.carried_item is deprecated.
+   *     See recorder-minecraft/artifacts/v1/events.proto;l=88
    * @return The bytes for carriedItem.
    */
-  com.google.protobuf.ByteString
+  @java.lang.Deprecated com.google.protobuf.ByteString
       getCarriedItemBytes();
+
+  /**
+   * <pre>
+   * The client's prediction of every slot a container click changed, in
+   * ascending slot order. An emptied slot is minecraft:air with count 0.
+   * </pre>
+   *
+   * <code>repeated .recorder_minecraft.artifacts.v1.HashedItemStack changed_slot_stacks = 25 [json_name = "changedSlotStacks"];</code>
+   */
+  java.util.List<dev.recorderminecraft.artifacts.v1.HashedItemStack> 
+      getChangedSlotStacksList();
+  /**
+   * <pre>
+   * The client's prediction of every slot a container click changed, in
+   * ascending slot order. An emptied slot is minecraft:air with count 0.
+   * </pre>
+   *
+   * <code>repeated .recorder_minecraft.artifacts.v1.HashedItemStack changed_slot_stacks = 25 [json_name = "changedSlotStacks"];</code>
+   */
+  dev.recorderminecraft.artifacts.v1.HashedItemStack getChangedSlotStacks(int index);
+  /**
+   * <pre>
+   * The client's prediction of every slot a container click changed, in
+   * ascending slot order. An emptied slot is minecraft:air with count 0.
+   * </pre>
+   *
+   * <code>repeated .recorder_minecraft.artifacts.v1.HashedItemStack changed_slot_stacks = 25 [json_name = "changedSlotStacks"];</code>
+   */
+  int getChangedSlotStacksCount();
+  /**
+   * <pre>
+   * The client's prediction of every slot a container click changed, in
+   * ascending slot order. An emptied slot is minecraft:air with count 0.
+   * </pre>
+   *
+   * <code>repeated .recorder_minecraft.artifacts.v1.HashedItemStack changed_slot_stacks = 25 [json_name = "changedSlotStacks"];</code>
+   */
+  java.util.List<? extends dev.recorderminecraft.artifacts.v1.HashedItemStackOrBuilder> 
+      getChangedSlotStacksOrBuilderList();
+  /**
+   * <pre>
+   * The client's prediction of every slot a container click changed, in
+   * ascending slot order. An emptied slot is minecraft:air with count 0.
+   * </pre>
+   *
+   * <code>repeated .recorder_minecraft.artifacts.v1.HashedItemStack changed_slot_stacks = 25 [json_name = "changedSlotStacks"];</code>
+   */
+  dev.recorderminecraft.artifacts.v1.HashedItemStackOrBuilder getChangedSlotStacksOrBuilder(
+      int index);
+
+  /**
+   * <pre>
+   * The client's prediction of the cursor stack after a container click,
+   * with slot -1.
+   * </pre>
+   *
+   * <code>optional .recorder_minecraft.artifacts.v1.HashedItemStack carried_stack = 26 [json_name = "carriedStack"];</code>
+   * @return Whether the carriedStack field is set.
+   */
+  boolean hasCarriedStack();
+  /**
+   * <pre>
+   * The client's prediction of the cursor stack after a container click,
+   * with slot -1.
+   * </pre>
+   *
+   * <code>optional .recorder_minecraft.artifacts.v1.HashedItemStack carried_stack = 26 [json_name = "carriedStack"];</code>
+   * @return The carriedStack.
+   */
+  dev.recorderminecraft.artifacts.v1.HashedItemStack getCarriedStack();
+  /**
+   * <pre>
+   * The client's prediction of the cursor stack after a container click,
+   * with slot -1.
+   * </pre>
+   *
+   * <code>optional .recorder_minecraft.artifacts.v1.HashedItemStack carried_stack = 26 [json_name = "carriedStack"];</code>
+   */
+  dev.recorderminecraft.artifacts.v1.HashedItemStackOrBuilder getCarriedStackOrBuilder();
 }
