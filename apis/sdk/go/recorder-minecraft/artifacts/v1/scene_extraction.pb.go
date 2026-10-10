@@ -70,6 +70,57 @@ func (SceneExtractionResult_Status) EnumDescriptor() ([]byte, []int) {
 	return file_recorder_minecraft_artifacts_v1_scene_extraction_proto_rawDescGZIP(), []int{3, 0}
 }
 
+type SceneToleratedMod_Difference int32
+
+const (
+	SceneToleratedMod_DIFFERENCE_UNSPECIFIED SceneToleratedMod_Difference = 0
+	// The extractor pins this mod ID at a different version.
+	SceneToleratedMod_DIFFERENCE_VERSION_MISMATCH SceneToleratedMod_Difference = 1
+	// The extractor runtime does not contain this mod ID.
+	SceneToleratedMod_DIFFERENCE_NOT_IN_EXTRACTOR SceneToleratedMod_Difference = 2
+)
+
+// Enum value maps for SceneToleratedMod_Difference.
+var (
+	SceneToleratedMod_Difference_name = map[int32]string{
+		0: "DIFFERENCE_UNSPECIFIED",
+		1: "DIFFERENCE_VERSION_MISMATCH",
+		2: "DIFFERENCE_NOT_IN_EXTRACTOR",
+	}
+	SceneToleratedMod_Difference_value = map[string]int32{
+		"DIFFERENCE_UNSPECIFIED":      0,
+		"DIFFERENCE_VERSION_MISMATCH": 1,
+		"DIFFERENCE_NOT_IN_EXTRACTOR": 2,
+	}
+)
+
+func (x SceneToleratedMod_Difference) Enum() *SceneToleratedMod_Difference {
+	p := new(SceneToleratedMod_Difference)
+	*p = x
+	return p
+}
+
+func (x SceneToleratedMod_Difference) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (SceneToleratedMod_Difference) Descriptor() protoreflect.EnumDescriptor {
+	return file_recorder_minecraft_artifacts_v1_scene_extraction_proto_enumTypes[1].Descriptor()
+}
+
+func (SceneToleratedMod_Difference) Type() protoreflect.EnumType {
+	return &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_enumTypes[1]
+}
+
+func (x SceneToleratedMod_Difference) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use SceneToleratedMod_Difference.Descriptor instead.
+func (SceneToleratedMod_Difference) EnumDescriptor() ([]byte, []int) {
+	return file_recorder_minecraft_artifacts_v1_scene_extraction_proto_rawDescGZIP(), []int{5, 0}
+}
+
 // SceneExtractionJob is the complete private request consumed by the extractor process.
 type SceneExtractionJob struct {
 	state                    protoimpl.MessageState `protogen:"open.v1"`
@@ -426,8 +477,10 @@ type SceneExtractionResult struct {
 	Stream              *SceneStreamResult           `protobuf:"bytes,11,opt,name=stream,proto3" json:"stream,omitempty"`
 	IgnoredPacketCounts map[string]uint64            `protobuf:"bytes,12,rep,name=ignored_packet_counts,json=ignoredPacketCounts,proto3" json:"ignored_packet_counts,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
 	CoveredTickCount    uint64                       `protobuf:"varint,13,opt,name=covered_tick_count,json=coveredTickCount,proto3" json:"covered_tick_count,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	// One entry per source replay, in source_replays order.
+	SourceRuntimes []*SceneSourceRuntime `protobuf:"bytes,14,rep,name=source_runtimes,json=sourceRuntimes,proto3" json:"source_runtimes,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *SceneExtractionResult) Reset() {
@@ -551,6 +604,175 @@ func (x *SceneExtractionResult) GetCoveredTickCount() uint64 {
 	return 0
 }
 
+func (x *SceneExtractionResult) GetSourceRuntimes() []*SceneSourceRuntime {
+	if x != nil {
+		return x.SourceRuntimes
+	}
+	return nil
+}
+
+// SceneSourceRuntime is the runtime that recorded one source replay. The
+// Minecraft identity equals the extractor's own: the extractor rejects a replay
+// otherwise. Mods are provenance only; see tolerated_mods.
+type SceneSourceRuntime struct {
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	SegmentId string                 `protobuf:"bytes,1,opt,name=segment_id,json=segmentId,proto3" json:"segment_id,omitempty"`
+	// Flashback metadata version_string, protocol_version, and data_version.
+	MinecraftVersion string `protobuf:"bytes,2,opt,name=minecraft_version,json=minecraftVersion,proto3" json:"minecraft_version,omitempty"`
+	ProtocolVersion  int32  `protobuf:"varint,3,opt,name=protocol_version,json=protocolVersion,proto3" json:"protocol_version,omitempty"`
+	DataVersion      int32  `protobuf:"varint,4,opt,name=data_version,json=dataVersion,proto3" json:"data_version,omitempty"`
+	// ServerReplay version that wrote the Flashback archive.
+	ServerReplayVersion string `protobuf:"bytes,5,opt,name=server_replay_version,json=serverReplayVersion,proto3" json:"server_replay_version,omitempty"`
+	// Recording mods that differ from the extractor runtime, sorted by mod_id.
+	// The extractor decodes with vanilla codecs and registries, so these mods do
+	// not change decoding. Registry entries that a content mod adds still fail
+	// decoding.
+	ToleratedMods []*SceneToleratedMod `protobuf:"bytes,6,rep,name=tolerated_mods,json=toleratedMods,proto3" json:"tolerated_mods,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SceneSourceRuntime) Reset() {
+	*x = SceneSourceRuntime{}
+	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SceneSourceRuntime) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SceneSourceRuntime) ProtoMessage() {}
+
+func (x *SceneSourceRuntime) ProtoReflect() protoreflect.Message {
+	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SceneSourceRuntime.ProtoReflect.Descriptor instead.
+func (*SceneSourceRuntime) Descriptor() ([]byte, []int) {
+	return file_recorder_minecraft_artifacts_v1_scene_extraction_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *SceneSourceRuntime) GetSegmentId() string {
+	if x != nil {
+		return x.SegmentId
+	}
+	return ""
+}
+
+func (x *SceneSourceRuntime) GetMinecraftVersion() string {
+	if x != nil {
+		return x.MinecraftVersion
+	}
+	return ""
+}
+
+func (x *SceneSourceRuntime) GetProtocolVersion() int32 {
+	if x != nil {
+		return x.ProtocolVersion
+	}
+	return 0
+}
+
+func (x *SceneSourceRuntime) GetDataVersion() int32 {
+	if x != nil {
+		return x.DataVersion
+	}
+	return 0
+}
+
+func (x *SceneSourceRuntime) GetServerReplayVersion() string {
+	if x != nil {
+		return x.ServerReplayVersion
+	}
+	return ""
+}
+
+func (x *SceneSourceRuntime) GetToleratedMods() []*SceneToleratedMod {
+	if x != nil {
+		return x.ToleratedMods
+	}
+	return nil
+}
+
+type SceneToleratedMod struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ModId         string                 `protobuf:"bytes,1,opt,name=mod_id,json=modId,proto3" json:"mod_id,omitempty"`
+	SourceVersion string                 `protobuf:"bytes,2,opt,name=source_version,json=sourceVersion,proto3" json:"source_version,omitempty"`
+	// Empty for DIFFERENCE_NOT_IN_EXTRACTOR.
+	ExtractorVersion string                       `protobuf:"bytes,3,opt,name=extractor_version,json=extractorVersion,proto3" json:"extractor_version,omitempty"`
+	Difference       SceneToleratedMod_Difference `protobuf:"varint,4,opt,name=difference,proto3,enum=recorder_minecraft.artifacts.v1.SceneToleratedMod_Difference" json:"difference,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *SceneToleratedMod) Reset() {
+	*x = SceneToleratedMod{}
+	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SceneToleratedMod) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SceneToleratedMod) ProtoMessage() {}
+
+func (x *SceneToleratedMod) ProtoReflect() protoreflect.Message {
+	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SceneToleratedMod.ProtoReflect.Descriptor instead.
+func (*SceneToleratedMod) Descriptor() ([]byte, []int) {
+	return file_recorder_minecraft_artifacts_v1_scene_extraction_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *SceneToleratedMod) GetModId() string {
+	if x != nil {
+		return x.ModId
+	}
+	return ""
+}
+
+func (x *SceneToleratedMod) GetSourceVersion() string {
+	if x != nil {
+		return x.SourceVersion
+	}
+	return ""
+}
+
+func (x *SceneToleratedMod) GetExtractorVersion() string {
+	if x != nil {
+		return x.ExtractorVersion
+	}
+	return ""
+}
+
+func (x *SceneToleratedMod) GetDifference() SceneToleratedMod_Difference {
+	if x != nil {
+		return x.Difference
+	}
+	return SceneToleratedMod_DIFFERENCE_UNSPECIFIED
+}
+
 type SceneStreamResult struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	Path             string                 `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
@@ -571,7 +793,7 @@ type SceneStreamResult struct {
 
 func (x *SceneStreamResult) Reset() {
 	*x = SceneStreamResult{}
-	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[4]
+	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -583,7 +805,7 @@ func (x *SceneStreamResult) String() string {
 func (*SceneStreamResult) ProtoMessage() {}
 
 func (x *SceneStreamResult) ProtoReflect() protoreflect.Message {
-	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[4]
+	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -596,7 +818,7 @@ func (x *SceneStreamResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SceneStreamResult.ProtoReflect.Descriptor instead.
 func (*SceneStreamResult) Descriptor() ([]byte, []int) {
-	return file_recorder_minecraft_artifacts_v1_scene_extraction_proto_rawDescGZIP(), []int{4}
+	return file_recorder_minecraft_artifacts_v1_scene_extraction_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *SceneStreamResult) GetPath() string {
@@ -707,7 +929,7 @@ type SceneFrameRecord struct {
 
 func (x *SceneFrameRecord) Reset() {
 	*x = SceneFrameRecord{}
-	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[5]
+	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -719,7 +941,7 @@ func (x *SceneFrameRecord) String() string {
 func (*SceneFrameRecord) ProtoMessage() {}
 
 func (x *SceneFrameRecord) ProtoReflect() protoreflect.Message {
-	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[5]
+	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -732,7 +954,7 @@ func (x *SceneFrameRecord) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SceneFrameRecord.ProtoReflect.Descriptor instead.
 func (*SceneFrameRecord) Descriptor() ([]byte, []int) {
-	return file_recorder_minecraft_artifacts_v1_scene_extraction_proto_rawDescGZIP(), []int{5}
+	return file_recorder_minecraft_artifacts_v1_scene_extraction_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *SceneFrameRecord) GetServerTick() int64 {
@@ -870,7 +1092,7 @@ type SceneChangeRecord struct {
 
 func (x *SceneChangeRecord) Reset() {
 	*x = SceneChangeRecord{}
-	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[6]
+	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -882,7 +1104,7 @@ func (x *SceneChangeRecord) String() string {
 func (*SceneChangeRecord) ProtoMessage() {}
 
 func (x *SceneChangeRecord) ProtoReflect() protoreflect.Message {
-	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[6]
+	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -895,7 +1117,7 @@ func (x *SceneChangeRecord) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SceneChangeRecord.ProtoReflect.Descriptor instead.
 func (*SceneChangeRecord) Descriptor() ([]byte, []int) {
-	return file_recorder_minecraft_artifacts_v1_scene_extraction_proto_rawDescGZIP(), []int{6}
+	return file_recorder_minecraft_artifacts_v1_scene_extraction_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *SceneChangeRecord) GetSequence() uint64 {
@@ -1059,7 +1281,7 @@ type SegmentBegin struct {
 
 func (x *SegmentBegin) Reset() {
 	*x = SegmentBegin{}
-	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[7]
+	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1071,7 +1293,7 @@ func (x *SegmentBegin) String() string {
 func (*SegmentBegin) ProtoMessage() {}
 
 func (x *SegmentBegin) ProtoReflect() protoreflect.Message {
-	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[7]
+	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1084,7 +1306,7 @@ func (x *SegmentBegin) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SegmentBegin.ProtoReflect.Descriptor instead.
 func (*SegmentBegin) Descriptor() ([]byte, []int) {
-	return file_recorder_minecraft_artifacts_v1_scene_extraction_proto_rawDescGZIP(), []int{7}
+	return file_recorder_minecraft_artifacts_v1_scene_extraction_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *SegmentBegin) GetSha256() string {
@@ -1114,7 +1336,7 @@ type SectionChange struct {
 
 func (x *SectionChange) Reset() {
 	*x = SectionChange{}
-	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[8]
+	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1126,7 +1348,7 @@ func (x *SectionChange) String() string {
 func (*SectionChange) ProtoMessage() {}
 
 func (x *SectionChange) ProtoReflect() protoreflect.Message {
-	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[8]
+	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1139,7 +1361,7 @@ func (x *SectionChange) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SectionChange.ProtoReflect.Descriptor instead.
 func (*SectionChange) Descriptor() ([]byte, []int) {
-	return file_recorder_minecraft_artifacts_v1_scene_extraction_proto_rawDescGZIP(), []int{8}
+	return file_recorder_minecraft_artifacts_v1_scene_extraction_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *SectionChange) GetDimension() string {
@@ -1187,7 +1409,7 @@ type EntityChange struct {
 
 func (x *EntityChange) Reset() {
 	*x = EntityChange{}
-	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[9]
+	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1199,7 +1421,7 @@ func (x *EntityChange) String() string {
 func (*EntityChange) ProtoMessage() {}
 
 func (x *EntityChange) ProtoReflect() protoreflect.Message {
-	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[9]
+	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1212,7 +1434,7 @@ func (x *EntityChange) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EntityChange.ProtoReflect.Descriptor instead.
 func (*EntityChange) Descriptor() ([]byte, []int) {
-	return file_recorder_minecraft_artifacts_v1_scene_extraction_proto_rawDescGZIP(), []int{9}
+	return file_recorder_minecraft_artifacts_v1_scene_extraction_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *EntityChange) GetInstanceId() string {
@@ -1242,7 +1464,7 @@ type BlockEntityChange struct {
 
 func (x *BlockEntityChange) Reset() {
 	*x = BlockEntityChange{}
-	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[10]
+	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1254,7 +1476,7 @@ func (x *BlockEntityChange) String() string {
 func (*BlockEntityChange) ProtoMessage() {}
 
 func (x *BlockEntityChange) ProtoReflect() protoreflect.Message {
-	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[10]
+	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1267,7 +1489,7 @@ func (x *BlockEntityChange) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BlockEntityChange.ProtoReflect.Descriptor instead.
 func (*BlockEntityChange) Descriptor() ([]byte, []int) {
-	return file_recorder_minecraft_artifacts_v1_scene_extraction_proto_rawDescGZIP(), []int{10}
+	return file_recorder_minecraft_artifacts_v1_scene_extraction_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *BlockEntityChange) GetDimension() string {
@@ -1321,7 +1543,7 @@ type SceneBlobPayload struct {
 
 func (x *SceneBlobPayload) Reset() {
 	*x = SceneBlobPayload{}
-	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[11]
+	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1333,7 +1555,7 @@ func (x *SceneBlobPayload) String() string {
 func (*SceneBlobPayload) ProtoMessage() {}
 
 func (x *SceneBlobPayload) ProtoReflect() protoreflect.Message {
-	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[11]
+	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1346,7 +1568,7 @@ func (x *SceneBlobPayload) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SceneBlobPayload.ProtoReflect.Descriptor instead.
 func (*SceneBlobPayload) Descriptor() ([]byte, []int) {
-	return file_recorder_minecraft_artifacts_v1_scene_extraction_proto_rawDescGZIP(), []int{11}
+	return file_recorder_minecraft_artifacts_v1_scene_extraction_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *SceneBlobPayload) GetValue() isSceneBlobPayload_Value {
@@ -1445,7 +1667,7 @@ type SectionBlob struct {
 
 func (x *SectionBlob) Reset() {
 	*x = SectionBlob{}
-	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[12]
+	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1457,7 +1679,7 @@ func (x *SectionBlob) String() string {
 func (*SectionBlob) ProtoMessage() {}
 
 func (x *SectionBlob) ProtoReflect() protoreflect.Message {
-	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[12]
+	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1470,7 +1692,7 @@ func (x *SectionBlob) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SectionBlob.ProtoReflect.Descriptor instead.
 func (*SectionBlob) Descriptor() ([]byte, []int) {
-	return file_recorder_minecraft_artifacts_v1_scene_extraction_proto_rawDescGZIP(), []int{12}
+	return file_recorder_minecraft_artifacts_v1_scene_extraction_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *SectionBlob) GetPalette() []*BlockState {
@@ -1497,7 +1719,7 @@ type BlockState struct {
 
 func (x *BlockState) Reset() {
 	*x = BlockState{}
-	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[13]
+	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1509,7 +1731,7 @@ func (x *BlockState) String() string {
 func (*BlockState) ProtoMessage() {}
 
 func (x *BlockState) ProtoReflect() protoreflect.Message {
-	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[13]
+	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1522,7 +1744,7 @@ func (x *BlockState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BlockState.ProtoReflect.Descriptor instead.
 func (*BlockState) Descriptor() ([]byte, []int) {
-	return file_recorder_minecraft_artifacts_v1_scene_extraction_proto_rawDescGZIP(), []int{13}
+	return file_recorder_minecraft_artifacts_v1_scene_extraction_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *BlockState) GetName() string {
@@ -1551,7 +1773,7 @@ type EncodedValue struct {
 
 func (x *EncodedValue) Reset() {
 	*x = EncodedValue{}
-	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[14]
+	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1563,7 +1785,7 @@ func (x *EncodedValue) String() string {
 func (*EncodedValue) ProtoMessage() {}
 
 func (x *EncodedValue) ProtoReflect() protoreflect.Message {
-	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[14]
+	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1576,7 +1798,7 @@ func (x *EncodedValue) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EncodedValue.ProtoReflect.Descriptor instead.
 func (*EncodedValue) Descriptor() ([]byte, []int) {
-	return file_recorder_minecraft_artifacts_v1_scene_extraction_proto_rawDescGZIP(), []int{14}
+	return file_recorder_minecraft_artifacts_v1_scene_extraction_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *EncodedValue) GetLogicalType() string {
@@ -1635,7 +1857,7 @@ type EntityBlob struct {
 
 func (x *EntityBlob) Reset() {
 	*x = EntityBlob{}
-	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[15]
+	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1647,7 +1869,7 @@ func (x *EntityBlob) String() string {
 func (*EntityBlob) ProtoMessage() {}
 
 func (x *EntityBlob) ProtoReflect() protoreflect.Message {
-	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[15]
+	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1660,7 +1882,7 @@ func (x *EntityBlob) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EntityBlob.ProtoReflect.Descriptor instead.
 func (*EntityBlob) Descriptor() ([]byte, []int) {
-	return file_recorder_minecraft_artifacts_v1_scene_extraction_proto_rawDescGZIP(), []int{15}
+	return file_recorder_minecraft_artifacts_v1_scene_extraction_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *EntityBlob) GetBounds() *Bounds {
@@ -1817,7 +2039,7 @@ type Bounds struct {
 
 func (x *Bounds) Reset() {
 	*x = Bounds{}
-	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[16]
+	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1829,7 +2051,7 @@ func (x *Bounds) String() string {
 func (*Bounds) ProtoMessage() {}
 
 func (x *Bounds) ProtoReflect() protoreflect.Message {
-	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[16]
+	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1842,7 +2064,7 @@ func (x *Bounds) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Bounds.ProtoReflect.Descriptor instead.
 func (*Bounds) Descriptor() ([]byte, []int) {
-	return file_recorder_minecraft_artifacts_v1_scene_extraction_proto_rawDescGZIP(), []int{16}
+	return file_recorder_minecraft_artifacts_v1_scene_extraction_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *Bounds) GetMinX() float64 {
@@ -1897,7 +2119,7 @@ type EntityMetadata struct {
 
 func (x *EntityMetadata) Reset() {
 	*x = EntityMetadata{}
-	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[17]
+	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1909,7 +2131,7 @@ func (x *EntityMetadata) String() string {
 func (*EntityMetadata) ProtoMessage() {}
 
 func (x *EntityMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[17]
+	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1922,7 +2144,7 @@ func (x *EntityMetadata) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EntityMetadata.ProtoReflect.Descriptor instead.
 func (*EntityMetadata) Descriptor() ([]byte, []int) {
-	return file_recorder_minecraft_artifacts_v1_scene_extraction_proto_rawDescGZIP(), []int{17}
+	return file_recorder_minecraft_artifacts_v1_scene_extraction_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *EntityMetadata) GetIndex() int32 {
@@ -1951,7 +2173,7 @@ type Equipment struct {
 
 func (x *Equipment) Reset() {
 	*x = Equipment{}
-	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[18]
+	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1963,7 +2185,7 @@ func (x *Equipment) String() string {
 func (*Equipment) ProtoMessage() {}
 
 func (x *Equipment) ProtoReflect() protoreflect.Message {
-	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[18]
+	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1976,7 +2198,7 @@ func (x *Equipment) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Equipment.ProtoReflect.Descriptor instead.
 func (*Equipment) Descriptor() ([]byte, []int) {
-	return file_recorder_minecraft_artifacts_v1_scene_extraction_proto_rawDescGZIP(), []int{18}
+	return file_recorder_minecraft_artifacts_v1_scene_extraction_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *Equipment) GetSlot() string {
@@ -2018,7 +2240,7 @@ type EntityAttribute struct {
 
 func (x *EntityAttribute) Reset() {
 	*x = EntityAttribute{}
-	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[19]
+	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2030,7 +2252,7 @@ func (x *EntityAttribute) String() string {
 func (*EntityAttribute) ProtoMessage() {}
 
 func (x *EntityAttribute) ProtoReflect() protoreflect.Message {
-	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[19]
+	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2043,7 +2265,7 @@ func (x *EntityAttribute) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EntityAttribute.ProtoReflect.Descriptor instead.
 func (*EntityAttribute) Descriptor() ([]byte, []int) {
-	return file_recorder_minecraft_artifacts_v1_scene_extraction_proto_rawDescGZIP(), []int{19}
+	return file_recorder_minecraft_artifacts_v1_scene_extraction_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *EntityAttribute) GetAttributeId() string {
@@ -2078,7 +2300,7 @@ type AttributeModifier struct {
 
 func (x *AttributeModifier) Reset() {
 	*x = AttributeModifier{}
-	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[20]
+	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2090,7 +2312,7 @@ func (x *AttributeModifier) String() string {
 func (*AttributeModifier) ProtoMessage() {}
 
 func (x *AttributeModifier) ProtoReflect() protoreflect.Message {
-	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[20]
+	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2103,7 +2325,7 @@ func (x *AttributeModifier) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AttributeModifier.ProtoReflect.Descriptor instead.
 func (*AttributeModifier) Descriptor() ([]byte, []int) {
-	return file_recorder_minecraft_artifacts_v1_scene_extraction_proto_rawDescGZIP(), []int{20}
+	return file_recorder_minecraft_artifacts_v1_scene_extraction_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *AttributeModifier) GetId() string {
@@ -2142,7 +2364,7 @@ type EntityEffect struct {
 
 func (x *EntityEffect) Reset() {
 	*x = EntityEffect{}
-	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[21]
+	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2154,7 +2376,7 @@ func (x *EntityEffect) String() string {
 func (*EntityEffect) ProtoMessage() {}
 
 func (x *EntityEffect) ProtoReflect() protoreflect.Message {
-	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[21]
+	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2167,7 +2389,7 @@ func (x *EntityEffect) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EntityEffect.ProtoReflect.Descriptor instead.
 func (*EntityEffect) Descriptor() ([]byte, []int) {
-	return file_recorder_minecraft_artifacts_v1_scene_extraction_proto_rawDescGZIP(), []int{21}
+	return file_recorder_minecraft_artifacts_v1_scene_extraction_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *EntityEffect) GetEffectId() string {
@@ -2229,7 +2451,7 @@ type PlayerListInfo struct {
 
 func (x *PlayerListInfo) Reset() {
 	*x = PlayerListInfo{}
-	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[22]
+	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2241,7 +2463,7 @@ func (x *PlayerListInfo) String() string {
 func (*PlayerListInfo) ProtoMessage() {}
 
 func (x *PlayerListInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[22]
+	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2254,7 +2476,7 @@ func (x *PlayerListInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlayerListInfo.ProtoReflect.Descriptor instead.
 func (*PlayerListInfo) Descriptor() ([]byte, []int) {
-	return file_recorder_minecraft_artifacts_v1_scene_extraction_proto_rawDescGZIP(), []int{22}
+	return file_recorder_minecraft_artifacts_v1_scene_extraction_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *PlayerListInfo) GetActions() []string {
@@ -2285,7 +2507,7 @@ type BlockEntityBlob struct {
 
 func (x *BlockEntityBlob) Reset() {
 	*x = BlockEntityBlob{}
-	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[23]
+	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2297,7 +2519,7 @@ func (x *BlockEntityBlob) String() string {
 func (*BlockEntityBlob) ProtoMessage() {}
 
 func (x *BlockEntityBlob) ProtoReflect() protoreflect.Message {
-	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[23]
+	mi := &file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2310,7 +2532,7 @@ func (x *BlockEntityBlob) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BlockEntityBlob.ProtoReflect.Descriptor instead.
 func (*BlockEntityBlob) Descriptor() ([]byte, []int) {
-	return file_recorder_minecraft_artifacts_v1_scene_extraction_proto_rawDescGZIP(), []int{23}
+	return file_recorder_minecraft_artifacts_v1_scene_extraction_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *BlockEntityBlob) GetDimension() string {
@@ -2401,7 +2623,7 @@ const file_recorder_minecraft_artifacts_v1_scene_extraction_proto_rawDesc = "" +
 	"\bvelocity\x18\b \x01(\v2(.recorder_minecraft.artifacts.v1.Vector3R\bvelocity\x12E\n" +
 	"\brotation\x18\t \x01(\v2).recorder_minecraft.artifacts.v1.RotationR\brotation\x12\x1b\n" +
 	"\ton_ground\x18\n" +
-	" \x01(\bR\bonGround\"\xee\x06\n" +
+	" \x01(\bR\bonGround\"\xcc\a\n" +
 	"\x15SceneExtractionResult\x12U\n" +
 	"\x06status\x18\x01 \x01(\x0e2=.recorder_minecraft.artifacts.v1.SceneExtractionResult.StatusR\x06status\x12\x14\n" +
 	"\x05error\x18\x02 \x01(\tR\x05error\x12\x15\n" +
@@ -2418,14 +2640,35 @@ const file_recorder_minecraft_artifacts_v1_scene_extraction_proto_rawDesc = "" +
 	" \x03(\v22.recorder_minecraft.artifacts.v1.SceneSourceReplayR\rsourceReplays\x12J\n" +
 	"\x06stream\x18\v \x01(\v22.recorder_minecraft.artifacts.v1.SceneStreamResultR\x06stream\x12\x83\x01\n" +
 	"\x15ignored_packet_counts\x18\f \x03(\v2O.recorder_minecraft.artifacts.v1.SceneExtractionResult.IgnoredPacketCountsEntryR\x13ignoredPacketCounts\x12,\n" +
-	"\x12covered_tick_count\x18\r \x01(\x04R\x10coveredTickCount\x1aF\n" +
+	"\x12covered_tick_count\x18\r \x01(\x04R\x10coveredTickCount\x12\\\n" +
+	"\x0fsource_runtimes\x18\x0e \x03(\v23.recorder_minecraft.artifacts.v1.SceneSourceRuntimeR\x0esourceRuntimes\x1aF\n" +
 	"\x18IgnoredPacketCountsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\x04R\x05value:\x028\x01\"H\n" +
 	"\x06Status\x12\x16\n" +
 	"\x12STATUS_UNSPECIFIED\x10\x00\x12\x13\n" +
 	"\x0fSTATUS_COMPLETE\x10\x01\x12\x11\n" +
-	"\rSTATUS_FAILED\x10\x02\"\xaa\x03\n" +
+	"\rSTATUS_FAILED\x10\x02\"\xbd\x02\n" +
+	"\x12SceneSourceRuntime\x12\x1d\n" +
+	"\n" +
+	"segment_id\x18\x01 \x01(\tR\tsegmentId\x12+\n" +
+	"\x11minecraft_version\x18\x02 \x01(\tR\x10minecraftVersion\x12)\n" +
+	"\x10protocol_version\x18\x03 \x01(\x05R\x0fprotocolVersion\x12!\n" +
+	"\fdata_version\x18\x04 \x01(\x05R\vdataVersion\x122\n" +
+	"\x15server_replay_version\x18\x05 \x01(\tR\x13serverReplayVersion\x12Y\n" +
+	"\x0etolerated_mods\x18\x06 \x03(\v22.recorder_minecraft.artifacts.v1.SceneToleratedModR\rtoleratedMods\"\xc9\x02\n" +
+	"\x11SceneToleratedMod\x12\x15\n" +
+	"\x06mod_id\x18\x01 \x01(\tR\x05modId\x12%\n" +
+	"\x0esource_version\x18\x02 \x01(\tR\rsourceVersion\x12+\n" +
+	"\x11extractor_version\x18\x03 \x01(\tR\x10extractorVersion\x12]\n" +
+	"\n" +
+	"difference\x18\x04 \x01(\x0e2=.recorder_minecraft.artifacts.v1.SceneToleratedMod.DifferenceR\n" +
+	"difference\"j\n" +
+	"\n" +
+	"Difference\x12\x1a\n" +
+	"\x16DIFFERENCE_UNSPECIFIED\x10\x00\x12\x1f\n" +
+	"\x1bDIFFERENCE_VERSION_MISMATCH\x10\x01\x12\x1f\n" +
+	"\x1bDIFFERENCE_NOT_IN_EXTRACTOR\x10\x02\"\xaa\x03\n" +
 	"\x11SceneStreamResult\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12\x16\n" +
 	"\x06frames\x18\x02 \x01(\tR\x06frames\x12\x18\n" +
@@ -2617,89 +2860,95 @@ func file_recorder_minecraft_artifacts_v1_scene_extraction_proto_rawDescGZIP() [
 	return file_recorder_minecraft_artifacts_v1_scene_extraction_proto_rawDescData
 }
 
-var file_recorder_minecraft_artifacts_v1_scene_extraction_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes = make([]protoimpl.MessageInfo, 26)
+var file_recorder_minecraft_artifacts_v1_scene_extraction_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes = make([]protoimpl.MessageInfo, 28)
 var file_recorder_minecraft_artifacts_v1_scene_extraction_proto_goTypes = []any{
 	(SceneExtractionResult_Status)(0), // 0: recorder_minecraft.artifacts.v1.SceneExtractionResult.Status
-	(*SceneExtractionJob)(nil),        // 1: recorder_minecraft.artifacts.v1.SceneExtractionJob
-	(*SceneSourceReplay)(nil),         // 2: recorder_minecraft.artifacts.v1.SceneSourceReplay
-	(*SubjectPose)(nil),               // 3: recorder_minecraft.artifacts.v1.SubjectPose
-	(*SceneExtractionResult)(nil),     // 4: recorder_minecraft.artifacts.v1.SceneExtractionResult
-	(*SceneStreamResult)(nil),         // 5: recorder_minecraft.artifacts.v1.SceneStreamResult
-	(*SceneFrameRecord)(nil),          // 6: recorder_minecraft.artifacts.v1.SceneFrameRecord
-	(*SceneChangeRecord)(nil),         // 7: recorder_minecraft.artifacts.v1.SceneChangeRecord
-	(*SegmentBegin)(nil),              // 8: recorder_minecraft.artifacts.v1.SegmentBegin
-	(*SectionChange)(nil),             // 9: recorder_minecraft.artifacts.v1.SectionChange
-	(*EntityChange)(nil),              // 10: recorder_minecraft.artifacts.v1.EntityChange
-	(*BlockEntityChange)(nil),         // 11: recorder_minecraft.artifacts.v1.BlockEntityChange
-	(*SceneBlobPayload)(nil),          // 12: recorder_minecraft.artifacts.v1.SceneBlobPayload
-	(*SectionBlob)(nil),               // 13: recorder_minecraft.artifacts.v1.SectionBlob
-	(*BlockState)(nil),                // 14: recorder_minecraft.artifacts.v1.BlockState
-	(*EncodedValue)(nil),              // 15: recorder_minecraft.artifacts.v1.EncodedValue
-	(*EntityBlob)(nil),                // 16: recorder_minecraft.artifacts.v1.EntityBlob
-	(*Bounds)(nil),                    // 17: recorder_minecraft.artifacts.v1.Bounds
-	(*EntityMetadata)(nil),            // 18: recorder_minecraft.artifacts.v1.EntityMetadata
-	(*Equipment)(nil),                 // 19: recorder_minecraft.artifacts.v1.Equipment
-	(*EntityAttribute)(nil),           // 20: recorder_minecraft.artifacts.v1.EntityAttribute
-	(*AttributeModifier)(nil),         // 21: recorder_minecraft.artifacts.v1.AttributeModifier
-	(*EntityEffect)(nil),              // 22: recorder_minecraft.artifacts.v1.EntityEffect
-	(*PlayerListInfo)(nil),            // 23: recorder_minecraft.artifacts.v1.PlayerListInfo
-	(*BlockEntityBlob)(nil),           // 24: recorder_minecraft.artifacts.v1.BlockEntityBlob
-	nil,                               // 25: recorder_minecraft.artifacts.v1.SceneExtractionResult.IgnoredPacketCountsEntry
-	nil,                               // 26: recorder_minecraft.artifacts.v1.BlockState.PropertiesEntry
-	(*TickRange)(nil),                 // 27: recorder_minecraft.artifacts.v1.TickRange
-	(*ArtifactFile)(nil),              // 28: recorder_minecraft.artifacts.v1.ArtifactFile
-	(*Vector3)(nil),                   // 29: recorder_minecraft.artifacts.v1.Vector3
-	(*Rotation)(nil),                  // 30: recorder_minecraft.artifacts.v1.Rotation
-	(*CaptureEvent)(nil),              // 31: recorder_minecraft.artifacts.v1.CaptureEvent
+	(SceneToleratedMod_Difference)(0), // 1: recorder_minecraft.artifacts.v1.SceneToleratedMod.Difference
+	(*SceneExtractionJob)(nil),        // 2: recorder_minecraft.artifacts.v1.SceneExtractionJob
+	(*SceneSourceReplay)(nil),         // 3: recorder_minecraft.artifacts.v1.SceneSourceReplay
+	(*SubjectPose)(nil),               // 4: recorder_minecraft.artifacts.v1.SubjectPose
+	(*SceneExtractionResult)(nil),     // 5: recorder_minecraft.artifacts.v1.SceneExtractionResult
+	(*SceneSourceRuntime)(nil),        // 6: recorder_minecraft.artifacts.v1.SceneSourceRuntime
+	(*SceneToleratedMod)(nil),         // 7: recorder_minecraft.artifacts.v1.SceneToleratedMod
+	(*SceneStreamResult)(nil),         // 8: recorder_minecraft.artifacts.v1.SceneStreamResult
+	(*SceneFrameRecord)(nil),          // 9: recorder_minecraft.artifacts.v1.SceneFrameRecord
+	(*SceneChangeRecord)(nil),         // 10: recorder_minecraft.artifacts.v1.SceneChangeRecord
+	(*SegmentBegin)(nil),              // 11: recorder_minecraft.artifacts.v1.SegmentBegin
+	(*SectionChange)(nil),             // 12: recorder_minecraft.artifacts.v1.SectionChange
+	(*EntityChange)(nil),              // 13: recorder_minecraft.artifacts.v1.EntityChange
+	(*BlockEntityChange)(nil),         // 14: recorder_minecraft.artifacts.v1.BlockEntityChange
+	(*SceneBlobPayload)(nil),          // 15: recorder_minecraft.artifacts.v1.SceneBlobPayload
+	(*SectionBlob)(nil),               // 16: recorder_minecraft.artifacts.v1.SectionBlob
+	(*BlockState)(nil),                // 17: recorder_minecraft.artifacts.v1.BlockState
+	(*EncodedValue)(nil),              // 18: recorder_minecraft.artifacts.v1.EncodedValue
+	(*EntityBlob)(nil),                // 19: recorder_minecraft.artifacts.v1.EntityBlob
+	(*Bounds)(nil),                    // 20: recorder_minecraft.artifacts.v1.Bounds
+	(*EntityMetadata)(nil),            // 21: recorder_minecraft.artifacts.v1.EntityMetadata
+	(*Equipment)(nil),                 // 22: recorder_minecraft.artifacts.v1.Equipment
+	(*EntityAttribute)(nil),           // 23: recorder_minecraft.artifacts.v1.EntityAttribute
+	(*AttributeModifier)(nil),         // 24: recorder_minecraft.artifacts.v1.AttributeModifier
+	(*EntityEffect)(nil),              // 25: recorder_minecraft.artifacts.v1.EntityEffect
+	(*PlayerListInfo)(nil),            // 26: recorder_minecraft.artifacts.v1.PlayerListInfo
+	(*BlockEntityBlob)(nil),           // 27: recorder_minecraft.artifacts.v1.BlockEntityBlob
+	nil,                               // 28: recorder_minecraft.artifacts.v1.SceneExtractionResult.IgnoredPacketCountsEntry
+	nil,                               // 29: recorder_minecraft.artifacts.v1.BlockState.PropertiesEntry
+	(*TickRange)(nil),                 // 30: recorder_minecraft.artifacts.v1.TickRange
+	(*ArtifactFile)(nil),              // 31: recorder_minecraft.artifacts.v1.ArtifactFile
+	(*Vector3)(nil),                   // 32: recorder_minecraft.artifacts.v1.Vector3
+	(*Rotation)(nil),                  // 33: recorder_minecraft.artifacts.v1.Rotation
+	(*CaptureEvent)(nil),              // 34: recorder_minecraft.artifacts.v1.CaptureEvent
 }
 var file_recorder_minecraft_artifacts_v1_scene_extraction_proto_depIdxs = []int32{
-	27, // 0: recorder_minecraft.artifacts.v1.SceneExtractionJob.ticks:type_name -> recorder_minecraft.artifacts.v1.TickRange
-	2,  // 1: recorder_minecraft.artifacts.v1.SceneExtractionJob.source_replays:type_name -> recorder_minecraft.artifacts.v1.SceneSourceReplay
-	28, // 2: recorder_minecraft.artifacts.v1.SceneExtractionJob.subject_poses:type_name -> recorder_minecraft.artifacts.v1.ArtifactFile
-	28, // 3: recorder_minecraft.artifacts.v1.SceneExtractionJob.source_events:type_name -> recorder_minecraft.artifacts.v1.ArtifactFile
-	29, // 4: recorder_minecraft.artifacts.v1.SubjectPose.position:type_name -> recorder_minecraft.artifacts.v1.Vector3
-	29, // 5: recorder_minecraft.artifacts.v1.SubjectPose.velocity:type_name -> recorder_minecraft.artifacts.v1.Vector3
-	30, // 6: recorder_minecraft.artifacts.v1.SubjectPose.rotation:type_name -> recorder_minecraft.artifacts.v1.Rotation
+	30, // 0: recorder_minecraft.artifacts.v1.SceneExtractionJob.ticks:type_name -> recorder_minecraft.artifacts.v1.TickRange
+	3,  // 1: recorder_minecraft.artifacts.v1.SceneExtractionJob.source_replays:type_name -> recorder_minecraft.artifacts.v1.SceneSourceReplay
+	31, // 2: recorder_minecraft.artifacts.v1.SceneExtractionJob.subject_poses:type_name -> recorder_minecraft.artifacts.v1.ArtifactFile
+	31, // 3: recorder_minecraft.artifacts.v1.SceneExtractionJob.source_events:type_name -> recorder_minecraft.artifacts.v1.ArtifactFile
+	32, // 4: recorder_minecraft.artifacts.v1.SubjectPose.position:type_name -> recorder_minecraft.artifacts.v1.Vector3
+	32, // 5: recorder_minecraft.artifacts.v1.SubjectPose.velocity:type_name -> recorder_minecraft.artifacts.v1.Vector3
+	33, // 6: recorder_minecraft.artifacts.v1.SubjectPose.rotation:type_name -> recorder_minecraft.artifacts.v1.Rotation
 	0,  // 7: recorder_minecraft.artifacts.v1.SceneExtractionResult.status:type_name -> recorder_minecraft.artifacts.v1.SceneExtractionResult.Status
-	27, // 8: recorder_minecraft.artifacts.v1.SceneExtractionResult.ticks:type_name -> recorder_minecraft.artifacts.v1.TickRange
-	2,  // 9: recorder_minecraft.artifacts.v1.SceneExtractionResult.source_replays:type_name -> recorder_minecraft.artifacts.v1.SceneSourceReplay
-	5,  // 10: recorder_minecraft.artifacts.v1.SceneExtractionResult.stream:type_name -> recorder_minecraft.artifacts.v1.SceneStreamResult
-	25, // 11: recorder_minecraft.artifacts.v1.SceneExtractionResult.ignored_packet_counts:type_name -> recorder_minecraft.artifacts.v1.SceneExtractionResult.IgnoredPacketCountsEntry
-	29, // 12: recorder_minecraft.artifacts.v1.SceneFrameRecord.subject_position:type_name -> recorder_minecraft.artifacts.v1.Vector3
-	8,  // 13: recorder_minecraft.artifacts.v1.SceneChangeRecord.segment_begin:type_name -> recorder_minecraft.artifacts.v1.SegmentBegin
-	9,  // 14: recorder_minecraft.artifacts.v1.SceneChangeRecord.section_set:type_name -> recorder_minecraft.artifacts.v1.SectionChange
-	9,  // 15: recorder_minecraft.artifacts.v1.SceneChangeRecord.section_unload:type_name -> recorder_minecraft.artifacts.v1.SectionChange
-	10, // 16: recorder_minecraft.artifacts.v1.SceneChangeRecord.entity_set:type_name -> recorder_minecraft.artifacts.v1.EntityChange
-	10, // 17: recorder_minecraft.artifacts.v1.SceneChangeRecord.entity_remove:type_name -> recorder_minecraft.artifacts.v1.EntityChange
-	11, // 18: recorder_minecraft.artifacts.v1.SceneChangeRecord.block_entity_set:type_name -> recorder_minecraft.artifacts.v1.BlockEntityChange
-	11, // 19: recorder_minecraft.artifacts.v1.SceneChangeRecord.block_entity_remove:type_name -> recorder_minecraft.artifacts.v1.BlockEntityChange
-	13, // 20: recorder_minecraft.artifacts.v1.SceneBlobPayload.section:type_name -> recorder_minecraft.artifacts.v1.SectionBlob
-	16, // 21: recorder_minecraft.artifacts.v1.SceneBlobPayload.entity:type_name -> recorder_minecraft.artifacts.v1.EntityBlob
-	24, // 22: recorder_minecraft.artifacts.v1.SceneBlobPayload.block_entity:type_name -> recorder_minecraft.artifacts.v1.BlockEntityBlob
-	6,  // 23: recorder_minecraft.artifacts.v1.SceneBlobPayload.frame:type_name -> recorder_minecraft.artifacts.v1.SceneFrameRecord
-	31, // 24: recorder_minecraft.artifacts.v1.SceneBlobPayload.player_state:type_name -> recorder_minecraft.artifacts.v1.CaptureEvent
-	14, // 25: recorder_minecraft.artifacts.v1.SectionBlob.palette:type_name -> recorder_minecraft.artifacts.v1.BlockState
-	26, // 26: recorder_minecraft.artifacts.v1.BlockState.properties:type_name -> recorder_minecraft.artifacts.v1.BlockState.PropertiesEntry
-	17, // 27: recorder_minecraft.artifacts.v1.EntityBlob.bounds:type_name -> recorder_minecraft.artifacts.v1.Bounds
-	29, // 28: recorder_minecraft.artifacts.v1.EntityBlob.position:type_name -> recorder_minecraft.artifacts.v1.Vector3
-	29, // 29: recorder_minecraft.artifacts.v1.EntityBlob.velocity:type_name -> recorder_minecraft.artifacts.v1.Vector3
-	30, // 30: recorder_minecraft.artifacts.v1.EntityBlob.rotation:type_name -> recorder_minecraft.artifacts.v1.Rotation
-	18, // 31: recorder_minecraft.artifacts.v1.EntityBlob.metadata:type_name -> recorder_minecraft.artifacts.v1.EntityMetadata
-	19, // 32: recorder_minecraft.artifacts.v1.EntityBlob.equipment:type_name -> recorder_minecraft.artifacts.v1.Equipment
-	20, // 33: recorder_minecraft.artifacts.v1.EntityBlob.attributes:type_name -> recorder_minecraft.artifacts.v1.EntityAttribute
-	22, // 34: recorder_minecraft.artifacts.v1.EntityBlob.effects:type_name -> recorder_minecraft.artifacts.v1.EntityEffect
-	23, // 35: recorder_minecraft.artifacts.v1.EntityBlob.player_info:type_name -> recorder_minecraft.artifacts.v1.PlayerListInfo
-	15, // 36: recorder_minecraft.artifacts.v1.EntityMetadata.value:type_name -> recorder_minecraft.artifacts.v1.EncodedValue
-	15, // 37: recorder_minecraft.artifacts.v1.Equipment.encoded_stack:type_name -> recorder_minecraft.artifacts.v1.EncodedValue
-	21, // 38: recorder_minecraft.artifacts.v1.EntityAttribute.modifiers:type_name -> recorder_minecraft.artifacts.v1.AttributeModifier
-	15, // 39: recorder_minecraft.artifacts.v1.PlayerListInfo.packet:type_name -> recorder_minecraft.artifacts.v1.EncodedValue
-	15, // 40: recorder_minecraft.artifacts.v1.BlockEntityBlob.nbt:type_name -> recorder_minecraft.artifacts.v1.EncodedValue
-	41, // [41:41] is the sub-list for method output_type
-	41, // [41:41] is the sub-list for method input_type
-	41, // [41:41] is the sub-list for extension type_name
-	41, // [41:41] is the sub-list for extension extendee
-	0,  // [0:41] is the sub-list for field type_name
+	30, // 8: recorder_minecraft.artifacts.v1.SceneExtractionResult.ticks:type_name -> recorder_minecraft.artifacts.v1.TickRange
+	3,  // 9: recorder_minecraft.artifacts.v1.SceneExtractionResult.source_replays:type_name -> recorder_minecraft.artifacts.v1.SceneSourceReplay
+	8,  // 10: recorder_minecraft.artifacts.v1.SceneExtractionResult.stream:type_name -> recorder_minecraft.artifacts.v1.SceneStreamResult
+	28, // 11: recorder_minecraft.artifacts.v1.SceneExtractionResult.ignored_packet_counts:type_name -> recorder_minecraft.artifacts.v1.SceneExtractionResult.IgnoredPacketCountsEntry
+	6,  // 12: recorder_minecraft.artifacts.v1.SceneExtractionResult.source_runtimes:type_name -> recorder_minecraft.artifacts.v1.SceneSourceRuntime
+	7,  // 13: recorder_minecraft.artifacts.v1.SceneSourceRuntime.tolerated_mods:type_name -> recorder_minecraft.artifacts.v1.SceneToleratedMod
+	1,  // 14: recorder_minecraft.artifacts.v1.SceneToleratedMod.difference:type_name -> recorder_minecraft.artifacts.v1.SceneToleratedMod.Difference
+	32, // 15: recorder_minecraft.artifacts.v1.SceneFrameRecord.subject_position:type_name -> recorder_minecraft.artifacts.v1.Vector3
+	11, // 16: recorder_minecraft.artifacts.v1.SceneChangeRecord.segment_begin:type_name -> recorder_minecraft.artifacts.v1.SegmentBegin
+	12, // 17: recorder_minecraft.artifacts.v1.SceneChangeRecord.section_set:type_name -> recorder_minecraft.artifacts.v1.SectionChange
+	12, // 18: recorder_minecraft.artifacts.v1.SceneChangeRecord.section_unload:type_name -> recorder_minecraft.artifacts.v1.SectionChange
+	13, // 19: recorder_minecraft.artifacts.v1.SceneChangeRecord.entity_set:type_name -> recorder_minecraft.artifacts.v1.EntityChange
+	13, // 20: recorder_minecraft.artifacts.v1.SceneChangeRecord.entity_remove:type_name -> recorder_minecraft.artifacts.v1.EntityChange
+	14, // 21: recorder_minecraft.artifacts.v1.SceneChangeRecord.block_entity_set:type_name -> recorder_minecraft.artifacts.v1.BlockEntityChange
+	14, // 22: recorder_minecraft.artifacts.v1.SceneChangeRecord.block_entity_remove:type_name -> recorder_minecraft.artifacts.v1.BlockEntityChange
+	16, // 23: recorder_minecraft.artifacts.v1.SceneBlobPayload.section:type_name -> recorder_minecraft.artifacts.v1.SectionBlob
+	19, // 24: recorder_minecraft.artifacts.v1.SceneBlobPayload.entity:type_name -> recorder_minecraft.artifacts.v1.EntityBlob
+	27, // 25: recorder_minecraft.artifacts.v1.SceneBlobPayload.block_entity:type_name -> recorder_minecraft.artifacts.v1.BlockEntityBlob
+	9,  // 26: recorder_minecraft.artifacts.v1.SceneBlobPayload.frame:type_name -> recorder_minecraft.artifacts.v1.SceneFrameRecord
+	34, // 27: recorder_minecraft.artifacts.v1.SceneBlobPayload.player_state:type_name -> recorder_minecraft.artifacts.v1.CaptureEvent
+	17, // 28: recorder_minecraft.artifacts.v1.SectionBlob.palette:type_name -> recorder_minecraft.artifacts.v1.BlockState
+	29, // 29: recorder_minecraft.artifacts.v1.BlockState.properties:type_name -> recorder_minecraft.artifacts.v1.BlockState.PropertiesEntry
+	20, // 30: recorder_minecraft.artifacts.v1.EntityBlob.bounds:type_name -> recorder_minecraft.artifacts.v1.Bounds
+	32, // 31: recorder_minecraft.artifacts.v1.EntityBlob.position:type_name -> recorder_minecraft.artifacts.v1.Vector3
+	32, // 32: recorder_minecraft.artifacts.v1.EntityBlob.velocity:type_name -> recorder_minecraft.artifacts.v1.Vector3
+	33, // 33: recorder_minecraft.artifacts.v1.EntityBlob.rotation:type_name -> recorder_minecraft.artifacts.v1.Rotation
+	21, // 34: recorder_minecraft.artifacts.v1.EntityBlob.metadata:type_name -> recorder_minecraft.artifacts.v1.EntityMetadata
+	22, // 35: recorder_minecraft.artifacts.v1.EntityBlob.equipment:type_name -> recorder_minecraft.artifacts.v1.Equipment
+	23, // 36: recorder_minecraft.artifacts.v1.EntityBlob.attributes:type_name -> recorder_minecraft.artifacts.v1.EntityAttribute
+	25, // 37: recorder_minecraft.artifacts.v1.EntityBlob.effects:type_name -> recorder_minecraft.artifacts.v1.EntityEffect
+	26, // 38: recorder_minecraft.artifacts.v1.EntityBlob.player_info:type_name -> recorder_minecraft.artifacts.v1.PlayerListInfo
+	18, // 39: recorder_minecraft.artifacts.v1.EntityMetadata.value:type_name -> recorder_minecraft.artifacts.v1.EncodedValue
+	18, // 40: recorder_minecraft.artifacts.v1.Equipment.encoded_stack:type_name -> recorder_minecraft.artifacts.v1.EncodedValue
+	24, // 41: recorder_minecraft.artifacts.v1.EntityAttribute.modifiers:type_name -> recorder_minecraft.artifacts.v1.AttributeModifier
+	18, // 42: recorder_minecraft.artifacts.v1.PlayerListInfo.packet:type_name -> recorder_minecraft.artifacts.v1.EncodedValue
+	18, // 43: recorder_minecraft.artifacts.v1.BlockEntityBlob.nbt:type_name -> recorder_minecraft.artifacts.v1.EncodedValue
+	44, // [44:44] is the sub-list for method output_type
+	44, // [44:44] is the sub-list for method input_type
+	44, // [44:44] is the sub-list for extension type_name
+	44, // [44:44] is the sub-list for extension extendee
+	0,  // [0:44] is the sub-list for field type_name
 }
 
 func init() { file_recorder_minecraft_artifacts_v1_scene_extraction_proto_init() }
@@ -2709,7 +2958,7 @@ func file_recorder_minecraft_artifacts_v1_scene_extraction_proto_init() {
 	}
 	file_recorder_minecraft_artifacts_v1_common_proto_init()
 	file_recorder_minecraft_artifacts_v1_events_proto_init()
-	file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[6].OneofWrappers = []any{
+	file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[8].OneofWrappers = []any{
 		(*SceneChangeRecord_SegmentBegin)(nil),
 		(*SceneChangeRecord_SectionSet)(nil),
 		(*SceneChangeRecord_SectionUnload)(nil),
@@ -2718,21 +2967,21 @@ func file_recorder_minecraft_artifacts_v1_scene_extraction_proto_init() {
 		(*SceneChangeRecord_BlockEntitySet)(nil),
 		(*SceneChangeRecord_BlockEntityRemove)(nil),
 	}
-	file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[11].OneofWrappers = []any{
+	file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[13].OneofWrappers = []any{
 		(*SceneBlobPayload_Section)(nil),
 		(*SceneBlobPayload_Entity)(nil),
 		(*SceneBlobPayload_BlockEntity)(nil),
 		(*SceneBlobPayload_Frame)(nil),
 		(*SceneBlobPayload_PlayerState)(nil),
 	}
-	file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[15].OneofWrappers = []any{}
+	file_recorder_minecraft_artifacts_v1_scene_extraction_proto_msgTypes[17].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_recorder_minecraft_artifacts_v1_scene_extraction_proto_rawDesc), len(file_recorder_minecraft_artifacts_v1_scene_extraction_proto_rawDesc)),
-			NumEnums:      1,
-			NumMessages:   26,
+			NumEnums:      2,
+			NumMessages:   28,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

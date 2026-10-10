@@ -1,6 +1,6 @@
 package dev.mcdata.scene;
 
-import dev.mcdata.scene.replay.ReplayArchiveValidator;
+import dev.mcdata.scene.replay.ExtractorRuntime;
 import net.minecraft.DetectedVersion;
 import net.minecraft.SharedConstants;
 import net.minecraft.core.LayeredRegistryAccess;
@@ -39,7 +39,7 @@ public final class SceneExtractorCli {
         SharedConstants.setVersion(DetectedVersion.BUILT_IN);
         Bootstrap.bootStrap();
         RegistryAccess registries = createHeadlessRegistries();
-        new SceneExtractionRunner(registries, ReplayArchiveValidator.runtimeMods()).run(request);
+        new SceneExtractionRunner(registries, ExtractorRuntime.current()).run(request);
     }
 
     private static RegistryAccess createHeadlessRegistries() throws IOException {

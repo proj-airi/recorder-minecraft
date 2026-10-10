@@ -6,6 +6,7 @@ import dev.recorderminecraft.artifacts.v1.SceneStreamResult;
 import dev.recorderminecraft.artifacts.v1.TickRange;
 import dev.mcdata.scene.job.SceneJob;
 import dev.mcdata.scene.replay.FlashbackSceneExtractor;
+import dev.mcdata.scene.replay.ReplayArchiveValidator;
 import com.google.protobuf.util.JsonFormat;
 
 import java.io.IOException;
@@ -27,7 +28,8 @@ public final class ResultWriter {
     public static void complete(
         SceneJob job,
         SceneSpoolWriter.OutputStats output,
-        FlashbackSceneExtractor.ExtractionStats extraction
+        FlashbackSceneExtractor.ExtractionStats extraction,
+        List<ReplayArchiveValidator.VerifiedSource> verified
     ) throws IOException {
         SceneExtractionResult.Builder result = common(job, SceneExtractionResult.Status.STATUS_COMPLETE, extraction.sourceReplays());
         result.setStream(SceneStreamResult.newBuilder()
@@ -45,6 +47,9 @@ public final class ResultWriter {
             .setChangesSizeBytes(output.changesBytes()));
         result.putAllIgnoredPacketCounts(extraction.ignoredPacketCounts());
         result.setCoveredTickCount(extraction.coveredTickCount());
+        for (ReplayArchiveValidator.VerifiedSource source : verified) {
+            result.addSourceRuntimes(source.runtime());
+        }
         write(job.result(), result.build());
     }
 

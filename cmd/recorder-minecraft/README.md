@@ -17,6 +17,10 @@ go run ./cmd/recorder-minecraft render --help
 Every processor accepts explicit input and output paths. Scene extraction uses
 the headless Java extractor, writes only the final Scene Store V2 to the
 requested destination, and removes its private runtime job after success.
+It accepts a replay from any Fabric mod set if the Minecraft version, protocol,
+and data version equal its own. Recording mods that it does not load, such as
+Airicraft's, are listed in the scene provenance. See Scene replay compatibility in
+`docs/specs/artifacts-v1.md`.
 
 `perception extract` reads a completed Play's `scene.sqlite3` read-only, plus
 its metadata and event stream, and writes `perception.jsonl`: for every

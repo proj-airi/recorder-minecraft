@@ -67,6 +67,41 @@ message SceneExtractionResult {
   SceneStreamResult stream = 11;
   map<string, uint64> ignored_packet_counts = 12;
   uint64 covered_tick_count = 13;
+  // One entry per source replay, in source_replays order.
+  repeated SceneSourceRuntime source_runtimes = 14;
+}
+
+// SceneSourceRuntime is the runtime that recorded one source replay. The
+// Minecraft identity equals the extractor's own: the extractor rejects a replay
+// otherwise. Mods are provenance only; see tolerated_mods.
+message SceneSourceRuntime {
+  string segment_id = 1;
+  // Flashback metadata version_string, protocol_version, and data_version.
+  string minecraft_version = 2;
+  int32 protocol_version = 3;
+  int32 data_version = 4;
+  // ServerReplay version that wrote the Flashback archive.
+  string server_replay_version = 5;
+  // Recording mods that differ from the extractor runtime, sorted by mod_id.
+  // The extractor decodes with vanilla codecs and registries, so these mods do
+  // not change decoding. Registry entries that a content mod adds still fail
+  // decoding.
+  repeated SceneToleratedMod tolerated_mods = 6;
+}
+
+message SceneToleratedMod {
+  enum Difference {
+    DIFFERENCE_UNSPECIFIED = 0;
+    // The extractor pins this mod ID at a different version.
+    DIFFERENCE_VERSION_MISMATCH = 1;
+    // The extractor runtime does not contain this mod ID.
+    DIFFERENCE_NOT_IN_EXTRACTOR = 2;
+  }
+  string mod_id = 1;
+  string source_version = 2;
+  // Empty for DIFFERENCE_NOT_IN_EXTRACTOR.
+  string extractor_version = 3;
+  Difference difference = 4;
 }
 
 message SceneStreamResult {

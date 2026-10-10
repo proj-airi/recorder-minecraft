@@ -1,0 +1,19 @@
+{
+  "uuid": "9113f39d-3e8c-414d-b5d6-6449294ce62b",
+  "name": "Unnamed",
+  "version_string": "1.21.8",
+  "world_name": "airicraft-evaluation",
+  "data_version": 4440,
+  "protocol_version": 772,
+  "total_ticks": 9888,
+  "chunks": {
+    "c0.flashback": {
+      "duration": 6000,
+      "forcePlaySnapshot": false
+    },
+    "c1.flashback": {
+      "duration": 3888,
+      "forcePlaySnapshot": false
+    }
+  }
+}

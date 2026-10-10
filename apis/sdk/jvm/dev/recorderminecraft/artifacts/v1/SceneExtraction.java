@@ -52,6 +52,16 @@ public final class SceneExtraction extends com.google.protobuf.GeneratedFile {
     com.google.protobuf.GeneratedMessage.FieldAccessorTable
       internal_static_recorder_minecraft_artifacts_v1_SceneExtractionResult_IgnoredPacketCountsEntry_fieldAccessorTable;
   static final com.google.protobuf.Descriptors.Descriptor
+    internal_static_recorder_minecraft_artifacts_v1_SceneSourceRuntime_descriptor;
+  static final 
+    com.google.protobuf.GeneratedMessage.FieldAccessorTable
+      internal_static_recorder_minecraft_artifacts_v1_SceneSourceRuntime_fieldAccessorTable;
+  static final com.google.protobuf.Descriptors.Descriptor
+    internal_static_recorder_minecraft_artifacts_v1_SceneToleratedMod_descriptor;
+  static final 
+    com.google.protobuf.GeneratedMessage.FieldAccessorTable
+      internal_static_recorder_minecraft_artifacts_v1_SceneToleratedMod_fieldAccessorTable;
+  static final com.google.protobuf.Descriptors.Descriptor
     internal_static_recorder_minecraft_artifacts_v1_SceneStreamResult_descriptor;
   static final 
     com.google.protobuf.GeneratedMessage.FieldAccessorTable
@@ -202,7 +212,7 @@ public final class SceneExtraction extends com.google.protobuf.GeneratedFile {
       ".artifacts.v1.Vector3R\010velocity\022E\n\010rotat" +
       "ion\030\t \001(\0132).recorder_minecraft.artifacts" +
       ".v1.RotationR\010rotation\022\033\n\ton_ground\030\n \001(" +
-      "\010R\010onGround\"\356\006\n\025SceneExtractionResult\022U\n" +
+      "\010R\010onGround\"\314\007\n\025SceneExtractionResult\022U\n" +
       "\006status\030\001 \001(\0162=.recorder_minecraft.artif" +
       "acts.v1.SceneExtractionResult.StatusR\006st" +
       "atus\022\024\n\005error\030\002 \001(\tR\005error\022\025\n\006job_id\030\003 \001" +
@@ -220,150 +230,169 @@ public final class SceneExtraction extends com.google.protobuf.GeneratedFile {
       ".recorder_minecraft.artifacts.v1.SceneEx" +
       "tractionResult.IgnoredPacketCountsEntryR" +
       "\023ignoredPacketCounts\022,\n\022covered_tick_cou" +
-      "nt\030\r \001(\004R\020coveredTickCount\032F\n\030IgnoredPac" +
-      "ketCountsEntry\022\020\n\003key\030\001 \001(\tR\003key\022\024\n\005valu" +
-      "e\030\002 \001(\004R\005value:\0028\001\"H\n\006Status\022\026\n\022STATUS_U" +
-      "NSPECIFIED\020\000\022\023\n\017STATUS_COMPLETE\020\001\022\021\n\rSTA" +
-      "TUS_FAILED\020\002\"\252\003\n\021SceneStreamResult\022\022\n\004pa" +
-      "th\030\001 \001(\tR\004path\022\026\n\006frames\030\002 \001(\tR\006frames\022\030" +
-      "\n\007changes\030\003 \001(\tR\007changes\022\'\n\017blobs_direct" +
-      "ory\030\004 \001(\tR\016blobsDirectory\022\037\n\013frame_count" +
-      "\030\005 \001(\004R\nframeCount\022!\n\014change_count\030\006 \001(\004" +
-      "R\013changeCount\022\035\n\nblob_count\030\007 \001(\004R\tblobC" +
-      "ount\022\035\n\nblob_bytes\030\010 \001(\004R\tblobBytes\022#\n\rf" +
-      "rames_sha256\030\t \001(\tR\014framesSha256\022*\n\021fram" +
-      "es_size_bytes\030\n \001(\004R\017framesSizeBytes\022%\n\016" +
-      "changes_sha256\030\013 \001(\tR\rchangesSha256\022,\n\022c" +
-      "hanges_size_bytes\030\014 \001(\004R\020changesSizeByte" +
-      "s\"\241\005\n\020SceneFrameRecord\022\037\n\013server_tick\030\001 " +
-      "\001(\003R\nserverTick\022\031\n\010frame_id\030\002 \001(\tR\007frame" +
-      "Id\022\037\n\013replay_tick\030\003 \001(\003R\nreplayTick\022\034\n\td" +
-      "imension\030\004 \001(\tR\tdimension\022S\n\020subject_pos" +
-      "ition\030\005 \001(\0132(.recorder_minecraft.artifac" +
-      "ts.v1.Vector3R\017subjectPosition\022+\n\021covera" +
-      "ge_complete\030\006 \001(\010R\020coverageComplete\022\035\n\ns" +
-      "egment_id\030\007 \001(\tR\tsegmentId\022\'\n\017segment_or" +
-      "dinal\030\010 \001(\rR\016segmentOrdinal\022%\n\016event_seq" +
-      "uence\030\t \001(\004R\reventSequence\022!\n\014entity_cou" +
-      "nt\030\n \001(\005R\013entityCount\0220\n\024loaded_section_" +
-      "count\030\013 \001(\005R\022loadedSectionCount\022\'\n\017metad" +
-      "ata_policy\030\014 \001(\tR\016metadataPolicy\0222\n\025scen" +
-      "e_snapshot_sha256\030\r \001(\tR\023sceneSnapshotSh" +
-      "a256\022\024\n\005scope\030\016 \001(\tR\005scope\022*\n\021subject_en" +
-      "tity_id\030\017 \001(\005R\017subjectEntityId\022-\n\022incomp" +
-      "lete_reasons\030\020 \003(\tR\021incompleteReasons\"\261\006" +
-      "\n\021SceneChangeRecord\022\032\n\010sequence\030\001 \001(\004R\010s" +
-      "equence\022\037\n\013server_tick\030\002 \001(\003R\nserverTick" +
-      "\022\037\n\013replay_tick\030\003 \001(\003R\nreplayTick\022\035\n\nseg" +
-      "ment_id\030\004 \001(\tR\tsegmentId\022\'\n\017segment_ordi" +
-      "nal\030\005 \001(\rR\016segmentOrdinal\022T\n\rsegment_beg" +
-      "in\030\024 \001(\0132-.recorder_minecraft.artifacts." +
-      "v1.SegmentBeginH\000R\014segmentBegin\022Q\n\013secti" +
-      "on_set\030\025 \001(\0132..recorder_minecraft.artifa" +
-      "cts.v1.SectionChangeH\000R\nsectionSet\022W\n\016se" +
-      "ction_unload\030\026 \001(\0132..recorder_minecraft." +
-      "artifacts.v1.SectionChangeH\000R\rsectionUnl" +
-      "oad\022N\n\nentity_set\030\027 \001(\0132-.recorder_minec" +
-      "raft.artifacts.v1.EntityChangeH\000R\tentity" +
-      "Set\022T\n\rentity_remove\030\030 \001(\0132-.recorder_mi" +
-      "necraft.artifacts.v1.EntityChangeH\000R\014ent" +
-      "ityRemove\022^\n\020block_entity_set\030\031 \001(\01322.re" +
-      "corder_minecraft.artifacts.v1.BlockEntit" +
-      "yChangeH\000R\016blockEntitySet\022d\n\023block_entit" +
-      "y_remove\030\032 \001(\01322.recorder_minecraft.arti" +
-      "facts.v1.BlockEntityChangeH\000R\021blockEntit" +
-      "yRemoveB\010\n\006change\"E\n\014SegmentBegin\022\026\n\006sha" +
-      "256\030\001 \001(\tR\006sha256\022\035\n\nsize_bytes\030\002 \001(\004R\ts" +
-      "izeBytes\"x\n\rSectionChange\022\034\n\tdimension\030\001" +
-      " \001(\tR\tdimension\022\014\n\001x\030\002 \001(\005R\001x\022\014\n\001y\030\003 \001(\005" +
-      "R\001y\022\014\n\001z\030\004 \001(\005R\001z\022\037\n\013blob_sha256\030\005 \001(\tR\n" +
-      "blobSha256\"P\n\014EntityChange\022\037\n\013instance_i" +
-      "d\030\001 \001(\tR\ninstanceId\022\037\n\013blob_sha256\030\002 \001(\t" +
-      "R\nblobSha256\"|\n\021BlockEntityChange\022\034\n\tdim" +
-      "ension\030\001 \001(\tR\tdimension\022\014\n\001x\030\002 \001(\005R\001x\022\014\n" +
-      "\001y\030\003 \001(\005R\001y\022\014\n\001z\030\004 \001(\005R\001z\022\037\n\013blob_sha256" +
-      "\030\005 \001(\tR\nblobSha256\"\242\003\n\020SceneBlobPayload\022" +
-      "H\n\007section\030\001 \001(\0132,.recorder_minecraft.ar" +
-      "tifacts.v1.SectionBlobH\000R\007section\022E\n\006ent" +
-      "ity\030\002 \001(\0132+.recorder_minecraft.artifacts" +
-      ".v1.EntityBlobH\000R\006entity\022U\n\014block_entity" +
-      "\030\003 \001(\01320.recorder_minecraft.artifacts.v1" +
-      ".BlockEntityBlobH\000R\013blockEntity\022I\n\005frame" +
-      "\030\004 \001(\01321.recorder_minecraft.artifacts.v1" +
-      ".SceneFrameRecordH\000R\005frame\022R\n\014player_sta" +
-      "te\030\005 \001(\0132-.recorder_minecraft.artifacts." +
-      "v1.CaptureEventH\000R\013playerStateB\007\n\005value\"" +
-      "z\n\013SectionBlob\022E\n\007palette\030\001 \003(\0132+.record" +
-      "er_minecraft.artifacts.v1.BlockStateR\007pa" +
-      "lette\022$\n\016indices_le_u16\030\002 \001(\014R\014indicesLe" +
-      "U16\"\274\001\n\nBlockState\022\022\n\004name\030\001 \001(\tR\004name\022[" +
-      "\n\nproperties\030\002 \003(\0132;.recorder_minecraft." +
-      "artifacts.v1.BlockState.PropertiesEntryR" +
-      "\nproperties\032=\n\017PropertiesEntry\022\020\n\003key\030\001 " +
-      "\001(\tR\003key\022\024\n\005value\030\002 \001(\tR\005value:\0028\001\"|\n\014En" +
-      "codedValue\022!\n\014logical_type\030\001 \001(\tR\013logica" +
-      "lType\022\031\n\010codec_id\030\002 \001(\005R\007codecId\022\032\n\010enco" +
-      "ding\030\003 \001(\tR\010encoding\022\022\n\004data\030\004 \001(\014R\004data" +
-      "\"\247\010\n\nEntityBlob\022?\n\006bounds\030\001 \001(\0132\'.record" +
-      "er_minecraft.artifacts.v1.BoundsR\006bounds" +
-      "\022\034\n\tdimension\030\002 \001(\tR\tdimension\022\035\n\nnetwor" +
-      "k_id\030\003 \001(\005R\tnetworkId\022\027\n\004uuid\030\004 \001(\tH\000R\004u" +
-      "uid\210\001\001\022\027\n\007type_id\030\005 \001(\tR\006typeId\022D\n\010posit" +
-      "ion\030\006 \001(\0132(.recorder_minecraft.artifacts" +
-      ".v1.Vector3R\010position\022D\n\010velocity\030\007 \001(\0132" +
-      "(.recorder_minecraft.artifacts.v1.Vector" +
-      "3R\010velocity\022E\n\010rotation\030\010 \001(\0132).recorder" +
-      "_minecraft.artifacts.v1.RotationR\010rotati" +
-      "on\022\024\n\005width\030\t \001(\001R\005width\022\026\n\006height\030\n \001(\001" +
-      "R\006height\022\033\n\ton_ground\030\013 \001(\010R\010onGround\022\030\n" +
-      "\007subject\030\014 \001(\010R\007subject\022\035\n\nspawn_data\030\r " +
-      "\001(\005R\tspawnData\022D\n\034leash_destination_netw" +
-      "ork_id\030\016 \001(\005H\001R\031leashDestinationNetworkI" +
-      "d\210\001\001\022\036\n\npassengers\030\017 \003(\005R\npassengers\022K\n\010" +
-      "metadata\030\020 \003(\0132/.recorder_minecraft.arti" +
-      "facts.v1.EntityMetadataR\010metadata\022H\n\tequ" +
-      "ipment\030\021 \003(\0132*.recorder_minecraft.artifa" +
-      "cts.v1.EquipmentR\tequipment\022P\n\nattribute" +
-      "s\030\022 \003(\01320.recorder_minecraft.artifacts.v" +
-      "1.EntityAttributeR\nattributes\022G\n\007effects" +
-      "\030\023 \003(\0132-.recorder_minecraft.artifacts.v1" +
-      ".EntityEffectR\007effects\022P\n\013player_info\030\024 " +
-      "\001(\0132/.recorder_minecraft.artifacts.v1.Pl" +
-      "ayerListInfoR\nplayerInfoB\007\n\005_uuidB\037\n\035_le" +
-      "ash_destination_network_id\"\206\001\n\006Bounds\022\023\n" +
-      "\005min_x\030\001 \001(\001R\004minX\022\023\n\005min_y\030\002 \001(\001R\004minY\022" +
-      "\023\n\005min_z\030\003 \001(\001R\004minZ\022\023\n\005max_x\030\004 \001(\001R\004max" +
-      "X\022\023\n\005max_y\030\005 \001(\001R\004maxY\022\023\n\005max_z\030\006 \001(\001R\004m" +
-      "axZ\"k\n\016EntityMetadata\022\024\n\005index\030\001 \001(\005R\005in" +
-      "dex\022C\n\005value\030\002 \001(\0132-.recorder_minecraft." +
-      "artifacts.v1.EncodedValueR\005value\"\242\001\n\tEqu" +
-      "ipment\022\022\n\004slot\030\001 \001(\tR\004slot\022\027\n\007item_id\030\002 " +
-      "\001(\tR\006itemId\022\024\n\005count\030\003 \001(\005R\005count\022R\n\renc" +
-      "oded_stack\030\004 \001(\0132-.recorder_minecraft.ar" +
-      "tifacts.v1.EncodedValueR\014encodedStack\"\232\001" +
-      "\n\017EntityAttribute\022!\n\014attribute_id\030\001 \001(\tR" +
-      "\013attributeId\022\022\n\004base\030\002 \001(\001R\004base\022P\n\tmodi" +
-      "fiers\030\003 \003(\01322.recorder_minecraft.artifac" +
-      "ts.v1.AttributeModifierR\tmodifiers\"Y\n\021At" +
-      "tributeModifier\022\016\n\002id\030\001 \001(\tR\002id\022\026\n\006amoun" +
-      "t\030\002 \001(\001R\006amount\022\034\n\toperation\030\003 \001(\tR\toper" +
-      "ation\"\327\001\n\014EntityEffect\022\033\n\teffect_id\030\001 \001(" +
-      "\tR\010effectId\022\034\n\tamplifier\030\002 \001(\005R\tamplifie" +
-      "r\022%\n\016duration_ticks\030\003 \001(\005R\rdurationTicks" +
-      "\022\030\n\007ambient\030\004 \001(\010R\007ambient\022\030\n\007visible\030\005 " +
-      "\001(\010R\007visible\022\033\n\tshow_icon\030\006 \001(\010R\010showIco" +
-      "n\022\024\n\005blend\030\007 \001(\010R\005blend\"q\n\016PlayerListInf" +
-      "o\022\030\n\007actions\030\001 \003(\tR\007actions\022E\n\006packet\030\002 " +
-      "\001(\0132-.recorder_minecraft.artifacts.v1.En" +
-      "codedValueR\006packet\"\263\001\n\017BlockEntityBlob\022\034" +
-      "\n\tdimension\030\001 \001(\tR\tdimension\022\014\n\001x\030\002 \001(\005R" +
-      "\001x\022\014\n\001y\030\003 \001(\005R\001y\022\014\n\001z\030\004 \001(\005R\001z\022\027\n\007type_i" +
-      "d\030\005 \001(\tR\006typeId\022?\n\003nbt\030\006 \001(\0132-.recorder_" +
-      "minecraft.artifacts.v1.EncodedValueR\003nbt" +
-      "B\207\001\n\"dev.recorderminecraft.artifacts.v1P" +
-      "\001Z_github.com/proj-airi/recorder-minecra" +
-      "ft/apis/sdk/go/recorder-minecraft/artifa" +
-      "cts/v1;artifactsv1b\006proto3"
+      "nt\030\r \001(\004R\020coveredTickCount\022\\\n\017source_run" +
+      "times\030\016 \003(\01323.recorder_minecraft.artifac" +
+      "ts.v1.SceneSourceRuntimeR\016sourceRuntimes" +
+      "\032F\n\030IgnoredPacketCountsEntry\022\020\n\003key\030\001 \001(" +
+      "\tR\003key\022\024\n\005value\030\002 \001(\004R\005value:\0028\001\"H\n\006Stat" +
+      "us\022\026\n\022STATUS_UNSPECIFIED\020\000\022\023\n\017STATUS_COM" +
+      "PLETE\020\001\022\021\n\rSTATUS_FAILED\020\002\"\275\002\n\022SceneSour" +
+      "ceRuntime\022\035\n\nsegment_id\030\001 \001(\tR\tsegmentId" +
+      "\022+\n\021minecraft_version\030\002 \001(\tR\020minecraftVe" +
+      "rsion\022)\n\020protocol_version\030\003 \001(\005R\017protoco" +
+      "lVersion\022!\n\014data_version\030\004 \001(\005R\013dataVers" +
+      "ion\0222\n\025server_replay_version\030\005 \001(\tR\023serv" +
+      "erReplayVersion\022Y\n\016tolerated_mods\030\006 \003(\0132" +
+      "2.recorder_minecraft.artifacts.v1.SceneT" +
+      "oleratedModR\rtoleratedMods\"\311\002\n\021SceneTole" +
+      "ratedMod\022\025\n\006mod_id\030\001 \001(\tR\005modId\022%\n\016sourc" +
+      "e_version\030\002 \001(\tR\rsourceVersion\022+\n\021extrac" +
+      "tor_version\030\003 \001(\tR\020extractorVersion\022]\n\nd" +
+      "ifference\030\004 \001(\0162=.recorder_minecraft.art" +
+      "ifacts.v1.SceneToleratedMod.DifferenceR\n" +
+      "difference\"j\n\nDifference\022\032\n\026DIFFERENCE_U" +
+      "NSPECIFIED\020\000\022\037\n\033DIFFERENCE_VERSION_MISMA" +
+      "TCH\020\001\022\037\n\033DIFFERENCE_NOT_IN_EXTRACTOR\020\002\"\252" +
+      "\003\n\021SceneStreamResult\022\022\n\004path\030\001 \001(\tR\004path" +
+      "\022\026\n\006frames\030\002 \001(\tR\006frames\022\030\n\007changes\030\003 \001(" +
+      "\tR\007changes\022\'\n\017blobs_directory\030\004 \001(\tR\016blo" +
+      "bsDirectory\022\037\n\013frame_count\030\005 \001(\004R\nframeC" +
+      "ount\022!\n\014change_count\030\006 \001(\004R\013changeCount\022" +
+      "\035\n\nblob_count\030\007 \001(\004R\tblobCount\022\035\n\nblob_b" +
+      "ytes\030\010 \001(\004R\tblobBytes\022#\n\rframes_sha256\030\t" +
+      " \001(\tR\014framesSha256\022*\n\021frames_size_bytes\030" +
+      "\n \001(\004R\017framesSizeBytes\022%\n\016changes_sha256" +
+      "\030\013 \001(\tR\rchangesSha256\022,\n\022changes_size_by" +
+      "tes\030\014 \001(\004R\020changesSizeBytes\"\241\005\n\020SceneFra" +
+      "meRecord\022\037\n\013server_tick\030\001 \001(\003R\nserverTic" +
+      "k\022\031\n\010frame_id\030\002 \001(\tR\007frameId\022\037\n\013replay_t" +
+      "ick\030\003 \001(\003R\nreplayTick\022\034\n\tdimension\030\004 \001(\t" +
+      "R\tdimension\022S\n\020subject_position\030\005 \001(\0132(." +
+      "recorder_minecraft.artifacts.v1.Vector3R" +
+      "\017subjectPosition\022+\n\021coverage_complete\030\006 " +
+      "\001(\010R\020coverageComplete\022\035\n\nsegment_id\030\007 \001(" +
+      "\tR\tsegmentId\022\'\n\017segment_ordinal\030\010 \001(\rR\016s" +
+      "egmentOrdinal\022%\n\016event_sequence\030\t \001(\004R\re" +
+      "ventSequence\022!\n\014entity_count\030\n \001(\005R\013enti" +
+      "tyCount\0220\n\024loaded_section_count\030\013 \001(\005R\022l" +
+      "oadedSectionCount\022\'\n\017metadata_policy\030\014 \001" +
+      "(\tR\016metadataPolicy\0222\n\025scene_snapshot_sha" +
+      "256\030\r \001(\tR\023sceneSnapshotSha256\022\024\n\005scope\030" +
+      "\016 \001(\tR\005scope\022*\n\021subject_entity_id\030\017 \001(\005R" +
+      "\017subjectEntityId\022-\n\022incomplete_reasons\030\020" +
+      " \003(\tR\021incompleteReasons\"\261\006\n\021SceneChangeR" +
+      "ecord\022\032\n\010sequence\030\001 \001(\004R\010sequence\022\037\n\013ser" +
+      "ver_tick\030\002 \001(\003R\nserverTick\022\037\n\013replay_tic" +
+      "k\030\003 \001(\003R\nreplayTick\022\035\n\nsegment_id\030\004 \001(\tR" +
+      "\tsegmentId\022\'\n\017segment_ordinal\030\005 \001(\rR\016seg" +
+      "mentOrdinal\022T\n\rsegment_begin\030\024 \001(\0132-.rec" +
+      "order_minecraft.artifacts.v1.SegmentBegi" +
+      "nH\000R\014segmentBegin\022Q\n\013section_set\030\025 \001(\0132." +
+      ".recorder_minecraft.artifacts.v1.Section" +
+      "ChangeH\000R\nsectionSet\022W\n\016section_unload\030\026" +
+      " \001(\0132..recorder_minecraft.artifacts.v1.S" +
+      "ectionChangeH\000R\rsectionUnload\022N\n\nentity_" +
+      "set\030\027 \001(\0132-.recorder_minecraft.artifacts" +
+      ".v1.EntityChangeH\000R\tentitySet\022T\n\rentity_" +
+      "remove\030\030 \001(\0132-.recorder_minecraft.artifa" +
+      "cts.v1.EntityChangeH\000R\014entityRemove\022^\n\020b" +
+      "lock_entity_set\030\031 \001(\01322.recorder_minecra" +
+      "ft.artifacts.v1.BlockEntityChangeH\000R\016blo" +
+      "ckEntitySet\022d\n\023block_entity_remove\030\032 \001(\013" +
+      "22.recorder_minecraft.artifacts.v1.Block" +
+      "EntityChangeH\000R\021blockEntityRemoveB\010\n\006cha" +
+      "nge\"E\n\014SegmentBegin\022\026\n\006sha256\030\001 \001(\tR\006sha" +
+      "256\022\035\n\nsize_bytes\030\002 \001(\004R\tsizeBytes\"x\n\rSe" +
+      "ctionChange\022\034\n\tdimension\030\001 \001(\tR\tdimensio" +
+      "n\022\014\n\001x\030\002 \001(\005R\001x\022\014\n\001y\030\003 \001(\005R\001y\022\014\n\001z\030\004 \001(\005" +
+      "R\001z\022\037\n\013blob_sha256\030\005 \001(\tR\nblobSha256\"P\n\014" +
+      "EntityChange\022\037\n\013instance_id\030\001 \001(\tR\ninsta" +
+      "nceId\022\037\n\013blob_sha256\030\002 \001(\tR\nblobSha256\"|" +
+      "\n\021BlockEntityChange\022\034\n\tdimension\030\001 \001(\tR\t" +
+      "dimension\022\014\n\001x\030\002 \001(\005R\001x\022\014\n\001y\030\003 \001(\005R\001y\022\014\n" +
+      "\001z\030\004 \001(\005R\001z\022\037\n\013blob_sha256\030\005 \001(\tR\nblobSh" +
+      "a256\"\242\003\n\020SceneBlobPayload\022H\n\007section\030\001 \001" +
+      "(\0132,.recorder_minecraft.artifacts.v1.Sec" +
+      "tionBlobH\000R\007section\022E\n\006entity\030\002 \001(\0132+.re" +
+      "corder_minecraft.artifacts.v1.EntityBlob" +
+      "H\000R\006entity\022U\n\014block_entity\030\003 \001(\01320.recor" +
+      "der_minecraft.artifacts.v1.BlockEntityBl" +
+      "obH\000R\013blockEntity\022I\n\005frame\030\004 \001(\01321.recor" +
+      "der_minecraft.artifacts.v1.SceneFrameRec" +
+      "ordH\000R\005frame\022R\n\014player_state\030\005 \001(\0132-.rec" +
+      "order_minecraft.artifacts.v1.CaptureEven" +
+      "tH\000R\013playerStateB\007\n\005value\"z\n\013SectionBlob" +
+      "\022E\n\007palette\030\001 \003(\0132+.recorder_minecraft.a" +
+      "rtifacts.v1.BlockStateR\007palette\022$\n\016indic" +
+      "es_le_u16\030\002 \001(\014R\014indicesLeU16\"\274\001\n\nBlockS" +
+      "tate\022\022\n\004name\030\001 \001(\tR\004name\022[\n\nproperties\030\002" +
+      " \003(\0132;.recorder_minecraft.artifacts.v1.B" +
+      "lockState.PropertiesEntryR\nproperties\032=\n" +
+      "\017PropertiesEntry\022\020\n\003key\030\001 \001(\tR\003key\022\024\n\005va" +
+      "lue\030\002 \001(\tR\005value:\0028\001\"|\n\014EncodedValue\022!\n\014" +
+      "logical_type\030\001 \001(\tR\013logicalType\022\031\n\010codec" +
+      "_id\030\002 \001(\005R\007codecId\022\032\n\010encoding\030\003 \001(\tR\010en" +
+      "coding\022\022\n\004data\030\004 \001(\014R\004data\"\247\010\n\nEntityBlo" +
+      "b\022?\n\006bounds\030\001 \001(\0132\'.recorder_minecraft.a" +
+      "rtifacts.v1.BoundsR\006bounds\022\034\n\tdimension\030" +
+      "\002 \001(\tR\tdimension\022\035\n\nnetwork_id\030\003 \001(\005R\tne" +
+      "tworkId\022\027\n\004uuid\030\004 \001(\tH\000R\004uuid\210\001\001\022\027\n\007type" +
+      "_id\030\005 \001(\tR\006typeId\022D\n\010position\030\006 \001(\0132(.re" +
+      "corder_minecraft.artifacts.v1.Vector3R\010p" +
+      "osition\022D\n\010velocity\030\007 \001(\0132(.recorder_min" +
+      "ecraft.artifacts.v1.Vector3R\010velocity\022E\n" +
+      "\010rotation\030\010 \001(\0132).recorder_minecraft.art" +
+      "ifacts.v1.RotationR\010rotation\022\024\n\005width\030\t " +
+      "\001(\001R\005width\022\026\n\006height\030\n \001(\001R\006height\022\033\n\ton" +
+      "_ground\030\013 \001(\010R\010onGround\022\030\n\007subject\030\014 \001(\010" +
+      "R\007subject\022\035\n\nspawn_data\030\r \001(\005R\tspawnData" +
+      "\022D\n\034leash_destination_network_id\030\016 \001(\005H\001" +
+      "R\031leashDestinationNetworkId\210\001\001\022\036\n\npassen" +
+      "gers\030\017 \003(\005R\npassengers\022K\n\010metadata\030\020 \003(\013" +
+      "2/.recorder_minecraft.artifacts.v1.Entit" +
+      "yMetadataR\010metadata\022H\n\tequipment\030\021 \003(\0132*" +
+      ".recorder_minecraft.artifacts.v1.Equipme" +
+      "ntR\tequipment\022P\n\nattributes\030\022 \003(\01320.reco" +
+      "rder_minecraft.artifacts.v1.EntityAttrib" +
+      "uteR\nattributes\022G\n\007effects\030\023 \003(\0132-.recor" +
+      "der_minecraft.artifacts.v1.EntityEffectR" +
+      "\007effects\022P\n\013player_info\030\024 \001(\0132/.recorder" +
+      "_minecraft.artifacts.v1.PlayerListInfoR\n" +
+      "playerInfoB\007\n\005_uuidB\037\n\035_leash_destinatio" +
+      "n_network_id\"\206\001\n\006Bounds\022\023\n\005min_x\030\001 \001(\001R\004" +
+      "minX\022\023\n\005min_y\030\002 \001(\001R\004minY\022\023\n\005min_z\030\003 \001(\001" +
+      "R\004minZ\022\023\n\005max_x\030\004 \001(\001R\004maxX\022\023\n\005max_y\030\005 \001" +
+      "(\001R\004maxY\022\023\n\005max_z\030\006 \001(\001R\004maxZ\"k\n\016EntityM" +
+      "etadata\022\024\n\005index\030\001 \001(\005R\005index\022C\n\005value\030\002" +
+      " \001(\0132-.recorder_minecraft.artifacts.v1.E" +
+      "ncodedValueR\005value\"\242\001\n\tEquipment\022\022\n\004slot" +
+      "\030\001 \001(\tR\004slot\022\027\n\007item_id\030\002 \001(\tR\006itemId\022\024\n" +
+      "\005count\030\003 \001(\005R\005count\022R\n\rencoded_stack\030\004 \001" +
+      "(\0132-.recorder_minecraft.artifacts.v1.Enc" +
+      "odedValueR\014encodedStack\"\232\001\n\017EntityAttrib" +
+      "ute\022!\n\014attribute_id\030\001 \001(\tR\013attributeId\022\022" +
+      "\n\004base\030\002 \001(\001R\004base\022P\n\tmodifiers\030\003 \003(\01322." +
+      "recorder_minecraft.artifacts.v1.Attribut" +
+      "eModifierR\tmodifiers\"Y\n\021AttributeModifie" +
+      "r\022\016\n\002id\030\001 \001(\tR\002id\022\026\n\006amount\030\002 \001(\001R\006amoun" +
+      "t\022\034\n\toperation\030\003 \001(\tR\toperation\"\327\001\n\014Enti" +
+      "tyEffect\022\033\n\teffect_id\030\001 \001(\tR\010effectId\022\034\n" +
+      "\tamplifier\030\002 \001(\005R\tamplifier\022%\n\016duration_" +
+      "ticks\030\003 \001(\005R\rdurationTicks\022\030\n\007ambient\030\004 " +
+      "\001(\010R\007ambient\022\030\n\007visible\030\005 \001(\010R\007visible\022\033" +
+      "\n\tshow_icon\030\006 \001(\010R\010showIcon\022\024\n\005blend\030\007 \001" +
+      "(\010R\005blend\"q\n\016PlayerListInfo\022\030\n\007actions\030\001" +
+      " \003(\tR\007actions\022E\n\006packet\030\002 \001(\0132-.recorder" +
+      "_minecraft.artifacts.v1.EncodedValueR\006pa" +
+      "cket\"\263\001\n\017BlockEntityBlob\022\034\n\tdimension\030\001 " +
+      "\001(\tR\tdimension\022\014\n\001x\030\002 \001(\005R\001x\022\014\n\001y\030\003 \001(\005R" +
+      "\001y\022\014\n\001z\030\004 \001(\005R\001z\022\027\n\007type_id\030\005 \001(\tR\006typeI" +
+      "d\022?\n\003nbt\030\006 \001(\0132-.recorder_minecraft.arti" +
+      "facts.v1.EncodedValueR\003nbtB\207\001\n\"dev.recor" +
+      "derminecraft.artifacts.v1P\001Z_github.com/" +
+      "proj-airi/recorder-minecraft/apis/sdk/go" +
+      "/recorder-minecraft/artifacts/v1;artifac" +
+      "tsv1b\006proto3"
     };
     descriptor = com.google.protobuf.Descriptors.FileDescriptor
       .internalBuildGeneratedFileFrom(descriptorData,
@@ -394,69 +423,81 @@ public final class SceneExtraction extends com.google.protobuf.GeneratedFile {
     internal_static_recorder_minecraft_artifacts_v1_SceneExtractionResult_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_recorder_minecraft_artifacts_v1_SceneExtractionResult_descriptor,
-        new java.lang.String[] { "Status", "Error", "JobId", "SessionId", "PlayerUuid", "ConnectionId", "Ticks", "Scope", "MetadataPolicy", "SourceReplays", "Stream", "IgnoredPacketCounts", "CoveredTickCount", });
+        new java.lang.String[] { "Status", "Error", "JobId", "SessionId", "PlayerUuid", "ConnectionId", "Ticks", "Scope", "MetadataPolicy", "SourceReplays", "Stream", "IgnoredPacketCounts", "CoveredTickCount", "SourceRuntimes", });
     internal_static_recorder_minecraft_artifacts_v1_SceneExtractionResult_IgnoredPacketCountsEntry_descriptor =
       internal_static_recorder_minecraft_artifacts_v1_SceneExtractionResult_descriptor.getNestedType(0);
     internal_static_recorder_minecraft_artifacts_v1_SceneExtractionResult_IgnoredPacketCountsEntry_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_recorder_minecraft_artifacts_v1_SceneExtractionResult_IgnoredPacketCountsEntry_descriptor,
         new java.lang.String[] { "Key", "Value", });
-    internal_static_recorder_minecraft_artifacts_v1_SceneStreamResult_descriptor =
+    internal_static_recorder_minecraft_artifacts_v1_SceneSourceRuntime_descriptor =
       getDescriptor().getMessageType(4);
+    internal_static_recorder_minecraft_artifacts_v1_SceneSourceRuntime_fieldAccessorTable = new
+      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
+        internal_static_recorder_minecraft_artifacts_v1_SceneSourceRuntime_descriptor,
+        new java.lang.String[] { "SegmentId", "MinecraftVersion", "ProtocolVersion", "DataVersion", "ServerReplayVersion", "ToleratedMods", });
+    internal_static_recorder_minecraft_artifacts_v1_SceneToleratedMod_descriptor =
+      getDescriptor().getMessageType(5);
+    internal_static_recorder_minecraft_artifacts_v1_SceneToleratedMod_fieldAccessorTable = new
+      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
+        internal_static_recorder_minecraft_artifacts_v1_SceneToleratedMod_descriptor,
+        new java.lang.String[] { "ModId", "SourceVersion", "ExtractorVersion", "Difference", });
+    internal_static_recorder_minecraft_artifacts_v1_SceneStreamResult_descriptor =
+      getDescriptor().getMessageType(6);
     internal_static_recorder_minecraft_artifacts_v1_SceneStreamResult_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_recorder_minecraft_artifacts_v1_SceneStreamResult_descriptor,
         new java.lang.String[] { "Path", "Frames", "Changes", "BlobsDirectory", "FrameCount", "ChangeCount", "BlobCount", "BlobBytes", "FramesSha256", "FramesSizeBytes", "ChangesSha256", "ChangesSizeBytes", });
     internal_static_recorder_minecraft_artifacts_v1_SceneFrameRecord_descriptor =
-      getDescriptor().getMessageType(5);
+      getDescriptor().getMessageType(7);
     internal_static_recorder_minecraft_artifacts_v1_SceneFrameRecord_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_recorder_minecraft_artifacts_v1_SceneFrameRecord_descriptor,
         new java.lang.String[] { "ServerTick", "FrameId", "ReplayTick", "Dimension", "SubjectPosition", "CoverageComplete", "SegmentId", "SegmentOrdinal", "EventSequence", "EntityCount", "LoadedSectionCount", "MetadataPolicy", "SceneSnapshotSha256", "Scope", "SubjectEntityId", "IncompleteReasons", });
     internal_static_recorder_minecraft_artifacts_v1_SceneChangeRecord_descriptor =
-      getDescriptor().getMessageType(6);
+      getDescriptor().getMessageType(8);
     internal_static_recorder_minecraft_artifacts_v1_SceneChangeRecord_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_recorder_minecraft_artifacts_v1_SceneChangeRecord_descriptor,
         new java.lang.String[] { "Sequence", "ServerTick", "ReplayTick", "SegmentId", "SegmentOrdinal", "SegmentBegin", "SectionSet", "SectionUnload", "EntitySet", "EntityRemove", "BlockEntitySet", "BlockEntityRemove", "Change", });
     internal_static_recorder_minecraft_artifacts_v1_SegmentBegin_descriptor =
-      getDescriptor().getMessageType(7);
+      getDescriptor().getMessageType(9);
     internal_static_recorder_minecraft_artifacts_v1_SegmentBegin_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_recorder_minecraft_artifacts_v1_SegmentBegin_descriptor,
         new java.lang.String[] { "Sha256", "SizeBytes", });
     internal_static_recorder_minecraft_artifacts_v1_SectionChange_descriptor =
-      getDescriptor().getMessageType(8);
+      getDescriptor().getMessageType(10);
     internal_static_recorder_minecraft_artifacts_v1_SectionChange_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_recorder_minecraft_artifacts_v1_SectionChange_descriptor,
         new java.lang.String[] { "Dimension", "X", "Y", "Z", "BlobSha256", });
     internal_static_recorder_minecraft_artifacts_v1_EntityChange_descriptor =
-      getDescriptor().getMessageType(9);
+      getDescriptor().getMessageType(11);
     internal_static_recorder_minecraft_artifacts_v1_EntityChange_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_recorder_minecraft_artifacts_v1_EntityChange_descriptor,
         new java.lang.String[] { "InstanceId", "BlobSha256", });
     internal_static_recorder_minecraft_artifacts_v1_BlockEntityChange_descriptor =
-      getDescriptor().getMessageType(10);
+      getDescriptor().getMessageType(12);
     internal_static_recorder_minecraft_artifacts_v1_BlockEntityChange_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_recorder_minecraft_artifacts_v1_BlockEntityChange_descriptor,
         new java.lang.String[] { "Dimension", "X", "Y", "Z", "BlobSha256", });
     internal_static_recorder_minecraft_artifacts_v1_SceneBlobPayload_descriptor =
-      getDescriptor().getMessageType(11);
+      getDescriptor().getMessageType(13);
     internal_static_recorder_minecraft_artifacts_v1_SceneBlobPayload_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_recorder_minecraft_artifacts_v1_SceneBlobPayload_descriptor,
         new java.lang.String[] { "Section", "Entity", "BlockEntity", "Frame", "PlayerState", "Value", });
     internal_static_recorder_minecraft_artifacts_v1_SectionBlob_descriptor =
-      getDescriptor().getMessageType(12);
+      getDescriptor().getMessageType(14);
     internal_static_recorder_minecraft_artifacts_v1_SectionBlob_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_recorder_minecraft_artifacts_v1_SectionBlob_descriptor,
         new java.lang.String[] { "Palette", "IndicesLeU16", });
     internal_static_recorder_minecraft_artifacts_v1_BlockState_descriptor =
-      getDescriptor().getMessageType(13);
+      getDescriptor().getMessageType(15);
     internal_static_recorder_minecraft_artifacts_v1_BlockState_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_recorder_minecraft_artifacts_v1_BlockState_descriptor,
@@ -468,61 +509,61 @@ public final class SceneExtraction extends com.google.protobuf.GeneratedFile {
         internal_static_recorder_minecraft_artifacts_v1_BlockState_PropertiesEntry_descriptor,
         new java.lang.String[] { "Key", "Value", });
     internal_static_recorder_minecraft_artifacts_v1_EncodedValue_descriptor =
-      getDescriptor().getMessageType(14);
+      getDescriptor().getMessageType(16);
     internal_static_recorder_minecraft_artifacts_v1_EncodedValue_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_recorder_minecraft_artifacts_v1_EncodedValue_descriptor,
         new java.lang.String[] { "LogicalType", "CodecId", "Encoding", "Data", });
     internal_static_recorder_minecraft_artifacts_v1_EntityBlob_descriptor =
-      getDescriptor().getMessageType(15);
+      getDescriptor().getMessageType(17);
     internal_static_recorder_minecraft_artifacts_v1_EntityBlob_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_recorder_minecraft_artifacts_v1_EntityBlob_descriptor,
         new java.lang.String[] { "Bounds", "Dimension", "NetworkId", "Uuid", "TypeId", "Position", "Velocity", "Rotation", "Width", "Height", "OnGround", "Subject", "SpawnData", "LeashDestinationNetworkId", "Passengers", "Metadata", "Equipment", "Attributes", "Effects", "PlayerInfo", });
     internal_static_recorder_minecraft_artifacts_v1_Bounds_descriptor =
-      getDescriptor().getMessageType(16);
+      getDescriptor().getMessageType(18);
     internal_static_recorder_minecraft_artifacts_v1_Bounds_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_recorder_minecraft_artifacts_v1_Bounds_descriptor,
         new java.lang.String[] { "MinX", "MinY", "MinZ", "MaxX", "MaxY", "MaxZ", });
     internal_static_recorder_minecraft_artifacts_v1_EntityMetadata_descriptor =
-      getDescriptor().getMessageType(17);
+      getDescriptor().getMessageType(19);
     internal_static_recorder_minecraft_artifacts_v1_EntityMetadata_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_recorder_minecraft_artifacts_v1_EntityMetadata_descriptor,
         new java.lang.String[] { "Index", "Value", });
     internal_static_recorder_minecraft_artifacts_v1_Equipment_descriptor =
-      getDescriptor().getMessageType(18);
+      getDescriptor().getMessageType(20);
     internal_static_recorder_minecraft_artifacts_v1_Equipment_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_recorder_minecraft_artifacts_v1_Equipment_descriptor,
         new java.lang.String[] { "Slot", "ItemId", "Count", "EncodedStack", });
     internal_static_recorder_minecraft_artifacts_v1_EntityAttribute_descriptor =
-      getDescriptor().getMessageType(19);
+      getDescriptor().getMessageType(21);
     internal_static_recorder_minecraft_artifacts_v1_EntityAttribute_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_recorder_minecraft_artifacts_v1_EntityAttribute_descriptor,
         new java.lang.String[] { "AttributeId", "Base", "Modifiers", });
     internal_static_recorder_minecraft_artifacts_v1_AttributeModifier_descriptor =
-      getDescriptor().getMessageType(20);
+      getDescriptor().getMessageType(22);
     internal_static_recorder_minecraft_artifacts_v1_AttributeModifier_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_recorder_minecraft_artifacts_v1_AttributeModifier_descriptor,
         new java.lang.String[] { "Id", "Amount", "Operation", });
     internal_static_recorder_minecraft_artifacts_v1_EntityEffect_descriptor =
-      getDescriptor().getMessageType(21);
+      getDescriptor().getMessageType(23);
     internal_static_recorder_minecraft_artifacts_v1_EntityEffect_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_recorder_minecraft_artifacts_v1_EntityEffect_descriptor,
         new java.lang.String[] { "EffectId", "Amplifier", "DurationTicks", "Ambient", "Visible", "ShowIcon", "Blend", });
     internal_static_recorder_minecraft_artifacts_v1_PlayerListInfo_descriptor =
-      getDescriptor().getMessageType(22);
+      getDescriptor().getMessageType(24);
     internal_static_recorder_minecraft_artifacts_v1_PlayerListInfo_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_recorder_minecraft_artifacts_v1_PlayerListInfo_descriptor,
         new java.lang.String[] { "Actions", "Packet", });
     internal_static_recorder_minecraft_artifacts_v1_BlockEntityBlob_descriptor =
-      getDescriptor().getMessageType(23);
+      getDescriptor().getMessageType(25);
     internal_static_recorder_minecraft_artifacts_v1_BlockEntityBlob_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_recorder_minecraft_artifacts_v1_BlockEntityBlob_descriptor,
