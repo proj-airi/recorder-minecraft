@@ -374,6 +374,105 @@ public object SceneExtractionResultKt {
     public fun clearCoveredTickCount() {
       _builder.clearCoveredTickCount()
     }
+
+    /**
+     * An uninstantiable, behaviorless type to represent the field in
+     * generics.
+     */
+    @kotlin.OptIn(com.google.protobuf.kotlin.OnlyForUseByGeneratedProtoCode::class)
+    public class SourceRuntimesProxy private constructor() : com.google.protobuf.kotlin.DslProxy()
+    /**
+     * ```
+     * One entry per source replay, in source_replays order.
+     * ```
+     *
+     * `repeated .recorder_minecraft.artifacts.v1.SceneSourceRuntime source_runtimes = 14 [json_name = "sourceRuntimes"];`
+     */
+     public val sourceRuntimes: com.google.protobuf.kotlin.DslList<dev.recorderminecraft.artifacts.v1.SceneSourceRuntime, SourceRuntimesProxy>
+      @kotlin.jvm.JvmSynthetic
+  get() = com.google.protobuf.kotlin.DslList(
+        _builder.sourceRuntimesList
+      )
+    /**
+     * ```
+     * One entry per source replay, in source_replays order.
+     * ```
+     *
+     * `repeated .recorder_minecraft.artifacts.v1.SceneSourceRuntime source_runtimes = 14 [json_name = "sourceRuntimes"];`
+     * @param value The sourceRuntimes to add.
+     */
+    @kotlin.jvm.JvmSynthetic
+@kotlin.jvm.JvmName("addSourceRuntimes")
+    public fun com.google.protobuf.kotlin.DslList<dev.recorderminecraft.artifacts.v1.SceneSourceRuntime, SourceRuntimesProxy>.add(value: dev.recorderminecraft.artifacts.v1.SceneSourceRuntime) {
+      _builder.addSourceRuntimes(value)
+    }
+    /**
+     * ```
+     * One entry per source replay, in source_replays order.
+     * ```
+     *
+     * `repeated .recorder_minecraft.artifacts.v1.SceneSourceRuntime source_runtimes = 14 [json_name = "sourceRuntimes"];`
+     * @param value The sourceRuntimes to add.
+     */
+    @kotlin.jvm.JvmSynthetic
+@kotlin.jvm.JvmName("plusAssignSourceRuntimes")
+    @Suppress("NOTHING_TO_INLINE")
+    public inline operator fun com.google.protobuf.kotlin.DslList<dev.recorderminecraft.artifacts.v1.SceneSourceRuntime, SourceRuntimesProxy>.plusAssign(value: dev.recorderminecraft.artifacts.v1.SceneSourceRuntime) {
+      add(value)
+    }
+    /**
+     * ```
+     * One entry per source replay, in source_replays order.
+     * ```
+     *
+     * `repeated .recorder_minecraft.artifacts.v1.SceneSourceRuntime source_runtimes = 14 [json_name = "sourceRuntimes"];`
+     * @param values The sourceRuntimes to add.
+     */
+    @kotlin.jvm.JvmSynthetic
+@kotlin.jvm.JvmName("addAllSourceRuntimes")
+    public fun com.google.protobuf.kotlin.DslList<dev.recorderminecraft.artifacts.v1.SceneSourceRuntime, SourceRuntimesProxy>.addAll(values: kotlin.collections.Iterable<dev.recorderminecraft.artifacts.v1.SceneSourceRuntime>) {
+      _builder.addAllSourceRuntimes(values)
+    }
+    /**
+     * ```
+     * One entry per source replay, in source_replays order.
+     * ```
+     *
+     * `repeated .recorder_minecraft.artifacts.v1.SceneSourceRuntime source_runtimes = 14 [json_name = "sourceRuntimes"];`
+     * @param values The sourceRuntimes to add.
+     */
+    @kotlin.jvm.JvmSynthetic
+@kotlin.jvm.JvmName("plusAssignAllSourceRuntimes")
+    @Suppress("NOTHING_TO_INLINE")
+    public inline operator fun com.google.protobuf.kotlin.DslList<dev.recorderminecraft.artifacts.v1.SceneSourceRuntime, SourceRuntimesProxy>.plusAssign(values: kotlin.collections.Iterable<dev.recorderminecraft.artifacts.v1.SceneSourceRuntime>) {
+      addAll(values)
+    }
+    /**
+     * ```
+     * One entry per source replay, in source_replays order.
+     * ```
+     *
+     * `repeated .recorder_minecraft.artifacts.v1.SceneSourceRuntime source_runtimes = 14 [json_name = "sourceRuntimes"];`
+     * @param index The index to set the value at.
+     * @param value The sourceRuntimes to set.
+     */
+    @kotlin.jvm.JvmSynthetic
+@kotlin.jvm.JvmName("setSourceRuntimes")
+    public operator fun com.google.protobuf.kotlin.DslList<dev.recorderminecraft.artifacts.v1.SceneSourceRuntime, SourceRuntimesProxy>.set(index: kotlin.Int, value: dev.recorderminecraft.artifacts.v1.SceneSourceRuntime) {
+      _builder.setSourceRuntimes(index, value)
+    }
+    /**
+     * ```
+     * One entry per source replay, in source_replays order.
+     * ```
+     *
+     * `repeated .recorder_minecraft.artifacts.v1.SceneSourceRuntime source_runtimes = 14 [json_name = "sourceRuntimes"];`
+     */
+    @kotlin.jvm.JvmSynthetic
+@kotlin.jvm.JvmName("clearSourceRuntimes")
+    public fun com.google.protobuf.kotlin.DslList<dev.recorderminecraft.artifacts.v1.SceneSourceRuntime, SourceRuntimesProxy>.clear() {
+      _builder.clearSourceRuntimes()
+    }
   }
 }
 @kotlin.jvm.JvmSynthetic

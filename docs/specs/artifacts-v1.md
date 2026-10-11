@@ -39,6 +39,8 @@ artifacts/v1/
               fpv_frames/
                 frames.jsonl
                 frame_*.png
+              fpv.mp4                           # optional playback video
+              fpv.json                          # optional, for a video without a render job
             extensions/                         # optional producer-owned data
               <extension-type>/
                 manifest.json
@@ -262,11 +264,33 @@ after `ffmpeg` succeeds; `--frames-only` retains the image-sequence-only
 workflow. The video is derived and may be regenerated without mutating the
 capture inputs.
 
+A producer can publish `renders/fpv.mp4` without a render job, for example an
+Airicraft first-person screen capture. It then writes `renders/fpv.json`, the
+ProtoJSON form of `FpvVideoManifest`, and no `result.json` or `fpv_frames/`.
+The manifest has `schema_version` `1`, the Play's server instance, player, and
+connection, the video geometry, frame rate, encoded frame count, duration, and
+the byte size of `fpv.mp4`. `complete` is false when the video or its anchors
+were cut short. `frames` lists sampled anchors, each a `server_tick` and a
+`video_seconds`, in strictly increasing video time with non-decreasing ticks.
+Until the next anchor, the video shows the image captured at the anchor's tick.
+The video time of a server tick T is the `video_seconds` of the last anchor
+with `server_tick` at or before T. Do not compute it from the tick rate: the
+capture can skip identical images and hold one image for a long time.
+
 ## Read API and media serving
 
 `recorder-minecraft serve` exposes the read-only Artifacts V1 catalog over gRPC
 and a grpc-gateway HTTP API. Catalog traversal validates the server, player, and
 play directory identities against their metadata before returning them.
+A Play's `video` names `renders/fpv.mp4`. Its geometry, frame rate, frame
+count, duration, and `timing` come from `renders/fpv.json` when that manifest
+has the Play's identity, the MP4's byte size, and ordered anchors. Otherwise
+they come from a complete `renders/result.json`. `timing` gives the URL and
+format of the file that maps video time to server ticks
+(`FORMAT_FPV_MANIFEST` for `fpv.json`, `FORMAT_RENDER_FRAME_INDEX` for
+`fpv_frames/frames.jsonl`), the first and last mapped server ticks, and the
+number of anchors or frames. Without `timing`, the video time of a tick is
+unknown. A manifest that does not describe the MP4 is ignored.
 `/assets/` serves only regular files contained below the configured artifacts
 root and supports HTTP byte ranges so browser decoders can seek in MP4 files.
 Symlinks and path traversal outside that root are rejected.
@@ -301,6 +325,39 @@ Scene data has the same client-visible limits as the replay. Unknown cells and
 unopened-container contents remain unknown in the scene; they are never
 fabricated as air or empty inventories. Container truth comes from the world
 stream, not from the scene.
+
+## Scene replay compatibility
+
+The scene extractor decodes a replay with the vanilla codecs and registries of
+its own Minecraft version. It runs as a plain Java program: Fabric Loader does
+not launch it, no mod entrypoint runs, and no mixin is applied. It therefore
+requires only that the Flashback `metadata.json` `version_string`,
+`protocol_version`, and `data_version` equal its own, and rejects the replay
+otherwise. The capture contract and identity in `arcade_replay_meta.json` are
+checked as before, and the Flashback reader rejects an unknown chunk format or
+required action.
+
+The `mods` list in `arcade_replay_meta.json` names every top-level mod of the
+recording server or host client. It is provenance, not a requirement. Each
+replay adds one `source_runtimes` entry to the extraction result, which is
+stored in `scene_meta.provenance_json`: the Minecraft identity, the
+ServerReplay version, and `tolerated_mods`, the recording mods that the
+extractor does not load (`DIFFERENCE_NOT_IN_EXTRACTOR`) or pins at another
+version (`DIFFERENCE_VERSION_MISMATCH`). The extractor pins Fabric Loader,
+Fabric API, Fabric Language Kotlin, and Arcade Replay only to supply classes.
+For example, an Airicraft playtest lists Airicraft, Baritone, JourneyMap, and
+REI as not in the extractor, and its Fabric Loader 0.19.5 as a version
+mismatch.
+
+A mod that adds blocks, items, block entities, entities, or entity data
+serializers gets raw IDs after the vanilla ones. Extraction fails at the first
+packet that uses such an ID. The vanilla codecs reject unknown block state,
+block entity type, item, and serializer IDs. The entity type registry is
+defaulted and decodes an unknown ID as `minecraft:pig`, so the extractor checks
+the entity type ID of every `add_entity` packet. Custom payloads of other mods
+are counted in `ignored_packet_counts`. Data-pack registries, such as biomes and
+entity variants, are decoded from the extractor's vanilla data and are not
+compared with the registry data that the recording server sent.
 
 ## Perception
 

@@ -159,14 +159,44 @@ export type RecorderMinecraftApiV1ServerInstanceSummary = {
 };
 
 export type RecorderMinecraftApiV1VideoAsset = {
+    durationSeconds?: number;
     frameCount?: string;
     framesPerSecond?: number;
     height?: number;
     mediaType?: string;
     sizeBytes?: string;
+    timing?: RecorderMinecraftApiV1VideoTiming;
     url?: string;
     width?: number;
 };
+
+/**
+ * VideoTiming locates the file that maps video time to server ticks.
+ */
+export type RecorderMinecraftApiV1VideoTiming = {
+    anchorCount?: string;
+    /**
+     * False when the producer reported a truncated video or index.
+     */
+    complete?: boolean;
+    /**
+     * Server ticks of the first and last anchor or frame.
+     */
+    firstServerTick?: string;
+    format?: RecorderMinecraftApiV1VideoTimingFormat;
+    lastServerTick?: string;
+    url?: string;
+};
+
+/**
+ *  - FORMAT_FPV_MANIFEST: renders/fpv.json, FpvVideoManifest ProtoJSON. Its frames are sampled
+ * {server_tick, video_seconds} anchors. For a server tick T, seek to the
+ * video_seconds of the last anchor with server_tick <= T.
+ * - FORMAT_RENDER_FRAME_INDEX: renders/fpv_frames/frames.jsonl, RenderFrameIndex ProtoJSON lines with
+ * one line per video frame. Frame ordinal N (from 1) starts at
+ * (N - 1) / frames_per_second.
+ */
+export type RecorderMinecraftApiV1VideoTimingFormat = 'FORMAT_UNSPECIFIED' | 'FORMAT_FPV_MANIFEST' | 'FORMAT_RENDER_FRAME_INDEX';
 
 /**
  * WorldSession is one directory under world/sessions/ of a server instance.

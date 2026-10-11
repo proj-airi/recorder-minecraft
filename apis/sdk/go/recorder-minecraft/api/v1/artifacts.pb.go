@@ -79,6 +79,61 @@ func (WorldSessionLink) EnumDescriptor() ([]byte, []int) {
 	return file_recorder_minecraft_api_v1_artifacts_proto_rawDescGZIP(), []int{0}
 }
 
+type VideoTiming_Format int32
+
+const (
+	VideoTiming_FORMAT_UNSPECIFIED VideoTiming_Format = 0
+	// renders/fpv.json, FpvVideoManifest ProtoJSON. Its frames are sampled
+	// {server_tick, video_seconds} anchors. For a server tick T, seek to the
+	// video_seconds of the last anchor with server_tick <= T.
+	VideoTiming_FORMAT_FPV_MANIFEST VideoTiming_Format = 1
+	// renders/fpv_frames/frames.jsonl, RenderFrameIndex ProtoJSON lines with
+	// one line per video frame. Frame ordinal N (from 1) starts at
+	// (N - 1) / frames_per_second.
+	VideoTiming_FORMAT_RENDER_FRAME_INDEX VideoTiming_Format = 2
+)
+
+// Enum value maps for VideoTiming_Format.
+var (
+	VideoTiming_Format_name = map[int32]string{
+		0: "FORMAT_UNSPECIFIED",
+		1: "FORMAT_FPV_MANIFEST",
+		2: "FORMAT_RENDER_FRAME_INDEX",
+	}
+	VideoTiming_Format_value = map[string]int32{
+		"FORMAT_UNSPECIFIED":        0,
+		"FORMAT_FPV_MANIFEST":       1,
+		"FORMAT_RENDER_FRAME_INDEX": 2,
+	}
+)
+
+func (x VideoTiming_Format) Enum() *VideoTiming_Format {
+	p := new(VideoTiming_Format)
+	*p = x
+	return p
+}
+
+func (x VideoTiming_Format) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (VideoTiming_Format) Descriptor() protoreflect.EnumDescriptor {
+	return file_recorder_minecraft_api_v1_artifacts_proto_enumTypes[1].Descriptor()
+}
+
+func (VideoTiming_Format) Type() protoreflect.EnumType {
+	return &file_recorder_minecraft_api_v1_artifacts_proto_enumTypes[1]
+}
+
+func (x VideoTiming_Format) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use VideoTiming_Format.Descriptor instead.
+func (VideoTiming_Format) EnumDescriptor() ([]byte, []int) {
+	return file_recorder_minecraft_api_v1_artifacts_proto_rawDescGZIP(), []int{28, 0}
+}
+
 type ListArtifactsRequest struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	ServerInstanceId *string                `protobuf:"bytes,1,opt,name=server_instance_id,json=serverInstanceId,proto3,oneof" json:"server_instance_id,omitempty"`
@@ -1956,6 +2011,10 @@ type VideoAsset struct {
 	Height          uint32                 `protobuf:"varint,5,opt,name=height,proto3" json:"height,omitempty"`
 	FramesPerSecond float64                `protobuf:"fixed64,6,opt,name=frames_per_second,json=framesPerSecond,proto3" json:"frames_per_second,omitempty"`
 	FrameCount      uint64                 `protobuf:"varint,7,opt,name=frame_count,json=frameCount,proto3" json:"frame_count,omitempty"`
+	// Absent when no manifest describes the video. Without timing, the video
+	// time of a server tick is unknown.
+	Timing          *VideoTiming `protobuf:"bytes,8,opt,name=timing,proto3" json:"timing,omitempty"`
+	DurationSeconds float64      `protobuf:"fixed64,9,opt,name=duration_seconds,json=durationSeconds,proto3" json:"duration_seconds,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -2037,6 +2096,107 @@ func (x *VideoAsset) GetFrameCount() uint64 {
 		return x.FrameCount
 	}
 	return 0
+}
+
+func (x *VideoAsset) GetTiming() *VideoTiming {
+	if x != nil {
+		return x.Timing
+	}
+	return nil
+}
+
+func (x *VideoAsset) GetDurationSeconds() float64 {
+	if x != nil {
+		return x.DurationSeconds
+	}
+	return 0
+}
+
+// VideoTiming locates the file that maps video time to server ticks.
+type VideoTiming struct {
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Format VideoTiming_Format     `protobuf:"varint,1,opt,name=format,proto3,enum=recorder_minecraft.api.v1.VideoTiming_Format" json:"format,omitempty"`
+	Url    string                 `protobuf:"bytes,2,opt,name=url,proto3" json:"url,omitempty"`
+	// Server ticks of the first and last anchor or frame.
+	FirstServerTick int64  `protobuf:"varint,3,opt,name=first_server_tick,json=firstServerTick,proto3" json:"first_server_tick,omitempty"`
+	LastServerTick  int64  `protobuf:"varint,4,opt,name=last_server_tick,json=lastServerTick,proto3" json:"last_server_tick,omitempty"`
+	AnchorCount     uint64 `protobuf:"varint,5,opt,name=anchor_count,json=anchorCount,proto3" json:"anchor_count,omitempty"`
+	// False when the producer reported a truncated video or index.
+	Complete      bool `protobuf:"varint,6,opt,name=complete,proto3" json:"complete,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *VideoTiming) Reset() {
+	*x = VideoTiming{}
+	mi := &file_recorder_minecraft_api_v1_artifacts_proto_msgTypes[28]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *VideoTiming) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*VideoTiming) ProtoMessage() {}
+
+func (x *VideoTiming) ProtoReflect() protoreflect.Message {
+	mi := &file_recorder_minecraft_api_v1_artifacts_proto_msgTypes[28]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use VideoTiming.ProtoReflect.Descriptor instead.
+func (*VideoTiming) Descriptor() ([]byte, []int) {
+	return file_recorder_minecraft_api_v1_artifacts_proto_rawDescGZIP(), []int{28}
+}
+
+func (x *VideoTiming) GetFormat() VideoTiming_Format {
+	if x != nil {
+		return x.Format
+	}
+	return VideoTiming_FORMAT_UNSPECIFIED
+}
+
+func (x *VideoTiming) GetUrl() string {
+	if x != nil {
+		return x.Url
+	}
+	return ""
+}
+
+func (x *VideoTiming) GetFirstServerTick() int64 {
+	if x != nil {
+		return x.FirstServerTick
+	}
+	return 0
+}
+
+func (x *VideoTiming) GetLastServerTick() int64 {
+	if x != nil {
+		return x.LastServerTick
+	}
+	return 0
+}
+
+func (x *VideoTiming) GetAnchorCount() uint64 {
+	if x != nil {
+		return x.AnchorCount
+	}
+	return 0
+}
+
+func (x *VideoTiming) GetComplete() bool {
+	if x != nil {
+		return x.Complete
+	}
+	return false
 }
 
 var File_recorder_minecraft_api_v1_artifacts_proto protoreflect.FileDescriptor
@@ -2243,7 +2403,7 @@ const file_recorder_minecraft_api_v1_artifacts_proto_rawDesc = "" +
 	"\x03url\x18\x02 \x01(\tR\x03url\x12\x1d\n" +
 	"\n" +
 	"media_type\x18\x03 \x01(\tR\tmediaType\x12\x16\n" +
-	"\x06schema\x18\x04 \x01(\tR\x06schema\"\xd7\x01\n" +
+	"\x06schema\x18\x04 \x01(\tR\x06schema\"\xc2\x02\n" +
 	"\n" +
 	"VideoAsset\x12\x10\n" +
 	"\x03url\x18\x01 \x01(\tR\x03url\x12\x1d\n" +
@@ -2255,7 +2415,20 @@ const file_recorder_minecraft_api_v1_artifacts_proto_rawDesc = "" +
 	"\x06height\x18\x05 \x01(\rR\x06height\x12*\n" +
 	"\x11frames_per_second\x18\x06 \x01(\x01R\x0fframesPerSecond\x12\x1f\n" +
 	"\vframe_count\x18\a \x01(\x04R\n" +
-	"frameCount*\x81\x01\n" +
+	"frameCount\x12>\n" +
+	"\x06timing\x18\b \x01(\v2&.recorder_minecraft.api.v1.VideoTimingR\x06timing\x12)\n" +
+	"\x10duration_seconds\x18\t \x01(\x01R\x0fdurationSeconds\"\xd5\x02\n" +
+	"\vVideoTiming\x12E\n" +
+	"\x06format\x18\x01 \x01(\x0e2-.recorder_minecraft.api.v1.VideoTiming.FormatR\x06format\x12\x10\n" +
+	"\x03url\x18\x02 \x01(\tR\x03url\x12*\n" +
+	"\x11first_server_tick\x18\x03 \x01(\x03R\x0ffirstServerTick\x12(\n" +
+	"\x10last_server_tick\x18\x04 \x01(\x03R\x0elastServerTick\x12!\n" +
+	"\fanchor_count\x18\x05 \x01(\x04R\vanchorCount\x12\x1a\n" +
+	"\bcomplete\x18\x06 \x01(\bR\bcomplete\"X\n" +
+	"\x06Format\x12\x16\n" +
+	"\x12FORMAT_UNSPECIFIED\x10\x00\x12\x17\n" +
+	"\x13FORMAT_FPV_MANIFEST\x10\x01\x12\x1d\n" +
+	"\x19FORMAT_RENDER_FRAME_INDEX\x10\x02*\x81\x01\n" +
 	"\x10WorldSessionLink\x12\"\n" +
 	"\x1eWORLD_SESSION_LINK_UNSPECIFIED\x10\x00\x12&\n" +
 	"\"WORLD_SESSION_LINK_CONTAINER_TRUTH\x10\x01\x12!\n" +
@@ -2291,91 +2464,95 @@ func file_recorder_minecraft_api_v1_artifacts_proto_rawDescGZIP() []byte {
 	return file_recorder_minecraft_api_v1_artifacts_proto_rawDescData
 }
 
-var file_recorder_minecraft_api_v1_artifacts_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_recorder_minecraft_api_v1_artifacts_proto_msgTypes = make([]protoimpl.MessageInfo, 28)
+var file_recorder_minecraft_api_v1_artifacts_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_recorder_minecraft_api_v1_artifacts_proto_msgTypes = make([]protoimpl.MessageInfo, 29)
 var file_recorder_minecraft_api_v1_artifacts_proto_goTypes = []any{
 	(WorldSessionLink)(0),               // 0: recorder_minecraft.api.v1.WorldSessionLink
-	(*ListArtifactsRequest)(nil),        // 1: recorder_minecraft.api.v1.ListArtifactsRequest
-	(*ListArtifactsResponse)(nil),       // 2: recorder_minecraft.api.v1.ListArtifactsResponse
-	(*ListServerInstancesRequest)(nil),  // 3: recorder_minecraft.api.v1.ListServerInstancesRequest
-	(*ListServerInstancesResponse)(nil), // 4: recorder_minecraft.api.v1.ListServerInstancesResponse
-	(*ListPlayersRequest)(nil),          // 5: recorder_minecraft.api.v1.ListPlayersRequest
-	(*ListPlayersResponse)(nil),         // 6: recorder_minecraft.api.v1.ListPlayersResponse
-	(*ListReplaysRequest)(nil),          // 7: recorder_minecraft.api.v1.ListReplaysRequest
-	(*ListReplaysResponse)(nil),         // 8: recorder_minecraft.api.v1.ListReplaysResponse
-	(*GetReplayRequest)(nil),            // 9: recorder_minecraft.api.v1.GetReplayRequest
-	(*GetReplayResponse)(nil),           // 10: recorder_minecraft.api.v1.GetReplayResponse
-	(*ServerInstanceSummary)(nil),       // 11: recorder_minecraft.api.v1.ServerInstanceSummary
-	(*PlayerSummary)(nil),               // 12: recorder_minecraft.api.v1.PlayerSummary
-	(*ServerInstance)(nil),              // 13: recorder_minecraft.api.v1.ServerInstance
-	(*Player)(nil),                      // 14: recorder_minecraft.api.v1.Player
-	(*Replay)(nil),                      // 15: recorder_minecraft.api.v1.Replay
-	(*ListWorldSessionsRequest)(nil),    // 16: recorder_minecraft.api.v1.ListWorldSessionsRequest
-	(*ListWorldSessionsResponse)(nil),   // 17: recorder_minecraft.api.v1.ListWorldSessionsResponse
-	(*GetWorldSessionRequest)(nil),      // 18: recorder_minecraft.api.v1.GetWorldSessionRequest
-	(*GetWorldSessionResponse)(nil),     // 19: recorder_minecraft.api.v1.GetWorldSessionResponse
-	(*RefreshCatalogRequest)(nil),       // 20: recorder_minecraft.api.v1.RefreshCatalogRequest
-	(*RefreshCatalogResponse)(nil),      // 21: recorder_minecraft.api.v1.RefreshCatalogResponse
-	(*WorldSession)(nil),                // 22: recorder_minecraft.api.v1.WorldSession
-	(*WorldSessionAlignment)(nil),       // 23: recorder_minecraft.api.v1.WorldSessionAlignment
-	(*AlignmentParticipant)(nil),        // 24: recorder_minecraft.api.v1.AlignmentParticipant
-	(*WorldSessionPlay)(nil),            // 25: recorder_minecraft.api.v1.WorldSessionPlay
-	(*PlayExtension)(nil),               // 26: recorder_minecraft.api.v1.PlayExtension
-	(*PlayExtensionAsset)(nil),          // 27: recorder_minecraft.api.v1.PlayExtensionAsset
-	(*VideoAsset)(nil),                  // 28: recorder_minecraft.api.v1.VideoAsset
-	(*timestamppb.Timestamp)(nil),       // 29: google.protobuf.Timestamp
-	(*v1.PlaySummary)(nil),              // 30: recorder_minecraft.catalog.v1.PlaySummary
+	(VideoTiming_Format)(0),             // 1: recorder_minecraft.api.v1.VideoTiming.Format
+	(*ListArtifactsRequest)(nil),        // 2: recorder_minecraft.api.v1.ListArtifactsRequest
+	(*ListArtifactsResponse)(nil),       // 3: recorder_minecraft.api.v1.ListArtifactsResponse
+	(*ListServerInstancesRequest)(nil),  // 4: recorder_minecraft.api.v1.ListServerInstancesRequest
+	(*ListServerInstancesResponse)(nil), // 5: recorder_minecraft.api.v1.ListServerInstancesResponse
+	(*ListPlayersRequest)(nil),          // 6: recorder_minecraft.api.v1.ListPlayersRequest
+	(*ListPlayersResponse)(nil),         // 7: recorder_minecraft.api.v1.ListPlayersResponse
+	(*ListReplaysRequest)(nil),          // 8: recorder_minecraft.api.v1.ListReplaysRequest
+	(*ListReplaysResponse)(nil),         // 9: recorder_minecraft.api.v1.ListReplaysResponse
+	(*GetReplayRequest)(nil),            // 10: recorder_minecraft.api.v1.GetReplayRequest
+	(*GetReplayResponse)(nil),           // 11: recorder_minecraft.api.v1.GetReplayResponse
+	(*ServerInstanceSummary)(nil),       // 12: recorder_minecraft.api.v1.ServerInstanceSummary
+	(*PlayerSummary)(nil),               // 13: recorder_minecraft.api.v1.PlayerSummary
+	(*ServerInstance)(nil),              // 14: recorder_minecraft.api.v1.ServerInstance
+	(*Player)(nil),                      // 15: recorder_minecraft.api.v1.Player
+	(*Replay)(nil),                      // 16: recorder_minecraft.api.v1.Replay
+	(*ListWorldSessionsRequest)(nil),    // 17: recorder_minecraft.api.v1.ListWorldSessionsRequest
+	(*ListWorldSessionsResponse)(nil),   // 18: recorder_minecraft.api.v1.ListWorldSessionsResponse
+	(*GetWorldSessionRequest)(nil),      // 19: recorder_minecraft.api.v1.GetWorldSessionRequest
+	(*GetWorldSessionResponse)(nil),     // 20: recorder_minecraft.api.v1.GetWorldSessionResponse
+	(*RefreshCatalogRequest)(nil),       // 21: recorder_minecraft.api.v1.RefreshCatalogRequest
+	(*RefreshCatalogResponse)(nil),      // 22: recorder_minecraft.api.v1.RefreshCatalogResponse
+	(*WorldSession)(nil),                // 23: recorder_minecraft.api.v1.WorldSession
+	(*WorldSessionAlignment)(nil),       // 24: recorder_minecraft.api.v1.WorldSessionAlignment
+	(*AlignmentParticipant)(nil),        // 25: recorder_minecraft.api.v1.AlignmentParticipant
+	(*WorldSessionPlay)(nil),            // 26: recorder_minecraft.api.v1.WorldSessionPlay
+	(*PlayExtension)(nil),               // 27: recorder_minecraft.api.v1.PlayExtension
+	(*PlayExtensionAsset)(nil),          // 28: recorder_minecraft.api.v1.PlayExtensionAsset
+	(*VideoAsset)(nil),                  // 29: recorder_minecraft.api.v1.VideoAsset
+	(*VideoTiming)(nil),                 // 30: recorder_minecraft.api.v1.VideoTiming
+	(*timestamppb.Timestamp)(nil),       // 31: google.protobuf.Timestamp
+	(*v1.PlaySummary)(nil),              // 32: recorder_minecraft.catalog.v1.PlaySummary
 }
 var file_recorder_minecraft_api_v1_artifacts_proto_depIdxs = []int32{
-	29, // 0: recorder_minecraft.api.v1.ListArtifactsRequest.started_at_or_after:type_name -> google.protobuf.Timestamp
-	29, // 1: recorder_minecraft.api.v1.ListArtifactsRequest.started_before:type_name -> google.protobuf.Timestamp
-	13, // 2: recorder_minecraft.api.v1.ListArtifactsResponse.server_instances:type_name -> recorder_minecraft.api.v1.ServerInstance
-	11, // 3: recorder_minecraft.api.v1.ListServerInstancesResponse.server_instances:type_name -> recorder_minecraft.api.v1.ServerInstanceSummary
-	12, // 4: recorder_minecraft.api.v1.ListPlayersResponse.players:type_name -> recorder_minecraft.api.v1.PlayerSummary
-	29, // 5: recorder_minecraft.api.v1.ListReplaysRequest.started_at_or_after:type_name -> google.protobuf.Timestamp
-	29, // 6: recorder_minecraft.api.v1.ListReplaysRequest.started_before:type_name -> google.protobuf.Timestamp
-	15, // 7: recorder_minecraft.api.v1.ListReplaysResponse.replays:type_name -> recorder_minecraft.api.v1.Replay
-	15, // 8: recorder_minecraft.api.v1.GetReplayResponse.replay:type_name -> recorder_minecraft.api.v1.Replay
-	14, // 9: recorder_minecraft.api.v1.ServerInstance.players:type_name -> recorder_minecraft.api.v1.Player
-	22, // 10: recorder_minecraft.api.v1.ServerInstance.world_sessions:type_name -> recorder_minecraft.api.v1.WorldSession
-	15, // 11: recorder_minecraft.api.v1.Player.replays:type_name -> recorder_minecraft.api.v1.Replay
-	29, // 12: recorder_minecraft.api.v1.Replay.started_at:type_name -> google.protobuf.Timestamp
-	29, // 13: recorder_minecraft.api.v1.Replay.ended_at:type_name -> google.protobuf.Timestamp
-	28, // 14: recorder_minecraft.api.v1.Replay.video:type_name -> recorder_minecraft.api.v1.VideoAsset
-	30, // 15: recorder_minecraft.api.v1.Replay.summary:type_name -> recorder_minecraft.catalog.v1.PlaySummary
-	26, // 16: recorder_minecraft.api.v1.Replay.extensions:type_name -> recorder_minecraft.api.v1.PlayExtension
+	31, // 0: recorder_minecraft.api.v1.ListArtifactsRequest.started_at_or_after:type_name -> google.protobuf.Timestamp
+	31, // 1: recorder_minecraft.api.v1.ListArtifactsRequest.started_before:type_name -> google.protobuf.Timestamp
+	14, // 2: recorder_minecraft.api.v1.ListArtifactsResponse.server_instances:type_name -> recorder_minecraft.api.v1.ServerInstance
+	12, // 3: recorder_minecraft.api.v1.ListServerInstancesResponse.server_instances:type_name -> recorder_minecraft.api.v1.ServerInstanceSummary
+	13, // 4: recorder_minecraft.api.v1.ListPlayersResponse.players:type_name -> recorder_minecraft.api.v1.PlayerSummary
+	31, // 5: recorder_minecraft.api.v1.ListReplaysRequest.started_at_or_after:type_name -> google.protobuf.Timestamp
+	31, // 6: recorder_minecraft.api.v1.ListReplaysRequest.started_before:type_name -> google.protobuf.Timestamp
+	16, // 7: recorder_minecraft.api.v1.ListReplaysResponse.replays:type_name -> recorder_minecraft.api.v1.Replay
+	16, // 8: recorder_minecraft.api.v1.GetReplayResponse.replay:type_name -> recorder_minecraft.api.v1.Replay
+	15, // 9: recorder_minecraft.api.v1.ServerInstance.players:type_name -> recorder_minecraft.api.v1.Player
+	23, // 10: recorder_minecraft.api.v1.ServerInstance.world_sessions:type_name -> recorder_minecraft.api.v1.WorldSession
+	16, // 11: recorder_minecraft.api.v1.Player.replays:type_name -> recorder_minecraft.api.v1.Replay
+	31, // 12: recorder_minecraft.api.v1.Replay.started_at:type_name -> google.protobuf.Timestamp
+	31, // 13: recorder_minecraft.api.v1.Replay.ended_at:type_name -> google.protobuf.Timestamp
+	29, // 14: recorder_minecraft.api.v1.Replay.video:type_name -> recorder_minecraft.api.v1.VideoAsset
+	32, // 15: recorder_minecraft.api.v1.Replay.summary:type_name -> recorder_minecraft.catalog.v1.PlaySummary
+	27, // 16: recorder_minecraft.api.v1.Replay.extensions:type_name -> recorder_minecraft.api.v1.PlayExtension
 	0,  // 17: recorder_minecraft.api.v1.Replay.world_session_link:type_name -> recorder_minecraft.api.v1.WorldSessionLink
-	22, // 18: recorder_minecraft.api.v1.ListWorldSessionsResponse.world_sessions:type_name -> recorder_minecraft.api.v1.WorldSession
-	22, // 19: recorder_minecraft.api.v1.GetWorldSessionResponse.world_session:type_name -> recorder_minecraft.api.v1.WorldSession
-	29, // 20: recorder_minecraft.api.v1.RefreshCatalogResponse.refreshed_at:type_name -> google.protobuf.Timestamp
-	29, // 21: recorder_minecraft.api.v1.WorldSession.started_at:type_name -> google.protobuf.Timestamp
-	29, // 22: recorder_minecraft.api.v1.WorldSession.ended_at:type_name -> google.protobuf.Timestamp
-	23, // 23: recorder_minecraft.api.v1.WorldSession.alignments:type_name -> recorder_minecraft.api.v1.WorldSessionAlignment
-	25, // 24: recorder_minecraft.api.v1.WorldSession.plays:type_name -> recorder_minecraft.api.v1.WorldSessionPlay
-	24, // 25: recorder_minecraft.api.v1.WorldSessionAlignment.participants:type_name -> recorder_minecraft.api.v1.AlignmentParticipant
+	23, // 18: recorder_minecraft.api.v1.ListWorldSessionsResponse.world_sessions:type_name -> recorder_minecraft.api.v1.WorldSession
+	23, // 19: recorder_minecraft.api.v1.GetWorldSessionResponse.world_session:type_name -> recorder_minecraft.api.v1.WorldSession
+	31, // 20: recorder_minecraft.api.v1.RefreshCatalogResponse.refreshed_at:type_name -> google.protobuf.Timestamp
+	31, // 21: recorder_minecraft.api.v1.WorldSession.started_at:type_name -> google.protobuf.Timestamp
+	31, // 22: recorder_minecraft.api.v1.WorldSession.ended_at:type_name -> google.protobuf.Timestamp
+	24, // 23: recorder_minecraft.api.v1.WorldSession.alignments:type_name -> recorder_minecraft.api.v1.WorldSessionAlignment
+	26, // 24: recorder_minecraft.api.v1.WorldSession.plays:type_name -> recorder_minecraft.api.v1.WorldSessionPlay
+	25, // 25: recorder_minecraft.api.v1.WorldSessionAlignment.participants:type_name -> recorder_minecraft.api.v1.AlignmentParticipant
 	0,  // 26: recorder_minecraft.api.v1.WorldSessionPlay.link:type_name -> recorder_minecraft.api.v1.WorldSessionLink
-	27, // 27: recorder_minecraft.api.v1.PlayExtension.assets:type_name -> recorder_minecraft.api.v1.PlayExtensionAsset
-	1,  // 28: recorder_minecraft.api.v1.ArtifactCatalogService.ListArtifacts:input_type -> recorder_minecraft.api.v1.ListArtifactsRequest
-	3,  // 29: recorder_minecraft.api.v1.ArtifactCatalogService.ListServerInstances:input_type -> recorder_minecraft.api.v1.ListServerInstancesRequest
-	5,  // 30: recorder_minecraft.api.v1.ArtifactCatalogService.ListPlayers:input_type -> recorder_minecraft.api.v1.ListPlayersRequest
-	7,  // 31: recorder_minecraft.api.v1.ArtifactCatalogService.ListReplays:input_type -> recorder_minecraft.api.v1.ListReplaysRequest
-	9,  // 32: recorder_minecraft.api.v1.ArtifactCatalogService.GetReplay:input_type -> recorder_minecraft.api.v1.GetReplayRequest
-	16, // 33: recorder_minecraft.api.v1.ArtifactCatalogService.ListWorldSessions:input_type -> recorder_minecraft.api.v1.ListWorldSessionsRequest
-	18, // 34: recorder_minecraft.api.v1.ArtifactCatalogService.GetWorldSession:input_type -> recorder_minecraft.api.v1.GetWorldSessionRequest
-	20, // 35: recorder_minecraft.api.v1.ArtifactCatalogService.RefreshCatalog:input_type -> recorder_minecraft.api.v1.RefreshCatalogRequest
-	2,  // 36: recorder_minecraft.api.v1.ArtifactCatalogService.ListArtifacts:output_type -> recorder_minecraft.api.v1.ListArtifactsResponse
-	4,  // 37: recorder_minecraft.api.v1.ArtifactCatalogService.ListServerInstances:output_type -> recorder_minecraft.api.v1.ListServerInstancesResponse
-	6,  // 38: recorder_minecraft.api.v1.ArtifactCatalogService.ListPlayers:output_type -> recorder_minecraft.api.v1.ListPlayersResponse
-	8,  // 39: recorder_minecraft.api.v1.ArtifactCatalogService.ListReplays:output_type -> recorder_minecraft.api.v1.ListReplaysResponse
-	10, // 40: recorder_minecraft.api.v1.ArtifactCatalogService.GetReplay:output_type -> recorder_minecraft.api.v1.GetReplayResponse
-	17, // 41: recorder_minecraft.api.v1.ArtifactCatalogService.ListWorldSessions:output_type -> recorder_minecraft.api.v1.ListWorldSessionsResponse
-	19, // 42: recorder_minecraft.api.v1.ArtifactCatalogService.GetWorldSession:output_type -> recorder_minecraft.api.v1.GetWorldSessionResponse
-	21, // 43: recorder_minecraft.api.v1.ArtifactCatalogService.RefreshCatalog:output_type -> recorder_minecraft.api.v1.RefreshCatalogResponse
-	36, // [36:44] is the sub-list for method output_type
-	28, // [28:36] is the sub-list for method input_type
-	28, // [28:28] is the sub-list for extension type_name
-	28, // [28:28] is the sub-list for extension extendee
-	0,  // [0:28] is the sub-list for field type_name
+	28, // 27: recorder_minecraft.api.v1.PlayExtension.assets:type_name -> recorder_minecraft.api.v1.PlayExtensionAsset
+	30, // 28: recorder_minecraft.api.v1.VideoAsset.timing:type_name -> recorder_minecraft.api.v1.VideoTiming
+	1,  // 29: recorder_minecraft.api.v1.VideoTiming.format:type_name -> recorder_minecraft.api.v1.VideoTiming.Format
+	2,  // 30: recorder_minecraft.api.v1.ArtifactCatalogService.ListArtifacts:input_type -> recorder_minecraft.api.v1.ListArtifactsRequest
+	4,  // 31: recorder_minecraft.api.v1.ArtifactCatalogService.ListServerInstances:input_type -> recorder_minecraft.api.v1.ListServerInstancesRequest
+	6,  // 32: recorder_minecraft.api.v1.ArtifactCatalogService.ListPlayers:input_type -> recorder_minecraft.api.v1.ListPlayersRequest
+	8,  // 33: recorder_minecraft.api.v1.ArtifactCatalogService.ListReplays:input_type -> recorder_minecraft.api.v1.ListReplaysRequest
+	10, // 34: recorder_minecraft.api.v1.ArtifactCatalogService.GetReplay:input_type -> recorder_minecraft.api.v1.GetReplayRequest
+	17, // 35: recorder_minecraft.api.v1.ArtifactCatalogService.ListWorldSessions:input_type -> recorder_minecraft.api.v1.ListWorldSessionsRequest
+	19, // 36: recorder_minecraft.api.v1.ArtifactCatalogService.GetWorldSession:input_type -> recorder_minecraft.api.v1.GetWorldSessionRequest
+	21, // 37: recorder_minecraft.api.v1.ArtifactCatalogService.RefreshCatalog:input_type -> recorder_minecraft.api.v1.RefreshCatalogRequest
+	3,  // 38: recorder_minecraft.api.v1.ArtifactCatalogService.ListArtifacts:output_type -> recorder_minecraft.api.v1.ListArtifactsResponse
+	5,  // 39: recorder_minecraft.api.v1.ArtifactCatalogService.ListServerInstances:output_type -> recorder_minecraft.api.v1.ListServerInstancesResponse
+	7,  // 40: recorder_minecraft.api.v1.ArtifactCatalogService.ListPlayers:output_type -> recorder_minecraft.api.v1.ListPlayersResponse
+	9,  // 41: recorder_minecraft.api.v1.ArtifactCatalogService.ListReplays:output_type -> recorder_minecraft.api.v1.ListReplaysResponse
+	11, // 42: recorder_minecraft.api.v1.ArtifactCatalogService.GetReplay:output_type -> recorder_minecraft.api.v1.GetReplayResponse
+	18, // 43: recorder_minecraft.api.v1.ArtifactCatalogService.ListWorldSessions:output_type -> recorder_minecraft.api.v1.ListWorldSessionsResponse
+	20, // 44: recorder_minecraft.api.v1.ArtifactCatalogService.GetWorldSession:output_type -> recorder_minecraft.api.v1.GetWorldSessionResponse
+	22, // 45: recorder_minecraft.api.v1.ArtifactCatalogService.RefreshCatalog:output_type -> recorder_minecraft.api.v1.RefreshCatalogResponse
+	38, // [38:46] is the sub-list for method output_type
+	30, // [30:38] is the sub-list for method input_type
+	30, // [30:30] is the sub-list for extension type_name
+	30, // [30:30] is the sub-list for extension extendee
+	0,  // [0:30] is the sub-list for field type_name
 }
 
 func init() { file_recorder_minecraft_api_v1_artifacts_proto_init() }
@@ -2395,8 +2572,8 @@ func file_recorder_minecraft_api_v1_artifacts_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_recorder_minecraft_api_v1_artifacts_proto_rawDesc), len(file_recorder_minecraft_api_v1_artifacts_proto_rawDesc)),
-			NumEnums:      1,
-			NumMessages:   28,
+			NumEnums:      2,
+			NumMessages:   29,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

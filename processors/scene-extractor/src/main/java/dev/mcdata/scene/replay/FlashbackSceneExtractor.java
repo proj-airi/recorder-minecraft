@@ -12,8 +12,10 @@ import net.casual.arcade.replay.io.FlashbackIO;
 import net.casual.arcade.replay.io.writer.flashback.EntityMovement;
 import net.casual.arcade.replay.util.flashback.FlashbackAction;
 import net.minecraft.core.RegistryAccess;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.ConnectionProtocol;
+import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.ProtocolInfo;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.ByteBufCodecs;
@@ -21,6 +23,7 @@ import net.minecraft.network.protocol.BundlePacket;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.configuration.ConfigurationProtocols;
 import net.minecraft.network.protocol.game.ClientGamePacketListener;
+import net.minecraft.network.protocol.game.ClientboundAddEntityPacket;
 import net.minecraft.network.protocol.game.ClientboundBundlePacket;
 import net.minecraft.network.protocol.game.ClientboundLevelChunkWithLightPacket;
 import net.minecraft.network.protocol.game.ClientboundLoginPacket;
@@ -161,6 +164,9 @@ public final class FlashbackSceneExtractor {
         int start = buffer.readerIndex();
         Packet<?> packet = gameProtocol.codec().decode(buffer);
         int end = buffer.readerIndex();
+        if (packet instanceof ClientboundAddEntityPacket) {
+            requireKnownEntityType(buffer.slice(start, end - start));
+        }
         if (packet instanceof ClientboundCustomPayloadPacket custom
             && custom.payload() instanceof DiscardedPayload discarded
             && discarded.id().equals(ReplayTimelinePayload.TYPE.id())) {
@@ -177,6 +183,30 @@ public final class FlashbackSceneExtractor {
             return new ClientboundCustomPayloadPacket(payload);
         }
         return packet;
+    }
+
+    /**
+     * Rejects an add_entity packet whose entity type ID is past the vanilla registry.
+     *
+     * <p>NOTICE: The entity type registry is a defaulted registry. Its codec decodes an unknown ID,
+     * such as one that a content mod registered on the recording server, as {@code minecraft:pig}
+     * instead of failing. Block state, block entity type, and item IDs already fail in the vanilla
+     * codecs. This check gives entity types the same behavior, so a replay that needs a content mod
+     * fails instead of producing a wrong scene.
+     *
+     * @param packet one encoded game packet: the packet ID, then the add_entity fields
+     */
+    static void requireKnownEntityType(ByteBuf packet) {
+        FriendlyByteBuf raw = new FriendlyByteBuf(packet.duplicate());
+        raw.readVarInt();
+        raw.readVarInt();
+        raw.readUUID();
+        int type = raw.readVarInt();
+        if (type < 0 || type >= BuiltInRegistries.ENTITY_TYPE.size()) {
+            throw new IllegalStateException(
+                "add_entity uses entity type ID " + type + ", which is not in the vanilla registry"
+            );
+        }
     }
 
     private void processPacket(Packet<?> packet, SegmentContext context) throws IOException {
