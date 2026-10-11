@@ -6,6 +6,7 @@ import type {
   EpisodeSegment,
   EpisodeSession,
   EpisodeTrack,
+  EpisodeVideoTiming,
   PlayPlacement,
   TimelineWorldSessionSource,
 } from './domain'
@@ -244,7 +245,6 @@ export function replaySource(replay: RecorderMinecraftApiV1Replay): EpisodeRepla
     connectionId: replay.connectionId ?? '',
     endServerTick: replay.endServerTick,
     eventsUrl: replay.eventsUrl,
-    framesIndexUrl: replay.framesIndexUrl || undefined,
     perceptionUrl: replay.perceptionUrl || undefined,
     playerName: replay.playerName ?? 'Unknown player',
     playerUuid: replay.playerUuid,
@@ -254,7 +254,9 @@ export function replaySource(replay: RecorderMinecraftApiV1Replay): EpisodeRepla
     sessionId: replay.sessionId,
     startedAt: replay.startedAt,
     startServerTick: replay.startServerTick,
-    videoFramesPerSecond: replay.video?.framesPerSecond,
+    videoDurationSeconds: replay.video?.durationSeconds || undefined,
+    videoFramesPerSecond: replay.video?.framesPerSecond || undefined,
+    videoTiming: replay.video?.url ? videoTiming(replay) : undefined,
     videoUrl: replay.video?.url,
     worldSessionId: replay.worldSessionId || undefined,
   }
@@ -387,6 +389,11 @@ function insertReplay(
   return startTick < 0 ? shiftEpisode(state, -startTick) : state
 }
 
+function optionalTick(value: string | undefined): number | undefined {
+  const tick = Number(value ?? 0)
+  return Number.isSafeInteger(tick) ? tick : undefined
+}
+
 function projectSegments(sessions: readonly EpisodeSession[], placements: readonly PlayPlacement[]): EpisodeSegment[] {
   const segments: EpisodeSegment[] = []
   for (const session of sessions) {
@@ -489,4 +496,30 @@ function stableColorIndex(value: string): number {
   for (const character of value)
     hash = (hash * 31 + character.charCodeAt(0)) >>> 0
   return hash % replayColors.length
+}
+
+/**
+ * Resolves the catalog's video timing. ProtoJSON omits zero values, so a missing `complete` means
+ * false and a missing tick means tick 0.
+ */
+function videoTiming(replay: RecorderMinecraftApiV1Replay): EpisodeVideoTiming | undefined {
+  const timing = replay.video?.timing
+  if (timing?.url) {
+    const format = timing.format === 'FORMAT_FPV_MANIFEST'
+      ? 'fpv-manifest'
+      : timing.format === 'FORMAT_RENDER_FRAME_INDEX' ? 'frame-index' : undefined
+    if (format) {
+      return {
+        complete: timing.complete === true,
+        firstServerTick: optionalTick(timing.firstServerTick),
+        format,
+        lastServerTick: optionalTick(timing.lastServerTick),
+        url: timing.url,
+      }
+    }
+  }
+  // Servers older than `VideoAsset.timing` only list the render job's frames index.
+  if (replay.framesIndexUrl)
+    return { complete: true, format: 'frame-index', url: replay.framesIndexUrl }
+  return undefined
 }

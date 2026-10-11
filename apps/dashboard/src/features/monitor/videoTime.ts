@@ -1,6 +1,6 @@
 import type { Ref } from 'vue'
 
-import type { EpisodeDraft, EpisodePrimaryTrack, PlayPlacement } from '../timeline/domain'
+import type { EpisodeDraft, EpisodePrimaryTrack, EpisodeReplaySource, EpisodeVideoTiming, PlayPlacement } from '../timeline/domain'
 
 import { shallowRef, watch } from 'vue'
 
@@ -18,13 +18,66 @@ export interface MonitorLaneView {
   state: 'active' | 'ended' | 'waiting'
 }
 
-/** One tile per player lane with video: the clip under the playhead, or the next or last clip. */
+/**
+ * Parallel arrays of `{serverTick, videoSeconds}` anchors, ordered by video time with
+ * non-decreasing Server ticks. Until the next anchor, the video shows the image captured at the
+ * anchor's tick.
+ */
+export interface VideoAnchors {
+  /** Encoded frame rate of the video, when the timing file states it. */
+  framesPerSecond?: number
+  serverTicks: Float64Array
+  videoSeconds: Float64Array
+}
+
+/**
+ * Where the video should be for one Server tick.
+ *
+ * `time` is the seek target. Any video time in `[windowStart, windowEnd]` shows the same image, so
+ * a playing video inside that window needs no seek. `hold` is set when the tick is outside the
+ * mapped range and the first or last image is held.
+ */
+export interface VideoPosition {
+  hold?: 'after' | 'before'
+  time: number
+  windowEnd: number
+  windowStart: number
+}
+
+export type VideoTimingState
+  = | { anchors: VideoAnchors, status: 'ready', timing: EpisodeVideoTiming }
+    | { message: string, status: 'error', timing: EpisodeVideoTiming }
+    | { status: 'loading', timing: EpisodeVideoTiming }
+    | { status: 'unknown' }
+
+type TimingFile = FramesIndex | VideoAnchors
+
+/**
+ * Fallback position without timing: assume the video starts at the Play's first Server tick and
+ * runs at the Server tick rate. Only approximate; a capture that holds or skips images drifts.
+ */
+export function assumedVideoPosition(placement: PlayPlacement, serverTick: number): VideoPosition {
+  const time = Math.max(0, (serverTick - placement.playStartServerTick) / SERVER_TICK_RATE)
+  return { time, windowEnd: time, windowStart: time }
+}
+
+/** A frames index as anchors: frame N (from 1) starts at (N - 1) / framesPerSecond. */
+export function frameIndexAnchors(index: FramesIndex, framesPerSecond: number): VideoAnchors {
+  return {
+    framesPerSecond,
+    serverTicks: index.serverTicks,
+    videoSeconds: Float64Array.from(index.serverTicks, (_tick, frame) => frame / framesPerSecond),
+  }
+}
+
+/** One tile per player lane: the clip under the playhead, or the next or last clip. */
 export function monitorLaneViews(episode: EpisodeDraft, episodeTick: number): MonitorLaneView[] {
   return episode.tracks.flatMap((track): MonitorLaneView[] => {
     if (track.role !== 'primary')
       return []
+    // Plays without video still get a tile, so the lane says why nothing plays.
     const placements = episode.placements
-      .filter(placement => placement.laneId === track.id && placement.source.videoUrl)
+      .filter(placement => placement.laneId === track.id)
       .sort((left, right) => left.startTick - right.startTick)
     if (placements.length === 0)
       return []
@@ -36,6 +89,32 @@ export function monitorLaneViews(episode: EpisodeDraft, episodeTick: number): Mo
       return [{ lane: track, placement: next, state: 'waiting' }]
     return [{ lane: track, placement: placements.at(-1)!, state: 'ended' }]
   })
+}
+
+/**
+ * Parses `renders/fpv.json` (`FpvVideoManifest` ProtoJSON).
+ *
+ * ProtoJSON omits zero values and writes int64 as strings, so `{"videoSeconds":0,"serverTick":"22"}`
+ * and `{"serverTick":"22"}` are the same anchor, and a missing `serverTick` is tick 0.
+ */
+export function parseFpvManifest(text: string): VideoAnchors {
+  const manifest = JSON.parse(text) as { frames?: unknown, framesPerSecond?: unknown }
+  const frames = Array.isArray(manifest.frames) ? manifest.frames as { serverTick?: unknown, videoSeconds?: unknown }[] : []
+  const anchors: { serverTick: number, videoSeconds: number }[] = []
+  for (const frame of frames) {
+    const serverTick = Number(frame?.serverTick ?? 0)
+    const videoSeconds = Number(frame?.videoSeconds ?? 0)
+    if (Number.isFinite(serverTick) && Number.isFinite(videoSeconds))
+      anchors.push({ serverTick, videoSeconds })
+  }
+  // The contract orders anchors already; a stable sort keeps a misordered file usable.
+  anchors.sort((left, right) => left.videoSeconds - right.videoSeconds)
+  const framesPerSecond = Number(manifest.framesPerSecond ?? 0)
+  return {
+    framesPerSecond: framesPerSecond > 0 ? framesPerSecond : undefined,
+    serverTicks: Float64Array.from(anchors, anchor => anchor.serverTick),
+    videoSeconds: Float64Array.from(anchors, anchor => anchor.videoSeconds),
+  }
 }
 
 /** Parses `renders/fpv_frames/frames.jsonl` (`{"ordinal":"1","serverTick":"1422",...}` per line). */
@@ -60,22 +139,20 @@ export function parseFramesIndex(text: string): FramesIndex {
 }
 
 /**
- * Video time that shows a Server tick.
+ * Video position that shows a Server tick: the last anchor with `serverTick <= tick`.
  *
- * With a frames index, the last frame captured at or before the tick is selected and the time
- * points to the middle of that frame. Without it, the video is assumed to start at the Play's
- * first Server tick and run at the Server tick rate.
+ * The seek target is half a frame past the anchor, so the decoder lands inside that frame instead
+ * of on the boundary with the previous one. Before the first anchor the first image is held; after
+ * the last anchor the last image is held.
  */
-export function videoTimeForServerTick(
-  placement: PlayPlacement,
-  serverTick: number,
-  framesIndex: FramesIndex | null,
-  framesPerSecond = SERVER_TICK_RATE,
-): number {
-  if (!framesIndex || framesIndex.serverTicks.length === 0)
-    return Math.max(0, (serverTick - placement.playStartServerTick) / SERVER_TICK_RATE)
+export function videoPositionForServerTick(anchors: VideoAnchors, serverTick: number, fallbackFramesPerSecond = SERVER_TICK_RATE): null | VideoPosition {
+  const ticks = anchors.serverTicks
+  const seconds = anchors.videoSeconds
+  if (ticks.length === 0)
+    return null
+  const framesPerSecond = anchors.framesPerSecond ?? fallbackFramesPerSecond
+  const frameSeconds = 1 / framesPerSecond
 
-  const ticks = framesIndex.serverTicks
   let low = 0
   let high = ticks.length - 1
   let found = -1
@@ -89,37 +166,68 @@ export function videoTimeForServerTick(
       high = middle - 1
     }
   }
-  const frame = Math.max(0, found)
-  return (frame + 0.5) / framesPerSecond
+
+  const anchor = Math.max(0, found)
+  const windowStart = seconds[anchor]!
+  const time = windowStart + 0.5 * frameSeconds
+  if (found < 0)
+    return { hold: 'before', time, windowEnd: windowStart + frameSeconds, windowStart }
+  if (anchor === ticks.length - 1) {
+    const hold = serverTick > ticks[anchor]! ? 'after' : undefined
+    return { hold, time, windowEnd: windowStart + frameSeconds, windowStart }
+  }
+  // Every video time up to the next anchor shows this anchor's image, including a long hold such
+  // as the Airicraft empty-host pause, so playback inside it advances without seeking.
+  return { time, windowEnd: Math.max(windowStart + frameSeconds, seconds[anchor + 1]!), windowStart }
 }
 
-const framesIndexCache = new Map<string, Promise<FramesIndex>>()
+const timingCache = new Map<string, Promise<TimingFile>>()
 
-/** Loads and caches a frames index; the value stays null while loading, on error, or without a URL. */
-export function useFramesIndex(url: Readonly<Ref<string | undefined>>): Readonly<Ref<FramesIndex | null>> {
-  const index = shallowRef<FramesIndex | null>(null)
-  watch(url, (current, _previous, onCleanup) => {
-    index.value = null
-    if (!current)
-      return
-    let cancelled = false
-    onCleanup(() => {
-      cancelled = true
-    })
-    let pending = framesIndexCache.get(current)
-    if (!pending) {
-      pending = fetch(new URL(current, window.location.href)).then(async (response) => {
-        if (!response.ok)
-          throw new Error(`Frames index request failed with HTTP ${response.status}.`)
-        return parseFramesIndex(await response.text())
+/** Loads and caches the video timing of a Play; the state follows the source's timing URL. */
+export function useVideoTiming(source: Readonly<Ref<EpisodeReplaySource>>): Readonly<Ref<VideoTimingState>> {
+  const state = shallowRef<VideoTimingState>({ status: 'unknown' })
+  watch(
+    [() => source.value.videoTiming, () => source.value.videoFramesPerSecond],
+    ([timing, videoFramesPerSecond], _previous, onCleanup) => {
+      if (!timing) {
+        state.value = { status: 'unknown' }
+        return
+      }
+      state.value = { status: 'loading', timing }
+      let cancelled = false
+      onCleanup(() => {
+        cancelled = true
       })
-      pending.catch(() => framesIndexCache.delete(current))
-      framesIndexCache.set(current, pending)
-    }
-    pending.then((value) => {
-      if (!cancelled)
-        index.value = value
-    }, () => undefined)
-  }, { immediate: true })
-  return index
+      loadTimingFile(timing).then((file) => {
+        if (cancelled)
+          return
+        const anchors = 'videoSeconds' in file
+          ? file
+          : frameIndexAnchors(file, videoFramesPerSecond ?? SERVER_TICK_RATE)
+        state.value = { anchors, status: 'ready', timing }
+      }, (error: unknown) => {
+        if (!cancelled)
+          state.value = { message: String(error), status: 'error', timing }
+      })
+    },
+    { immediate: true },
+  )
+  return state
+}
+
+function loadTimingFile(timing: EpisodeVideoTiming): Promise<TimingFile> {
+  const key = `${timing.format}:${timing.url}`
+  let pending = timingCache.get(key)
+  if (!pending) {
+    pending = fetch(new URL(timing.url, window.location.href)).then(async (response) => {
+      if (!response.ok)
+        throw new Error(`Video timing request failed with HTTP ${response.status}.`)
+      const text = await response.text()
+      return timing.format === 'fpv-manifest' ? parseFpvManifest(text) : parseFramesIndex(text)
+    })
+    // A failed request is retried by the next tile that asks for it.
+    pending.catch(() => timingCache.delete(key))
+    timingCache.set(key, pending)
+  }
+  return pending
 }
