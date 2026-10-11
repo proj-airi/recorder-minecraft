@@ -40,11 +40,12 @@ it('renders the stress fixture before the browser-test timeout', async () => {
     await expect.element(screen.getByRole('tab', { exact: true, name: 'Monitor' })).toBeVisible()
     await expect.element(screen.getByRole('tab', { exact: true, name: 'Inputs' })).toBeVisible()
     await expect.element(screen.getByRole('tab', { exact: true, name: 'Timeline' })).toBeVisible()
+    await expect.element(screen.getByRole('tab', { exact: true, name: 'Event log' })).toBeVisible()
     await expect.element(screen.getByRole('region', { exact: true, name: 'Input monitor' })).toBeVisible()
-    await expect.element(screen.getByText('Select a replay track in the timeline to inspect its inputs.')).toBeVisible()
+    await expect.element(screen.getByRole('region', { exact: true, name: 'Capture event log' })).toBeVisible()
     await expect.element(screen.getByText('No recordings available')).toBeVisible()
     expect(screen.container.querySelector('[role="separator"][aria-orientation="vertical"]')).not.toBeNull()
-    expect(screen.container.querySelectorAll('[role="tab"]')).toHaveLength(5)
+    expect(screen.container.querySelectorAll('[role="tab"]')).toHaveLength(6)
     expect(screen.container.querySelector('[role="tab"][aria-label="Inputs"]')?.getAttribute('aria-selected')).toBe('true')
     await expect.poll(() => {
       const resources = dockGridMetrics(screen.container, 'Resources')
@@ -55,10 +56,15 @@ it('renders the stress fixture before the browser-test timeout', async () => {
     const monitorBounds = dockGridMetrics(screen.container, 'Monitor')
     const inputBounds = dockGridMetrics(screen.container, 'Inputs')
     const timelineBounds = dockGridMetrics(screen.container, 'Timeline')
+    const eventLogBounds = dockGridMetrics(screen.container, 'Event log')
     expect(monitorBounds.height / (monitorBounds.height + timelineBounds.height)).toBeCloseTo(0.7, 1)
     const totalWidth = resourcesBounds.width + monitorBounds.width + inputBounds.width
-    expect(resourcesBounds.width / totalWidth).toBeCloseTo(0.125, 2)
-    expect(inputBounds.width / totalWidth).toBeCloseTo(0.125, 2)
+    // The resource column is 15% (at least 220 px); the inputs and event-log column is 20% (at least 240 px).
+    expect(resourcesBounds.width).toBeCloseTo(Math.max(220, totalWidth * 0.15), -1)
+    expect(inputBounds.width).toBeCloseTo(Math.max(240, totalWidth * 0.2), -1)
+    // The event log shares the inputs column, below the input monitor.
+    expect(eventLogBounds.left).toBeCloseTo(inputBounds.left, 0)
+    expect(eventLogBounds.width).toBeCloseTo(inputBounds.width, 0)
     expect(inputBounds.left).toBeGreaterThanOrEqual(monitorBounds.right - 1)
     expect(inputBounds.right).toBeCloseTo(totalWidth, 0)
     await expect.element(screen.getByRole('application')).toBeVisible()
