@@ -19,7 +19,8 @@ import TimelineDockTab from '../../timeline/components/TimelineDockTab.vue'
 import TimelineWorkspacePanel from './TimelineWorkspacePanel.vue'
 
 import { browserExtensionAssetAccess } from '../../extensions/domain'
-import { playExtensionModules } from '../../extensions/registry'
+import { installExtensionDataTrackProviders } from '../../extensions/install'
+import { workspaceExtensionViews } from '../../extensions/registry'
 import { useReplayPlayback } from '../../media/composables/useReplayPlayback'
 import { useArtifactCatalog } from '../../resources/composables/useArtifactCatalog'
 import { editorWorkspaceContextKey, isPlayExtensionTrack, toSelectedPlayExtension } from '../workspaceContext'
@@ -64,11 +65,11 @@ const viewDefinitions: EditorViewDefinition[] = [
   { component: 'inputMonitor', icon: 'i-mingcute-keyboard-line', id: 'inputs', label: 'Inputs', showTitle: true, source: 'built-in' },
   { component: 'eventLog', icon: 'i-mingcute-list-check-line', id: 'events', label: 'Event log', showTitle: true, source: 'built-in' },
   { component: 'timeline', icon: 'i-mingcute-timeline-line', id: 'timeline', label: 'Timeline', showTitle: false, source: 'built-in' },
-  ...playExtensionModules.map((module): EditorViewDefinition => ({
-    component: `extension:${module.extensionType}`,
-    icon: module.view.icon,
-    id: `extension:${module.extensionType}`,
-    label: module.view.label,
+  ...workspaceExtensionViews.map((view): EditorViewDefinition => ({
+    component: view.id,
+    icon: view.icon,
+    id: view.id,
+    label: view.label,
     showTitle: true,
     source: 'extension',
   })),
@@ -83,9 +84,9 @@ const components: Record<string, VueComponent> = markRaw({
   multiViewMonitor: MultiViewMonitorPanel as unknown as VueComponent,
   resourceBrowser: ResourceBrowserPanel as unknown as VueComponent,
   timeline: TimelineWorkspacePanel as unknown as VueComponent,
-  ...Object.fromEntries(playExtensionModules.map(module => [
-    `extension:${module.extensionType}`,
-    module.view.component as unknown as VueComponent,
+  ...Object.fromEntries(workspaceExtensionViews.map(view => [
+    view.id,
+    view.component as unknown as VueComponent,
   ])),
 })
 const tabComponents: Record<string, VueComponent> = markRaw({
@@ -96,6 +97,7 @@ let workspaceListeners: DockviewIDisposable[] = []
 let initialLayoutFrame = 0
 let initialLayoutApplied = false
 const workspaceElement = useTemplateRef<HTMLDivElement>('workspace')
+const uninstallExtensionDataTracks = installExtensionDataTrackProviders()
 const selectedExtension = computed(() => toSelectedPlayExtension(props.session.selectedDataItem.value, props.session.playheadTick.value))
 
 provide(editorWorkspaceContextKey, {
@@ -341,6 +343,7 @@ watch(() => props.session.selectedDataItem.value, (selected, previous) => {
 })
 watch([() => props.episode.revision, () => props.session.dataTracks.value.length], publishViews)
 onBeforeUnmount(() => {
+  uninstallExtensionDataTracks()
   cancelAnimationFrame(initialLayoutFrame)
   initialLayoutObserver.stop()
   workspaceListeners.forEach(listener => listener.dispose())
