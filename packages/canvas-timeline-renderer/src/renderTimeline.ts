@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: MPL-2.0 */
-// NOTICE: Ported without behavioral or styling changes from
+// NOTICE: Ported from
 // `https://github.com/techsquidtv/canvas-timeline/blob/1536a2dbc54e3a333ace360894a2e4508b295cf1/packages/renderer/src/renderTimeline.ts#L1-L107`.
+// Recorder adds the optional `data` argument for data lanes (see `render/dataLanes.ts`).
 
 import type { TimelineState } from '@techsquidtv/canvas-timeline-core';
 import { createTimelineRendererTheme } from '#renderer/theme';
@@ -11,6 +12,7 @@ import { drawTracks } from '#renderer/render/tracks';
 import type {
   RenderContext,
   ResolvedTimelineRenderOptions,
+  TimelineDataLaneInput,
   TimelineRenderOptions,
 } from '#renderer/render/types';
 
@@ -30,7 +32,8 @@ export function renderTimeline(
   canvas: OffscreenCanvas,
   state: TimelineState,
   dpr: number,
-  options: TimelineRenderOptions = {}
+  options: TimelineRenderOptions = {},
+  data: TimelineDataLaneInput = {}
 ) {
   const renderTheme = createTimelineRendererTheme(options.theme);
   const resolvedOptions: ResolvedTimelineRenderOptions = {
@@ -58,6 +61,8 @@ export function renderTimeline(
     options: resolvedOptions,
     keyframeGeometryByClip,
     theme: renderTheme,
+    dataLanes: data.lanes,
+    dataSelection: data.selection,
   };
 
   ctx.resetTransform();

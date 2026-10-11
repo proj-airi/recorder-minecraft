@@ -9,6 +9,7 @@ import EditorWorkspace from '../features/editor/components/EditorWorkspace.vue'
 
 import { useEditorKeyboardControls } from '../features/editor/composables/useEditorKeyboardControls'
 import { useTimelineSession } from '../features/timeline/composables/useTimelineSession'
+import { exposeTimelineDevtools } from '../features/timeline/devtools'
 import { useEpisodeStore } from '../features/timeline/stores/episode'
 
 const episodeStore = useEpisodeStore()
@@ -17,6 +18,7 @@ const session = useTimelineSession(episode, episodeStore.commitSegmentEdit)
 const editorOpen = shallowRef(true)
 const editorViews = shallowRef<EditorViewOption[]>([])
 const editorWorkspace = useTemplateRef<InstanceType<typeof EditorWorkspace>>('editorWorkspace')
+exposeTimelineDevtools({ session, store: episodeStore })
 
 function deleteSelectedSegment(): void {
   const selectedId = session.selectedSegmentId.value
@@ -62,6 +64,7 @@ useEditorKeyboardControls({
         :episode="episode"
         :session="session"
         @add-replay="episodeStore.addReplay"
+        @add-session="episodeStore.addSession"
         @close="editorOpen = false"
         @cut-segment="episodeStore.cutSegment"
         @redo="episodeStore.redo"

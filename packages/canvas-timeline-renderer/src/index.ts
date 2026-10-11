@@ -1,5 +1,7 @@
 export type { CanvasRendererRenderReason, CanvasRendererStats } from './CanvasRenderer'
 export { createRendererWorker } from './createRendererWorker'
-export type { TimelineRenderOptions, TimelineRulerOptions } from './render/types'
+export { DATA_LANE_INTERVAL, DATA_LANE_POINT, drawDataLane, lowerBound } from './render/dataLanes'
+export type { TimelineDataLane, TimelineDataLaneSelection } from './render/dataLanes'
+export type { TimelineDataLaneInput, TimelineRenderOptions, TimelineRulerOptions } from './render/types'
 export { renderTimeline } from './renderTimeline'
 export * from './theme'

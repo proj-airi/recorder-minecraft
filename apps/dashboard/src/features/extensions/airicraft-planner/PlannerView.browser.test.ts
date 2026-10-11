@@ -7,6 +7,7 @@ import { defineComponent, h, nextTick, provide, shallowRef } from 'vue'
 import PlannerView from './PlannerView.vue'
 
 import { editorWorkspaceContextKey } from '../../editor/workspaceContext'
+import { testPlacement } from '../../timeline/fixtures/replays'
 import { plannerTranscript } from './transcript'
 
 it('shows the selected planner call request, result, and timeline anchors', async () => {
@@ -44,16 +45,14 @@ it('shows the selected planner call request, result, and timeline anchors', asyn
   const selectedExtension = shallowRef<null | SelectedPlayExtension>({
     descriptor: { extensionType: 'airicraft.planner' },
     item: { color: '#8b5cf6', data: call, endServerTick: 129, id: 'call-1', kind: 'interval', label: 'Call 3', startServerTick: 120 },
-    placement: {
+    placement: testPlacement({
       connectionId: 'connection',
       endTick: 200,
-      id: 'play:connection',
       playEndServerTick: 300,
       playStartServerTick: 100,
       sourceEndServerTick: 300,
       sourceStartServerTick: 100,
-      startTick: 0,
-    },
+    }),
     playServerTick: 125,
   })
   const context = { selectedExtension } as unknown as EditorWorkspaceContext
@@ -193,16 +192,14 @@ function plannerSelection(data: object, playServerTick: number): SelectedPlayExt
   return {
     descriptor: { extensionType: 'airicraft.planner' },
     item: { color: '#8b5cf6', data, endServerTick: 130, id: String('callId' in data ? data.callId : 'call'), kind: 'interval', label: 'Planner call', startServerTick: 100 },
-    placement: {
+    placement: testPlacement({
       connectionId: 'connection',
       endTick: 200,
-      id: 'play:connection',
       playEndServerTick: 300,
       playStartServerTick: 100,
       sourceEndServerTick: 300,
       sourceStartServerTick: 100,
-      startTick: 0,
-    },
+    }),
     playServerTick,
   }
 }

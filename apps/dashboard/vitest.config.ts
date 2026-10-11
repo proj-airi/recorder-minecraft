@@ -13,8 +13,10 @@ export default defineConfig({
   // points. Pre-bundle all three so Browser Mode does not reload midway through a test run. The
   // upstream integration emits the same registrations together:
   // `https://github.com/vidstack/player/blob/04143af0634c5c9633dbd05423d0ee62f99754fd/packages/vidstack/src/plugins.ts#L312-L317`.
+  // `vue-router` is reached only through the route component; when Vite discovers it mid-run on a
+  // cold cache, the optimizer reloads the page and fails the tests that are running.
   optimizeDeps: {
-    include: ['vidstack/player', 'vidstack/player/layouts/default', 'vidstack/player/ui'],
+    include: ['vidstack/player', 'vidstack/player/layouts/default', 'vidstack/player/ui', 'vue-router'],
   },
   plugins: [
     VueMacros({

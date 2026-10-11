@@ -1,18 +1,27 @@
 <script setup lang="ts">
+import type { TimelineDataLaneSelection } from '@proj-airi/canvas-timeline-renderer'
 import type { ClipHitRegion, ClipHitTestResult, TimelineEngine, VisibleTimelineClip } from '@techsquidtv/canvas-timeline-core'
 
+import type { ProjectedDataLane } from '../data-tracks/projection'
+import type { TimelineDataItem, TimelineDataItemRef } from '../data-tracks/types'
 import type { CommitSegmentEdit } from '../domain'
+import type { TimelineLayout } from '../layout'
 
 import { defaultTimelineRendererTheme } from '@proj-airi/canvas-timeline-renderer'
 import { CanvasRenderer } from '@proj-airi/canvas-timeline-vue'
-import { onBeforeUnmount, onMounted, shallowRef, useTemplateRef, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, shallowRef, useTemplateRef, watch } from 'vue'
 
 import { readSegmentEdit, toServerTick, toTickTime } from '../core/adapter'
+import { hitTestDataLane } from '../data-tracks/projection'
 import { SERVER_TICK_RATE } from '../domain'
+import { rowAtOffset } from '../layout'
 
 const props = defineProps<{
+  dataLanes: ReadonlyMap<string, ProjectedDataLane>
+  dataLaneSelection: null | TimelineDataLaneSelection
   editable: boolean
   engine: TimelineEngine
+  layout: TimelineLayout
   renderRevision: number
   scrollTop: number
   selectedSegmentId: string | null
@@ -22,11 +31,38 @@ const emit = defineEmits<{
   cancelEdit: []
   commitEdit: [edit: CommitSegmentEdit]
   seek: [tick: number]
+  selectDataItem: [item: TimelineDataItemRef | null]
   selectSegment: [segmentId: string | null]
 }>()
 
+const DATA_HIT_TOLERANCE_PX = 5
+const laneList = computed(() => [...props.dataLanes.values()])
+const hoveredDataItem = shallowRef<null | { item: TimelineDataItem, x: number, y: number }>(null)
+
 const RULER_HEIGHT = defaultTimelineRendererTheme.metrics.rulerHeight
 const TRACK_HEIGHT = defaultTimelineRendererTheme.metrics.trackHeight
+
+interface DataHit {
+  item: TimelineDataItem
+  ref: TimelineDataItemRef
+}
+
+/** Data item under a canvas point, using the same row offsets and lane entries as the renderer. */
+function hitDataItem(point: { x: number, y: number }): DataHit | null {
+  if (point.y <= RULER_HEIGHT)
+    return null
+  const row = rowAtOffset(props.layout, point.y - RULER_HEIGHT + props.engine.scrollTop)
+  if (row?.role !== 'data')
+    return null
+  const lane = props.dataLanes.get(row.id)
+  if (!lane)
+    return null
+  const ticksPerPixel = SERVER_TICK_RATE / props.engine.zoomScale
+  const tick = (props.engine.scrollLeft + point.x) * ticksPerPixel
+  const index = hitTestDataLane(lane, tick, DATA_HIT_TOLERANCE_PX * ticksPerPixel)
+  const item = index >= 0 ? row.dataTrack.items[lane.itemIndexes[index]!] : undefined
+  return item ? { item, ref: { itemId: item.id, trackId: row.id } } : null
+}
 const canvas = useTemplateRef<HTMLCanvasElement>('canvas')
 const hoveredClipId = shallowRef<null | string>(null)
 const hoveredRegion = shallowRef<ClipHitRegion>('body')
@@ -178,6 +214,7 @@ function updateHover(event: PointerEvent): void {
   const point = canvasPoint(event)
   if (point.y <= RULER_HEIGHT) {
     hoveredClipId.value = null
+    hoveredDataItem.value = null
     pointerCursor.value = 'col-resize'
     scheduleDraw()
     return
@@ -186,7 +223,9 @@ function updateHover(event: PointerEvent): void {
   const hit = hitAtPoint(point, event.pointerType)
   hoveredClipId.value = hit?.clip.id ?? null
   hoveredRegion.value = hit?.region ?? 'body'
-  pointerCursor.value = hit?.canMove || hit?.canTrim ? (hit.region === 'body' ? 'grab' : 'ew-resize') : 'default'
+  const dataHit = hit ? null : hitDataItem(point)
+  hoveredDataItem.value = dataHit ? { item: dataHit.item, x: point.x, y: point.y } : null
+  pointerCursor.value = hit?.canMove || hit?.canTrim ? (hit.region === 'body' ? 'grab' : 'ew-resize') : dataHit ? 'pointer' : 'default'
   scheduleDraw()
 }
 
@@ -213,7 +252,13 @@ function onPointerDown(event: PointerEvent): void {
   const hit = hitAtPoint(point, event.pointerType)
 
   if (!hit) {
+    const dataHit = hitDataItem(point)
+    if (dataHit) {
+      emit('selectDataItem', dataHit.ref)
+      return
+    }
     emit('selectSegment', null)
+    emit('selectDataItem', null)
     gesture = { mode: 'scrub', pointerId: event.pointerId, startPointerTick: pointerTick(point.x) }
     pointerCursor.value = 'col-resize'
     emit('seek', pointerTick(point.x))
@@ -304,6 +349,7 @@ function onPointerLeave(): void {
     return
 
   hoveredClipId.value = null
+  hoveredDataItem.value = null
   pointerCursor.value = 'default'
   scheduleDraw()
 }
@@ -378,7 +424,13 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="relative block h-full min-w-0 w-full">
-    <CanvasRenderer :engine="engine" :ruler="{ format: 'seconds' }" :theme="{ metrics: { clipRadius: 6 } }" />
+    <CanvasRenderer
+      :data-lanes="laneList"
+      :data-selection="dataLaneSelection"
+      :engine="engine"
+      :ruler="{ format: 'seconds' }"
+      :theme="{ metrics: { clipRadius: 6 } }"
+    />
     <canvas
       ref="canvas"
       :aria-label="editable
@@ -394,5 +446,19 @@ onBeforeUnmount(() => {
       @pointerup="onPointerUp"
       @wheel="onWheel"
     />
+    <div
+      v-if="hoveredDataItem"
+      class="pointer-events-none absolute z-10 max-w-72 rounded bg-black/85 px-2 py-1 text-[11px] text-neutral-100 shadow-lg"
+      data-testid="timeline-data-tooltip"
+      role="tooltip"
+      :style="{ left: `${hoveredDataItem.x + 12}px`, top: `${hoveredDataItem.y + 12}px` }"
+    >
+      <p class="m-0 whitespace-pre-line">
+        {{ hoveredDataItem.item.tooltip ?? hoveredDataItem.item.label ?? hoveredDataItem.item.id }}
+      </p>
+      <p v-if="hoveredDataItem.item.category" class="m-0 mt-0.5 text-[10px] text-neutral-400">
+        {{ hoveredDataItem.item.category }}
+      </p>
+    </div>
   </div>
 </template>

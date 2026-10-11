@@ -10,6 +10,7 @@ import type {
   TimelineState,
 } from '@techsquidtv/canvas-timeline-core';
 import type { TimelineRendererTheme, TimelineRendererThemeInput } from '#renderer/theme';
+import type { TimelineDataLane, TimelineDataLaneSelection } from '#renderer/render/dataLanes';
 
 /**
  * Optional ruler behavior for canvas-painted timeline ticks and labels.
@@ -62,4 +63,13 @@ export type RenderContext = {
   options: ResolvedTimelineRenderOptions;
   keyframeGeometryByClip?: ReadonlyMap<string, TimelineKeyframeRenderClip>;
   theme: TimelineRendererTheme;
+  /** Recorder addition: data lanes keyed by track id. */
+  dataLanes?: ReadonlyMap<string, TimelineDataLane>;
+  dataSelection?: TimelineDataLaneSelection | null;
+};
+
+/** Recorder addition: data lanes drawn alongside the engine state. */
+export interface TimelineDataLaneInput {
+  lanes?: ReadonlyMap<string, TimelineDataLane>;
+  selection?: TimelineDataLaneSelection | null;
 };

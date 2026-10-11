@@ -1,6 +1,7 @@
-import type { EpisodeDraft, EpisodeSegment, EpisodeTrack } from '../domain'
+import type { EpisodeDraft, EpisodeSession, PlayPlacement } from '../domain'
 
 import { SERVER_TICK_RATE } from '../domain'
+import { createEmptyEpisode, finishEpisode, laneIdFor } from '../replay'
 
 export interface EpisodeOptions {
   clipsPerTrack: number
@@ -18,64 +19,52 @@ export const stressOptions = {
   trackCount: 200,
 } satisfies EpisodeOptions
 
-const clipColors = [
-  '#31b899',
-  '#3d8bd9',
-  '#7d6ee7',
-  '#9c6ade',
-  '#df6b63',
-  '#d89b45',
-  '#bd718a',
-  '#677fb8',
-]
-
-/** Creates deterministic timeline data without depending on Vue, Pinia, or browser globals. */
+/**
+ * Creates deterministic timeline data without depending on Vue, Pinia, or browser globals: one
+ * session with `trackCount` player lanes, each hosting `clipsPerTrack` Play clips.
+ */
 export function createEpisode(options: EpisodeOptions): EpisodeDraft {
-  const tracks = Array.from({ length: options.trackCount }, (_, trackIndex): EpisodeTrack => ({
-    id: `video-${trackIndex + 1}`,
-    kind: 'video',
-    label: `Video ${trackIndex + 1}`,
-    placementId: `fixture-${trackIndex + 1}`,
-    role: 'primary',
-  }))
+  const sessionKey = 'session:fixture'
   const slotTicks = Math.floor(options.durationTicks / options.clipsPerTrack)
-  const segments = tracks.flatMap((track, trackIndex) => Array.from(
+  const playerKeys = Array.from({ length: options.trackCount }, (_, index) => `name:Video ${index + 1}`)
+  const placements = playerKeys.flatMap((playerKey, trackIndex) => Array.from(
     { length: options.clipsPerTrack },
-    (_, clipIndex): EpisodeSegment => {
+    (_, clipIndex): PlayPlacement => {
       // Each clip stays inside its time slot, while deterministic offsets and durations prevent
       // large fixtures from degenerating into visually identical rows.
       const offsetTicks = (trackIndex * 37 + clipIndex * 53) % 180
       const durationTicks = 240 + (trackIndex * 29 + clipIndex * 71) % 480
       const startTick = clipIndex * slotTicks + offsetTicks
+      const endTick = Math.min(options.durationTicks, startTick + durationTicks)
+      const connectionId = `fixture-${trackIndex + 1}-${clipIndex + 1}`
+      const playerName = `Video ${trackIndex + 1}`
       return {
-        color: clipColors[(trackIndex + clipIndex) % clipColors.length] ?? clipColors[0]!,
-        editable: true,
-        endTick: Math.min(options.durationTicks, startTick + durationTicks),
-        id: `${track.id}-clip-${clipIndex + 1}`,
-        label: `V${trackIndex + 1} · Clip ${clipIndex + 1}`,
-        placementId: track.placementId,
+        connectionId,
+        endTick,
+        id: `play:${connectionId}`,
+        laneId: laneIdFor(sessionKey, playerKey),
+        playEndServerTick: endTick,
+        playerKey,
+        playerName,
+        playStartServerTick: startTick,
+        sessionId: 'fixture',
+        sessionKey,
+        source: { connectionId, playerName, serverName: `Clip ${clipIndex + 1}`, sessionId: 'fixture' },
+        sourceEndServerTick: endTick,
+        sourceStartServerTick: startTick,
         startTick,
-        trackId: track.id,
       }
     },
   ))
-
-  return {
-    durationTicks: options.durationTicks,
-    id: options.id,
-    placements: tracks.map((track, index) => ({
-      connectionId: `fixture-${index + 1}`,
-      endTick: options.durationTicks,
-      id: track.placementId,
-      playEndServerTick: options.durationTicks,
-      playStartServerTick: 0,
-      sourceEndServerTick: options.durationTicks,
-      sourceStartServerTick: 0,
-      startTick: 0,
-    })),
-    revision: 1,
-    segments,
-    title: options.title,
-    tracks,
+  const session: EpisodeSession = {
+    anchorServerTick: 0,
+    anchorTick: 0,
+    key: sessionKey,
+    label: options.title,
+    placement: 'origin',
+    playerOrder: playerKeys,
+    sessionId: 'fixture',
   }
+  const episode = finishEpisode({ ...createEmptyEpisode(), id: options.id, revision: 0, title: options.title }, placements, [session], undefined)
+  return { ...episode, durationTicks: Math.max(episode.durationTicks, options.durationTicks) }
 }

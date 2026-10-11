@@ -1,20 +1,37 @@
 import type { Clip, Track } from '@techsquidtv/canvas-timeline-core'
 
-import type { CommitSegmentEdit, EpisodeDraft, TimelineTrackKind } from '../domain'
+import type { CommitSegmentEdit, EpisodeDraft, EpisodeSegment, TimelineTrackKind } from '../domain'
+import type { TimelineLayout } from '../layout'
 
 import { TimelineEngine } from '@techsquidtv/canvas-timeline-core'
 
-import { SERVER_TICK_RATE, TIMELINE_TRACK_HEIGHT } from '../domain'
+import { SERVER_TICK_RATE } from '../domain'
+import { buildTimelineLayout } from '../layout'
+
+export interface CreateTimelineEngineOptions {
+  editable?: boolean
+  /** Visible rows; defaults to the draft rows without data tracks. */
+  layout?: TimelineLayout
+  previous?: TimelineEngine
+  selectedSegmentId?: null | string
+}
 
 export interface TickTime {
   r: number
   v: number
 }
 
-export function createTimelineEngine(episode: EpisodeDraft, selectedSegmentId: null | string, previous?: TimelineEngine, editable = true): TimelineEngine {
-  const tracks: Track<TimelineTrackKind>[] = episode.tracks.map(track => ({
-    clips: episode.segments
-      .filter(segment => segment.trackId === track.id)
+export function createTimelineEngine(episode: EpisodeDraft, options: CreateTimelineEngineOptions = {}): TimelineEngine {
+  const { editable = true, previous, selectedSegmentId = null } = options
+  const layout = options.layout ?? buildTimelineLayout(episode, [], new Set())
+  const segmentsByTrack = new Map<string, EpisodeSegment[]>()
+  for (const segment of episode.segments) {
+    const list = segmentsByTrack.get(segment.trackId) ?? []
+    list.push(segment)
+    segmentsByTrack.set(segment.trackId, list)
+  }
+  const tracks: Track<TimelineTrackKind>[] = layout.rows.map(row => ({
+    clips: (segmentsByTrack.get(row.id) ?? [])
       .sort((left, right) => left.startTick - right.startTick)
       .map<Clip>(segment => ({
         color: segment.color,
@@ -30,12 +47,12 @@ export function createTimelineEngine(episode: EpisodeDraft, selectedSegmentId: n
         timelineStart: toTickTime(segment.startTick),
       })),
     collapsed: false,
-    height: TIMELINE_TRACK_HEIGHT,
-    id: track.id,
-    kind: track.kind,
+    height: row.height,
+    id: row.id,
+    kind: row.kind,
     locked: false,
     muted: false,
-    name: track.label,
+    name: row.label,
     selected: false,
     visible: true,
   }))

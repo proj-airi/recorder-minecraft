@@ -3,7 +3,7 @@
 // `https://github.com/techsquidtv/canvas-timeline/blob/1536a2dbc54e3a333ace360894a2e4508b295cf1/packages/renderer/src/CanvasRenderer.tsx#L79-L135`.
 // `engine` replaces `useTimeline()` and renderer callbacks become typed Vue events.
 
-import type { TimelineRendererThemeInput, TimelineRenderOptions } from '@proj-airi/canvas-timeline-renderer'
+import type { TimelineDataLane, TimelineDataLaneSelection, TimelineRendererThemeInput, TimelineRenderOptions } from '@proj-airi/canvas-timeline-renderer'
 import type { TimelineEngine, TimelineKeyframePropertyId } from '@techsquidtv/canvas-timeline-core'
 
 export interface CanvasRendererError {
@@ -14,6 +14,9 @@ export interface CanvasRendererError {
 
 export interface CanvasRendererProps extends Omit<TimelineRenderOptions, 'keyframeGeometry' | 'showKeyframes' | 'theme'> {
   className?: string
+  /** Recorder addition: data lanes drawn on tracks with matching ids. Replace the array to update. */
+  dataLanes?: readonly TimelineDataLane[]
+  dataSelection?: null | TimelineDataLaneSelection
   engine: TimelineEngine
   keyframeProperty?: TimelineKeyframePropertyId
   showKeyframes?: boolean

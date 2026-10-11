@@ -22,7 +22,7 @@ const emit = defineEmits<{
   close: []
   cutSegment: [segmentId: string, atTick: number]
   redo: []
-  reorderTrack: [sourceIndex: number, targetIndex: number]
+  reorderTrack: [sourceTrackId: string, targetTrackId: string]
   undo: []
 }>()
 
@@ -59,7 +59,7 @@ provide(timelineDockContextKey, {
   editable: readonly(toRef(props, 'editable')),
   episode,
   redo: () => emit('redo'),
-  reorderTrack: (sourceIndex, targetIndex) => emit('reorderTrack', sourceIndex, targetIndex),
+  reorderTrack: (sourceTrackId, targetTrackId) => emit('reorderTrack', sourceTrackId, targetTrackId),
   session: props.session,
   setVerticalScrollTop,
   undo: () => emit('undo'),

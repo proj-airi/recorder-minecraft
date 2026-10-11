@@ -1,18 +1,18 @@
 import type { RecorderMinecraftApiV1Replay } from '@proj-airi/recorder-minecraft-api'
 
-import type { CommitSegmentEdit, EpisodeDraft } from '../domain'
+import type { CommitSegmentEdit, EpisodeDraft, TimelineWorldSessionSource } from '../domain'
 
 import { defineStore } from 'pinia'
 import { computed, shallowRef } from 'vue'
 
-import { loadSupportedExtensionTracks } from '../../extensions/registry'
 import {
+  addReplaysToEpisode,
   addReplayToEpisode,
   commitPlacementEdit,
   createEmptyEpisode,
   cutPlacement,
   deletePlacement,
-  reorderPlacementTracks,
+  reorderLaneGroups,
 } from '../replay'
 
 interface EpisodeHistory {
@@ -31,18 +31,18 @@ export const useEpisodeStore = defineStore('episode', () => {
   const canRedo = computed(() => history.value.redo.length > 0)
   const canUndo = computed(() => history.value.undo.length > 0)
 
-  async function addReplay(replay: RecorderMinecraftApiV1Replay): Promise<boolean> {
-    if (!replay.connectionId || episode.value.placements.some(placement => placement.connectionId === replay.connectionId))
-      return false
+  /** Adds one Play as an undoable edit. Extension data loads lazily through data tracks. */
+  function addReplay(replay: RecorderMinecraftApiV1Replay): boolean {
+    return commit(addReplayToEpisode(episode.value, replay))
+  }
 
-    const extensions = await loadSupportedExtensionTracks(replay.extensions)
-    const nextEpisode = addReplayToEpisode(episode.value, replay, extensions)
-    if (!nextEpisode)
-      return false
-
-    episode.value = nextEpisode
-    history.value = { redo: [], undo: [] }
-    return true
+  /**
+   * Adds every Play of a session in one undoable edit, aligned by Server tick. Plays from other
+   * sessions in `replays` are ignored.
+   */
+  function addSession(sessionId: string, replays: readonly RecorderMinecraftApiV1Replay[], world?: TimelineWorldSessionSource): boolean {
+    const sessionReplays = replays.filter(replay => replay.sessionId === sessionId)
+    return commit(addReplaysToEpisode(episode.value, sessionReplays, world?.sessionId === sessionId ? world : undefined))
   }
 
   function commit(nextEpisode: EpisodeDraft | null): boolean {
@@ -66,8 +66,9 @@ export const useEpisodeStore = defineStore('episode', () => {
     return commit(deletePlacement(episode.value, segmentId))
   }
 
-  function reorderTrack(sourceIndex: number, targetIndex: number): void {
-    commit(reorderPlacementTracks(episode.value, sourceIndex, targetIndex))
+  /** Moves the lane group of `sourceTrackId` to the position of `targetTrackId`. */
+  function reorderTrack(sourceTrackId: string, targetTrackId: string): void {
+    commit(reorderLaneGroups(episode.value, sourceTrackId, targetTrackId))
   }
 
   function redo(): void {
@@ -96,6 +97,7 @@ export const useEpisodeStore = defineStore('episode', () => {
 
   return {
     addReplay,
+    addSession,
     canRedo,
     canUndo,
     commitSegmentEdit,

@@ -13,7 +13,7 @@ export interface TimelineDockContext {
   editable: Readonly<Ref<boolean>>
   episode: Readonly<Ref<EpisodeDraft>>
   redo: () => void
-  reorderTrack: (sourceIndex: number, targetIndex: number) => void
+  reorderTrack: (sourceTrackId: string, targetTrackId: string) => void
   session: TimelineSession
   setVerticalScrollTop: (scrollTop: number) => void
   undo: () => void

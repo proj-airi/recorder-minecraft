@@ -11,14 +11,18 @@ const context = useTimelineDockContext()
 <template>
   <section aria-label="Timeline" class="relative h-full min-h-0" role="region">
     <TimelineCanvas
+      :data-lane-selection="context.session.dataLaneSelection.value"
+      :data-lanes="context.session.dataLanes.value"
       :engine="context.session.engine.value"
       :editable="context.editable.value"
+      :layout="context.session.layout.value"
       :render-revision="context.session.renderRevision.value"
       :scroll-top="context.verticalScrollTop.value"
       :selected-segment-id="context.session.selectedSegmentId.value"
       @cancel-edit="context.session.rebuild"
       @commit-edit="context.session.commitEdit"
       @seek="context.session.seekToTick"
+      @select-data-item="context.session.selectDataItem"
       @select-segment="context.session.selectSegment"
     />
     <div

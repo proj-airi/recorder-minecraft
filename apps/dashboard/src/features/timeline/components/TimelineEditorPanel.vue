@@ -98,7 +98,7 @@ function onDrop(event: DragEvent): void {
       <div class="flex flex-col items-center gap-2 text-emerald-100">
         <span aria-hidden="true" class="i-mingcute-add-circle-line text-3xl" />
         <strong class="text-sm font-medium">Add replay to track</strong>
-        <span class="text-xs text-emerald-200/70">The replay will align to its recording time.</span>
+        <span class="text-xs text-emerald-200/70">Plays of one session align by server tick; sessions align by wall clock.</span>
       </div>
     </div>
   </div>
