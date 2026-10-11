@@ -54,8 +54,6 @@ export interface EpisodeReplaySource {
   connectionId: string
   endServerTick?: string
   eventsUrl?: string
-  /** `renders/fpv_frames/frames.jsonl` URL; maps video frames to Server ticks when present. */
-  framesIndexUrl?: string
   /** `perception.jsonl` URL, when the Play has one. */
   perceptionUrl?: string
   playerName: string
@@ -68,7 +66,10 @@ export interface EpisodeReplaySource {
   sessionId?: string
   startedAt?: string
   startServerTick?: string
+  videoDurationSeconds?: number
   videoFramesPerSecond?: number
+  /** File that maps video time to Server ticks. Absent when the video time of a tick is unknown. */
+  videoTiming?: EpisodeVideoTiming
   videoUrl?: string
   /** Catalog world session id (`WorldSession.id`) the Play is linked to. */
   worldSessionId?: string
@@ -116,6 +117,22 @@ export interface EpisodeSessionTrack extends EpisodeTrackBase {
 }
 
 export type EpisodeTrack = EpisodePrimaryTrack | EpisodeSessionTrack | EpisodeWorldTrack
+
+/**
+ * Where a Play's video timing lives (`VideoAsset.timing` in the catalog).
+ *
+ * - `fpv-manifest`: `renders/fpv.json`, sampled `{serverTick, videoSeconds}` anchors from a
+ *   producer such as an Airicraft screen capture.
+ * - `frame-index`: `renders/fpv_frames/frames.jsonl`, one line per rendered video frame.
+ */
+export interface EpisodeVideoTiming {
+  /** False when the producer reported a truncated video or index. */
+  complete: boolean
+  firstServerTick?: number
+  format: 'fpv-manifest' | 'frame-index'
+  lastServerTick?: number
+  url: string
+}
 
 /** World-session lane slot. Session-scoped data tracks are listed right after it. */
 export interface EpisodeWorldTrack extends EpisodeTrackBase {
