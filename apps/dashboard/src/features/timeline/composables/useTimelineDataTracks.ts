@@ -15,6 +15,7 @@ import type { EpisodeDraft, EpisodeReplaySource, PlayPlacement } from '../domain
 
 import { computed, onScopeDispose, shallowRef, watch } from 'vue'
 
+import { DataSourceMissingError } from '../data-tracks/errors'
 import { projectDataTrack } from '../data-tracks/projection'
 
 export interface TimelineDataTracksRuntime {
@@ -127,6 +128,7 @@ export function useTimelineDataTracks(
       color: entry.descriptor.color,
       descriptorKey: entry.descriptor.key,
       error: current?.error,
+      icon: entry.descriptor.icon,
       id: entry.id,
       items: current?.items ?? [],
       label: entry.descriptor.label,
@@ -172,6 +174,10 @@ export function useTimelineDataTracks(
     }, (caught: unknown) => {
       if (controller.signal.aborted)
         return
+      if (caught instanceof DataSourceMissingError) {
+        setState(entry.id, { error: caught.source, items: [], signature: entry.signature, status: 'missing' })
+        return
+      }
       setState(entry.id, { error: errorMessage(caught), items: [], signature: entry.signature, status: 'error' })
     })
   }

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { RecorderMinecraftApiV1Replay } from '@proj-airi/recorder-minecraft-api'
-import type { AddPanelOptions, ContextMenuItem, DockviewApi, DockviewIDisposable, DockviewReadyEvent, IDockviewPanel, VueComponent } from 'dockview-vue'
+import type { AddPanelOptions, ContextMenuItem, DockviewApi, DockviewIDisposable, DockviewReadyEvent, DockviewTheme, IDockviewPanel, VueComponent } from 'dockview-vue'
 
 import type { TimelineSession } from '../../timeline/composables/useTimelineSession'
 import type { EpisodeDraft, TimelineWorldSessionSource } from '../../timeline/domain'
@@ -25,21 +25,6 @@ import { useReplayPlayback } from '../../media/composables/useReplayPlayback'
 import { useArtifactCatalog } from '../../resources/composables/useArtifactCatalog'
 import { editorWorkspaceContextKey, isPlayExtensionTrack, toSelectedPlayExtension } from '../workspaceContext'
 
-interface EditorPanelParams {
-  tab: {
-    showTitle: boolean
-  }
-}
-
-interface EditorViewDefinition {
-  component: string
-  icon: string
-  id: EditorViewId
-  label: string
-  source: 'built-in' | 'extension'
-  showTitle: boolean
-}
-
 const props = defineProps<{
   canRedo: boolean
   canUndo: boolean
@@ -58,13 +43,41 @@ const emit = defineEmits<{
   viewsChange: [views: EditorViewOption[]]
 }>()
 
+// NOTICE: Dockview spaces groups through the theme's `gap`, applied as the grid margin between
+// groups, and applies `className` to its shell element only. Our overrides therefore live on an
+// extra class next to the stock dark theme rather than on an ancestor, where the theme class
+// would re-declare and shadow them. See
+// `node_modules/dockview-core/dist/esm/dockview/dockviewComponent.js#L3166-L3184` (dockview-core 7.0.4)
+// and the stock spaced themes in `node_modules/dockview-core/dist/esm/dockview/theme.js#L30-L40`.
+const workspaceTheme: DockviewTheme = {
+  ...themeDark,
+  className: `${themeDark.className} dashboard-dock`,
+  gap: 6,
+  name: 'dashboardSpaced',
+}
+
+interface EditorPanelParams {
+  tab: {
+    showTitle: boolean
+  }
+}
+
+interface EditorViewDefinition {
+  component: string
+  icon: string
+  id: EditorViewId
+  label: string
+  source: 'built-in' | 'extension'
+  showTitle: boolean
+}
+
 const viewDefinitions: EditorViewDefinition[] = [
   { component: 'resourceBrowser', icon: 'i-mingcute-folder-open-line', id: 'resources', label: 'Resources', showTitle: true, source: 'built-in' },
   { component: 'mediaPreview', icon: 'i-mingcute-video-line', id: 'preview', label: 'Preview', showTitle: true, source: 'built-in' },
   { component: 'multiViewMonitor', icon: 'i-mingcute-grid-line', id: 'monitor', label: 'Monitor', showTitle: true, source: 'built-in' },
   { component: 'inputMonitor', icon: 'i-mingcute-keyboard-line', id: 'inputs', label: 'Inputs', showTitle: true, source: 'built-in' },
   { component: 'eventLog', icon: 'i-mingcute-list-check-line', id: 'events', label: 'Event log', showTitle: true, source: 'built-in' },
-  { component: 'timeline', icon: 'i-mingcute-timeline-line', id: 'timeline', label: 'Timeline', showTitle: false, source: 'built-in' },
+  { component: 'timeline', icon: 'i-mingcute-timeline-line', id: 'timeline', label: 'Timeline', showTitle: true, source: 'built-in' },
   ...workspaceExtensionViews.map((view): EditorViewDefinition => ({
     component: view.id,
     icon: view.icon,
@@ -358,7 +371,7 @@ defineExpose({ activateView })
   <!-- NOTICE: Dockview's Vue adapter teleports dynamic panels inside the caller's Vue app, which
        preserves the typed workspace provide/inject boundary. See
        `https://github.com/mathuo/dockview/blob/08097bd22495af8db171698355dffde93b9f5a88/packages/dockview-vue/src/dockview/dockview.vue#L73-L80`. -->
-  <div ref="workspace" aria-label="Dockable editor views" class="h-full min-h-0 min-w-0 w-full">
+  <div ref="workspace" aria-label="Dockable editor views" class="h-full min-h-0 min-w-0 w-full bg-[var(--dashboard-workspace-color)] p-1.5">
     <DockviewVue
       class="editor-dockview h-full min-h-0 w-full"
       :components="components"
@@ -367,24 +380,64 @@ defineExpose({ activateView })
       :get-tab-context-menu-items="contextMenuItems"
       single-tab-mode="fullwidth"
       :tab-components="tabComponents"
-      :theme="themeDark"
+      :theme="workspaceTheme"
       @ready="onReady"
     />
   </div>
 </template>
 
-<style scoped>
-.editor-dockview {
+<style>
+/* Spaced, VS Code-like panels: the workspace background shows through the theme gap, and each
+   group is a rounded card with a faint border and a compact header. */
+.dockview-theme-dark.dashboard-dock {
+  --dv-group-view-background-color: #141416;
   --dv-tabs-and-actions-container-background-color: #18181b;
-  --dv-tabs-and-actions-container-font-size: 10px;
-  --dv-tabs-and-actions-container-height: 22px;
+  --dv-tabs-and-actions-container-font-size: 11px;
+  --dv-tabs-and-actions-container-height: 26px;
   --dv-activegroup-visiblepanel-tab-background-color: #18181b;
   --dv-inactivegroup-visiblepanel-tab-background-color: #18181b;
-  --dv-paneview-header-border-color: var(--dashboard-border-color);
-  --dv-separator-border: var(--dashboard-border-color);
-  --dv-tab-divider-color: var(--dashboard-border-color);
+  --dv-separator-border: transparent;
+  --dv-tab-divider-color: transparent;
+  --dv-sash-color: transparent;
+  --dv-active-sash-color: rgb(255 255 255 / 18%);
+  background-color: var(--dashboard-workspace-color);
 }
 
+.dockview-theme-dark.dashboard-dock .dv-groupview {
+  border: 1px solid var(--dashboard-border-color);
+  border-radius: 6px;
+}
+
+.dockview-theme-dark.dashboard-dock .dv-groupview > .dv-tabs-and-actions-container {
+  border-bottom: 1px solid var(--dashboard-border-color);
+}
+
+.dockview-theme-dark.dashboard-dock .dv-groupview.dv-active-group {
+  border-color: var(--dashboard-border-color-strong);
+}
+
+/* NOTICE: Panels use dockview's "always" renderer, which mounts each panel's content in a separate
+   absolutely positioned overlay sized to the group's content box (1px inside the group border),
+   not inside the group element. The group's `overflow: hidden` therefore cannot clip it, and the
+   square overlay covered the rounded bottom corners. Round the overlay with the inner radius
+   (6px group radius - 1px border) and clip its content to it.
+
+   The overlay is also a `tabindex="-1"` focus target. A click focuses it, and the next key press
+   made Chrome paint its default square focus ring around the whole panel. The active group border
+   already marks the focused panel, so the overlay's own ring is removed. */
+.dashboard-dock .dv-render-overlay {
+  overflow: hidden;
+  border-bottom-left-radius: 5px;
+  border-bottom-right-radius: 5px;
+}
+
+.dashboard-dock .dv-render-overlay:focus,
+.dashboard-dock .dv-render-overlay:focus-visible {
+  outline: none;
+}
+</style>
+
+<style scoped>
 .editor-dockview :deep(.dv-tab) {
   min-width: 0;
   padding: 0;

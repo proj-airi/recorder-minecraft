@@ -17,3 +17,8 @@ renderer_project = "mods/renderer-mod"
 
 [processors]
 scene_extractor_executable = "processors/scene-extractor/build/install/mc-recorder-scene-extractor/bin/mc-recorder-scene-extractor"
+
+[assets]
+# Optional 1.21.4+ Minecraft client jar for dashboard item icons, for example the one Fabric Loom
+# caches at "~/.gradle/caches/fabric-loom/1.21.8/minecraft-client.jar". Textures are read locally.
+# minecraft_client_jar = ""

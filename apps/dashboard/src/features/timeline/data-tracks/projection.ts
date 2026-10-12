@@ -136,7 +136,7 @@ export function projectDataTrack(episode: EpisodeDraft, track: TimelineDataTrack
     labels,
     maxSpan,
     message: laneMessage(track, entries.length),
-    messageColor: track.status === 'error' ? 'rgba(248, 113, 113, 0.85)' : undefined,
+    messageColor: track.status === 'error' ? 'rgba(248, 113, 113, 0.85)' : track.status === 'missing' ? 'rgba(252, 211, 77, 0.85)' : undefined,
     placementIds,
     starts,
     ticksPerSecond: SERVER_TICK_RATE,
@@ -186,6 +186,8 @@ function laneMessage(track: TimelineDataTrack, entryCount: number): string | und
     case 'idle':
     case 'loading':
       return 'Loading…'
+    case 'missing':
+      return `${track.error ?? 'Source file'} missing · unknown, not empty`
     case 'ready':
       return 'No items inside the visible clips'
   }

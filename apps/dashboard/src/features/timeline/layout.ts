@@ -8,6 +8,13 @@ import {
   TIMELINE_WORLD_ROW_HEIGHT,
 } from './domain'
 
+/** Empty data tracks of one target (a player lane id, or a session key for session tracks). */
+export interface EmptyDataTracks {
+  count: number
+  shown: boolean
+  targetKey: string
+}
+
 export interface TimelineDataRow extends TimelineLayoutRowBase {
   dataTrack: TimelineDataTrack
   role: 'data'
@@ -24,6 +31,8 @@ export type TimelineLayoutRow = TimelineDataRow | TimelinePlayerRow | TimelineSe
 export interface TimelinePlayerRow extends TimelineLayoutRowBase {
   collapsed: boolean
   dataTrackCount: number
+  /** Loaded data tracks with no items, folded out of the rows unless shown for this lane. */
+  emptyDataTracks: EmptyDataTracks
   groupId: string
   playCount: number
   role: 'primary'
@@ -39,7 +48,12 @@ export interface TimelineSessionRow extends TimelineLayoutRowBase {
   track: EpisodeSessionTrack
 }
 
+/** World slot. `groupId` collapses the session-scoped data tracks listed under it. */
 export interface TimelineWorldRow extends TimelineLayoutRowBase {
+  collapsed: boolean
+  dataTrackCount: number
+  emptyDataTracks: EmptyDataTracks
+  groupId: string
   role: 'world'
   track: EpisodeWorldTrack
 }
@@ -58,11 +72,16 @@ interface TimelineLayoutRowBase {
 /**
  * Visible rows in display order: each session header, its world slot and session data tracks,
  * then each player lane followed by that player's data tracks. Collapsed groups hide children.
+ *
+ * Data tracks that loaded and hold no items are folded into a count on their parent row, because
+ * a column of "0 · No items" lanes buried the few lanes with findings. Missing or failed tracks
+ * stay visible: their state is a finding. `shownEmptyTargets` lists targets the user unfolded.
  */
 export function buildTimelineLayout(
   episode: EpisodeDraft,
   dataTracks: readonly TimelineDataTrack[],
   collapsedGroupIds: ReadonlySet<string>,
+  shownEmptyTargets: ReadonlySet<string> = new Set(),
 ): TimelineLayout {
   const dataByTarget = new Map<string, TimelineDataTrack[]>()
   for (const track of dataTracks) {
@@ -78,8 +97,16 @@ export function buildTimelineLayout(
     rows.push(row)
     top += row.height
   }
+  const emptyOf = (targetKey: string): EmptyDataTracks => ({
+    count: (dataByTarget.get(targetKey) ?? []).filter(track => track.status === 'empty').length,
+    shown: shownEmptyTargets.has(targetKey),
+    targetKey,
+  })
   const pushData = (sessionKey: string, targetKey: string) => {
+    const showEmpty = shownEmptyTargets.has(targetKey)
     for (const dataTrack of dataByTarget.get(targetKey) ?? []) {
+      if (dataTrack.status === 'empty' && !showEmpty)
+        continue
       push({ dataTrack, height: TIMELINE_DATA_ROW_HEIGHT, id: dataTrack.id, kind: 'markers', label: dataTrack.label, role: 'data', sessionKey, top })
     }
   }
@@ -98,14 +125,30 @@ export function buildTimelineLayout(
     if (currentSessionCollapsed)
       continue
     if (track.role === 'world') {
-      push({ height: TIMELINE_WORLD_ROW_HEIGHT, id: track.id, kind: track.kind, label: track.label, role: 'world', sessionKey: track.sessionKey, top, track })
-      pushData(track.sessionKey, track.sessionKey)
+      const worldCollapsed = collapsedGroupIds.has(track.id)
+      push({
+        collapsed: worldCollapsed,
+        dataTrackCount: dataByTarget.get(track.sessionKey)?.length ?? 0,
+        emptyDataTracks: emptyOf(track.sessionKey),
+        groupId: track.id,
+        height: TIMELINE_WORLD_ROW_HEIGHT,
+        id: track.id,
+        kind: track.kind,
+        label: track.label,
+        role: 'world',
+        sessionKey: track.sessionKey,
+        top,
+        track,
+      })
+      if (!worldCollapsed)
+        pushData(track.sessionKey, track.sessionKey)
       continue
     }
     const collapsed = collapsedGroupIds.has(track.id)
     push({
       collapsed,
       dataTrackCount: dataByTarget.get(track.id)?.length ?? 0,
+      emptyDataTracks: emptyOf(track.id),
       groupId: track.id,
       height: TIMELINE_TRACK_HEIGHT,
       id: track.id,

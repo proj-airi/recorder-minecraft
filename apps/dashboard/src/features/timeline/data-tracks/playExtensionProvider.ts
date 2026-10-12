@@ -37,6 +37,7 @@ export function createPlayExtensionDataTrackProvider(
       }
 
       return [...byType.entries()].map(([extensionType, { entries, module }]) => ({
+        icon: module.view.icon,
         key: extensionType,
         label: module.view.label,
         async load() {

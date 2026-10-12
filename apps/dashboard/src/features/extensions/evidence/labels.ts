@@ -157,3 +157,18 @@ export function recordRefLabel(ref: RecordRef): string {
   const sequence = ref.sequence > 0 ? ` #${ref.sequence}` : ''
   return `${STREAM_LABELS[ref.stream]} @ ${ref.serverTick}${sequence}`
 }
+
+/**
+ * Header icon per evidence track, keyed by the descriptor key's first segment
+ * (`divergences:<container>` → `divergences`).
+ */
+const EVIDENCE_TRACK_ICONS: Record<string, string> = {
+  'container-interactions': 'i-mingcute-finger-tap-line',
+  'divergences': 'i-mingcute-git-compare-line',
+  'visibility': 'i-mingcute-eye-2-line',
+  'world-containers': 'i-mingcute-box-3-line',
+}
+
+export function evidenceTrackIcon(descriptorKey: string): string | undefined {
+  return EVIDENCE_TRACK_ICONS[descriptorKey.split(':')[0]!]
+}

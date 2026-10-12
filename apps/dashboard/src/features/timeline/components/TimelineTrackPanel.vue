@@ -43,6 +43,7 @@ watch(context.verticalScrollTop, syncScrollTop)
       :sessions="context.episode.value.sessions"
       @reload="context.session.reloadDataTrack"
       @reorder="context.reorderTrack"
+      @toggle-empty="context.session.toggleEmptyDataTracks"
       @toggle-group="context.session.toggleGroup"
     />
   </div>

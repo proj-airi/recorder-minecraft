@@ -58,7 +58,8 @@ it('renders the stress fixture before the browser-test timeout', async () => {
     const timelineBounds = dockGridMetrics(screen.container, 'Timeline')
     const eventLogBounds = dockGridMetrics(screen.container, 'Event log')
     expect(monitorBounds.height / (monitorBounds.height + timelineBounds.height)).toBeCloseTo(0.7, 1)
-    const totalWidth = resourcesBounds.width + monitorBounds.width + inputBounds.width
+    // The spaced theme puts a gap between groups, so the columns no longer sum to the span.
+    const totalWidth = inputBounds.right - resourcesBounds.left
     // The resource column is 15% (at least 220 px); the inputs and event-log column is 20% (at least 240 px).
     expect(resourcesBounds.width).toBeCloseTo(Math.max(220, totalWidth * 0.15), -1)
     expect(inputBounds.width).toBeCloseTo(Math.max(240, totalWidth * 0.2), -1)
@@ -66,7 +67,7 @@ it('renders the stress fixture before the browser-test timeout', async () => {
     expect(eventLogBounds.left).toBeCloseTo(inputBounds.left, 0)
     expect(eventLogBounds.width).toBeCloseTo(inputBounds.width, 0)
     expect(inputBounds.left).toBeGreaterThanOrEqual(monitorBounds.right - 1)
-    expect(inputBounds.right).toBeCloseTo(totalWidth, 0)
+    expect(resourcesBounds.width + monitorBounds.width + inputBounds.width).toBeLessThan(totalWidth)
     await expect.element(screen.getByRole('application')).toBeVisible()
     expect(screen.container.querySelector('[aria-label="Reorder Video 1"]')).not.toBeNull()
     await expect.poll(() => screen.container.querySelectorAll('canvas').length).toBeGreaterThanOrEqual(2)
@@ -195,6 +196,29 @@ it('renders the stress fixture before the browser-test timeout', async () => {
     window.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: 'Delete' }))
     episodeStore.undo()
     await expect.poll(() => episodeStore.episode.segments.length).toBe(segmentCount)
+
+    // Keys owned by the focused control must not reach editor shortcuts: Backspace inside a tree
+    // keeps the selected segment, and Space on a focused button does not toggle playback.
+    timelineCanvas.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, buttons: 1, clientX: canvasBounds.left + 80, clientY: canvasBounds.top + firstLaneY, pointerId: 2, pointerType: 'mouse' }))
+    timelineCanvas.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, button: 0, clientX: canvasBounds.left + 80, clientY: canvasBounds.top + firstLaneY, pointerId: 2, pointerType: 'mouse' }))
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+    const tree = document.createElement('div')
+    tree.setAttribute('role', 'tree')
+    tree.tabIndex = 0
+    document.body.append(tree)
+    tree.focus()
+    tree.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Backspace' }))
+    await new Promise(resolve => setTimeout(resolve, 50))
+    expect(episodeStore.episode.segments.length).toBe(segmentCount)
+    tree.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: 'Backspace' }))
+    tree.remove()
+    const zoomIn = screen.container.querySelector<HTMLButtonElement>('[aria-label="Timeline toolbar"] button[aria-label="Zoom in"]')!
+    zoomIn.focus()
+    zoomIn.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, code: 'Space', key: ' ' }))
+    await new Promise(resolve => setTimeout(resolve, 50))
+    await expect.element(timelineToolbar.getByRole('button', { exact: true, name: 'Play' })).toBeEnabled()
+    zoomIn.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, code: 'Space', key: ' ' }))
+    zoomIn.blur()
 
     await expect.element(screen.getByRole('region', { exact: true, name: 'Input monitor' })).toBeVisible()
   }

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { EpisodeSession } from '../domain'
-import type { TimelineLayout, TimelineLayoutRow } from '../layout'
+import type { EmptyDataTracks, TimelineLayout, TimelineLayoutRow } from '../layout'
 
 import { defaultTimelineRendererTheme } from '@proj-airi/canvas-timeline-renderer'
 import { useElementSize } from '@vueuse/core'
@@ -20,6 +20,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   reload: [trackId: string]
   reorder: [sourceTrackId: string, targetTrackId: string]
+  toggleEmpty: [targetKey: string]
   toggleGroup: [groupId: string]
 }>()
 
@@ -49,6 +50,50 @@ const visibleRows = computed(() => {
   }
   return result
 })
+
+// Left padding per row role, in px. A chevron column is 16px, so a data track indented by the
+// player's indent plus that column puts its icon exactly under the player's icon.
+const ROW_INDENT_PX = { data: 4 + 14 + 16, primary: 4 + 14, session: 4, world: 4 + 14 } as const
+
+type ExpandableRow = Extract<TimelineLayoutRow, { role: 'primary' | 'session' | 'world' }>
+
+function indentOf(row: TimelineLayoutRow): number {
+  return ROW_INDENT_PX[row.role]
+}
+
+function isExpandable(row: TimelineLayoutRow): row is ExpandableRow {
+  return row.role === 'session' || ((row.role === 'primary' || row.role === 'world') && row.dataTrackCount > 0)
+}
+
+function toggleLabel(row: ExpandableRow): string {
+  if (row.role === 'session')
+    return `${row.collapsed ? 'Expand' : 'Collapse'} ${row.label}`
+  const name = row.role === 'world' ? 'the world' : row.label
+  return `${row.collapsed ? 'Show' : 'Hide'} data tracks of ${name}`
+}
+
+function emptyToggleLabel(empty: EmptyDataTracks): string {
+  return `${empty.shown ? 'Hide' : 'Show'} ${empty.count} data ${empty.count === 1 ? 'track' : 'tracks'} with no items`
+}
+
+function rowIcon(row: TimelineLayoutRow): string {
+  switch (row.role) {
+    case 'session':
+      return 'i-mingcute-server-line'
+    case 'world':
+      return 'i-mingcute-earth-2-line'
+    case 'primary':
+      return row.kind === 'video' ? 'i-mingcute-video-line' : 'i-mingcute-user-3-line'
+    case 'data':
+      return row.dataTrack.icon ?? 'i-mingcute-list-check-line'
+  }
+}
+
+function rowDetail(row: Extract<TimelineLayoutRow, { role: 'primary' | 'world' }>): string {
+  if (row.role === 'world')
+    return sessionsByKey.value.get(row.sessionKey)?.world ? 'World session' : 'Session span'
+  return `${row.playCount} ${row.playCount === 1 ? 'Play' : 'Plays'} · ${row.kind}`
+}
 
 const dragSourceId = shallowRef<null | string>(null)
 const dropTargetId = shallowRef<null | string>(null)
@@ -126,9 +171,9 @@ function onHandlePointerUp(): void {
       <div
         v-for="row in visibleRows"
         :key="row.id"
-        class="absolute left-0 right-0 flex items-center border-b border-[var(--dashboard-border-color)] text-neutral-100"
+        class="group absolute left-0 right-0 flex items-center border-b border-[var(--dashboard-border-color)] pr-2 text-neutral-100"
         :class="[
-          row.role === 'session' ? 'bg-#1f1f23 px-1.5' : row.role === 'primary' ? 'bg-#171717 px-3' : 'bg-#141416 pl-6 pr-2',
+          row.role === 'session' ? 'bg-#1f1f23' : row.role === 'data' ? 'bg-#141416' : 'bg-#171717',
           dropTargetId === row.id ? 'outline outline-1 outline-emerald-400/70 outline-offset-[-1px]' : '',
           dragSourceId === row.id ? 'opacity-60' : '',
         ]"
@@ -139,30 +184,48 @@ function onHandlePointerUp(): void {
         role="listitem"
         :style="{ height: `${row.height}px`, top: `${row.top}px` }"
       >
-        <template v-if="row.role === 'session'">
+        <!-- Hierarchy indent. Data tracks have no children, so they skip the chevron column and
+             their icon lines up under the parent row's icon instead of a further level in. -->
+        <span aria-hidden="true" class="shrink-0" :style="{ width: `${indentOf(row)}px` }" />
+
+        <!-- Disclosure chevron; always on the left of expandable rows. -->
+        <template v-if="row.role !== 'data'">
           <button
+            v-if="isExpandable(row)"
             :aria-expanded="!row.collapsed"
-            :aria-label="`${row.collapsed ? 'Expand' : 'Collapse'} ${row.label}`"
-            class="mr-1 flex shrink-0 items-center justify-center border-0 bg-transparent p-0.5 text-neutral-400 hover:text-neutral-100"
-            :title="`${row.collapsed ? 'Expand' : 'Collapse'} ${row.label}`"
+            :aria-label="toggleLabel(row)"
+            class="h-5 w-4 flex shrink-0 items-center justify-center border-0 rounded bg-transparent p-0 text-neutral-500 hover:bg-white/8 hover:text-neutral-100"
+            :title="toggleLabel(row)"
             type="button"
             @click="emit('toggleGroup', row.groupId)"
           >
             <span aria-hidden="true" class="text-sm" :class="row.collapsed ? 'i-mingcute-right-line' : 'i-mingcute-down-line'" />
           </button>
-          <button
-            v-if="editable"
-            :aria-label="`Reorder ${row.label}`"
-            class="mr-1 flex shrink-0 cursor-grab touch-none items-center border-0 bg-transparent p-0 text-sm text-neutral-500 hover:text-neutral-200"
-            :title="`Drag to reorder ${row.label}`"
-            type="button"
-            @pointercancel="onHandlePointerUp"
-            @pointerdown="onHandlePointerDown($event, row)"
-            @pointermove="onHandlePointerMove"
-            @pointerup="onHandlePointerUp"
-          >
-            <span aria-hidden="true" class="i-mingcute-dot-grid-line" />
-          </button>
+          <span v-else aria-hidden="true" class="w-4 shrink-0" />
+        </template>
+
+        <!-- What the row is. Reorderable rows turn their icon into the drag grip on hover or focus,
+             so the grip needs no column of its own. -->
+        <button
+          v-if="editable && (row.role === 'session' || row.role === 'primary')"
+          :aria-label="`Reorder ${row.label}`"
+          class="ml-1 mr-2 h-5 w-5 flex shrink-0 cursor-grab touch-none items-center justify-center border-0 rounded bg-transparent p-0 text-neutral-500 hover:bg-white/8 hover:text-neutral-100 focus-visible:outline-1 focus-visible:outline-white/60 focus-visible:outline"
+          :title="`Drag to reorder ${row.label}`"
+          type="button"
+          @pointercancel="onHandlePointerUp"
+          @pointerdown="onHandlePointerDown($event, row)"
+          @pointermove="onHandlePointerMove"
+          @pointerup="onHandlePointerUp"
+        >
+          <span aria-hidden="true" class="group-focus-within:hidden group-hover:hidden" :class="[rowIcon(row), row.role === 'primary' ? 'text-base' : 'text-sm']" />
+          <span aria-hidden="true" class="i-mingcute-dots-line hidden rotate-90 text-sm group-focus-within:block group-hover:block" />
+        </button>
+        <span v-else aria-hidden="true" class="ml-1 mr-2 h-5 w-5 flex shrink-0 items-center justify-center text-neutral-500">
+          <span :class="[rowIcon(row), row.role === 'primary' ? 'text-base' : 'text-sm']" />
+        </span>
+
+        <!-- Column 4: label, then right-aligned meta. -->
+        <template v-if="row.role === 'session'">
           <p class="m-0 min-w-0 flex-1 truncate text-xs text-neutral-200 font-medium" :title="sessionDetail(row)">
             {{ row.label }}
             <span class="ml-1 text-[10px] text-neutral-500 font-normal">{{ sessionDetail(row) }}</span>
@@ -174,58 +237,32 @@ function onHandlePointerUp(): void {
           >{{ sessionBadge(row.sessionKey) }}</span>
         </template>
 
-        <template v-else-if="row.role === 'world'">
-          <span aria-hidden="true" class="i-mingcute-earth-2-line mr-2 shrink-0 text-sm text-neutral-500" />
-          <p class="m-0 min-w-0 truncate text-xs text-neutral-300">
-            World
-            <span class="ml-1 text-[10px] text-neutral-500">{{ sessionsByKey.get(row.sessionKey)?.world ? 'world session' : 'session span' }}</span>
-          </p>
-        </template>
-
-        <template v-else-if="row.role === 'primary'">
-          <button
-            v-if="editable"
-            :aria-label="`Reorder ${row.label}`"
-            class="timeline-track-drag-handle mr-1 flex flex-[0_0_1.5rem] cursor-grab touch-none items-center self-stretch justify-center border-0 bg-transparent p-0 text-base focus-visible:text-[#dfdfdf] hover:text-[#dfdfdf] focus-visible:outline-1 focus-visible:outline-white/60 focus-visible:outline-offset-[-3px] focus-visible:outline"
-            :title="`Drag to reorder ${row.label}`"
-            type="button"
-            @pointercancel="onHandlePointerUp"
-            @pointerdown="onHandlePointerDown($event, row)"
-            @pointermove="onHandlePointerMove"
-            @pointerup="onHandlePointerUp"
-          >
-            <span aria-hidden="true" class="i-mingcute-dot-grid-line" />
-          </button>
-          <span
-            v-else
-            aria-hidden="true"
-            class="mr-2 shrink-0 text-base text-neutral-500"
-            :class="row.kind === 'video' ? 'i-mingcute-video-line' : 'i-mingcute-user-3-line'"
-          />
+        <template v-else-if="row.role === 'world' || row.role === 'primary'">
           <div class="min-w-0 flex-1">
-            <p class="m-0 truncate text-sm text-neutral-200" :title="row.track.playerUuid ?? row.label">
-              {{ row.label }}
+            <p class="m-0 truncate" :class="row.role === 'primary' ? 'text-sm text-neutral-100 font-medium' : 'text-xs text-neutral-300'" :title="row.role === 'primary' ? row.track.playerUuid ?? row.label : undefined">
+              {{ row.role === 'world' ? 'World' : row.label }}
             </p>
-            <p class="m-0 mt-0.5 truncate text-[10px] text-neutral-500 tracking-wider uppercase">
-              {{ row.playCount }} {{ row.playCount === 1 ? 'play' : 'plays' }} · {{ row.kind }}
+            <p class="m-0 mt-0.5 truncate text-[10px] text-neutral-500">
+              {{ rowDetail(row) }}
             </p>
           </div>
+          <span v-if="row.collapsed && row.dataTrackCount > 0" class="ml-1 shrink-0 text-[10px] text-neutral-500 tabular-nums" :title="`${row.dataTrackCount} data tracks hidden`">
+            {{ row.dataTrackCount }} tracks
+          </span>
           <button
-            v-if="row.dataTrackCount > 0"
-            :aria-expanded="!row.collapsed"
-            :aria-label="`${row.collapsed ? 'Show' : 'Hide'} data tracks of ${row.label}`"
-            class="ml-1 flex shrink-0 items-center gap-0.5 border-0 bg-transparent p-0.5 text-[10px] text-neutral-500 hover:text-neutral-100"
-            :title="`${row.collapsed ? 'Show' : 'Hide'} ${row.dataTrackCount} data tracks`"
+            v-else-if="row.emptyDataTracks.count > 0"
+            :aria-label="emptyToggleLabel(row.emptyDataTracks)"
+            :aria-pressed="row.emptyDataTracks.shown"
+            class="ml-1 shrink-0 border-0 rounded bg-transparent px-1 py-0.5 text-[10px] text-neutral-500 hover:bg-white/8 hover:text-neutral-100"
+            :title="emptyToggleLabel(row.emptyDataTracks)"
             type="button"
-            @click="emit('toggleGroup', row.groupId)"
+            @click="emit('toggleEmpty', row.emptyDataTracks.targetKey)"
           >
-            {{ row.dataTrackCount }}
-            <span aria-hidden="true" class="text-sm" :class="row.collapsed ? 'i-mingcute-right-line' : 'i-mingcute-down-line'" />
+            {{ row.emptyDataTracks.shown ? 'Hide' : '+' }}{{ row.emptyDataTracks.shown ? '' : row.emptyDataTracks.count }} empty
           </button>
         </template>
 
         <template v-else>
-          <span aria-hidden="true" class="i-mingcute-chart-line-line mr-1.5 shrink-0 text-xs text-neutral-500" />
           <p class="m-0 min-w-0 flex-1 truncate text-xs text-neutral-300" :title="row.dataTrack.error ?? row.label">
             {{ row.label }}
           </p>
@@ -240,6 +277,11 @@ function onHandlePointerUp(): void {
           >
             <span aria-hidden="true" class="i-mingcute-refresh-2-line" />
           </button>
+          <span
+            v-else-if="row.dataTrack.status === 'missing'"
+            class="shrink-0 text-[10px] text-amber-300/80"
+            :title="`${row.dataTrack.error ?? 'Source file'} is missing, so this track is unknown, not empty.`"
+          >missing</span>
           <span v-else class="shrink-0 text-[10px] text-neutral-500 tabular-nums">{{ row.dataTrack.items.length }}</span>
         </template>
       </div>

@@ -6,6 +6,7 @@
 
 import type { Clip, TimelineKeyframeRenderClip } from '@techsquidtv/canvas-timeline-core';
 import { timeToX } from '#renderer/render/geometry';
+import { fitText } from '#renderer/render/text';
 import type { RenderContext } from '#renderer/render/types';
 
 export type ClipRenderContext = RenderContext & {
@@ -127,12 +128,12 @@ function drawClipLabel(renderContext: ClipRenderContext, geometry: ClipLabelGeom
   ctx.fillStyle = clip.selected ? theme.colors.clip.textSelected : theme.colors.clip.text;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
-  ctx.fillText(
-    clipName,
-    labelX + theme.metrics.clipLabelPaddingX,
-    labelY + labelHeight / 2,
-    textWidth
-  );
+  // Truncate instead of passing maxWidth, which squeezes glyphs (see `fitText`).
+  const fitted = fitText(ctx, clipName, textWidth);
+  if (!fitted) {
+    return;
+  }
+  ctx.fillText(fitted, labelX + theme.metrics.clipLabelPaddingX, labelY + labelHeight / 2);
 }
 
 function drawClipKeyframes(renderContext: ClipRenderContext) {

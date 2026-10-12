@@ -9,6 +9,7 @@ import { describeTargets, useTimelineDataTracks } from '../composables/useTimeli
 import { testReplay } from '../fixtures/replays'
 import { buildTimelineLayout } from '../layout'
 import { addReplaysToEpisode, createEmptyEpisode, cutPlacement } from '../replay'
+import { DataSourceMissingError } from './errors'
 import { createPlayExtensionDataTrackProvider, PLAY_EXTENSION_PROVIDER_ID } from './playExtensionProvider'
 import { dataLaneEntryAt, hitTestDataLane, projectDataTrack } from './projection'
 
@@ -145,6 +146,45 @@ describe('data track runtime', () => {
 
       const collapsedSession = buildTimelineLayout(episode.value, runtime.tracks.value, new Set(['session:s1']))
       expect(collapsedSession.rows.map(row => row.role)).toEqual(['session'])
+    }
+    finally {
+      scope.stop()
+    }
+  })
+
+  it('keeps a missing source apart from an empty one and folds only the empty tracks', async () => {
+    const episode = shallowRef(sessionEpisode())
+    const provider: TimelineDataTrackProvider = {
+      describe: target => target.key === ALICE_LANE
+        ? [
+            { key: 'found', label: 'Found', load: async () => [{ id: 'p', kind: 'point', serverTick: 150 }] },
+            { key: 'missing', label: 'Missing', load: async () => {
+              throw new DataSourceMissingError('perception.jsonl')
+            } },
+            { key: 'empty', label: 'Empty', load: async () => [] },
+          ]
+        : [],
+      id: 'test.player',
+      scope: 'player',
+    }
+    const scope = effectScope()
+    const runtime = scope.run(() => useTimelineDataTracks(episode, () => [provider]))!
+    try {
+      runtime.ensureLoaded(runtime.tracks.value.map(candidate => candidate.id))
+      await flush()
+      const missing = runtime.tracks.value.find(candidate => candidate.descriptorKey === 'missing')!
+      expect(missing.status).toBe('missing')
+      expect(missing.error).toBe('perception.jsonl')
+      // The lane names the absent file instead of the "No items" an empty source shows.
+      expect(runtime.lanes.value.get(missing.id)?.message).toBe('perception.jsonl missing · unknown, not empty')
+
+      const folded = buildTimelineLayout(episode.value, runtime.tracks.value, new Set())
+      expect(folded.rows.map(row => row.label)).toEqual(['Session s1', 'World', 'alice', 'Found', 'Missing', 'bob'])
+      const alice = folded.rows.find(row => row.role === 'primary' && row.label === 'alice')
+      expect(alice?.role === 'primary' && alice.emptyDataTracks).toEqual({ count: 1, shown: false, targetKey: ALICE_LANE })
+
+      const shown = buildTimelineLayout(episode.value, runtime.tracks.value, new Set(), new Set([ALICE_LANE]))
+      expect(shown.rows.map(row => row.label)).toEqual(['Session s1', 'World', 'alice', 'Empty', 'Found', 'Missing', 'bob'])
     }
     finally {
       scope.stop()

@@ -36,6 +36,8 @@ export default defineConfig({
     proxy: {
       '/api': apiURL,
       '/assets': apiURL,
+      '/game-textures': apiURL,
+      '/item-icons': apiURL,
     },
   },
 })

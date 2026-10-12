@@ -65,7 +65,7 @@ describe('capture event parsing', () => {
     ])
     expect(parsed.invalidLineCount).toBe(1)
     expect(parsed.controlSamples).toHaveLength(1)
-    expect(parsed.hotbarSamples.map(sample => sample.serverTick)).toEqual([22, 23, 24])
+    expect(parsed.playerStates.map(sample => sample.serverTick)).toEqual([22, 23, 24])
   })
 
   it('streams large files in slices without losing lines across chunk boundaries', async () => {

@@ -10,6 +10,7 @@ import PlayerInputCard from './PlayerInputCard.vue'
 import { useEditorWorkspaceContext } from '../../editor/composables/useEditorWorkspaceContext'
 import { latestAtOrBefore } from '../../event-log/captureEvents'
 import { useCaptureEventSources } from '../../event-log/useCaptureEvents'
+import { playerColor } from '../../players/colors'
 import { placementContainsTick, playServerTickAt } from '../../timeline/ticks'
 
 const { episode, session } = useEditorWorkspaceContext()
@@ -32,7 +33,7 @@ const placementsByLane = computed(() => {
     byLane.set(placement.laneId, [...(byLane.get(placement.laneId) ?? []), placement])
   return byLane
 })
-const colors = computed(() => new Map(episode().segments.flatMap(segment => segment.placementId ? [[segment.placementId, segment.color] as const] : [])))
+const laneColors = computed(() => new Map(lanes.value.map((lane, index) => [lane.id, playerColor(index)])))
 
 /** The clip of a lane under the playhead; the latest start wins on overlap (as `placementAt`). */
 function placementOnLane(laneId: string, tick: number): null | PlayPlacement {
@@ -52,13 +53,13 @@ const cards = computed(() => {
     .filter(lane => showAll.value || lane.id === focusLaneId.value)
     .map((lane) => {
       const placement = placementOnLane(lane.id, playhead)
-      const firstPlacement = placementsByLane.value.get(lane.id)?.[0]
       const base = {
-        color: colors.value.get(placement?.id ?? firstPlacement?.id ?? '') ?? '#a3a3a3',
+        color: laneColors.value.get(lane.id)!,
         error: null as null | string,
-        hotbar: null,
+        playerState: null,
         laneId: lane.id,
         playerName: lane.playerName,
+        playerUuid: lane.playerUuid,
         sample: null,
         selected: lane.id === selectedLaneId.value,
         serverTick: null as null | number,
@@ -80,7 +81,7 @@ const cards = computed(() => {
       const clicks = parsed.clicksByTick.get(serverTick)
       return {
         ...base,
-        hotbar: latestAtOrBefore(parsed.hotbarSamples, serverTick),
+        playerState: latestAtOrBefore(parsed.playerStates, serverTick),
         sample: sample && clicks ? { ...sample, ...clicks } : sample,
         serverTick,
         status: 'ready' as PlayerInputStatus,
@@ -96,12 +97,12 @@ const cards = computed(() => {
     </div>
     <template v-else>
       <div class="flex items-center gap-1 border-b border-[var(--dashboard-border-color)] px-2 py-1">
-        <span class="text-[10px] text-neutral-500">{{ lanes.length }} {{ lanes.length === 1 ? 'player' : 'players' }}</span>
+        <span class="text-[11px] text-neutral-500">{{ lanes.length }} {{ lanes.length === 1 ? 'player' : 'players' }}</span>
         <div class="ml-auto flex rounded bg-white/5 p-0.5" role="group" aria-label="Players shown">
           <button
             aria-label="Show all players"
             :aria-pressed="showAll"
-            class="border-0 rounded px-1.5 py-0.5 text-[10px]"
+            class="border-0 rounded px-2 py-0.5 text-[11px]"
             :class="showAll ? 'bg-white/12 text-neutral-100' : 'bg-transparent text-neutral-500 hover:text-neutral-200'"
             type="button"
             title="Every player on the timeline"
@@ -112,7 +113,7 @@ const cards = computed(() => {
           <button
             aria-label="Show the selected player"
             :aria-pressed="!showAll"
-            class="border-0 rounded px-1.5 py-0.5 text-[10px]"
+            class="border-0 rounded px-2 py-0.5 text-[11px]"
             :class="!showAll ? 'bg-white/12 text-neutral-100' : 'bg-transparent text-neutral-500 hover:text-neutral-200'"
             title="Only the player of the selected clip"
             type="button"
@@ -123,14 +124,15 @@ const cards = computed(() => {
         </div>
       </div>
       <!-- Many lanes (stress drafts have hundreds) stay cheap: only visible cards are mounted. -->
-      <VList :data="cards" :item-size="120" class="min-h-0 flex-1">
+      <VList :data="cards" :item-size="230" class="min-h-0 flex-1">
         <template #default="{ item: card }">
           <div :key="card.laneId" class="px-1.5 pt-1.5">
             <PlayerInputCard
               :color="card.color"
               :error="card.error"
-              :hotbar="card.hotbar"
+              :player-state="card.playerState"
               :player-name="card.playerName"
+              :player-uuid="card.playerUuid"
               :sample="card.sample"
               :selected="card.selected"
               :server-tick="card.serverTick"

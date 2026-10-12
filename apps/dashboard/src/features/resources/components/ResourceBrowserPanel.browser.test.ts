@@ -50,15 +50,16 @@ it('shows the session tree, adds a whole session with its world source, and mark
     await expect.element(tree.getByRole('treeitem', { name: 'Plays without a world session' }).first()).toBeVisible()
     const run1 = tree.getByRole('treeitem', { name: 'Oct 10, 08:00:03' })
     await expect.element(run1).toHaveAttribute('aria-expanded', 'false')
-    // Compact indicators: duration, participants, alignment divergences, known gaps, stream failure.
+    // A row states what answers "which session, who, usable?": duration, participants, and the
+    // divergence count as labelled text. Known gaps and the terminal reason move to the tooltip.
     await expect.element(run1.getByText('0:55')).toBeInTheDocument()
-    await expect.element(run1.getByTitle('2 participants')).toBeInTheDocument()
-    await expect.element(run1.getByTitle('Session alignment: 57 events, 2 observation divergences')).toBeInTheDocument()
-    await expect.element(run1.getByRole('img', { name: '1 known gaps' })).toBeInTheDocument()
+    await expect.element(run1.getByRole('img', { name: 'alice, bob' })).toBeInTheDocument()
+    await expect.element(run1.getByTitle('Session alignment: 57 events, 2 observation divergences')).toHaveTextContent('2 divergences')
+    expect(run1.element().querySelector('[title*="known gaps: world_entities_not_recorded"]')).not.toBeNull()
     await expect.element(tree.getByRole('treeitem', { name: 'Oct 10, 08:01:22' }).getByRole('img', { name: 'World stream failure' })).toBeInTheDocument()
-    // Only eve has a rendered video; data-only Plays get a different icon and label.
+    // Only eve has a rendered video; data-only Plays say "no video" instead of using another icon.
     await expect.element(tree.getByRole('treeitem', { name: 'eve, Play with video' })).toBeVisible()
-    expect(screen.container.querySelectorAll('[role="treeitem"] .i-mingcute-video-line')).toHaveLength(1)
+    expect(tree.getByRole('treeitem', { name: 'eve, Play with video' }).element().textContent).not.toContain('no video')
 
     // Keyboard: expand run 1 with ArrowRight, then Enter on the session adds both Plays at once.
     await run1.click()

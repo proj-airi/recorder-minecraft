@@ -77,26 +77,64 @@ export interface ControlStateSample extends ClickActions {
   sprint: boolean
 }
 
-export interface HotbarItem {
+export interface InventoryItem {
   count: number
+  /** Durability used so far; 0 for undamaged or undamageable items. */
+  damage: number
   itemId: string
+  /** 0 when the item has no durability. */
+  maxDamage: number
 }
 
-export interface HotbarSample {
-  /** Hotbar slots 0–8; null is an empty slot. */
-  items: readonly (HotbarItem | null)[]
-  selectedSlot: number
-  serverTick: number
+/** Survival HUD values from `player_state`. Zero-valued fields are omitted by protojson and read as 0. */
+export interface PlayerStatus {
+  absorption: number
+  air: number
+  alive: boolean
+  armor: number
+  dimension: string
+  effects: readonly StatusEffectState[]
+  experienceLevel: number
+  /** Progress towards the next level, 0–1. */
+  experienceProgress: number
+  foodLevel: number
+  gameMode: string
+  health: number
+  maxAir: number
+  maxHealth: number
+  position: null | { x: number, y: number, z: number }
+  saturation: number
 }
+
+export interface StatusEffectState {
+  /** 0-based; the in-game level is amplifier + 1. */
+  amplifier: number
+  durationTicks: number
+  effectId: string
+}
+
+/**
+ * Player inventory slot indices, as the recorder writes them (`Inventory#getItem` order):
+ * 0–8 hotbar, 9–35 main inventory, 36–39 armor from feet to head, 40 off hand.
+ */
+export const INVENTORY_SLOTS = { armor: { chest: 38, feet: 36, head: 39, legs: 37 }, hotbar: 0, main: 9, offhand: 40, size: 41 } as const
 
 export interface ParsedCaptureEvents {
   clicksByTick: ReadonlyMap<number, ClickActions>
   controlSamples: readonly ControlStateSample[]
   /** Log entries in capture order (Server tick, then sequence). */
   entries: readonly CaptureLogEntry[]
-  hotbarSamples: readonly HotbarSample[]
   invalidLineCount: number
   lineCount: number
+  playerStates: readonly PlayerStateSample[]
+}
+
+export interface PlayerStateSample {
+  selectedSlot: number
+  serverTick: number
+  /** `INVENTORY_SLOTS.size` entries; null is an empty slot. */
+  slots: readonly (InventoryItem | null)[]
+  status: PlayerStatus
 }
 
 type Json = Record<string, unknown>
@@ -123,9 +161,9 @@ export class CaptureEventParser {
   private clicksByTick = new Map<number, ClickActions>()
   private controlSamples: ControlStateSample[] = []
   private entries: CaptureLogEntry[] = []
-  private hotbarSamples: HotbarSample[] = []
   private invalidLineCount = 0
   private lineCount = 0
+  private playerStates: PlayerStateSample[] = []
 
   private previousState: Json | null = null
 
@@ -136,9 +174,9 @@ export class CaptureEventParser {
       clicksByTick: this.clicksByTick,
       controlSamples: this.controlSamples,
       entries: ordered,
-      hotbarSamples: this.hotbarSamples,
       invalidLineCount: this.invalidLineCount,
       lineCount: this.lineCount,
+      playerStates: this.playerStates,
     }
   }
 
@@ -234,16 +272,12 @@ export class CaptureEventParser {
   }
 
   private pushPlayerState(base: Pick<CaptureLogEntry, 'id' | 'raw' | 'sequence' | 'serverTick'>, state: Json): void {
-    const items = Array.from<HotbarItem | null>({ length: 9 }).fill(null)
-    const inventory = Array.isArray(state.inventory) ? state.inventory : []
-    for (const slot of inventory) {
-      if (!isObject(slot))
-        continue
-      const index = finiteNumber(slot.slot)
-      if (index >= 0 && index < 9 && typeof slot.itemId === 'string' && slot.itemId)
-        items[index] = { count: finiteNumber(slot.count) || 1, itemId: slot.itemId }
-    }
-    this.hotbarSamples.push({ items, selectedSlot: finiteNumber(state.selectedSlot), serverTick: base.serverTick })
+    this.playerStates.push({
+      selectedSlot: finiteNumber(state.selectedSlot),
+      serverTick: base.serverTick,
+      slots: inventorySlots(state),
+      status: playerStatus(state),
+    })
 
     const changes = this.previousState ? stateChanges(this.previousState, state) : []
     this.previousState = state
@@ -545,6 +579,25 @@ function handName(hand: string): string {
   return value
 }
 
+function inventorySlots(state: Json): (InventoryItem | null)[] {
+  const slots = Array.from<InventoryItem | null>({ length: INVENTORY_SLOTS.size }).fill(null)
+  for (const slot of Array.isArray(state.inventory) ? state.inventory : []) {
+    if (!isObject(slot))
+      continue
+    const index = finiteNumber(slot.slot)
+    // An emptied slot is recorded as minecraft:air with count 0.
+    if (index < 0 || index >= slots.length || typeof slot.itemId !== 'string' || !slot.itemId || slot.itemId === 'minecraft:air')
+      continue
+    slots[index] = {
+      count: finiteNumber(slot.count) || 1,
+      damage: finiteNumber(slot.damage),
+      itemId: slot.itemId,
+      maxDamage: finiteNumber(slot.maxDamage),
+    }
+  }
+  return slots
+}
+
 function isObject(value: unknown): value is Json {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
@@ -569,6 +622,31 @@ function objectAt(value: Json, key: string): Json | null {
 function packetShortType(packet: Json): string {
   const identity = objectAt(packet, 'identity')
   return normalized(identity?.packetType).split(':').at(-1) ?? ''
+}
+
+function playerStatus(state: Json): PlayerStatus {
+  const position = objectAt(state, 'position')
+  const effects = (Array.isArray(state.effects) ? state.effects : []).filter(isObject).flatMap(effect =>
+    typeof effect.effectId === 'string'
+      ? [{ amplifier: finiteNumber(effect.amplifier), durationTicks: finiteNumber(effect.durationTicks), effectId: effect.effectId }]
+      : [])
+  return {
+    absorption: finiteNumber(state.absorption),
+    air: finiteNumber(state.air),
+    alive: state.alive === true,
+    armor: finiteNumber(state.armor),
+    dimension: typeof state.dimension === 'string' ? state.dimension : '',
+    effects,
+    experienceLevel: finiteNumber(state.experienceLevel),
+    experienceProgress: Math.min(1, Math.max(0, finiteNumber(state.experienceProgress))),
+    foodLevel: finiteNumber(state.foodLevel),
+    gameMode: typeof state.gameMode === 'string' ? state.gameMode : '',
+    health: finiteNumber(state.health),
+    maxAir: finiteNumber(state.maxAir),
+    maxHealth: finiteNumber(state.maxHealth),
+    position: position ? { x: finiteNumber(position.x), y: finiteNumber(position.y), z: finiteNumber(position.z) } : null,
+    saturation: finiteNumber(state.saturation),
+  }
 }
 
 function snakeCase(value: string): string {

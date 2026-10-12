@@ -1,11 +1,13 @@
 import type { RecorderMinecraftApiV1Replay } from '@proj-airi/recorder-minecraft-api'
 
 import type { CommitSegmentEdit, EpisodeDraft, TimelineWorldSessionSource } from '../domain'
+import type { ServerTickRange } from '../replay'
 
 import { defineStore } from 'pinia'
 import { computed, shallowRef } from 'vue'
 
 import {
+  addReplayRangeToEpisode,
   addReplaysToEpisode,
   addReplayToEpisode,
   commitPlacementEdit,
@@ -34,6 +36,11 @@ export const useEpisodeStore = defineStore('episode', () => {
   /** Adds one Play as an undoable edit. Extension data loads lazily through data tracks. */
   function addReplay(replay: RecorderMinecraftApiV1Replay): boolean {
     return commit(addReplayToEpisode(episode.value, replay))
+  }
+
+  /** Adds one Play trimmed to a Server-tick range as a single undoable edit. */
+  function addReplayRange(replay: RecorderMinecraftApiV1Replay, range: ServerTickRange, world?: TimelineWorldSessionSource): boolean {
+    return commit(addReplayRangeToEpisode(episode.value, replay, range, world))
   }
 
   /**
@@ -97,6 +104,7 @@ export const useEpisodeStore = defineStore('episode', () => {
 
   return {
     addReplay,
+    addReplayRange,
     addSession,
     canRedo,
     canUndo,

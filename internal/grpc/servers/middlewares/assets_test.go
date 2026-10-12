@@ -109,3 +109,14 @@ func assetsServer(t *testing.T, root string) *echo.Echo {
 	server.GET("/assets/*", func(*echo.Context) error { return echo.ErrNotFound }, Assets(filesystem.FS()))
 	return server
 }
+
+func TestItemIconsAreNotFoundWithoutAClientJar(t *testing.T) {
+	t.Parallel()
+
+	server := echo.New()
+	server.GET("/item-icons/:namespace/:file", ItemIcons(nil))
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/item-icons/minecraft/bread.png", nil))
+
+	assert.Equal(t, http.StatusNotFound, response.Code)
+}

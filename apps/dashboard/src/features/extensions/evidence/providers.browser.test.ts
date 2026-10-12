@@ -9,6 +9,7 @@ import { shallowRef } from 'vue'
 import run2PerceptionUrl from './fixtures/run2-alice-perception.jsonl?url'
 
 import { describeTargets } from '../../timeline/composables/useTimelineDataTracks'
+import { DataSourceMissingError } from '../../timeline/data-tracks/errors'
 import { addReplaysToEpisode, createEmptyEpisode } from '../../timeline/replay'
 import { demoReplays, demoSourcesOptions, RUNS } from './fixtures/demo'
 import { createEvidencePlayerProvider, createEvidenceSessionProvider } from './providers'
@@ -161,7 +162,7 @@ describe('evidence data tracks from the Sally-Anne demo', () => {
     expect((items[6]!.payload as WorldEventPayload).event).toMatchObject({ kind: 'snapshot', slots: [{ itemId: 'minecraft:diamond' }] })
   })
 
-  it('reports missing sources as labeled empty rows, not errors', async () => {
+  it('reports missing sources as missing rows, not as empty or as errors', async () => {
     const options = demoSourcesOptions({ withoutAlignment: true })
     const sources = new EvidenceSources(options)
     const provider = createEvidencePlayerProvider(sources)
@@ -173,14 +174,24 @@ describe('evidence data tracks from the Sally-Anne demo', () => {
     // Without an alignment, rows come from the perception file itself.
     expect(alice.map(descriptor => descriptor.label)).toContain('Visible · player 8e289159')
 
-    // Bob's perception URL is listed but the file is absent: rows load as empty.
+    // Bob's perception URL is listed but the file is absent: the row is missing, not "never visible".
     const bob = await describeSettled(() => provider.describe(playerTarget(episodeFor('run2'), 'bob')))
     expect(bob.map(descriptor => descriptor.label)).toEqual(['Observation divergences · no session alignment', 'Visibility'])
-    expect(await load(bob, 'Visibility')).toEqual([])
+    await expect(load(bob, 'Visibility')).rejects.toBeInstanceOf(DataSourceMissingError)
 
-    // A Play without perception says so.
+    // A Play without perception says so, and its row loads as missing too.
     const noPerception = provider.describe(playerTarget(episodeFor('run2', { bobPerception: false }), 'bob'))
     expect(noPerception.map(descriptor => descriptor.label)).toContain('Visibility · no perception.jsonl')
+    await expect(load(noPerception, 'Visibility · no perception.jsonl')).rejects.toBeInstanceOf(DataSourceMissingError)
+
+    // A world session whose world-events.jsonl is gone reports the file, not "no container events".
+    const withoutWorldEvents = demoSourcesOptions()
+    const worldProvider = createEvidenceSessionProvider(new EvidenceSources({
+      ...withoutWorldEvents,
+      fetch: async url => url.endsWith('/world-events.jsonl') ? new Response('not found', { status: 404 }) : withoutWorldEvents.fetch!(url),
+    }))
+    const world = worldProvider.describe(sessionTarget(episodeFor('run2')))
+    await expect(load(world, 'World container events')).rejects.toMatchObject({ source: 'world-events.jsonl' })
 
     // Plays without a world session or perception get no evidence rows at all.
     const legacy = addReplaysToEpisode(createEmptyEpisode(), demoReplays('run1').map(replay => ({ ...replay, perceptionUrl: undefined, worldSessionId: undefined })))!

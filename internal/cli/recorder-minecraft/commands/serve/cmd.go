@@ -30,6 +30,7 @@ func NewCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			options.MinecraftClientJar = config.Assets.MinecraftClientJar
 
 			// NOTICE: The serve command selects broad Fx modules and runtime invokes following
 			// `https://github.com/proj-airi/kbv-extractor-memes/blob/73329d340faf18834990b64b2d17d222e43bb8ea/cmd/api-server/main.go#L32-L45`.

@@ -80,13 +80,14 @@ function onDrop(event: DragEvent): void {
       @undo="context.undo"
       @zoom-in="context.zoomBy(1.25)"
       @zoom-out="context.zoomBy(0.8)"
+      @zoom-to-fit="context.session.zoomToFit"
     />
 
     <Splitpanes class="timeline-editor-split min-h-0 flex-1">
-      <Pane :min-size="12" :size="20">
+      <Pane :min-size="12" :size="26">
         <TimelineTrackPanel />
       </Pane>
-      <Pane :min-size="40" :size="80">
+      <Pane :min-size="40" :size="74">
         <TimelineCanvasPanel />
       </Pane>
     </Splitpanes>

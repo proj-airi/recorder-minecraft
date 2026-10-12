@@ -29,18 +29,21 @@ export function useEditorKeyboardControls(options: EditorKeyboardControlsOptions
   // `https://github.com/vueuse/vueuse/blob/24160f9a8f1dcc576f1234008134ed47491c8183/packages/core/useMagicKeys/index.ts#L138-L182`.
   const keys = useMagicKeys({
     onEventFired(event) {
-      if (!isTextEntry(event.target) && isEditorShortcut(event))
+      if (isEditorShortcut(event) && !focusOwnsKey(event.target, event.key))
         event.preventDefault()
     },
     passive: false,
   })
   const editingText = computed(() => isTextEntry(activeElement.value ?? null))
+  const focusOwnsSpace = computed(() => focusOwnsKey(activeElement.value ?? null, ' '))
+  const focusOwnsArrows = computed(() => focusOwnsKey(activeElement.value ?? null, 'ArrowLeft'))
+  const focusOwnsDeletion = computed(() => focusOwnsKey(activeElement.value ?? null, 'Backspace'))
   const primaryModifier = computed(() => keys.ctrl.value || keys.meta.value)
   const undoPressed = computed(() => isEditable() && !editingText.value && !keys.shift.value && keys.z.value && primaryModifier.value)
   const redoPressed = computed(() => isEditable() && !editingText.value && keys.shift.value && keys.z.value && primaryModifier.value)
-  const goToStartPressed = computed(() => !editingText.value && keys.shift.value && keys.arrowleft.value && primaryModifier.value)
-  const goToEndPressed = computed(() => !editingText.value && keys.shift.value && keys.arrowright.value && primaryModifier.value)
-  const deletePressed = computed(() => isEditable() && !editingText.value && (keys.delete.value || keys.backspace.value))
+  const goToStartPressed = computed(() => !focusOwnsArrows.value && keys.shift.value && keys.arrowleft.value && primaryModifier.value)
+  const goToEndPressed = computed(() => !focusOwnsArrows.value && keys.shift.value && keys.arrowright.value && primaryModifier.value)
+  const deletePressed = computed(() => isEditable() && !focusOwnsDeletion.value && (keys.delete.value || keys.backspace.value))
   const { pause: pauseSeeking, resume: resumeSeeking } = useIntervalFn(
     () => options.session.seekByTicks(activeDirection * seekTickCount()),
     SEEK_INTERVAL_MS,
@@ -78,7 +81,7 @@ export function useEditorKeyboardControls(options: EditorKeyboardControlsOptions
 
   function updateDirection(direction: -1 | 1, pressed: boolean): void {
     if (pressed) {
-      if (editingText.value || keys.ctrl.value || keys.meta.value || keys.shift.value || activeDirection !== 0)
+      if (focusOwnsArrows.value || keys.ctrl.value || keys.meta.value || keys.shift.value || activeDirection !== 0)
         return
 
       accelerating = keys.alt.value
@@ -97,7 +100,7 @@ export function useEditorKeyboardControls(options: EditorKeyboardControlsOptions
   }
 
   watch(keys.space, (pressed) => {
-    if (pressed && !editingText.value) {
+    if (pressed && !focusOwnsSpace.value) {
       if (options.session.isPlaying.value)
         options.session.pause()
       else
@@ -122,6 +125,27 @@ function isEditorShortcut(event: KeyboardEvent): boolean {
   const seek = !primaryModifier && !event.shiftKey && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')
   const deletion = event.key === 'Backspace' || event.key === 'Delete'
   return undo || playback || jump || seek || deletion
+}
+
+// NOTICE: Editor shortcuts are window-level, so they must yield to the focused control's own use of
+// the key. Space activates buttons, tabs, and options; Backspace/Delete and arrows navigate or edit
+// inside composite widgets such as the resource tree. Without this, Space on a focused toolbar
+// button toggled playback and Backspace in the resource tree deleted the selected timeline segment.
+// The timeline canvas uses role="application", so it keeps every shortcut.
+const SPACE_OWNERS = 'button, a[href], summary, [role="button"], [role="checkbox"], [role="switch"], [role="radio"], [role="tab"], [role="menuitem"], [role="option"], [role="treeitem"]'
+const COMPOSITE_WIDGETS = '[role="tree"], [role="listbox"], [role="grid"], [role="menu"], [role="menubar"], [role="tablist"], [role="radiogroup"], [role="slider"], [role="combobox"], [role="separator"]'
+
+function focusOwnsKey(target: EventTarget | null, key: string): boolean {
+  if (!(target instanceof HTMLElement))
+    return false
+  if (isTextEntry(target))
+    return true
+  // A plain button has no arrow behavior, so arrows keep seeking after a toolbar click.
+  if (key === ' ' && target.matches(SPACE_OWNERS))
+    return true
+  if (key === 'ArrowLeft' || key === 'ArrowRight' || key === ' ' || key === 'Backspace' || key === 'Delete')
+    return target.closest(COMPOSITE_WIDGETS) !== null
+  return false
 }
 
 function isTextEntry(target: EventTarget | null): boolean {

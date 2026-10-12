@@ -38,6 +38,13 @@ type Mods struct {
 	RendererProject string `toml:"renderer_project" json:"renderer_project"`
 }
 
+// Assets locates operator-provided game files the dashboard may render from. They are never
+// copied into artifacts or the repository.
+type Assets struct {
+	// MinecraftClientJar is a 1.21.4+ client jar used for inventory item icons. Empty disables them.
+	MinecraftClientJar string `toml:"minecraft_client_jar,omitempty" json:"minecraft_client_jar"`
+}
+
 type Processors struct {
 	SceneExtractorExecutable string `toml:"scene_extractor_executable" json:"scene_extractor_executable"`
 }
@@ -56,6 +63,7 @@ type fileConfig struct {
 	Paths      Paths      `toml:"paths"`
 	Mods       modsFile   `toml:"mods"`
 	Processors Processors `toml:"processors"`
+	Assets     Assets     `toml:"assets"`
 }
 
 type Config struct {
@@ -64,6 +72,7 @@ type Config struct {
 	Paths      Paths      `json:"paths"`
 	Mods       Mods       `json:"mods"`
 	Processors Processors `json:"processors"`
+	Assets     Assets     `json:"assets"`
 }
 
 func Package(path string) func(do.Injector) {
@@ -132,6 +141,12 @@ func Load(path string) (*Config, error) {
 		executable = defaultSceneExtractor
 	}
 	file.Processors.SceneExtractorExecutable, _ = resolve(base, defaultString(executable, defaultSceneExtractor))
+	if file.Assets.MinecraftClientJar != "" {
+		file.Assets.MinecraftClientJar, err = resolve(base, file.Assets.MinecraftClientJar)
+		if err != nil {
+			return nil, err
+		}
+	}
 	return &Config{
 		Source: source,
 		Server: file.Server,
@@ -141,6 +156,7 @@ func Load(path string) (*Config, error) {
 			RendererProject: file.Mods.RendererProject,
 		},
 		Processors: file.Processors,
+		Assets:     file.Assets,
 	}, nil
 }
 
@@ -235,6 +251,11 @@ renderer_project = "mods/renderer-mod"
 
 [processors]
 scene_extractor_executable = "processors/scene-extractor/build/install/mc-recorder-scene-extractor/bin/mc-recorder-scene-extractor"
+
+[assets]
+# Optional 1.21.4+ Minecraft client jar for dashboard item icons, for example the one Fabric Loom
+# caches at "~/.gradle/caches/fabric-loom/1.21.8/minecraft-client.jar". Textures are read locally.
+# minecraft_client_jar = ""
 `, instanceID, acceptEULA)
 }
 

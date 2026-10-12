@@ -13,13 +13,19 @@ const views = computed(() => monitorLaneViews(context.episode(), context.session
 
 <template>
   <section aria-label="Multi-view monitor" class="h-full min-h-0 flex flex-col bg-neutral-950">
-    <div v-if="views.length" class="min-h-0 flex-1 overflow-auto p-2">
-      <div class="grid auto-rows-fr grid-cols-[repeat(auto-fit,minmax(min(18rem,100%),1fr))] min-h-full content-center gap-2">
+    <div v-if="views.length" class="[container-type:size] min-h-0 flex-1 overflow-auto p-1">
+      <!-- Tiles keep the 16:9 video shape instead of stretching to the row height, so the panel
+           background, not black letterbox bars inside each tile, takes up the spare space. A single
+           row never grows taller than the panel: each tile's width is capped at the 16:9 width of
+           the panel height minus the host padding (`cqh` of the size container). Several rows
+           fall back to scrolling. -->
+      <div class="grid grid-cols-[repeat(auto-fit,minmax(min(18rem,100%),1fr))] min-h-full content-center items-center gap-1">
         <MonitorVideoTile
           v-for="view in views"
           :key="view.lane.id"
           :data-lane-id="view.lane.id"
           :placement="view.placement"
+          class="w-[min(100%,calc((100cqh-0.5rem)*16/9))] justify-self-center"
           :session="context.session"
         />
       </div>

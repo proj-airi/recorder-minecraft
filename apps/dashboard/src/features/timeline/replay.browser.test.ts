@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { createTimelineEngine } from './core/adapter'
 import { testReplay } from './fixtures/replays'
 import {
+  addReplayRangeToEpisode,
   addReplaysToEpisode,
   addReplayToEpisode,
   commitPlacementEdit,
@@ -97,6 +98,31 @@ describe('session alignment', () => {
     expect(episode.placements[1]).toMatchObject({ endTick: 280, startTick: 200 })
     expect(episode.sessions[1]?.placement).toBe('sequential')
     expect(episodeAlignment(episode).mode).toBe('sequential')
+  })
+})
+
+describe('adding a Play range', () => {
+  it('keeps the trimmed clip at its Server-tick position next to the other players', () => {
+    const alice = testReplay('alice', { end: 916, sessionId: 's1', start: 232 })
+    const bob = testReplay('bob', { end: 896, sessionId: 's1', start: 242 })
+    const withAlice = addReplayToEpisode(createEmptyEpisode(), alice)!
+    const episode = addReplayRangeToEpisode(withAlice, bob, { endServerTick: 500, startServerTick: 300 })!
+
+    expect(primarySpans(episode)).toEqual([
+      ['play:alice:primary', 0, 684],
+      // Bob's Server tick 300 is 68 ticks after Alice's first tick (232).
+      ['play:bob:primary', 68, 268],
+    ])
+    expect(episode.placements[1]).toMatchObject({ playEndServerTick: 896, playStartServerTick: 242, sourceEndServerTick: 500, sourceStartServerTick: 300 })
+  })
+
+  it('clamps the range to the Play and rejects an empty one', () => {
+    const alice = testReplay('alice', { end: 300, start: 100 })
+    expect(primarySpans(addReplayRangeToEpisode(createEmptyEpisode(), alice, { endServerTick: 9_999, startServerTick: 50 })!)).toEqual([
+      ['play:alice:primary', 0, 200],
+    ])
+    expect(addReplayRangeToEpisode(createEmptyEpisode(), alice, { endServerTick: 150, startServerTick: 150 })).toBeNull()
+    expect(addReplayRangeToEpisode(createEmptyEpisode(), alice, { endServerTick: 50, startServerTick: 10 })).toBeNull()
   })
 })
 

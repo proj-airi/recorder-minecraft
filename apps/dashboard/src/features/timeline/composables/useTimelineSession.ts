@@ -53,8 +53,12 @@ export interface TimelineSession {
   selectedSegmentId: Readonly<ShallowRef<null | string>>
   selectSegment: (segmentId: null | string) => void
   setGroupCollapsed: (groupId: string, collapsed: boolean) => void
+  /** Shows or folds the empty data tracks of one target (player lane id or session key). */
+  toggleEmptyDataTracks: (targetKey: string) => void
   toggleGroup: (groupId: string) => void
   zoomBy: (factor: number) => void
+  /** Zooms out until the whole timeline fits the viewport. */
+  zoomToFit: () => void
 }
 
 export interface TimelineSessionOptions {
@@ -71,10 +75,11 @@ export function useTimelineSession(
   const selectedSegmentId = shallowRef<null | string>(null)
   const selectedDataItemRef = shallowRef<null | TimelineDataItemRef>(null)
   const collapsedGroupIds = shallowRef<ReadonlySet<string>>(new Set())
+  const shownEmptyTargets = shallowRef<ReadonlySet<string>>(new Set())
   const renderRevision = shallowRef(0)
   const isPlaying = shallowRef(false)
   const dataRuntime = useTimelineDataTracks(episode, options.providers ?? (() => timelineDataTrackProviders.value))
-  const layout = computed(() => buildTimelineLayout(episode.value, dataRuntime.tracks.value, collapsedGroupIds.value))
+  const layout = computed(() => buildTimelineLayout(episode.value, dataRuntime.tracks.value, collapsedGroupIds.value, shownEmptyTargets.value))
   // Data track load-state changes recompute the layout object but not its rows; rebuild the engine
   // only when the row structure changes.
   const layoutKey = computed(() => layout.value.rows.map(row => `${row.id}:${row.height}`).join('|'))
@@ -83,6 +88,8 @@ export function useTimelineSession(
   let playbackFrame = 0
   let playbackStartTick = 0
   let playbackStartedAt = 0
+  let lastDurationTicks = episode.value.durationTicks
+  let fitPending = false
   let unsubscribeEvents: (() => void)[] = []
 
   function stopPlaybackFrame(): void {
@@ -102,6 +109,10 @@ export function useTimelineSession(
         isPlaying.value = playing
         requestRender()
       }),
+      engine.value.on('viewport:resize', ({ viewportWidth }) => {
+        if (fitPending && viewportWidth)
+          zoomToFit()
+      }),
     ]
   }
 
@@ -117,6 +128,18 @@ export function useTimelineSession(
     playheadTick.value = toServerTick(engine.value.playheadTime)
     bindEngineEvents()
     requestRender()
+
+    // The first content on an empty timeline opens fitted, so every clip and marker is on screen.
+    // Later rebuilds keep the user's zoom. The canvas mounts with that first content and measures
+    // itself in a ResizeObserver callback, so fitting now would use the engine's 1000px default
+    // width; wait for the measured width instead.
+    const durationTicks = episode.value.durationTicks
+    if (lastDurationTicks === 0 && durationTicks > 0) {
+      fitPending = true
+      if (engine.value.getState().viewportWidth)
+        zoomToFit()
+    }
+    lastDurationTicks = durationTicks
   }
 
   function selectSegment(segmentId: null | string): void {
@@ -158,8 +181,10 @@ export function useTimelineSession(
     const durationTick = episode.value.durationTicks
     const elapsedTick = Math.floor((time - playbackStartedAt) * SERVER_TICK_RATE / 1_000)
     const nextTick = Math.min(durationTick, playbackStartTick + elapsedTick)
-    if (nextTick !== playheadTick.value)
+    if (nextTick !== playheadTick.value) {
       engine.value.updatePlayhead(toTickTime(nextTick))
+      revealTick(nextTick, 0.1)
+    }
 
     if (nextTick >= durationTick) {
       pause()
@@ -171,11 +196,13 @@ export function useTimelineSession(
   function goToEnd(): void {
     pause()
     engine.value.updatePlayhead(toTickTime(episode.value.durationTicks))
+    revealTick(episode.value.durationTicks)
   }
 
   function goToStart(): void {
     pause()
     engine.value.updatePlayhead(toTickTime(0))
+    revealTick(0)
   }
 
   function seekByTicks(deltaTick: number): void {
@@ -194,10 +221,35 @@ export function useTimelineSession(
       playbackStartedAt = performance.now()
     }
     engine.value.updatePlayhead(toTickTime(nextTick))
+    revealTick(nextTick)
+  }
+
+  /**
+   * Scrolls the timeline so `tick` is on screen. Seeks from other panels (event log, evidence)
+   * otherwise moved the playhead off screen and left the timeline showing an unrelated range.
+   *
+   * `anchor` is where the tick lands as a fraction of the viewport width: a third for jumps, so
+   * some context before it stays visible, and near the left edge for playback paging.
+   */
+  function revealTick(tick: number, anchor = 1 / 3): void {
+    const current = engine.value
+    const width = current.getState().viewportWidth
+    if (!width)
+      return
+    const x = tick / SERVER_TICK_RATE * current.zoomScale
+    if (x >= current.scrollLeft && x <= current.scrollLeft + width)
+      return
+    current.setScrollLeft(Math.max(0, x - width * anchor))
   }
 
   function zoomBy(factor: number): void {
     engine.value.setZoomScale(engine.value.zoomScale * factor)
+  }
+
+  function zoomToFit(): void {
+    fitPending = false
+    engine.value.setZoomScale(engine.value.minZoomScale)
+    engine.value.setScrollLeft(0)
   }
 
   function setGroupCollapsed(groupId: string, collapsed: boolean): void {
@@ -213,6 +265,13 @@ export function useTimelineSession(
 
   function toggleGroup(groupId: string): void {
     setGroupCollapsed(groupId, !collapsedGroupIds.value.has(groupId))
+  }
+
+  function toggleEmptyDataTracks(targetKey: string): void {
+    const next = new Set(shownEmptyTargets.value)
+    if (!next.delete(targetKey))
+      next.add(targetKey)
+    shownEmptyTargets.value = next
   }
 
   const tracksById = computed(() => new Map(dataRuntime.tracks.value.map(track => [track.id, track])))
@@ -296,7 +355,9 @@ export function useTimelineSession(
     selectedSegmentId: readonly(selectedSegmentId),
     selectSegment,
     setGroupCollapsed,
+    toggleEmptyDataTracks,
     toggleGroup,
     zoomBy,
+    zoomToFit,
   }
 }

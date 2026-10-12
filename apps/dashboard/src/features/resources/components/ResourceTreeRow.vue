@@ -1,9 +1,13 @@
 <script setup lang="ts">
 import type { RecorderMinecraftApiV1Replay } from '@proj-airi/recorder-minecraft-api'
 
+import type { PlayerIdentity } from '../../players/avatar'
 import type { ResourceTreeNode } from '../resourceTree'
 
 import { computed } from 'vue'
+
+import PlayerAvatar from '../../players/components/PlayerAvatar.vue'
+import PlayerAvatarGroup from '../../players/components/PlayerAvatarGroup.vue'
 
 import { formatDurationSeconds, formatDurationTicks, formatInstantShort, parseTick } from '../../basic/format'
 import { writeDraggedReplayId } from '../replayDrag'
@@ -20,6 +24,8 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   add: []
+  /** Pointer entered (element) or left (null) a Play row, for the hover preview. */
+  preview: [anchor: HTMLElement | null]
   select: []
   toggle: []
 }>()
@@ -73,14 +79,20 @@ const sessionDuration = computed(() => {
   const endedAt = value.endedAt ? Date.parse(value.endedAt) : Number.NaN
   return Number.isFinite(startedAt) && Number.isFinite(endedAt) ? formatDurationSeconds((endedAt - startedAt) / 1000) : 'open'
 })
-const participantCount = computed(() => {
-  if (!session.value)
-    return 0
-  const players = new Set([
-    ...(session.value.plays ?? []).map(play => play.playerUuid ?? play.playerName),
-    ...(session.value.alignments ?? []).flatMap(alignment => (alignment.participants ?? []).map(participant => participant.playerUuid ?? participant.playerName)),
-  ].filter(Boolean))
-  return players.size
+const participants = computed((): PlayerIdentity[] => {
+  const people = props.node.kind === 'session'
+    ? [
+        ...(props.node.session.plays ?? []),
+        ...(props.node.session.alignments ?? []).flatMap(alignment => alignment.participants ?? []),
+      ]
+    : props.node.kind === 'capture-session' ? props.node.plays : []
+  const byKey = new Map<string, PlayerIdentity>()
+  for (const person of people) {
+    const key = person.playerUuid ?? person.playerName
+    if (key && !byKey.has(key))
+      byKey.set(key, { name: person.playerName, uuid: person.playerUuid })
+  }
+  return [...byKey.values()]
 })
 const alignment = computed(() => {
   const alignments = session.value?.alignments ?? []
@@ -108,11 +120,32 @@ const playDuration = computed(() => {
   const end = parseTick(value.endServerTick)
   return start !== undefined && end !== undefined && end >= start ? formatDurationTicks(end - start) : null
 })
-const playSummary = computed(() => {
-  const summary = replay.value?.summary
-  if (!summary)
-    return null
-  return `${(summary.observedPathDistanceBlocks ?? 0).toFixed(1)} blocks · ${(summary.idlePercentage ?? 0).toFixed(0)}% idle`
+// Movement summary is secondary: it stays in the tooltip and the details pane, not on the row.
+const playTitle = computed(() => {
+  const value = replay.value
+  if (!value)
+    return ''
+  const summary = value.summary
+  return [
+    value.playerName ?? 'Unknown player',
+    formatInstantShort(value.startedAt),
+    playDuration.value,
+    summary ? `${(summary.observedPathDistanceBlocks ?? 0).toFixed(1)} blocks moved` : null,
+    summary ? `${(summary.idlePercentage ?? 0).toFixed(0)}% idle` : null,
+    value.video?.url ? null : 'no rendered video',
+  ].filter(Boolean).join(' · ')
+})
+const sessionTitle = computed(() => {
+  const value = session.value
+  if (!value)
+    return ''
+  return [
+    `World session ${value.id}`,
+    sessionDuration.value,
+    `${participants.value.length} ${participants.value.length === 1 ? 'player' : 'players'}`,
+    value.terminalReason ? `ended by ${value.terminalReason.replaceAll('_', ' ')}` : null,
+    value.knownGaps?.length ? `known gaps: ${value.knownGaps.join(', ')}` : null,
+  ].filter(Boolean).join(' · ')
 })
 const draggable = computed(() => Boolean(replay.value && isReplayAddable(replay.value)))
 
@@ -163,6 +196,8 @@ function onDragStart(event: DragEvent): void {
     @click="emit('select')"
     @dblclick="expandable ? emit('toggle') : emit('add')"
     @dragstart="onDragStart"
+    @mouseenter="node.kind === 'play' && emit('preview', $event.currentTarget as HTMLElement)"
+    @mouseleave="node.kind === 'play' && emit('preview', null)"
   >
     <button
       v-if="expandable"
@@ -177,82 +212,62 @@ function onDragStart(event: DragEvent): void {
     </button>
     <span v-else class="w-4 shrink-0" aria-hidden="true" />
 
-    <!-- Server -->
+    <!-- Server: the name is enough; counts live in the tooltip and the details pane. -->
     <template v-if="node.kind === 'server'">
-      <span aria-hidden="true" class="i-mingcute-server-line shrink-0 text-sm text-neutral-400" />
-      <span class="min-w-0 flex-1 truncate text-xs text-neutral-200 font-medium" :title="`${label} · ${node.server.instanceId}`">{{ label }}</span>
-      <span class="shrink-0 text-[10px] text-neutral-500 tabular-nums" :title="`${node.sessionCount} world sessions, ${node.playCount} Plays`">
-        {{ node.sessionCount }}<span class="i-mingcute-earth-2-line mx-0.5 inline-block align-[-1px] text-[9px]" aria-hidden="true" />{{ node.playCount }}<span class="i-mingcute-user-3-line ml-0.5 inline-block align-[-1px] text-[9px]" aria-hidden="true" />
-      </span>
+      <span aria-hidden="true" class="i-mingcute-server-line shrink-0 text-sm text-neutral-500" />
+      <span
+        class="min-w-0 flex-1 truncate text-xs text-neutral-200 font-medium"
+        :title="`${label} · ${node.sessionCount} world sessions · ${node.playCount} Plays · ${node.server.instanceId}`"
+      >{{ label }}</span>
     </template>
 
-    <!-- World session -->
+    <!-- World session: when, who, and the one finding worth seeing before opening it. -->
     <template v-else-if="node.kind === 'session'">
-      <span aria-hidden="true" class="i-mingcute-earth-2-line shrink-0 text-sm" :class="node.session.validationError ? 'text-red-300' : 'text-sky-300'" />
-      <span class="min-w-0 flex flex-1 flex-col">
-        <span class="truncate text-xs text-neutral-100" :title="`World session ${node.session.id}`">{{ label }}</span>
-        <span class="min-w-0 flex items-center gap-1 text-[10px] text-neutral-500">
+      <span class="min-w-0 flex flex-1 flex-col gap-0.5">
+        <span class="truncate text-xs text-neutral-100" :title="sessionTitle">{{ label }}</span>
+        <span class="min-w-0 flex items-center gap-1.5 text-[11px] text-neutral-500">
+          <PlayerAvatarGroup v-if="participants.length" :players="participants" :size="16" />
           <span class="shrink-0 tabular-nums">{{ sessionDuration }}</span>
-          <span aria-hidden="true">·</span>
-          <span class="shrink-0" :title="`${participantCount} participants`">{{ participantCount }}<span class="i-mingcute-user-3-line ml-0.5 inline-block align-[-1px] text-[9px]" aria-label="participants" /></span>
           <span
-            v-if="alignment"
-            class="shrink-0 rounded px-1 text-[9px] leading-tight"
-            :class="alignment.invalid ? 'bg-red-400/12 text-red-200' : alignment.divergences ? 'bg-amber-400/15 text-amber-200' : 'bg-emerald-400/10 text-emerald-200'"
+            v-if="alignment && (alignment.divergences > 0 || alignment.invalid > 0)"
+            class="min-w-0 truncate"
+            :class="alignment.invalid ? 'text-red-300' : 'text-amber-200'"
             :title="alignment.title"
           >
-            <span class="i-mingcute-git-compare-line mr-0.5 align-[-1px]" aria-hidden="true" />{{ alignment.divergences }}<span class="sr-only"> observation divergences</span>
+            · {{ alignment.invalid ? 'alignment unreadable' : `${alignment.divergences} ${alignment.divergences === 1 ? 'divergence' : 'divergences'}` }}
           </span>
-          <span v-if="node.session.terminalReason" class="min-w-0 truncate" :title="`Terminal reason: ${node.session.terminalReason}`">{{ node.session.terminalReason.replaceAll('_', ' ') }}</span>
         </span>
       </span>
-      <span v-if="node.session.knownGaps?.length" class="i-mingcute-information-line shrink-0 text-xs text-sky-300/80" :aria-label="`${node.session.knownGaps.length} known gaps`" role="img" :title="`Known gaps: ${node.session.knownGaps.join(', ')}`" />
-      <span v-if="node.session.streamFailure" class="i-mingcute-alert-line shrink-0 text-xs text-amber-300" aria-label="World stream failure" role="img" :title="`World stream failure: ${node.session.streamFailure}`" />
       <span v-if="node.session.validationError" class="i-mingcute-warning-line shrink-0 text-xs text-red-300" aria-label="Validation error" role="img" :title="`Validation error: ${node.session.validationError}`" />
+      <span v-else-if="node.session.streamFailure" class="i-mingcute-alert-line shrink-0 text-xs text-amber-300" aria-label="World stream failure" role="img" :title="`World stream failure: ${node.session.streamFailure}`" />
     </template>
 
     <!-- Capture session without a world record -->
     <template v-else-if="node.kind === 'capture-session'">
-      <span aria-hidden="true" class="i-mingcute-group-line shrink-0 text-sm text-neutral-400" />
-      <span class="min-w-0 flex flex-1 flex-col">
-        <span class="truncate text-xs text-neutral-200" :title="`Capture session ${node.sessionId} (no world session record)`">{{ label }}</span>
-        <span class="truncate text-[10px] text-neutral-500">{{ node.plays.length }} Plays · {{ formatInstantShort(node.plays[0]?.startedAt) }}</span>
+      <span class="min-w-0 flex flex-1 flex-col gap-0.5">
+        <span class="truncate text-xs text-neutral-200" :title="`Capture session ${node.sessionId} (no world session record) · ${node.plays.length} Plays`">{{ formatInstantShort(node.plays[0]?.startedAt) }}</span>
+        <span class="min-w-0 flex items-center gap-1.5 text-[11px] text-neutral-500">
+          <PlayerAvatarGroup v-if="participants.length" :players="participants" :size="16" />
+          <span class="truncate">no world record</span>
+        </span>
       </span>
     </template>
 
     <!-- Unlinked group -->
     <template v-else-if="node.kind === 'unlinked'">
-      <span aria-hidden="true" class="i-mingcute-folder-line shrink-0 text-sm text-neutral-500" />
-      <span class="min-w-0 flex-1 truncate text-xs text-neutral-400" :title="label">{{ label }}</span>
-      <span class="shrink-0 text-[10px] text-neutral-500 tabular-nums">{{ node.playCount }}</span>
+      <span class="min-w-0 flex-1 truncate text-xs text-neutral-500" :title="`${label} · ${node.playCount} Plays`">{{ label }}</span>
     </template>
 
-    <!-- Play -->
+    <!-- Play: who and how long. A problem replaces the duration so it cannot be missed. -->
     <template v-else-if="node.kind === 'play'">
-      <span
-        v-if="node.replay.validationError"
-        class="i-mingcute-warning-line shrink-0 text-sm text-red-300"
-        aria-hidden="true"
-      />
-      <span
-        v-else-if="node.replay.video?.url"
-        class="i-mingcute-video-line shrink-0 text-sm text-violet-300"
-        aria-hidden="true"
-        title="Rendered video available"
-      />
-      <span
-        v-else
-        class="i-mingcute-user-3-line shrink-0 text-sm text-neutral-400"
-        aria-hidden="true"
-        title="Capture data only (no rendered video)"
-      />
-      <span class="min-w-0 flex flex-1 flex-col">
-        <span class="truncate text-xs text-neutral-100" :title="`${label} · ${node.replay.connectionId}`">{{ label }}</span>
-        <span class="truncate text-[10px] text-neutral-500" :title="node.replay.validationError ?? undefined">
-          <template v-if="node.replay.validationError">{{ node.replay.validationError }}</template>
-          <template v-else>
-            <template v-if="!node.underSession">{{ formatInstantShort(node.replay.startedAt) }} · </template>{{ playDuration ?? '—' }}<template v-if="playSummary"> · {{ playSummary }}</template>
-          </template>
+      <PlayerAvatar :player="{ name: node.replay.playerName, uuid: node.replay.playerUuid }" :size="node.underSession ? 18 : 22" />
+      <span class="min-w-0 flex flex-1 flex-col gap-0.5" :title="playTitle">
+        <span class="truncate text-xs text-neutral-100">{{ label }}</span>
+        <span v-if="node.replay.validationError" class="truncate text-[11px] text-red-300" :title="node.replay.validationError">
+          <span aria-hidden="true" class="i-mingcute-warning-line mr-0.5 align-[-1px]" />{{ node.replay.validationError }}
+        </span>
+        <span v-else class="truncate text-[11px] text-neutral-500 tabular-nums">
+          <template v-if="!node.underSession">{{ formatInstantShort(node.replay.startedAt) }} · </template>{{ playDuration ?? '—' }}<template v-if="!node.replay.video?.url"> · no video</template>
         </span>
       </span>
     </template>
