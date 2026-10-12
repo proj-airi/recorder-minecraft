@@ -54,9 +54,10 @@ it('shows every player on the timeline, each at the Server tick its own clip map
 
   const playheadTick = shallowRef(25)
   const selectedSegmentId = shallowRef<null | string>(null)
+  const selectedTrackId = shallowRef<null | string>(null)
   const context = {
     episode: () => episode,
-    session: { playheadTick, selectedSegmentId },
+    session: { playheadTick, selectedSegmentId, selectedTrackId },
   } as unknown as EditorWorkspaceContext
   const Host = defineComponent({
     setup() {
@@ -109,6 +110,12 @@ it('shows every player on the timeline, each at the Server tick its own clip map
     await screen.getByRole('button', { name: 'Show the selected player' }).click()
     await expect.element(screen.getByRole('article', { name: 'Inputs of bob' })).toBeVisible()
     expect(screen.container.querySelector('[aria-label="Inputs of alice"]')).toBeNull()
+
+    // Selecting alice's track header wins over the clip selection: "Selected" follows the lane.
+    selectedTrackId.value = episode.placements.find(placement => placement.id === 'play:alice')!.laneId
+    await nextTick()
+    await expect.element(screen.getByRole('article', { name: 'Inputs of alice' })).toBeVisible()
+    expect(screen.container.querySelector('[aria-label="Inputs of bob"]')).toBeNull()
 
     // Outside every clip of a lane, the card says so instead of showing stale inputs.
     await screen.getByRole('button', { name: 'Show all players' }).click()

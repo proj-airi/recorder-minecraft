@@ -51,7 +51,13 @@ export interface TimelineSession {
   selectDataItem: (item: null | TimelineDataItemRef) => void
   selectedDataItem: ComputedRef<null | SelectedTimelineDataItem>
   selectedSegmentId: Readonly<ShallowRef<null | string>>
+  /**
+   * Selected player lane or session header, by track id. Selecting a clip selects its lane, so
+   * panels that follow "the selected player" read this instead of the clip.
+   */
+  selectedTrackId: Readonly<ShallowRef<null | string>>
   selectSegment: (segmentId: null | string) => void
+  selectTrack: (trackId: null | string) => void
   setGroupCollapsed: (groupId: string, collapsed: boolean) => void
   /** Shows or folds the empty data tracks of one target (player lane id or session key). */
   toggleEmptyDataTracks: (targetKey: string) => void
@@ -73,6 +79,7 @@ export function useTimelineSession(
   options: TimelineSessionOptions = {},
 ): TimelineSession {
   const selectedSegmentId = shallowRef<null | string>(null)
+  const selectedTrackId = shallowRef<null | string>(null)
   const selectedDataItemRef = shallowRef<null | TimelineDataItemRef>(null)
   const collapsedGroupIds = shallowRef<ReadonlySet<string>>(new Set())
   const shownEmptyTargets = shallowRef<ReadonlySet<string>>(new Set())
@@ -145,6 +152,16 @@ export function useTimelineSession(
   function selectSegment(segmentId: null | string): void {
     selectedSegmentId.value = segmentId
     engine.value.selectClip(segmentId)
+    if (!segmentId)
+      return
+    const placementId = episode.value.segments.find(segment => segment.id === segmentId)?.placementId
+    const laneId = episode.value.placements.find(placement => placement.id === placementId)?.laneId
+    if (laneId)
+      selectedTrackId.value = laneId
+  }
+
+  function selectTrack(trackId: null | string): void {
+    selectedTrackId.value = trackId
   }
 
   function play(): void {
@@ -321,6 +338,11 @@ export function useTimelineSession(
 
   bindEngineEvents()
   watch([episode, layoutKey], rebuild)
+  // Undo and delete can remove the selected lane; a selection must always name a visible track.
+  watch(episode, (current) => {
+    if (selectedTrackId.value && !current.tracks.some(track => track.id === selectedTrackId.value))
+      selectedTrackId.value = null
+  })
   watch(layout, (current) => {
     dataRuntime.ensureLoaded(current.rows.flatMap(row => row.role === 'data' ? [row.id] : []))
   }, { immediate: true })
@@ -353,7 +375,9 @@ export function useTimelineSession(
     selectDataItem,
     selectedDataItem,
     selectedSegmentId: readonly(selectedSegmentId),
+    selectedTrackId: readonly(selectedTrackId),
     selectSegment,
+    selectTrack,
     setGroupCollapsed,
     toggleEmptyDataTracks,
     toggleGroup,

@@ -167,6 +167,127 @@ describe('timeline lane groups', () => {
     }
   })
 
+  it('selects a lane from its header and reorders it by dragging the row or with Alt+arrows', async () => {
+    const { Host, session, store, sync } = mountTimeline()
+    store.addSession('s1', [
+      testReplay('alice', { end: 300, player: 'alice', sessionId: 's1', start: 100 }),
+      testReplay('bob', { end: 320, player: 'bob', sessionId: 's1', start: 120 }),
+    ])
+    sync()
+    const screen = await render(Host)
+    const BOB_LANE = 'lane:session:s1:uuid:uuid-bob'
+    const rowOf = (id: string) => {
+      const row = screen.container.querySelector<HTMLElement>(`[data-track-id="${id}"]`)!
+      // Synthetic pointer ids are not active pointers, so the browser rejects capturing them.
+      Object.defineProperty(row, 'setPointerCapture', { configurable: true, value: () => {} })
+      return row
+    }
+    const press = (row: HTMLElement, type: string, clientY: number) => {
+      const bounds = row.getBoundingClientRect()
+      row.dispatchEvent(new PointerEvent(type, { bubbles: true, button: 0, buttons: 1, clientX: bounds.left + bounds.width / 2, clientY, pointerId: 7, pointerType: 'mouse' }))
+    }
+    const centerY = (row: HTMLElement) => row.getBoundingClientRect().top + row.getBoundingClientRect().height / 2
+    const primaryOrder = () => rowLabels(screen.container).filter(label => label.startsWith('primary:'))
+
+    try {
+      await expect.poll(primaryOrder).toEqual(['primary:alice', 'primary:bob'])
+
+      // A click without movement selects the lane; its row and its data tracks are highlighted.
+      const bob = rowOf(BOB_LANE)
+      press(bob, 'pointerdown', centerY(bob))
+      press(bob, 'pointerup', centerY(bob))
+      await expect.poll(() => session().selectedTrackId.value).toBe(BOB_LANE)
+      await expect.element(screen.getByRole('button', { name: 'Reorder bob' })).toHaveAttribute('aria-pressed', 'true')
+      expect(rowOf(BOB_LANE).getAttribute('aria-current')).toBe('true')
+      expect(store.history.undo).toHaveLength(1)
+
+      // Dragging alice's row anywhere (not only the grip) onto bob's row moves her below him.
+      const colorOf = (id: string) => rowOf(id).querySelector<HTMLElement>('.rounded-full')!.style.backgroundColor
+      const colorsBefore = [colorOf(ALICE_LANE), colorOf(BOB_LANE)]
+      expect(colorsBefore[0]).not.toBe(colorsBefore[1])
+      const alice = rowOf(ALICE_LANE)
+      press(alice, 'pointerdown', centerY(alice))
+      press(alice, 'pointermove', centerY(alice) + 2)
+      press(alice, 'pointermove', centerY(rowOf(BOB_LANE)))
+      // Mid-drag: a lifted copy of alice's row follows the pointer and a line marks where she lands.
+      await expect.element(screen.getByTestId('timeline-drag-ghost')).toHaveTextContent('alice')
+      await expect.element(screen.getByTestId('timeline-drop-line')).toBeInTheDocument()
+      expect(document.documentElement.classList.contains('timeline-row-dragging')).toBe(true)
+      press(alice, 'pointerup', centerY(rowOf(BOB_LANE)))
+      expect(store.history.undo).toHaveLength(2)
+      await expect.poll(() => screen.container.querySelector('[data-testid="timeline-drag-ghost"]')).toBeNull()
+      expect(document.documentElement.classList.contains('timeline-row-dragging')).toBe(false)
+      sync()
+      await expect.poll(primaryOrder).toEqual(['primary:bob', 'primary:alice'])
+      expect(session().selectedTrackId.value).toBe(ALICE_LANE)
+      // Identity colors follow the player, not the row position.
+      expect([colorOf(ALICE_LANE), colorOf(BOB_LANE)]).toEqual(colorsBefore)
+
+      // Alt+ArrowUp on the focused handle moves her back up one step.
+      const handle = screen.getByRole('button', { name: 'Reorder alice' })
+      handle.element().dispatchEvent(new KeyboardEvent('keydown', { altKey: true, bubbles: true, key: 'ArrowUp' }))
+      sync()
+      await expect.poll(primaryOrder).toEqual(['primary:alice', 'primary:bob'])
+
+      // Undoing the add removes both lanes, and the selection no longer names a track.
+      store.undo()
+      store.undo()
+      store.undo()
+      sync()
+      await expect.poll(() => session().selectedTrackId.value).toBeNull()
+    }
+    finally {
+      await screen.unmount()
+    }
+  })
+
+  it('starts a touch drag only after a long press, so a swipe still scrolls the list', async () => {
+    const { Host, session, store, sync } = mountTimeline()
+    store.addSession('s1', [
+      testReplay('alice', { end: 300, player: 'alice', sessionId: 's1', start: 100 }),
+      testReplay('bob', { end: 320, player: 'bob', sessionId: 's1', start: 120 }),
+    ])
+    sync()
+    const screen = await render(Host)
+    const BOB_LANE = 'lane:session:s1:uuid:uuid-bob'
+    const rowOf = (id: string) => {
+      const row = screen.container.querySelector<HTMLElement>(`[data-track-id="${id}"]`)!
+      Object.defineProperty(row, 'setPointerCapture', { configurable: true, value: () => {} })
+      return row
+    }
+    const touch = (row: HTMLElement, type: string, clientY: number) => {
+      const bounds = row.getBoundingClientRect()
+      row.dispatchEvent(new PointerEvent(type, { bubbles: true, button: 0, buttons: 1, clientX: bounds.left + bounds.width / 2, clientY, pointerId: 21, pointerType: 'touch' }))
+    }
+    const centerY = (row: HTMLElement) => row.getBoundingClientRect().top + row.getBoundingClientRect().height / 2
+    const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
+
+    try {
+      await expect.poll(() => screen.container.querySelectorAll('[data-track-role="primary"]').length).toBe(2)
+
+      // A swipe that moves before the long press completes is a scroll: no drag, no selection.
+      const alice = rowOf(ALICE_LANE)
+      touch(alice, 'pointerdown', centerY(alice))
+      touch(alice, 'pointermove', centerY(alice) + 20)
+      await wait(400)
+      expect(screen.container.querySelector('[data-testid="timeline-drag-ghost"]')).toBeNull()
+      touch(alice, 'pointerup', centerY(alice) + 20)
+      expect(session().selectedTrackId.value).toBeNull()
+
+      // Resting on the row lifts it; then it follows the finger and drops below bob.
+      touch(alice, 'pointerdown', centerY(alice))
+      await expect.element(screen.getByTestId('timeline-drag-ghost')).toHaveTextContent('alice')
+      touch(alice, 'pointermove', centerY(rowOf(BOB_LANE)))
+      await expect.element(screen.getByTestId('timeline-drop-line')).toBeInTheDocument()
+      touch(alice, 'pointerup', centerY(rowOf(BOB_LANE)))
+      expect(store.history.undo).toHaveLength(2)
+      expect(session().selectedTrackId.value).toBe(ALICE_LANE)
+    }
+    finally {
+      await screen.unmount()
+    }
+  })
+
   it('virtualizes rows with mixed heights from known offsets', async () => {
     const replays = Array.from({ length: 60 }, (_, index) => testReplay(`player-${index}`, { player: `player-${index}`, sessionId: 's1' }))
     const episode = addReplaysToEpisode(createEmptyEpisode(), replays)!
@@ -176,7 +297,7 @@ describe('timeline lane groups', () => {
       setup() {
         const scroller = useTemplateRef<HTMLDivElement>('scroller')
         return () => h('div', { ref: 'scroller', style: { height: '240px', overflowY: 'auto' } }, [
-          h(TimelineTrackHeaders, { alignmentLabel: 'Aligned by server tick', editable: false, layout, scrollContainer: scroller.value, scrollTop: scrollTop.value, sessions: episode.sessions }),
+          h(TimelineTrackHeaders, { alignmentLabel: 'Aligned by server tick', editable: false, layout, scrollContainer: scroller.value, scrollTop: scrollTop.value, selectedTrackId: null, sessions: episode.sessions, trackColors: new Map() }),
         ])
       },
     })
