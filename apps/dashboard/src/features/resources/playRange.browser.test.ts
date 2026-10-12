@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { moveRangeEdge, serverTickForVideoTime } from './playRange'
+import { moveRangeEdge, rangeFromSteps, rangeToSteps, serverTickForVideoTime } from './playRange'
 
 const play = { endServerTick: 9546, startServerTick: 6334 }
 
@@ -12,6 +12,18 @@ describe('play range selection', () => {
     expect(moveRangeEdge({ endServerTick: 7000, startServerTick: 6500 }, 'start', 8000, play)).toEqual({ endServerTick: 7000, startServerTick: 6999 })
     expect(moveRangeEdge({ endServerTick: 7000, startServerTick: 6500 }, 'end', 6000, play)).toEqual({ endServerTick: 6501, startServerTick: 6500 })
     expect(moveRangeEdge(full, 'end', 99_999, play)).toEqual(full)
+  })
+
+  it('maps a range to one-second slider steps and back without moving the untouched edge', () => {
+    // A 3212-tick Play is not a whole number of 20-tick steps: step 161 is its last tick.
+    const long = { endServerTick: 9546, startServerTick: 6334 }
+    expect(rangeToSteps(long, long, 20)).toEqual([0, 161])
+    expect(rangeFromSteps(long, [0, 161], long, 20)).toEqual(long)
+    // An exact start from "I" (tick 6345, inside step 0) survives moving only the end thumb.
+    const exact = { endServerTick: 9546, startServerTick: 6345 }
+    expect(rangeToSteps(exact, long, 20)).toEqual([0, 161])
+    expect(rangeFromSteps(exact, [0, 101], long, 20)).toEqual({ endServerTick: 8354, startServerTick: 6345 })
+    expect(rangeFromSteps(exact, [40, 161], long, 20)).toEqual({ endServerTick: 9546, startServerTick: 7134 })
   })
 
   it('maps a video time to the tick of the last anchor at or before it', () => {

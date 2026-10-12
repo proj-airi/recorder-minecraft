@@ -4,6 +4,7 @@ import type { RecorderMinecraftApiV1Replay } from '@proj-airi/recorder-minecraft
 import type { ServerTickRange } from '../../timeline/replay'
 import type { ResourceSort, ResourceTreeNode } from '../resourceTree'
 
+import { useTimeoutFn } from '@vueuse/core'
 import { Pane, Splitpanes } from 'splitpanes'
 import { VList } from 'virtua/vue'
 import { computed, nextTick, shallowRef, useTemplateRef, watch } from 'vue'
@@ -154,21 +155,24 @@ async function add(node: ResourceTreeNode): Promise<void> {
 // flash a popover per row; closing waits too, so the pointer can travel from the row into it.
 const PREVIEW_OPEN_DELAY_MS = 450
 const PREVIEW_CLOSE_DELAY_MS = 250
-const preview = shallowRef<null | { anchor: HTMLElement, replay: RecorderMinecraftApiV1Replay }>(null)
-let previewTimer: ReturnType<typeof setTimeout> | undefined
+interface PlayPreview { anchor: HTMLElement, replay: RecorderMinecraftApiV1Replay }
+const preview = shallowRef<null | PlayPreview>(null)
+let pendingPreview: null | PlayPreview = null
+const previewDelay = shallowRef(PREVIEW_OPEN_DELAY_MS)
+// `start` restarts the countdown with the current delay; the timer is cleared on unmount.
+const previewTimer = useTimeoutFn(() => preview.value = pendingPreview, previewDelay, { immediate: false })
 
 function schedulePreview(replay: null | RecorderMinecraftApiV1Replay, anchor: HTMLElement | null, delay: number): void {
-  clearTimeout(previewTimer)
-  previewTimer = setTimeout(() => {
-    preview.value = replay && anchor ? { anchor, replay } : null
-  }, delay)
+  pendingPreview = replay && anchor ? { anchor, replay } : null
+  previewDelay.value = delay
+  previewTimer.start()
 }
 
 function onRowPreview(node: ResourceTreeNode, anchor: HTMLElement | null): void {
   if (node.kind !== 'play')
     return
   if (anchor && preview.value?.replay.connectionId === node.replay.connectionId) {
-    clearTimeout(previewTimer)
+    previewTimer.stop()
     return
   }
   schedulePreview(anchor ? node.replay : null, anchor, anchor ? PREVIEW_OPEN_DELAY_MS : PREVIEW_CLOSE_DELAY_MS)
@@ -176,13 +180,13 @@ function onRowPreview(node: ResourceTreeNode, anchor: HTMLElement | null): void 
 
 function onPreviewHover(inside: boolean): void {
   if (inside)
-    clearTimeout(previewTimer)
+    previewTimer.stop()
   else
     schedulePreview(null, null, PREVIEW_CLOSE_DELAY_MS)
 }
 
 function closePreview(): void {
-  clearTimeout(previewTimer)
+  previewTimer.stop()
   preview.value = null
   treeElement.value?.focus({ preventScroll: true })
 }
@@ -270,14 +274,14 @@ function onTreeKeydown(event: KeyboardEvent): void {
       // Space on a Play opens its preview at once and moves focus into it (range handles, I/O).
       if (current?.kind !== 'play')
         return
-      clearTimeout(previewTimer)
+      previewTimer.stop()
       preview.value = { anchor: document.getElementById(`resource-node-${current.id}`) ?? treeElement.value!, replay: current.replay }
       void nextTick(() => previewElement.value?.focus())
       break
     case 'Escape':
       if (!preview.value)
         return
-      clearTimeout(previewTimer)
+      previewTimer.stop()
       preview.value = null
       break
     case 'Enter':

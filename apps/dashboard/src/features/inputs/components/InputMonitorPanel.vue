@@ -10,8 +10,8 @@ import PlayerInputCard from './PlayerInputCard.vue'
 import { useEditorWorkspaceContext } from '../../editor/composables/useEditorWorkspaceContext'
 import { latestAtOrBefore } from '../../event-log/captureEvents'
 import { useCaptureEventSources } from '../../event-log/useCaptureEvents'
+import { playerColor } from '../../players/colors'
 import { placementContainsTick, playServerTickAt } from '../../timeline/ticks'
-import { playerColor } from '../playerColors'
 
 const { episode, session } = useEditorWorkspaceContext()
 const showAll = shallowRef(true)

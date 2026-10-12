@@ -4,6 +4,7 @@ import type { ControlStateSample, InventoryItem, PlayerStateSample } from '../..
 import { useLocalStorage } from '@vueuse/core'
 import { computed } from 'vue'
 
+import Kbd from '../../basic/components/Kbd.vue'
 import PlayerAvatar from '../../players/components/PlayerAvatar.vue'
 import InventorySlot from './InventorySlot.vue'
 import LookIndicator from './LookIndicator.vue'
@@ -31,24 +32,24 @@ const props = defineProps<{
 type KeyField = 'backward' | 'forward' | 'jump' | 'left' | 'right' | 'sneak' | 'sprint'
 
 interface KeyDef {
-  /** Grid area inside the key cluster. */
-  area: string
   field: KeyField
+  /** Column in the WASD cluster: W sits over S, and A starts the second row. */
+  placement?: string
   /** Glyph and name of the default Minecraft binding, for modifier caps. */
   glyph?: { key: string, symbol: string }
   label: string
 }
 
 const keys: readonly KeyDef[] = [
-  { area: 'w', field: 'forward', label: 'W' },
-  { area: 'a', field: 'left', label: 'A' },
-  { area: 's', field: 'backward', label: 'S' },
-  { area: 'd', field: 'right', label: 'D' },
+  { field: 'forward', label: 'W', placement: 'col-start-2' },
+  { field: 'left', label: 'A', placement: 'col-start-1' },
+  { field: 'backward', label: 'S' },
+  { field: 'right', label: 'D' },
 ]
 const modifierKeys: readonly KeyDef[] = [
-  { area: 'jump', field: 'jump', glyph: { key: 'Space', symbol: '␣' }, label: 'Jump' },
-  { area: 'sneak', field: 'sneak', glyph: { key: 'Shift', symbol: '⇧' }, label: 'Sneak' },
-  { area: 'sprint', field: 'sprint', glyph: { key: 'Ctrl', symbol: '⌃' }, label: 'Sprint' },
+  { field: 'jump', glyph: { key: 'Space', symbol: '␣' }, label: 'Jump' },
+  { field: 'sneak', glyph: { key: 'Shift', symbol: '⇧' }, label: 'Sneak' },
+  { field: 'sprint', glyph: { key: 'Ctrl', symbol: '⌃' }, label: 'Sprint' },
 ]
 
 const EMPTY_SLOTS: readonly (InventoryItem | null)[] = Array.from<InventoryItem | null>({ length: INVENTORY_SLOTS.size }).fill(null)
@@ -175,28 +176,29 @@ const summaryParts = computed(() => {
       <PlayerStatusBar v-if="playerState" :status="playerState.status" />
 
       <div class="mt-2.5 flex flex-wrap items-center gap-x-2.5 gap-y-2" :aria-label="`Pressed: ${pressedLabel}`" role="group">
-        <div class="flex items-center gap-2" :class="pressed.length === 0 && 'idle'" aria-hidden="true">
-          <div class="wasd">
-            <kbd
+        <!-- Nothing held: the cluster stays for orientation but steps back so the summary reads first. -->
+        <div class="flex items-center gap-2 transition-opacity duration-120 ease-out" :class="pressed.length === 0 && 'opacity-55'" aria-hidden="true">
+          <div class="grid grid-cols-[repeat(3,1.55rem)] gap-1">
+            <Kbd
               v-for="key in keys"
               :key="key.field"
-              class="keycap"
-              :class="sample?.[key.field] && 'pressed'"
-              :style="{ gridArea: key.area }"
+              :pressed="sample?.[key.field] ?? false"
+              :class="key.placement"
+              size="cap"
             >
               {{ key.label }}
-            </kbd>
+            </Kbd>
           </div>
           <div class="flex flex-col gap-1">
-            <kbd
+            <Kbd
               v-for="key in modifierKeys"
               :key="key.field"
-              class="keycap modifier"
-              :class="sample?.[key.field] && 'pressed'"
+              :pressed="sample?.[key.field] ?? false"
+              size="bar"
               :title="`${key.label} (${key.glyph!.key})`"
             >
-              <span class="glyph">{{ key.glyph!.symbol }}</span>{{ key.label }}
-            </kbd>
+              <span class="text-[11px]" :class="sample?.[key.field] ? 'text-[#524008]' : 'text-[#8c8c8c]'">{{ key.glyph!.symbol }}</span>{{ key.label }}
+            </Kbd>
           </div>
         </div>
         <MouseGlyph :left="sample?.leftClick ?? false" :right="sample?.rightClick ?? false" />
@@ -210,7 +212,7 @@ const summaryParts = computed(() => {
         />
       </div>
 
-      <ol aria-label="Hotbar" class="slot-grid mt-3" lang="en">
+      <ol aria-label="Hotbar" class="grid grid-cols-9 m-0 mt-3 list-none gap-[3px] p-0 @container" lang="en">
         <li
           v-for="index in hotbarSlots"
           :key="index"
@@ -236,18 +238,18 @@ const summaryParts = computed(() => {
         <span class="text-neutral-500">· {{ backpackCount === 0 ? 'empty' : `${backpackCount} ${backpackCount === 1 ? 'stack' : 'stacks'}` }}</span>
       </button>
       <div v-if="backpackOpen" class="mt-1.5">
-        <ol aria-label="Armor and off hand" class="slot-grid" lang="en">
+        <ol aria-label="Armor and off hand" class="grid grid-cols-9 m-0 list-none gap-[3px] p-0 @container" lang="en">
           <li
             v-for="slot in equipmentSlots"
             :key="slot.index"
             :aria-label="slotAriaLabel(slot.index)"
-            :class="slot.name === 'Off hand' && 'offhand'"
+            :class="slot.name === 'Off hand' && 'col-start-6'"
             :title="slotTitle(slot.index)"
           >
             <InventorySlot :item="slots[slot.index] ?? null" :placeholder="slot.placeholder" />
           </li>
         </ol>
-        <ol aria-label="Backpack" class="slot-grid mt-1" lang="en">
+        <ol aria-label="Backpack" class="grid grid-cols-9 m-0 mt-1 list-none gap-[3px] p-0 @container" lang="en">
           <li
             v-for="index in mainSlots"
             :key="index"
@@ -261,92 +263,3 @@ const summaryParts = computed(() => {
     </template>
   </article>
 </template>
-
-<style scoped>
-.wasd {
-  display: grid;
-  gap: 4px;
-  grid-template-areas:
-    '. w .'
-    'a s d';
-  grid-template-columns: repeat(3, 1.55rem);
-}
-
-/* Nothing held: the cluster stays for orientation but steps back so the summary reads first. */
-.idle {
-  opacity: 0.55;
-  transition: opacity 120ms ease-out;
-}
-
-/*
- * Raised keycap: the face sits on a darker skirt drawn as a bottom shadow, and a pressed key sinks
- * by the skirt height and lights up. The skirt is a shadow, not a border, so pressing a cap does
- * not shift the layout.
- */
-.keycap {
-  align-items: center;
-  background: rgb(58 58 58);
-  border-radius: 6px;
-  box-shadow:
-    0 2px 0 0 rgb(30 30 30),
-    inset 0 1px 0 rgb(255 255 255 / 7%);
-  color: rgb(200 200 200);
-  display: inline-flex;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Liberation Sans', sans-serif;
-  font-size: 11px;
-  font-weight: 600;
-  gap: 3px;
-  height: 1.55rem;
-  justify-content: center;
-  min-width: 1.55rem;
-  padding: 0 5px;
-  position: relative;
-  top: -1px;
-  transition:
-    background 60ms ease-out,
-    box-shadow 60ms ease-out,
-    top 60ms ease-out;
-  user-select: none;
-}
-
-.keycap.modifier {
-  font-size: 10px;
-  height: 1.1rem;
-  justify-content: flex-start;
-  min-width: 3.75rem;
-}
-
-.keycap .glyph {
-  color: rgb(140 140 140);
-  font-size: 11px;
-}
-
-.keycap.pressed {
-  background: rgb(252 211 77);
-  box-shadow: 0 0 8px rgb(252 211 77 / 35%);
-  color: rgb(23 23 23);
-  top: 1px;
-}
-
-.keycap.pressed .glyph {
-  color: rgb(82 64 8);
-}
-
-/* Nine columns like the in-game inventory; a size container so slots can scale their text. */
-.slot-grid {
-  container-type: inline-size;
-  display: grid;
-  gap: 3px;
-  grid-template-columns: repeat(9, minmax(0, 1fr));
-  list-style: none;
-  margin-bottom: 0;
-  margin-left: 0;
-  margin-right: 0;
-  padding: 0;
-}
-
-/* The off hand sits apart from the armor, as on the inventory screen. */
-.slot-grid > .offhand {
-  grid-column: 6;
-}
-</style>

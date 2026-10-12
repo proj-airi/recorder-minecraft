@@ -4,7 +4,6 @@ import { setDefaultAutoSelectFamilyAttemptTimeout } from 'node:net'
 
 import {
   defineConfig,
-  presetAttributify,
   presetIcons,
   presetTypography,
   presetWind3,
@@ -37,13 +36,16 @@ export function sharedUnoConfig() {
         ],
         include: [
           /\.(vue|svelte|[jt]sx|mdx?|astro|elm|php|phtml|html)($|\?)/,
-          'apps/**/*.{html,js,ts}',
+          // NOTICE: Matched against absolute module ids. A relative glob such as `apps/**/*.ts`
+          // resolves against the Vite root, which is `apps/dashboard` for the dashboard, so icon
+          // classes named only in `.ts` modules (track descriptors, extension modules) were never
+          // generated.
+          /\/(?:apps|packages)\/[^?]*\/src\/[^?]*\.[jt]s($|\?)/,
         ],
       },
     },
     presets: [
       presetWind3(),
-      presetAttributify(),
       presetTypography(),
       presetIcons({
         scale: 1.2,

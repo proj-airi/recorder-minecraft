@@ -158,11 +158,6 @@ export function recordRefLabel(ref: RecordRef): string {
   return `${STREAM_LABELS[ref.stream]} @ ${ref.serverTick}${sequence}`
 }
 
-// NOTICE: The dashboard's Vite root is `apps/dashboard`, so the shared `apps/**/*.ts` pipeline
-// glob in `uno.config.ts` does not match and icon classes that only appear in this file were never
-// generated. `@unocss-include` opts this file into extraction.
-// @unocss-include
-
 /**
  * Header icon per evidence track, keyed by the descriptor key's first segment
  * (`divergences:<container>` → `divergences`).

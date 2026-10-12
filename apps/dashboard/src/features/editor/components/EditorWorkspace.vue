@@ -396,7 +396,6 @@ defineExpose({ activateView })
   --dv-tabs-and-actions-container-height: 26px;
   --dv-activegroup-visiblepanel-tab-background-color: #18181b;
   --dv-inactivegroup-visiblepanel-tab-background-color: #18181b;
-  --dv-paneview-header-border-color: var(--dashboard-border-color);
   --dv-separator-border: transparent;
   --dv-tab-divider-color: transparent;
   --dv-sash-color: transparent;
@@ -405,7 +404,6 @@ defineExpose({ activateView })
 }
 
 .dockview-theme-dark.dashboard-dock .dv-groupview {
-  overflow: hidden;
   border: 1px solid var(--dashboard-border-color);
   border-radius: 6px;
 }

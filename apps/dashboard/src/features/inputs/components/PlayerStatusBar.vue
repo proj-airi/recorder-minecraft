@@ -113,16 +113,16 @@ function effectTime(ticks: number): string {
     <span
       v-for="stat in stats"
       :key="stat.key"
-      class="stat"
+      class="inline-grid grid-cols-[auto_auto] items-center gap-x-1 gap-y-px"
       :aria-label="stat.title"
       :title="stat.title"
     >
-      <PixelImage v-if="stat.sprite" class="stat-icon" :url="gameTextureUrl(stat.sprite)">
+      <PixelImage v-if="stat.sprite" class="row-span-2 h-3.5 w-3.5 text-sm" :url="gameTextureUrl(stat.sprite)">
         <span aria-hidden="true" :class="stat.icon" />
       </PixelImage>
-      <span v-else aria-hidden="true" class="stat-icon" :class="stat.icon" />
-      <span class="stat-value">{{ stat.value }}</span>
-      <span aria-hidden="true" class="stat-bar"><span :style="{ background: stat.fillColor, width: `${Math.min(1, Math.max(0, stat.fill)) * 100}%` }" /></span>
+      <span v-else aria-hidden="true" class="row-span-2 h-3.5 w-3.5 text-sm" :class="stat.icon" />
+      <span class="text-xs text-neutral-200 font-semibold leading-none tabular-nums">{{ stat.value }}</span>
+      <span aria-hidden="true" class="h-0.5 min-w-[22px] rounded-[1px] bg-white/10"><span class="block h-full rounded-[1px]" :style="{ background: stat.fillColor, width: `${Math.min(1, Math.max(0, stat.fill)) * 100}%` }" /></span>
     </span>
     <span v-if="gameMode" class="rounded bg-white/8 px-1.5 py-0.5 text-[10px] text-neutral-300 uppercase" title="Game mode">{{ gameMode }}</span>
     <span v-if="dimension" class="rounded bg-white/8 px-1.5 py-0.5 text-[10px] text-neutral-300 capitalize" title="Dimension">{{ dimension }}</span>
@@ -142,45 +142,3 @@ function effectTime(ticks: number): string {
     </li>
   </ul>
 </template>
-
-<style scoped>
-.stat {
-  align-items: center;
-  display: inline-grid;
-  gap: 1px 4px;
-  grid-template-areas:
-    'icon value'
-    'icon bar';
-  grid-template-columns: auto auto;
-}
-
-.stat-icon {
-  font-size: 14px;
-  grid-area: icon;
-  height: 14px;
-  width: 14px;
-}
-
-.stat-value {
-  color: rgb(229 229 229);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  font-weight: 600;
-  grid-area: value;
-  line-height: 1;
-}
-
-.stat-bar {
-  background: rgb(255 255 255 / 10%);
-  border-radius: 1px;
-  grid-area: bar;
-  height: 2px;
-  min-width: 22px;
-}
-
-.stat-bar > span {
-  border-radius: 1px;
-  display: block;
-  height: 100%;
-}
-</style>
