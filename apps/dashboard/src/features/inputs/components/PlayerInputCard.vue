@@ -1,17 +1,26 @@
 <script setup lang="ts">
-import type { ControlStateSample, HotbarSample } from '../../event-log/captureEvents'
+import type { ControlStateSample, InventoryItem, PlayerStateSample } from '../../event-log/captureEvents'
 
+import { useLocalStorage } from '@vueuse/core'
 import { computed } from 'vue'
 
-import { shortItemName } from '../../event-log/captureEvents'
+import PlayerAvatar from '../../players/components/PlayerAvatar.vue'
+import InventorySlot from './InventorySlot.vue'
+import LookIndicator from './LookIndicator.vue'
+import MouseGlyph from './MouseGlyph.vue'
+import PlayerStatusBar from './PlayerStatusBar.vue'
+
+import { INVENTORY_SLOTS } from '../../event-log/captureEvents'
+import { itemDisplayName } from '../itemNames'
 
 export type PlayerInputStatus = 'error' | 'idle' | 'loading' | 'no-events' | 'ready'
 
 const props = defineProps<{
   color: string
   error?: null | string
-  hotbar: HotbarSample | null
   playerName: string
+  playerState: null | PlayerStateSample
+  playerUuid?: string
   sample: ControlStateSample | null
   selected: boolean
   serverTick: null | number
@@ -19,37 +28,97 @@ const props = defineProps<{
   status: PlayerInputStatus
 }>()
 
-const movementKeys = [
+type KeyField = 'backward' | 'forward' | 'jump' | 'left' | 'right' | 'sneak' | 'sprint'
+
+interface KeyDef {
+  /** Grid area inside the key cluster. */
+  area: string
+  field: KeyField
+  /** Glyph and name of the default Minecraft binding, for modifier caps. */
+  glyph?: { key: string, symbol: string }
+  label: string
+}
+
+const keys: readonly KeyDef[] = [
   { area: 'w', field: 'forward', label: 'W' },
   { area: 'a', field: 'left', label: 'A' },
   { area: 's', field: 'backward', label: 'S' },
   { area: 'd', field: 'right', label: 'D' },
-] as const
-const modifierKeys = [
-  { field: 'jump', label: 'Jump' },
-  { field: 'sneak', label: 'Sneak' },
-  { field: 'sprint', label: 'Sprint' },
-] as const
+]
+const modifierKeys: readonly KeyDef[] = [
+  { area: 'jump', field: 'jump', glyph: { key: 'Space', symbol: '␣' }, label: 'Jump' },
+  { area: 'sneak', field: 'sneak', glyph: { key: 'Shift', symbol: '⇧' }, label: 'Sneak' },
+  { area: 'sprint', field: 'sprint', glyph: { key: 'Ctrl', symbol: '⌃' }, label: 'Sprint' },
+]
 
-const selectedSlot = computed(() => props.hotbar?.selectedSlot ?? props.sample?.selectedSlot ?? null)
-const slots = computed(() => Array.from({ length: 9 }, (_, index) => props.hotbar?.items[index] ?? null))
-const pointer = computed(() => {
-  const yaw = props.sample?.cameraDeltaYaw ?? 0
-  const pitch = props.sample?.cameraDeltaPitch ?? 0
-  const magnitude = Math.hypot(yaw, pitch)
-  const length = magnitude === 0 ? 0 : Math.min(9, Math.max(3, magnitude * 0.6))
-  return { x: 12 + (magnitude ? yaw / magnitude * length : 0), y: 12 + (magnitude ? pitch / magnitude * length : 0), zero: magnitude === 0 }
-})
-const pressedKeys = computed(() => {
+const EMPTY_SLOTS: readonly (InventoryItem | null)[] = Array.from<InventoryItem | null>({ length: INVENTORY_SLOTS.size }).fill(null)
+
+const selectedSlot = computed(() => props.playerState?.selectedSlot ?? props.sample?.selectedSlot ?? null)
+const slots = computed(() => props.playerState?.slots ?? EMPTY_SLOTS)
+const hotbarSlots = Array.from({ length: 9 }, (_, index) => INVENTORY_SLOTS.hotbar + index)
+const mainSlots = Array.from({ length: 27 }, (_, index) => INVENTORY_SLOTS.main + index)
+// Top to bottom as the inventory screen shows them, with the placeholder outline the game draws in
+// an empty equipment slot.
+const equipmentSlots = [
+  { index: INVENTORY_SLOTS.armor.head, name: 'Head', placeholder: 'gui/sprites/container/slot/helmet' },
+  { index: INVENTORY_SLOTS.armor.chest, name: 'Chest', placeholder: 'gui/sprites/container/slot/chestplate' },
+  { index: INVENTORY_SLOTS.armor.legs, name: 'Legs', placeholder: 'gui/sprites/container/slot/leggings' },
+  { index: INVENTORY_SLOTS.armor.feet, name: 'Feet', placeholder: 'gui/sprites/container/slot/boots' },
+  { index: INVENTORY_SLOTS.offhand, name: 'Off hand', placeholder: 'gui/sprites/container/slot/shield' },
+] as const
+const backpackCount = computed(() => [...mainSlots, ...equipmentSlots.map(slot => slot.index)].filter(index => slots.value[index]).length)
+const offhand = computed(() => slots.value[INVENTORY_SLOTS.offhand] ?? null)
+// One switch for every card, remembered per viewer, so several players' backpacks compare side by side.
+const backpackOpen = useLocalStorage('recorder-minecraft.inputs.backpack-open', false)
+const pressed = computed(() => {
   const sample = props.sample
   if (!sample)
-    return 'none'
-  const pressed: string[] = [...movementKeys, ...modifierKeys].filter(key => sample[key.field]).map(key => key.label)
+    return []
+  const labels: string[] = [...keys, ...modifierKeys].filter(key => sample[key.field]).map(key => key.label)
   if (sample.leftClick)
-    pressed.push('left mouse')
+    labels.push('left mouse')
   if (sample.rightClick)
-    pressed.push('right mouse')
-  return pressed.join(', ') || 'none'
+    labels.push('right mouse')
+  return labels
+})
+const pressedLabel = computed(() => pressed.value.join(', ') || 'none')
+
+function slotName(index: number): string {
+  const item = slots.value[index]
+  return item ? `${itemDisplayName(item.itemId)}${item.count > 1 ? ` ×${item.count}` : ''}` : 'Empty'
+}
+
+/** Where a slot index lives, as a person would say it. */
+function slotPlace(index: number): string {
+  if (index < INVENTORY_SLOTS.main)
+    return `Hotbar ${index + 1}`
+  if (index < INVENTORY_SLOTS.armor.feet)
+    return `Backpack ${index - INVENTORY_SLOTS.main + 1}`
+  return equipmentSlots.find(slot => slot.index === index)?.name ?? `Slot ${index}`
+}
+
+function slotAriaLabel(index: number): string {
+  const item = slots.value[index]
+  return `${slotPlace(index)}${item ? `: ${item.count} ${itemDisplayName(item.itemId)}` : ', empty'}${index === selectedSlot.value ? ', held' : ''}`
+}
+
+function slotTitle(index: number): string {
+  const item = slots.value[index]
+  if (!item)
+    return `${slotPlace(index)}: empty`
+  const wear = item.maxDamage > 0 ? ` · durability ${item.maxDamage - item.damage}/${item.maxDamage}` : ''
+  return `${slotPlace(index)}: ${item.count}× ${itemDisplayName(item.itemId)} (${item.itemId})${wear}`
+}
+
+const summaryParts = computed(() => {
+  const parts: { key: string, prefix?: string, text: string }[] = []
+  if (pressed.value.length > 0)
+    parts.push({ key: 'keys', text: pressed.value.join(' · ') })
+  if (selectedSlot.value !== null && slots.value[selectedSlot.value])
+    parts.push({ key: 'main', prefix: 'holding', text: slotName(selectedSlot.value) })
+  if (offhand.value)
+    parts.push({ key: 'offhand', prefix: 'off hand', text: slotName(INVENTORY_SLOTS.offhand) })
+  return parts
 })
 </script>
 
@@ -57,158 +126,227 @@ const pressedKeys = computed(() => {
   <article
     :aria-current="selected ? 'true' : undefined"
     :aria-label="`Inputs of ${playerName}`"
-    class="border rounded-md p-2"
+    class="border rounded-lg p-2.5"
     :class="selected ? 'border-amber-300/50 bg-amber-300/6' : 'border-[var(--dashboard-border-color)] bg-white/2'"
   >
-    <header class="flex items-center gap-1.5">
-      <span aria-hidden="true" class="h-2 w-2 shrink-0 rounded-full" :style="{ backgroundColor: color }" />
-      <h3 class="m-0 min-w-0 truncate text-xs text-neutral-100 font-medium" :title="sessionLabel ? `${playerName} · ${sessionLabel}` : playerName">
+    <header class="flex items-center gap-2">
+      <!-- The ring carries the player's identity color, so cards stay distinct when faces look alike. -->
+      <span class="flex shrink-0 rounded-[6px] p-[2px]" :style="{ boxShadow: `inset 0 0 0 2px ${color}` }">
+        <PlayerAvatar :player="{ name: playerName, uuid: playerUuid }" :size="20" />
+      </span>
+      <h3 class="m-0 min-w-0 truncate text-sm text-neutral-100 font-semibold" :title="sessionLabel ? `${playerName} · ${sessionLabel}` : playerName">
         {{ playerName }}
       </h3>
-      <span v-if="sessionLabel" class="min-w-0 truncate text-[10px] text-neutral-500">{{ sessionLabel }}</span>
-      <span class="ml-auto shrink-0 text-[10px] text-neutral-500 font-mono tabular-nums">
+      <span v-if="sessionLabel" class="min-w-0 truncate text-[11px] text-neutral-500">{{ sessionLabel }}</span>
+      <span class="ml-auto shrink-0 text-[11px] text-neutral-500 font-mono tabular-nums">
         {{ serverTick === null ? 'off clip' : `tick ${serverTick}` }}
       </span>
     </header>
 
-    <p v-if="status === 'idle'" class="m-0 mt-1.5 text-[11px] text-neutral-500">
+    <p v-if="status === 'idle'" class="m-0 mt-2 text-xs text-neutral-500">
       No clip of this player at the playhead.
     </p>
-    <p v-else-if="status === 'loading'" class="m-0 mt-1.5 flex items-center gap-1 text-[11px] text-neutral-500">
+    <p v-else-if="status === 'loading'" class="m-0 mt-2 flex items-center gap-1 text-xs text-neutral-500">
       <span aria-hidden="true" class="i-mingcute-loading-3-line animate-spin" /> Loading control states…
     </p>
-    <p v-else-if="status === 'error'" class="m-0 mt-1.5 text-[11px] text-red-300">
+    <p v-else-if="status === 'error'" class="m-0 mt-2 text-xs text-red-300">
       {{ error ?? 'Events could not load.' }}
     </p>
-    <p v-else-if="status === 'no-events'" class="m-0 mt-1.5 text-[11px] text-neutral-500">
+    <p v-else-if="status === 'no-events'" class="m-0 mt-2 text-xs text-neutral-500">
       This Play has no events stream.
     </p>
     <template v-else>
-      <div class="mt-1.5 flex flex-wrap items-center gap-2" :aria-label="`Pressed: ${pressedKeys}`" role="group">
-        <div class="wasd grid gap-0.5" aria-hidden="true">
-          <span
-            v-for="key in movementKeys"
-            :key="key.field"
-            class="keycap"
-            :class="sample?.[key.field] && 'pressed'"
-            :style="{ gridArea: key.area }"
-          >{{ key.label }}</span>
+      <!-- Summary first: what is pressed and held reads without scanning the key cluster. -->
+      <!-- Only what the cluster and hotbar cannot say at a glance: which keys are down, and the name
+           of what is in hand (icons do not name items). Idle and empty states are already visible. -->
+      <p v-if="!sample" class="m-0 mt-2 text-xs text-neutral-500">
+        No control sample yet at this tick
+      </p>
+      <p v-else-if="summaryParts.length > 0" class="m-0 mt-2 text-[13px] leading-snug" data-testid="input-summary">
+        <template v-for="(part, index) in summaryParts" :key="part.key">
+          <span v-if="index > 0" class="text-neutral-600"> · </span>
+          <span v-if="part.key === 'keys'" class="text-amber-200 font-medium">{{ part.text }}</span>
+          <template v-else>
+            <span class="mr-1 text-neutral-400">{{ part.prefix }}</span>
+            <span class="text-neutral-100 font-medium">{{ part.text }}</span>
+          </template>
+        </template>
+      </p>
+      <PlayerStatusBar v-if="playerState" :status="playerState.status" />
+
+      <div class="mt-2.5 flex flex-wrap items-center gap-x-2.5 gap-y-2" :aria-label="`Pressed: ${pressedLabel}`" role="group">
+        <div class="flex items-center gap-2" :class="pressed.length === 0 && 'idle'" aria-hidden="true">
+          <div class="wasd">
+            <kbd
+              v-for="key in keys"
+              :key="key.field"
+              class="keycap"
+              :class="sample?.[key.field] && 'pressed'"
+              :style="{ gridArea: key.area }"
+            >
+              {{ key.label }}
+            </kbd>
+          </div>
+          <div class="flex flex-col gap-1">
+            <kbd
+              v-for="key in modifierKeys"
+              :key="key.field"
+              class="keycap modifier"
+              :class="sample?.[key.field] && 'pressed'"
+              :title="`${key.label} (${key.glyph!.key})`"
+            >
+              <span class="glyph">{{ key.glyph!.symbol }}</span>{{ key.label }}
+            </kbd>
+          </div>
         </div>
-        <div class="flex flex-col gap-0.5" aria-hidden="true">
-          <span
-            v-for="key in modifierKeys"
-            :key="key.field"
-            class="keycap px-1"
-            :class="sample?.[key.field] && 'pressed'"
-          >{{ key.label }}</span>
-        </div>
-        <div class="flex gap-0.5" aria-hidden="true">
-          <span class="keycap mouse" :class="sample?.leftClick && 'clicked'">LMB</span>
-          <span class="keycap mouse" :class="sample?.rightClick && 'clicked'">RMB</span>
-        </div>
-        <svg class="camera" viewBox="0 0 24 24" aria-hidden="true">
-          <circle cx="12" cy="12" r="10.5" fill="none" stroke="rgb(82 82 82)" stroke-dasharray="2 2" />
-          <line v-if="!pointer.zero" x1="12" y1="12" :x2="pointer.x" :y2="pointer.y" stroke="rgb(110 231 183)" stroke-linecap="round" stroke-width="2.5" />
-          <circle cx="12" cy="12" r="1.5" fill="rgb(229 229 229)" />
-        </svg>
+        <MouseGlyph :left="sample?.leftClick ?? false" :right="sample?.rightClick ?? false" />
+        <LookIndicator
+          v-if="sample"
+          :delta-pitch="sample.cameraDeltaPitch"
+          :delta-yaw="sample.cameraDeltaYaw"
+          :pitch="sample.cameraPitch"
+          :title="`Camera yaw ${sample.cameraYaw.toFixed(2)}°, pitch ${sample.cameraPitch.toFixed(2)}°, delta ${sample.cameraDeltaYaw.toFixed(2)}°, ${sample.cameraDeltaPitch.toFixed(2)}°`"
+          :yaw="sample.cameraYaw"
+        />
       </div>
 
-      <ol aria-label="Hotbar" class="hotbar">
+      <ol aria-label="Hotbar" class="slot-grid mt-3" lang="en">
         <li
-          v-for="(item, index) in slots"
+          v-for="index in hotbarSlots"
           :key="index"
           :aria-current="selectedSlot === index ? 'true' : undefined"
-          :aria-label="`Slot ${index + 1}${item ? `: ${item.count} ${shortItemName(item.itemId)}` : ''}${selectedSlot === index ? ', selected' : ''}`"
-          class="hotbar-slot"
-          :class="selectedSlot === index && 'selected'"
-          :title="item ? `${index + 1}: ${item.count}× ${item.itemId}` : `Slot ${index + 1}`"
+          :aria-label="slotAriaLabel(index)"
+          :title="slotTitle(index)"
         >
-          <span class="text-[8px] text-neutral-500 leading-none">{{ index + 1 }}</span>
-          <span v-if="item" class="max-w-full truncate text-[8px] text-neutral-200 leading-none">{{ shortItemName(item.itemId).slice(0, 4) }}</span>
+          <InventorySlot :item="slots[index] ?? null" :label="String(index + 1)" :selected="selectedSlot === index" />
         </li>
       </ol>
 
-      <p v-if="sample" class="m-0 mt-1 truncate text-[10px] text-neutral-500 font-mono tabular-nums" :title="`Camera yaw ${sample.cameraYaw.toFixed(2)}°, pitch ${sample.cameraPitch.toFixed(2)}°, delta ${sample.cameraDeltaYaw.toFixed(2)}°, ${sample.cameraDeltaPitch.toFixed(2)}°`">
-        yaw {{ sample.cameraYaw.toFixed(1) }}° · pitch {{ sample.cameraPitch.toFixed(1) }}°
-      </p>
-      <p v-else class="m-0 mt-1 text-[10px] text-neutral-500">
-        No control sample yet at this tick.
-      </p>
+      <button
+        :aria-expanded="backpackOpen"
+        aria-label="Toggle backpack"
+        class="mt-2 flex items-center gap-1 border-0 rounded bg-transparent px-0.5 py-0.5 text-xs text-neutral-400 hover:text-neutral-100"
+        :title="backpackOpen ? 'Hide backpack, armor, and off hand' : 'Show backpack, armor, and off hand'"
+        type="button"
+        @click="backpackOpen = !backpackOpen"
+      >
+        <span aria-hidden="true" class="text-sm" :class="backpackOpen ? 'i-mingcute-down-line' : 'i-mingcute-right-line'" />
+        <span aria-hidden="true" class="i-mingcute-backpack-line text-sm" />
+        Backpack
+        <span class="text-neutral-500">· {{ backpackCount === 0 ? 'empty' : `${backpackCount} ${backpackCount === 1 ? 'stack' : 'stacks'}` }}</span>
+      </button>
+      <div v-if="backpackOpen" class="mt-1.5">
+        <ol aria-label="Armor and off hand" class="slot-grid" lang="en">
+          <li
+            v-for="slot in equipmentSlots"
+            :key="slot.index"
+            :aria-label="slotAriaLabel(slot.index)"
+            :class="slot.name === 'Off hand' && 'offhand'"
+            :title="slotTitle(slot.index)"
+          >
+            <InventorySlot :item="slots[slot.index] ?? null" :placeholder="slot.placeholder" />
+          </li>
+        </ol>
+        <ol aria-label="Backpack" class="slot-grid mt-1" lang="en">
+          <li
+            v-for="index in mainSlots"
+            :key="index"
+            :aria-label="slotAriaLabel(index)"
+            :title="slotTitle(index)"
+          >
+            <InventorySlot :item="slots[index] ?? null" />
+          </li>
+        </ol>
+      </div>
     </template>
   </article>
 </template>
 
 <style scoped>
 .wasd {
+  display: grid;
+  gap: 4px;
   grid-template-areas:
     '. w .'
     'a s d';
-  grid-template-columns: repeat(3, 1.25rem);
+  grid-template-columns: repeat(3, 1.55rem);
 }
 
+/* Nothing held: the cluster stays for orientation but steps back so the summary reads first. */
+.idle {
+  opacity: 0.55;
+  transition: opacity 120ms ease-out;
+}
+
+/*
+ * Raised keycap: the face sits on a darker skirt drawn as a bottom shadow, and a pressed key sinks
+ * by the skirt height and lights up. The skirt is a shadow, not a border, so pressing a cap does
+ * not shift the layout.
+ */
 .keycap {
   align-items: center;
-  background: rgb(255 255 255 / 4%);
-  border: 1px solid var(--dashboard-border-color);
-  border-radius: 0.2rem;
-  color: rgb(163 163 163);
+  background: rgb(58 58 58);
+  border-radius: 6px;
+  box-shadow:
+    0 2px 0 0 rgb(30 30 30),
+    inset 0 1px 0 rgb(255 255 255 / 7%);
+  color: rgb(200 200 200);
   display: inline-flex;
-  font-size: 9px;
-  height: 1.05rem;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Liberation Sans', sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  gap: 3px;
+  height: 1.55rem;
   justify-content: center;
-  min-width: 1.25rem;
+  min-width: 1.55rem;
+  padding: 0 5px;
+  position: relative;
+  top: -1px;
+  transition:
+    background 60ms ease-out,
+    box-shadow 60ms ease-out,
+    top 60ms ease-out;
+  user-select: none;
+}
+
+.keycap.modifier {
+  font-size: 10px;
+  height: 1.1rem;
+  justify-content: flex-start;
+  min-width: 3.75rem;
+}
+
+.keycap .glyph {
+  color: rgb(140 140 140);
+  font-size: 11px;
 }
 
 .keycap.pressed {
   background: rgb(252 211 77);
-  border-color: rgb(252 211 77);
-  color: rgb(10 10 10);
-  font-weight: 600;
+  box-shadow: 0 0 8px rgb(252 211 77 / 35%);
+  color: rgb(23 23 23);
+  top: 1px;
 }
 
-.keycap.mouse {
-  height: 2.2rem;
-  width: 1.6rem;
+.keycap.pressed .glyph {
+  color: rgb(82 64 8);
 }
 
-.keycap.clicked {
-  background: rgb(110 231 183);
-  border-color: rgb(167 243 208);
-  color: rgb(2 44 34);
-  font-weight: 600;
-}
-
-.camera {
-  flex-shrink: 0;
-  height: 1.5rem;
-  width: 1.5rem;
-}
-
-.hotbar {
+/* Nine columns like the in-game inventory; a size container so slots can scale their text. */
+.slot-grid {
+  container-type: inline-size;
   display: grid;
-  gap: 2px;
+  gap: 3px;
   grid-template-columns: repeat(9, minmax(0, 1fr));
   list-style: none;
-  margin: 0.375rem 0 0;
+  margin-bottom: 0;
+  margin-left: 0;
+  margin-right: 0;
   padding: 0;
 }
 
-.hotbar-slot {
-  align-items: center;
-  aspect-ratio: 1;
-  background: rgb(255 255 255 / 3%);
-  border: 1px solid var(--dashboard-border-color);
-  border-radius: 0.15rem;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  justify-content: center;
-  min-width: 0;
-  overflow: hidden;
-}
-
-.hotbar-slot.selected {
-  border-color: rgb(252 211 77);
-  box-shadow: inset 0 0 0 1px rgb(252 211 77);
+/* The off hand sits apart from the armor, as on the inventory screen. */
+.slot-grid > .offhand {
+  grid-column: 6;
 }
 </style>

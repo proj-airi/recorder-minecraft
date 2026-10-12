@@ -2,10 +2,12 @@
 import type { RecorderMinecraftApiV1Replay, RecorderMinecraftApiV1WorldSession } from '@proj-airi/recorder-minecraft-api'
 
 import type { ResourceTreeNode } from '../resourceTree'
+import type { SpanBar } from './ResourceSpanChart.vue'
 
 import { computed } from 'vue'
 
 import CopyField from '../../basic/components/CopyField.vue'
+import ResourceSpanChart from './ResourceSpanChart.vue'
 
 import { formatDurationTicks, formatInstantFull, parseTick } from '../../basic/format'
 import { extensionLabel, playExtensionModules } from '../../extensions/registry'
@@ -100,6 +102,54 @@ const playFiles = computed((): FileRow[] => {
   ]
 })
 
+function playBar(play: RecorderMinecraftApiV1Replay, highlight = false): null | SpanBar {
+  const startTick = parseTick(play.startServerTick)
+  const endTick = parseTick(play.endServerTick)
+  if (startTick === undefined || endTick === undefined || endTick < startTick)
+    return null
+  return {
+    endedAt: play.endedAt,
+    endTick,
+    highlight,
+    key: play.connectionId ?? `${play.playerUuid}:${startTick}`,
+    label: play.playerName ?? 'Unknown player',
+    player: { name: play.playerName, uuid: play.playerUuid },
+    startedAt: play.startedAt,
+    startTick,
+  }
+}
+
+function worldBar(world: RecorderMinecraftApiV1WorldSession): null | SpanBar {
+  const startTick = parseTick(world.startServerTick)
+  const endTick = parseTick(world.endServerTick)
+  if (startTick === undefined || endTick === undefined || endTick < startTick)
+    return null
+  return { endedAt: world.endedAt, endTick, key: `world:${world.id}`, label: 'World', startedAt: world.startedAt, startTick }
+}
+
+/**
+ * Span chart of the selected item on the Server tick axis: a world session with each of its Plays,
+ * or one Play inside its world session when it has one. Null when the ticks are unknown; the text
+ * rows still state the times.
+ */
+const span = computed((): null | { axis: { endedAt?: string, endTick: number, startedAt?: string, startTick: number }, bars: SpanBar[] } => {
+  if (props.node.kind === 'session') {
+    const world = worldBar(props.node.session)
+    if (!world)
+      return null
+    const bars = props.node.sessionPlays.map(play => playBar(play)).filter((bar): bar is SpanBar => bar !== null)
+    return { axis: world, bars: [world, ...bars] }
+  }
+  if (props.node.kind === 'play') {
+    const own = playBar(props.node.replay, true)
+    if (!own)
+      return null
+    const world = linkedSession.value ? worldBar(linkedSession.value) : null
+    return world ? { axis: world, bars: [world, own] } : { axis: own, bars: [own] }
+  }
+  return null
+})
+
 const extensions = computed(() => (replay.value?.extensions ?? []).map(extension => ({
   label: extensionLabel(extension.extensionType ?? 'unknown'),
   supported: playExtensionModules.some(module => module.extensionType === extension.extensionType),
@@ -141,6 +191,7 @@ const extensions = computed(() => (replay.value?.extensions ?? []).map(extension
     <div class="min-h-0 flex-1 overflow-y-auto px-2 py-1.5 text-[11px] text-neutral-300">
       <!-- World session -->
       <template v-if="session">
+        <ResourceSpanChart v-if="span" class="mb-1.5" :axis="span.axis" :bars="span.bars" />
         <dl class="details-grid">
           <dt>Started</dt><dd>{{ formatInstantFull(session.startedAt) }}</dd>
           <dt>Ended</dt><dd>{{ session.endedAt ? formatInstantFull(session.endedAt) : 'open' }}</dd>
@@ -226,6 +277,7 @@ const extensions = computed(() => (replay.value?.extensions ?? []).map(extension
 
       <!-- Play -->
       <template v-else-if="replay">
+        <ResourceSpanChart v-if="span" class="mb-1.5" :axis="span.axis" :bars="span.bars" />
         <dl class="details-grid">
           <dt>Player</dt><dd>{{ replay.playerName ?? '—' }}</dd>
           <dt>Server</dt><dd>{{ replay.serverName ?? '—' }}</dd>

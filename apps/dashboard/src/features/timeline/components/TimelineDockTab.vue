@@ -48,7 +48,7 @@ onBeforeUnmount(() => titleListener?.dispose())
        `https://github.com/mathuo/dockview/blob/08097bd22495af8db171698355dffde93b9f5a88/packages/dockview-vue/src/utils.ts#L242-L260`. -->
   <div
     ref="tabContent"
-    class="group bg-neutral-850 relative h-full min-w-0 w-full flex items-center pl-1 pr-5 text-[10px] text-neutral-400"
+    class="group bg-neutral-850 relative h-full min-w-0 w-full flex items-center pl-1.5 pr-6 text-[11px] text-neutral-300 font-medium"
     @click="activate"
     @pointerdown="limitDragging"
   >
@@ -64,13 +64,13 @@ onBeforeUnmount(() => titleListener?.dispose())
 
     <button
       :aria-label="`Close ${params.api.title ?? 'view'}`"
-      class="absolute right-0.5 h-4 w-4 flex items-center justify-center border-0 rounded-sm bg-transparent p-0 text-neutral-600 hover:bg-white/8 hover:text-neutral-200"
+      class="absolute right-1 h-5 w-5 flex items-center justify-center border-0 rounded-sm bg-transparent p-0 text-neutral-600 hover:bg-white/8 hover:text-neutral-200"
       :title="`Close ${params.api.title ?? 'view'}`"
       type="button"
       @click.stop="close"
       @pointerdown.stop.prevent
     >
-      <span aria-hidden="true" class="i-mingcute-close-line text-[10px]" />
+      <span aria-hidden="true" class="i-mingcute-close-line text-xs" />
     </button>
   </div>
 </template>

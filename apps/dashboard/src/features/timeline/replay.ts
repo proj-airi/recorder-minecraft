@@ -35,10 +35,50 @@ export interface EpisodeAlignmentSummary {
   mode: EpisodeAlignmentMode
 }
 
+/** Inclusive start, exclusive end, in the Play's own Server ticks. */
+export interface ServerTickRange {
+  endServerTick: number
+  startServerTick: number
+}
+
 interface EpisodeState {
   originTimeMs: number | undefined
   placements: PlayPlacement[]
   sessions: EpisodeSession[]
+}
+
+/**
+ * Adds one Play trimmed to `range`. The clip keeps its Server-tick position inside the session, so
+ * a range taken from the middle of a Play still lines up with the other players of that session.
+ * The range is clamped to the Play; returns null when nothing of it remains or the Play cannot be
+ * added (for example, it is already on the timeline).
+ */
+export function addReplayRangeToEpisode(
+  episode: EpisodeDraft,
+  replay: RecorderMinecraftApiV1Replay,
+  range: ServerTickRange,
+  world?: TimelineWorldSessionSource,
+): EpisodeDraft | null {
+  const next = insertReplay(episode, replay, world)
+  if (!next)
+    return null
+  const placementId = `play:${replay.connectionId}`
+  const placement = next.placements.find(candidate => candidate.id === placementId)!
+  const startServerTick = Math.max(placement.playStartServerTick, Math.round(range.startServerTick))
+  const endServerTick = Math.min(placement.playEndServerTick, Math.round(range.endServerTick))
+  if (endServerTick <= startServerTick)
+    return null
+  // `startTick` is where the Play's first tick sits on the episode axis; offset it by the trim.
+  const startTick = placement.startTick + startServerTick - placement.playStartServerTick
+  const trimmed: PlayPlacement = {
+    ...placement,
+    endTick: startTick + endServerTick - startServerTick,
+    sourceEndServerTick: endServerTick,
+    sourceStartServerTick: startServerTick,
+    startTick,
+  }
+  const placements = next.placements.map(candidate => candidate.id === placementId ? trimmed : candidate)
+  return finishEpisode(episode, placements, next.sessions, next.originTimeMs)
 }
 
 /**

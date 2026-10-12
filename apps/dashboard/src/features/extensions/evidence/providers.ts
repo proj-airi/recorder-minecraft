@@ -14,11 +14,13 @@ import type { AlignmentIndex, EvidenceSources, EvidenceWorldSession, ResourceSta
 
 import { shallowRef } from 'vue'
 
+import { DataSourceMissingError } from '../../timeline/data-tracks/errors'
 import { containerKey } from './formats'
 import {
   containerLabel,
   DIVERGENCE_END_SHORT,
   EVIDENCE_COLORS,
+  evidenceTrackIcon,
   interactionColor,
   interactionLabel,
   isCoverageEnd,
@@ -64,7 +66,7 @@ export function createEvidencePlayerProvider(sources: EvidenceSources, settings 
         descriptors.push(interactionDescriptor(sources, target))
       const rowsSource = alignmentUnavailable ? null : alignment ?? { status: 'loading' as const }
       descriptors.push(...visibilityDescriptors(sources, target, perceptionPlays, rowsSource, settings.value.visibilityRows))
-      return descriptors
+      return descriptors.map(descriptor => ({ ...descriptor, icon: evidenceTrackIcon(descriptor.key) }))
     },
     id: EVIDENCE_PLAYER_PROVIDER_ID,
     scope: 'player',
@@ -78,13 +80,17 @@ export function createEvidenceSessionProvider(sources: EvidenceSources): Timelin
         return []
       return [{
         color: EVIDENCE_COLORS.snapshotChanged,
+        icon: evidenceTrackIcon('world-containers'),
         key: 'world-containers',
         label: 'World container events',
         async load() {
           const world = await resolveWorldSession(sources, target.world, target.plays)
           if (!world?.eventsUrl)
-            return []
-          return worldEventItems(world.eventsUrl, await sources.worldEvents(world.eventsUrl) ?? [])
+            throw new DataSourceMissingError(world ? 'world-events.jsonl' : 'World session')
+          const events = await sources.worldEvents(world.eventsUrl)
+          if (events === null)
+            throw new DataSourceMissingError('world-events.jsonl')
+          return worldEventItems(world.eventsUrl, events)
         },
         order: ORDER.world,
         viewId: EVIDENCE_VIEW_ID,
@@ -313,12 +319,17 @@ function visibilityDescriptors(
   mode: VisibilityRowMode,
 ): TimelineDataTrackDescriptor[] {
   if (perceptionPlays.length === 0)
-    return [{ color: EVIDENCE_COLORS.visibleEntity, key: 'visibility', label: 'Visibility · no perception.jsonl', load: async () => [], order: ORDER.visibility, viewId: EVIDENCE_VIEW_ID }]
+    return [{ color: EVIDENCE_COLORS.visibleEntity, key: 'visibility', label: 'Visibility · no perception.jsonl', load: () => Promise.reject(new DataSourceMissingError('perception.jsonl')), order: ORDER.visibility, viewId: EVIDENCE_VIEW_ID }]
 
   const urls = perceptionPlays.map(play => play.replay!.perceptionUrl!)
   const loadSummaries = async (): Promise<{ play: EpisodeReplaySource, summary: PerceptionSummary }[]> => {
     const loaded = await Promise.all(perceptionPlays.map(async play => ({ play, summary: await sources.perception(play.replay!.perceptionUrl!) })))
-    return loaded.filter((entry): entry is { play: EpisodeReplaySource, summary: PerceptionSummary } => entry.summary !== null)
+    const present = loaded.filter((entry): entry is { play: EpisodeReplaySource, summary: PerceptionSummary } => entry.summary !== null)
+    // A cataloged perception file that 404s would otherwise load as zero sightings, a false
+    // "never visible". Partial loss across several Plays of one player still loads what exists.
+    if (present.length === 0)
+      throw new DataSourceMissingError('perception.jsonl')
+    return present
   }
 
   let rows: null | VisibilityRow[] = null
@@ -346,8 +357,12 @@ function visibilityDescriptors(
       viewId: EVIDENCE_VIEW_ID,
     }]
   }
-  if (rows.length === 0)
-    return [{ color: EVIDENCE_COLORS.visibleEntity, key: 'visibility', label: 'Visibility', load: async () => [], order: ORDER.visibility, viewId: EVIDENCE_VIEW_ID }]
+  if (rows.length === 0) {
+    // No rows because every perception file is absent is unknown visibility, not "saw nothing".
+    const allMissing = urls.every(url => sources.peekPerception(url)?.status === 'missing')
+    const load = allMissing ? () => Promise.reject(new DataSourceMissingError('perception.jsonl')) : async () => []
+    return [{ color: EVIDENCE_COLORS.visibleEntity, key: 'visibility', label: 'Visibility', load, order: ORDER.visibility, viewId: EVIDENCE_VIEW_ID }]
+  }
 
   return rows.map((row, position) => ({
     color: row.key.startsWith('entity:') ? EVIDENCE_COLORS.visibleEntity : EVIDENCE_COLORS.visibleBlock,

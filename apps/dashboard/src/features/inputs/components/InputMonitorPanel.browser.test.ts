@@ -23,7 +23,8 @@ const files: Record<string, string> = {
     line(100, { controlState: { state: { selectedSlot: 0 } } }),
     line(100, { playerState: { health: 20, inventory: [{ count: 3, itemId: 'minecraft:oak_log', slot: 0 }], selectedSlot: 0 } }, 101),
     line(125, { controlState: { state: { forward: true, selectedSlot: 2 } } }),
-    line(125, { playerState: { health: 20, selectedSlot: 2 } }, 126),
+    // Slot 9 is the first backpack slot; zero-valued fields such as armor are omitted by protojson.
+    line(125, { playerState: { foodLevel: 17, health: 13.5, inventory: [{ count: 3, itemId: 'minecraft:oak_log', slot: 0 }, { count: 2, itemId: 'minecraft:bread', slot: 9 }], maxHealth: 20, selectedSlot: 2 } }, 126),
   ].join('\n'),
   '/events/bob.jsonl': [
     line(110, { controlState: { state: { jump: true, selectedSlot: 4 } } }),
@@ -73,10 +74,28 @@ it('shows every player on the timeline, each at the Server tick its own clip map
 
     // Alice: forward held, hotbar slot 3 selected, slot 1 holds logs from the latest player state.
     await expect.element(alice.getByRole('group', { name: 'Pressed: W' })).toBeVisible()
-    await expect.element(alice.getByRole('listitem', { name: 'Slot 3, selected' })).toBeVisible()
+    await expect.element(alice.getByRole('listitem', { name: 'Hotbar 3, empty, held' })).toBeVisible()
+    // Without an icon server the cell falls back to the full item name, and the summary leads with
+    // what is pressed and held.
+    await expect.element(alice.getByRole('listitem', { name: 'Hotbar 1: 3 Oak Log' })).toHaveTextContent('Oak Log')
+    // The summary names only what the cluster and hotbar cannot: W is down, and the hand is empty, so
+    // there is nothing held to name.
+    await expect.element(alice.getByTestId('input-summary')).toHaveTextContent(/^W$/)
+    // Survival state: health with half points, food; armor is 0 and therefore not shown.
+    const status = alice.getByRole('group', { name: 'Player status' })
+    await expect.element(status.getByLabelText('Health 13.5 / 20')).toBeVisible()
+    await expect.element(status.getByLabelText('Food 17 / 20, saturation 0')).toBeVisible()
+    expect(status.element().textContent).not.toContain('Armor')
+    // The backpack is folded behind a count and holds the bread in its first slot.
+    const backpackToggle = alice.getByRole('button', { name: 'Toggle backpack' })
+    await expect.element(backpackToggle).toHaveTextContent('Backpack · 1 stack')
+    await backpackToggle.click()
+    await expect.element(alice.getByRole('listitem', { name: 'Backpack 1: 2 Bread' })).toBeVisible()
+    await expect.element(alice.getByRole('listitem', { name: 'Head, empty' })).toBeVisible()
+    await backpackToggle.click()
     // Bob: jump held from tick 110, slot 5; the swing at Server tick 125 is not shown yet.
     await expect.element(bob.getByRole('group', { name: 'Pressed: Jump' })).toBeVisible()
-    await expect.element(bob.getByRole('listitem', { name: 'Slot 5, selected' })).toBeVisible()
+    await expect.element(bob.getByRole('listitem', { name: 'Hotbar 5, empty, held' })).toBeVisible()
 
     playheadTick.value = 35
     await nextTick()

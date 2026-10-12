@@ -89,7 +89,7 @@ defineExpose({ serverTick, targetTime })
 
 <template>
   <article
-    class="group relative min-h-0 overflow-hidden border border-[var(--dashboard-border-color)] rounded-md bg-black shadow-lg"
+    class="group relative aspect-video min-h-0 overflow-hidden border border-[var(--dashboard-border-color)] rounded bg-black"
     :data-connection-id="placement.connectionId"
     :data-server-tick="serverTick"
     :data-timing-format="timingFormat"
@@ -101,7 +101,7 @@ defineExpose({ serverTick, targetTime })
     <video
       v-if="sourceUrl"
       ref="video"
-      class="block aspect-video h-full w-full object-contain"
+      class="block h-full w-full object-contain"
       crossorigin="anonymous"
       muted
       playsinline
@@ -114,7 +114,7 @@ defineExpose({ serverTick, targetTime })
     <div
       v-else
       data-testid="monitor-no-video"
-      class="aspect-video h-full w-full flex flex-col items-center justify-center gap-2 p-4 text-center text-neutral-500"
+      class="h-full w-full flex flex-col items-center justify-center gap-2 p-4 text-center text-neutral-500"
     >
       <span aria-hidden="true" class="i-mingcute-video-camera-line text-2xl" />
       <p class="m-0 text-xs text-neutral-300 font-medium">
@@ -124,11 +124,11 @@ defineExpose({ serverTick, targetTime })
         Run <code class="text-neutral-400">recorder-minecraft render</code> on the Play, or record it in an Airicraft playtest, to produce one.
       </p>
     </div>
-    <div class="pointer-events-none absolute left-3 right-3 top-3 flex flex-wrap items-center gap-1.5">
-      <div class="w-fit flex items-center rounded-lg bg-black/50 px-2 py-2 text-[10px]">
-        <strong class="truncate text-white font-medium">{{ source.playerName }}</strong>
+    <div class="pointer-events-none absolute left-2 right-2 top-2 flex flex-wrap items-center gap-1.5">
+      <div class="w-fit flex items-center rounded-md bg-black/65 px-2 py-1 text-[11px] backdrop-blur-sm">
+        <strong class="truncate text-xs text-white font-medium">{{ source.playerName }}</strong>
         <span class="ml-2 shrink-0 text-neutral-400">{{ source.serverName }}</span>
-        <span class="ml-2 shrink-0 text-neutral-500 tabular-nums">tick {{ serverTick }}</span>
+        <span class="ml-2 shrink-0 text-neutral-300 tabular-nums">tick {{ serverTick }}</span>
       </div>
       <template v-if="sourceUrl">
         <span

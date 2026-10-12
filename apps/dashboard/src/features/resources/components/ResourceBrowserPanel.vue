@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import type { RecorderMinecraftApiV1Replay } from '@proj-airi/recorder-minecraft-api'
+
+import type { ServerTickRange } from '../../timeline/replay'
 import type { ResourceSort, ResourceTreeNode } from '../resourceTree'
 
 import { Pane, Splitpanes } from 'splitpanes'
@@ -6,12 +9,14 @@ import { VList } from 'virtua/vue'
 import { computed, nextTick, shallowRef, useTemplateRef, watch } from 'vue'
 
 import ComboboxSelect from '../../basic/components/ComboboxSelect.vue'
+import PlayRangePreview from './PlayRangePreview.vue'
 import RecordingCalendarFilter from './RecordingCalendarFilter.vue'
 import ResourceBrowserState from './ResourceBrowserState.vue'
 import ResourceDetails from './ResourceDetails.vue'
 import ResourceTreeRow from './ResourceTreeRow.vue'
 
 import { useEditorWorkspaceContext } from '../../editor/composables/useEditorWorkspaceContext'
+import { useEpisodeStore } from '../../timeline/stores/episode'
 import { ancestorsOf, buildResourceTree, toggleExpanded } from '../resourceTree'
 import { isReplayAddable, toTimelineWorldSession } from '../worldSession'
 
@@ -31,6 +36,7 @@ const detailsNode = shallowRef<null | ResourceTreeNode>(null)
 const announcement = shallowRef('')
 const list = useTemplateRef<InstanceType<typeof VList>>('list')
 const treeElement = useTemplateRef<HTMLDivElement>('tree')
+const previewElement = useTemplateRef<InstanceType<typeof PlayRangePreview>>('previewPopover')
 
 const hasCatalog = computed(() => catalog.servers.value.length > 0)
 const treeFilter = computed(() => ({
@@ -144,6 +150,55 @@ async function add(node: ResourceTreeNode): Promise<void> {
     : 'Already on the timeline.'
 }
 
+// Hover preview of one Play. Opening waits briefly so moving the pointer down the list does not
+// flash a popover per row; closing waits too, so the pointer can travel from the row into it.
+const PREVIEW_OPEN_DELAY_MS = 450
+const PREVIEW_CLOSE_DELAY_MS = 250
+const preview = shallowRef<null | { anchor: HTMLElement, replay: RecorderMinecraftApiV1Replay }>(null)
+let previewTimer: ReturnType<typeof setTimeout> | undefined
+
+function schedulePreview(replay: null | RecorderMinecraftApiV1Replay, anchor: HTMLElement | null, delay: number): void {
+  clearTimeout(previewTimer)
+  previewTimer = setTimeout(() => {
+    preview.value = replay && anchor ? { anchor, replay } : null
+  }, delay)
+}
+
+function onRowPreview(node: ResourceTreeNode, anchor: HTMLElement | null): void {
+  if (node.kind !== 'play')
+    return
+  if (anchor && preview.value?.replay.connectionId === node.replay.connectionId) {
+    clearTimeout(previewTimer)
+    return
+  }
+  schedulePreview(anchor ? node.replay : null, anchor, anchor ? PREVIEW_OPEN_DELAY_MS : PREVIEW_CLOSE_DELAY_MS)
+}
+
+function onPreviewHover(inside: boolean): void {
+  if (inside)
+    clearTimeout(previewTimer)
+  else
+    schedulePreview(null, null, PREVIEW_CLOSE_DELAY_MS)
+}
+
+function closePreview(): void {
+  clearTimeout(previewTimer)
+  preview.value = null
+  treeElement.value?.focus({ preventScroll: true })
+}
+
+function addPreviewRange(range: ServerTickRange): void {
+  const replay = preview.value?.replay
+  if (!replay)
+    return
+  // REVIEW: The workspace context has no range-aware add yet, so this goes to the episode store
+  // directly (resolved here, not at setup, so the panel still mounts without Pinia). Move it onto
+  // `EditorWorkspaceContext` next to `addReplay` when the editor context is next changed.
+  const added = useEpisodeStore().addReplayRange(replay, range, catalog.worldSourceFor(replay))
+  announcement.value = added ? 'Added the selected range to the timeline.' : 'This range could not be added to the timeline.'
+  closePreview()
+}
+
 function reveal(nodeId: string): void {
   const ancestors = ancestorsOf(catalog.servers.value, treeFilter.value, nodeId)
   if (!ancestors) {
@@ -167,7 +222,15 @@ function onTreeKeydown(event: KeyboardEvent): void {
     return
   const index = activeIndex.value
   const current = index >= 0 ? nodes[index]! : null
-  const move = (target: number) => setActive(nodes[Math.max(0, Math.min(nodes.length - 1, target))]!, { scroll: true })
+  const move = (target: number) => {
+    const node = nodes[Math.max(0, Math.min(nodes.length - 1, target))]!
+    setActive(node, { scroll: true })
+    // Keyboard focus on a Play opens its preview the same way hovering does.
+    void nextTick(() => {
+      const anchor = node.kind === 'play' ? document.getElementById(`resource-node-${node.id}`) : null
+      schedulePreview(node.kind === 'play' ? node.replay : null, anchor, node.kind === 'play' ? PREVIEW_OPEN_DELAY_MS : 0)
+    })
+  }
 
   switch (event.key) {
     case 'ArrowDown':
@@ -202,6 +265,20 @@ function onTreeKeydown(event: KeyboardEvent): void {
         if (parentIndex !== undefined)
           move(parentIndex)
       }
+      break
+    case ' ':
+      // Space on a Play opens its preview at once and moves focus into it (range handles, I/O).
+      if (current?.kind !== 'play')
+        return
+      clearTimeout(previewTimer)
+      preview.value = { anchor: document.getElementById(`resource-node-${current.id}`) ?? treeElement.value!, replay: current.replay }
+      void nextTick(() => previewElement.value?.focus())
+      break
+    case 'Escape':
+      if (!preview.value)
+        return
+      clearTimeout(previewTimer)
+      preview.value = null
       break
     case 'Enter':
       if (!current)
@@ -400,6 +477,7 @@ watch(serverFilter, () => {
                 :set-position="siblingPositions.get(node.id)?.position ?? 1"
                 :set-size="siblingPositions.get(node.id)?.size ?? 1"
                 @add="add(node)"
+                @preview="onRowPreview(node, $event)"
                 @select="select(node)"
                 @toggle="toggle(node)"
               />
@@ -418,6 +496,17 @@ watch(serverFilter, () => {
         />
       </Pane>
     </Splitpanes>
+    <PlayRangePreview
+      v-if="preview"
+      ref="previewPopover"
+      :key="preview.replay.connectionId"
+      :anchor="preview.anchor"
+      :on-timeline="Boolean(preview.replay.connectionId && onTimeline.has(preview.replay.connectionId))"
+      :replay="preview.replay"
+      @add="addPreviewRange"
+      @close="closePreview"
+      @hover="onPreviewHover"
+    />
     <p class="sr-only" aria-live="polite">
       {{ announcement }}
     </p>

@@ -40,7 +40,10 @@ export interface TimelineDataPoint extends TimelineDataItemBase {
 export interface TimelineDataTrack {
   color?: string
   descriptorKey: string
+  /** Failure message for `error`; the absent source name for `missing`. */
   error?: string
+  /** UnoCSS icon class shown in the track header; see `TimelineDataTrackDescriptor.icon`. */
+  icon?: string
   /** `data:<providerId>:<targetKey>:<descriptorKey>` */
   id: string
   items: readonly TimelineDataItem[]
@@ -55,6 +58,11 @@ export interface TimelineDataTrack {
 export interface TimelineDataTrackDescriptor {
   /** Default item color. */
   color?: string
+  /**
+   * UnoCSS icon class (e.g. `i-mingcute-eye-2-line`) that says what the track records. Headers
+   * fall back to a neutral icon; a shared generic icon made every data row look the same.
+   */
+  icon?: string
   /** Unique per provider and target. */
   key: string
   label: string
@@ -85,7 +93,8 @@ export type TimelineDataTrackProvider = TimelinePlayerDataTrackProvider | Timeli
  */
 export type TimelineDataTrackScope = 'player' | 'session'
 
-export type TimelineDataTrackStatus = 'empty' | 'error' | 'idle' | 'loading' | 'ready'
+/** `missing`: the track's source file does not exist, so its contents are unknown, not empty. */
+export type TimelineDataTrackStatus = 'empty' | 'error' | 'idle' | 'loading' | 'missing' | 'ready'
 
 export type TimelineDataTrackTarget = TimelinePlayerTarget | TimelineSessionTarget
 

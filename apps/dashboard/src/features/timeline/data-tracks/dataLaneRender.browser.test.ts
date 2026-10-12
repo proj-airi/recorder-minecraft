@@ -1,6 +1,6 @@
 import type { TimelineDataItem, TimelineDataTrack } from './types'
 
-import { defaultTimelineRendererTheme, renderTimeline } from '@proj-airi/canvas-timeline-renderer'
+import { defaultTimelineRendererTheme, fitText, renderTimeline } from '@proj-airi/canvas-timeline-renderer'
 import { describe, expect, it } from 'vitest'
 
 import { describeTargets } from '../composables/useTimelineDataTracks'
@@ -63,6 +63,17 @@ describe('data lane rendering', () => {
     const selected = renderLane(items, 0)
     // The selected marker is larger, so a pixel just outside the plain marker becomes colored.
     expect(selected.pixel(200 + 5 / 0.9)).not.toEqual(plain.pixel(200 + 5 / 0.9))
+  })
+
+  it('truncates labels with an ellipsis instead of squeezing glyphs, and drops unreadable ones', () => {
+    const context = new OffscreenCanvas(10, 10).getContext('2d')!
+    context.font = defaultTimelineRendererTheme.fonts.clip
+    const label = 'observed: Bread x4, Oak Sapling x2 · world: Bread x2'
+    expect(fitText(context, label, 10_000)).toBe(label)
+    const fitted = fitText(context, label, 80)!
+    expect(fitted.endsWith('…')).toBe(true)
+    expect(context.measureText(fitted).width).toBeLessThanOrEqual(80)
+    expect(fitText(context, label, 12)).toBeNull()
   })
 
   it('aggregates thousands of points into a fast histogram', () => {

@@ -4,6 +4,8 @@
 
 import type { RenderContext } from '#renderer/render/types';
 
+import { fitText } from '#renderer/render/text';
+
 export const DATA_LANE_POINT = 0;
 export const DATA_LANE_INTERVAL = 1;
 
@@ -76,7 +78,8 @@ export function drawDataLane(
       ctx.font = theme.fonts.clip;
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
-      ctx.fillText(lane.message, 8, y + trackHeight / 2, Math.max(0, drawWidth - 16));
+      const message = fitText(ctx, lane.message, drawWidth - 16);
+      if (message) ctx.fillText(message, 8, y + trackHeight / 2);
     }
     return;
   }
@@ -105,12 +108,21 @@ export function drawDataLane(
   ctx.font = theme.fonts.clip;
   ctx.textBaseline = 'middle';
   ctx.textAlign = 'left';
+  // Right edge of the last outlined bar and of the last drawn label. Intervals are sorted by
+  // start, so comparing with the previous one is enough to keep neighbours from painting over
+  // each other.
+  let previousBarRight = -Infinity;
+  let previousLabelRight = -Infinity;
   for (let index = begin; index < end; index += 1) {
     if (lane.kinds[index] !== DATA_LANE_INTERVAL) continue;
-    const x0 = Math.max(-2, tickToX(lane.starts[index]!));
+    let x0 = Math.max(-2, tickToX(lane.starts[index]!));
     const x1 = Math.min(drawWidth + 2, tickToX(lane.ends[index]!));
     if (x1 < 0 || x0 > drawWidth) continue;
     const color = lane.colors[index] ?? theme.colors.clip.border;
+    // Bars that touch within a pixel (back-to-back samples of one target) shared a border and
+    // read as one overlapping box; leave a 1px gap. Real overlaps are drawn as they are.
+    if (x0 < previousBarRight + 1 && x0 > previousBarRight - 2 && x1 - (previousBarRight + 1) >= 2)
+      x0 = previousBarRight + 1;
     const width = x1 - x0;
     if (width < 2) {
       if (color === runColor && x0 <= runEnd + 1) {
@@ -130,10 +142,17 @@ export function drawDataLane(
     ctx.strokeStyle = color;
     ctx.lineWidth = 1;
     ctx.strokeRect(Math.floor(x0) + 0.5, barY + 0.5, Math.max(1, Math.floor(width) - 1), barHeight - 1);
+    previousBarRight = Math.max(previousBarRight, x0 + width);
     const label = lane.labels[index];
-    if (label && width > 36) {
+    // The label stays inside the on-screen part of its own bar and never starts under the
+    // previous label; when that leaves too little room, the bar goes unlabeled.
+    const labelLeft = Math.max(x0, 0, previousLabelRight) + 4;
+    const labelRight = Math.min(x1, drawWidth) - 4;
+    const text = label ? fitText(ctx, label, labelRight - labelLeft) : null;
+    if (text) {
       ctx.fillStyle = theme.colors.clip.text;
-      ctx.fillText(label, Math.max(x0, 0) + 4, midY, Math.min(width, drawWidth) - 8);
+      ctx.fillText(text, labelLeft, midY);
+      previousLabelRight = labelLeft + ctx.measureText(text).width;
     }
   }
   flushRun();
@@ -191,6 +210,11 @@ function drawPointMarkers(
     ctx.lineTo(x - POINT_SIZE, midY);
     ctx.closePath();
     ctx.fill();
+    // Diamonds are 2 * POINT_SIZE wide but only merge below DENSE_POINT_SPACING, so neighbours a
+    // few pixels apart overlapped into one blob. A background-colored rim keeps each one distinct.
+    ctx.strokeStyle = theme.colors.background;
+    ctx.lineWidth = 1;
+    ctx.stroke();
   }
 }
 

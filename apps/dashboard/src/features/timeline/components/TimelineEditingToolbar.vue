@@ -24,6 +24,7 @@ const emit = defineEmits<{
   undo: []
   zoomIn: []
   zoomOut: []
+  zoomToFit: []
 }>()
 </script>
 
@@ -67,6 +68,9 @@ const emit = defineEmits<{
       </ControlButton>
       <ControlButton compact label="Zoom in" title="Zoom in" @click="emit('zoomIn')">
         <span aria-hidden="true" class="i-mingcute-zoom-in-line text-base" />
+      </ControlButton>
+      <ControlButton compact label="Zoom to fit" title="Zoom to fit the whole timeline" @click="emit('zoomToFit')">
+        <span aria-hidden="true" class="i-mingcute-fullscreen-line text-base" />
       </ControlButton>
     </div>
   </section>

@@ -57,7 +57,7 @@ export function createTimelineEngine(episode: EpisodeDraft, options: CreateTimel
     visible: true,
   }))
 
-  return new TimelineEngine({
+  const engine = new TimelineEngine({
     duration: toTickTime(episode.durationTicks),
     playheadTime: previous?.playheadTime ?? toTickTime(0),
     scrollLeft: previous?.scrollLeft ?? 0,
@@ -65,9 +65,27 @@ export function createTimelineEngine(episode: EpisodeDraft, options: CreateTimel
     snapEnabled: editable && (previous?.isSnappingEnabled ?? true),
     snapThresholdPixels: 8,
     tracks,
-    zoomConstraints: { frameRate: SERVER_TICK_RATE, minZoomScale: 8 },
+    // NOTICE: The engine already floors zoom at "content fills the viewport". The previous 8 px/s
+    // floor sat above that for any session longer than about viewport/8 seconds (1:44 at 830px),
+    // so an 8-minute session could never be seen whole. Keep only a tiny positive floor, which
+    // the engine requires, and let the content-fit floor decide.
+    zoomConstraints: { frameRate: SERVER_TICK_RATE, minZoomScale: 0.001 },
     zoomScale: previous?.zoomScale ?? 18,
   })
+
+  // NOTICE: The constructor clamps zoom and scroll against a 1000px default viewport because it
+  // takes no viewport size; the canvas only re-measures a new engine later. Carry the measured size
+  // over and re-apply the previous view, otherwise a fitted or zoomed-out timeline snapped back to
+  // about viewport/1000 of the session after every edit or data-track load.
+  const viewport = previous?.getState()
+  if (previous && viewport?.viewportWidth) {
+    engine.setViewportWidth(viewport.viewportWidth)
+    if (viewport.viewportHeight)
+      engine.setViewportHeight(viewport.viewportHeight)
+    engine.setZoomScale(previous.zoomScale)
+    engine.setScrollLeft(previous.scrollLeft)
+  }
+  return engine
 }
 
 export function readSegmentEdit(engine: TimelineEngine, segmentId: string): CommitSegmentEdit | null {
