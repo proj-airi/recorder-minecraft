@@ -10,7 +10,7 @@ import PlayerInputCard from './PlayerInputCard.vue'
 import { useEditorWorkspaceContext } from '../../editor/composables/useEditorWorkspaceContext'
 import { latestAtOrBefore } from '../../event-log/captureEvents'
 import { useCaptureEventSources } from '../../event-log/useCaptureEvents'
-import { playerColor } from '../../players/colors'
+import { playerLaneColors } from '../../players/colors'
 import { placementContainsTick, playServerTickAt } from '../../timeline/ticks'
 
 const { episode, session } = useEditorWorkspaceContext()
@@ -21,6 +21,10 @@ const lanes = computed(() => episode().tracks.flatMap(track => track.role === 'p
 const sessionLabels = computed(() => new Map(episode().sessions.map(candidate => [candidate.key, candidate.label])))
 const multipleSessions = computed(() => episode().sessions.length > 1)
 const selectedLaneId = computed(() => {
+  // A track header selection names the lane directly; a session header falls through to the clip.
+  const trackId = session.selectedTrackId.value
+  if (trackId && lanes.value.some(lane => lane.id === trackId))
+    return trackId
   const segment = episode().segments.find(candidate => candidate.id === session.selectedSegmentId.value)
   const placement = segment?.placementId ? episode().placements.find(candidate => candidate.id === segment.placementId) : undefined
   return placement?.laneId ?? null
@@ -33,7 +37,7 @@ const placementsByLane = computed(() => {
     byLane.set(placement.laneId, [...(byLane.get(placement.laneId) ?? []), placement])
   return byLane
 })
-const laneColors = computed(() => new Map(lanes.value.map((lane, index) => [lane.id, playerColor(index)])))
+const laneColors = computed(() => playerLaneColors(episode()))
 
 /** The clip of a lane under the playhead; the latest start wins on overlap (as `placementAt`). */
 function placementOnLane(laneId: string, tick: number): null | PlayPlacement {
@@ -115,7 +119,7 @@ const cards = computed(() => {
             :aria-pressed="!showAll"
             class="border-0 rounded px-2 py-0.5 text-[11px]"
             :class="!showAll ? 'bg-white/12 text-neutral-100' : 'bg-transparent text-neutral-500 hover:text-neutral-200'"
-            title="Only the player of the selected clip"
+            title="Only the selected player (its track header or one of its clips)"
             type="button"
             @click="showAll = false"
           >

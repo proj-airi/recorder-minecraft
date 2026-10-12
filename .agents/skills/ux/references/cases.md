@@ -4,7 +4,7 @@ Instances of each `ux` rule in this repository. ❌ is a violation, ✅ is a cas
 
 Paths are relative to `apps/dashboard/src/` unless they start with `internal/` or `packages/`.
 
-Seeded from the first audit of the editor workspace (`origin/main @ ac9b4e5`, 2026-10-12; L1 and L2). Updated after #21 (`origin/main @ a550069`, 2026-10-12; L1, L2, and L3 on a two-player Airicraft world session). Entries marked `ac9b4e5` were not re-checked at `a550069`.
+Seeded from the first audit of the editor workspace (`origin/main @ ac9b4e5`, 2026-10-12; L1 and L2). Updated after #21 (`origin/main @ a550069`, 2026-10-12; L1, L2, and L3 on a two-player Airicraft world session). Entries marked `ac9b4e5` were not re-checked at `a550069`. Track selection and reordering were verified on `neko/feat/timeline-track-select` (based on `a09b839`, 2026-10-12; L1, L2, and L3 on the same session).
 
 ## no-unknown-as-absent
 
@@ -57,7 +57,8 @@ Seeded from the first audit of the editor workspace (`origin/main @ ac9b4e5`, 20
 
 ## no-indistinct-identity
 
-- ❌ `a550069`: Event log and timeline still give every player the same pink dot. Inputs uses the lane-order palette and avatars; the other panels should adopt `features/players/colors.ts` and `PlayerAvatar`.
+- ❌ `a550069`: Event log still gives every player the same pink dot; it should adopt `playerLaneColors` and `PlayerAvatar` from `features/players/`. (The timeline adopted the colors on `timeline-track-select`.)
+- ❌→✅ `timeline-track-select`: identity colors were assigned by the current lane order, so reordering two lanes swapped the players' colors in Inputs. L3: dragging Tester above Airi turned Tester pink and Airi blue. Colors now follow the order in which lanes first joined the episode, and the timeline headers show the same color dot as the Inputs card. `features/players/colors.ts` (`playerLaneColors`), `features/timeline/components/TimelineTrackPanel.vue`
 - ❌ Raw identifiers as labels: `set_carried_item`, `client_information`, `world_entities_not_recorded`, `container (-32, 96, 15)`; "All targets" shows `player 40f5db53` although the alignment has names. `features/extensions/evidence/providers.ts`
 - ✅ `a550069`: players carry an avatar (Mojang face for online-mode v4 UUIDs, a deterministic generated face for offline v3 UUIDs) and a distinct lane-order color in Inputs. `features/players/`
 - ✅ `a550069`: inventory cells show the item icon rendered from the operator's client jar, with the full name as fallback and tooltip, instead of names truncated to four letters or two-letter monograms. `features/items/`, `internal/models/itemicons/`
@@ -74,6 +75,7 @@ Seeded from the first audit of the editor workspace (`origin/main @ ac9b4e5`, 20
 ## no-inconsistent-readout
 
 - ❌ `ac9b4e5`: Preview and Monitor compute the tick of one frame with different models (see `no-unmarked-estimate`).
+- ✅ `timeline-track-select`: one "selected player" is shared by the timeline and Inputs. Clicking a player's track header selects the lane (its row and data tracks are highlighted, with the identity color on the row's edge), selecting a clip selects its lane, and Inputs "Selected" follows that lane. Undo or delete that removes the lane clears the selection. `features/timeline/composables/useTimelineSession.ts` (`selectedTrackId`), `components/TimelineTrackHeaders.vue`, `features/inputs/components/InputMonitorPanel.vue`
 
 ## no-inert-action
 
@@ -88,4 +90,6 @@ Seeded from the first audit of the editor workspace (`origin/main @ ac9b4e5`, 20
 
 - ✅ `a550069`: editor shortcuts yield Space, Backspace/Delete, and arrows to the focused control's own use of them (text fields, buttons and tabs for Space, composite widgets such as the resource tree for arrows and deletion); the timeline canvas (`role="application"`) keeps every shortcut. L3: Space on a focused button no longer toggles playback, Backspace in the tree no longer deletes the selected segment. `features/editor/composables/useEditorKeyboardControls.ts` (`focusOwnsKey`)
 - ✅ `a550069`: buttons release focus after mouse clicks (`detail > 0`) and keep it for keyboard activation. Without this, yielding Space to a focused button made the next Space press "Go to start" again instead of toggling playback, and Chrome drew a focus ring on it. Dialogs and popovers keep their focus. `App.vue`
+- ✅ `timeline-track-select`: track reordering lives on the row. A mouse press that moves less than 4px selects; a drag anywhere on a player or session row reorders it. There is no separate mouse grip: the row's type icon stays visible, the row carries the grab cursor and the "drag to reorder" tooltip, and the icon is the keyboard handle (Enter or Space selects, Alt+↑/↓ moves one step, `aria-keyshortcuts`), swapping to a grip only under keyboard focus. On touch, a swipe keeps scrolling the list and a 300 ms long press lifts the row. L3: hovering shows the type icon, not a grip; keyboard focus shows the grip; Space on the focused handle selects the track without toggling playback; Alt+↓ kept focus on the moved handle. `features/timeline/components/TimelineTrackHeaders.vue`
+- ✅ `timeline-track-select`: a row drag shows what is moving and where it will land: a lifted, shadowed copy of the row follows the pointer (grab point kept, "N data tracks move with it"), the row stays in place dimmed, and an insertion line marks the landing edge (above the target when moving up, below the target's whole group when moving down). Hovering a lane's data rows targets that lane, so the line does not drop out while crossing them. Near the list's top or bottom edge the list scrolls every frame. L2/L3: mid-drag screenshot shows ghost, line, and placeholder; holding the ghost at the bottom edge scrolled the list 0 → 200px (its maximum) with the canvas in sync. Before, a drag only dimmed the row and outlined the target, and nothing followed the pointer. `features/timeline/components/TimelineTrackHeaders.vue`
 - ✅ The resource tree handles its own arrow keys and stops propagation so they do not seek the timeline. `features/resources/components/ResourceBrowserPanel.vue`
