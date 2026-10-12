@@ -16,6 +16,7 @@ import (
 	servermiddleware "github.com/proj-airi/recorder-minecraft/internal/grpc/servers/middlewares"
 	grpcservices "github.com/proj-airi/recorder-minecraft/internal/grpc/services"
 	"github.com/proj-airi/recorder-minecraft/internal/models/catalog"
+	"github.com/proj-airi/recorder-minecraft/internal/models/itemicons"
 	"github.com/proj-airi/recorder-minecraft/pkg/grpcpkg"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -24,6 +25,8 @@ import (
 type Options struct {
 	GRPCAddress string
 	HTTPAddress string
+	// MinecraftClientJar enables /item-icons when set; see configs.Assets.
+	MinecraftClientJar string
 }
 
 type Server struct {
@@ -71,6 +74,15 @@ func (server *Server) Serve(ctx context.Context) error {
 		return fmt.Errorf("open artifact root: %w", err)
 	}
 	defer func() { _ = assetRoot.Close() }()
+	var icons *itemicons.Source
+	if server.options.MinecraftClientJar != "" {
+		icons, err = itemicons.Open(server.options.MinecraftClientJar)
+		if err != nil {
+			_ = grpcListener.Close()
+			return err
+		}
+		defer func() { _ = icons.Close() }()
+	}
 
 	echoServer := echo.New()
 	echoServer.Use(middleware.CORSWithConfig(middleware.CORSConfig{
@@ -84,6 +96,8 @@ func (server *Server) Serve(ctx context.Context) error {
 	notFound := func(*echo.Context) error { return echo.ErrNotFound }
 	echoServer.GET("/assets/*", notFound, assetsMiddleware)
 	echoServer.HEAD("/assets/*", notFound, assetsMiddleware)
+	echoServer.GET("/item-icons/:namespace/:file", servermiddleware.ItemIcons(icons))
+	echoServer.GET("/game-textures/:namespace/*", servermiddleware.GameTextures(icons))
 	echoServer.GET("/healthz", func(context *echo.Context) error { return context.NoContent(http.StatusNoContent) })
 	httpServer := &http.Server{Addr: server.options.HTTPAddress, Handler: echoServer, ReadHeaderTimeout: 10 * time.Second}
 	httpListener, err := net.Listen("tcp", server.options.HTTPAddress)
