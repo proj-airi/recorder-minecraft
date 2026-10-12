@@ -31,6 +31,10 @@ Choose checks from the files changed:
   `gradle --project-dir processors/scene-extractor build installDist`.
 - `mods/renderer-mod/` changes: run
   `gradle --project-dir mods/renderer-mod build`.
+- `apps/dashboard/` or frontend `packages/` changes: run `pnpm exec eslint .`,
+  `pnpm exec oxlint .`, `pnpm -r run typecheck`,
+  `pnpm --filter @proj-airi/recorder-minecraft-dashboard run test`, and
+  `pnpm --filter @proj-airi/recorder-minecraft-dashboard exec vite build`.
 - Server image changes: run
   `gradle --project-dir mods/recorder-mod stageServerImage`; when the extractor
   or Docker build context changes, also build the extractor distribution and
@@ -47,6 +51,8 @@ Use `gofmt` for Go. Follow standard Go naming, Java/Kotlin `UpperCamelCase` type
 ## Testing Guidelines
 
 Go tests use the standard `testing` package and files named `*_test.go`. JVM module tests use JUnit 5/Kotlin Test and classes named `*Test`. Add regression coverage beside the affected module. Changes to capture alignment, rendering, or retention should also be exercised with a completed real replay; do not mutate source captures during verification.
+
+A dashboard UI change is not complete until it has passed the `ux-audit` skill's change verification (`.agents/skills/ux-audit`): run the dashboard on real data, screenshot every touched surface (L2), drive the behaviors the change fixes or could break (L3), and land the result in the `ux` cases. Passing tests and lint alone do not finish a UI change. A refactor that should not change the render also needs the zero-tolerance screenshot diff from the audit probes.
 
 ## Readability, Naming, and Comments
 
@@ -98,6 +104,10 @@ Issues are tracked in this repository's GitHub Issues. See `docs/agents/issue-tr
 ### Triage labels
 
 The canonical triage roles use their default GitHub label names. See `docs/agents/triage-labels.md`.
+
+### UX
+
+`.agents/skills/ux` defines how the dashboard must read and behave as `no-*` rules with repository cases; `.agents/skills/ux-audit` audits one surface against them and verifies UI changes. Always run `ux-audit` before declaring a dashboard UI change complete.
 
 ### Domain docs
 
