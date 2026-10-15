@@ -91,12 +91,6 @@ jobs:
             goarch: arm64
             executable: recorder-minecraft
             archive: recorder-minecraft-aarch64-unknown-linux-gnu.tar.gz
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            goos: windows
-            goarch: amd64
-            executable: recorder-minecraft.exe
-            archive: recorder-minecraft-x86_64-pc-windows-msvc.zip
 
     steps:
       - name: Check out repository
@@ -173,7 +167,6 @@ jobs:
         run: security delete-keychain "$RUNNER_TEMP/recorder-minecraft-signing.keychain-db" || true
 
       - name: Verify executable and embedded payload
-        if: runner.os != 'Windows'
         run: |
           set -euo pipefail
           "target/${{ matrix.target }}/${{ matrix.executable }}" version
@@ -181,31 +174,11 @@ jobs:
           test -s exported/mc-recorder-renderer.jar
           test -s exported/mc-recorder-scene-extractor.zip
 
-      - name: Verify executable and embedded payload
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          & "target/${{ matrix.target }}/${{ matrix.executable }}" version
-          & "target/${{ matrix.target }}/${{ matrix.executable }}" export-assets exported
-          if (!(Test-Path "exported/mc-recorder-renderer.jar") -or !(Test-Path "exported/mc-recorder-scene-extractor.zip")) { exit 1 }
-
       - name: Create archive
-        if: runner.os != 'Windows'
         run: tar -czf "${{ matrix.archive }}" -C "target/${{ matrix.target }}" "${{ matrix.executable }}"
 
-      - name: Create archive
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: Compress-Archive -Path "target/${{ matrix.target }}/${{ matrix.executable }}" -DestinationPath "${{ matrix.archive }}"
-
       - name: Calculate archive hash
-        if: runner.os != 'Windows'
         run: shasum -a 256 "${{ matrix.archive }}" | awk '{ print $1 }' > "${{ matrix.archive }}.sha256"
-
-      - name: Calculate archive hash
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: Set-Content -Path "${{ matrix.archive }}.sha256" -Value (Get-FileHash -Algorithm SHA256 "${{ matrix.archive }}").Hash.ToLower()
 
       - name: Upload workflow artifacts
         uses: actions/upload-artifact@v7
@@ -281,7 +254,8 @@ jobs:
           mkdir release
           find artifacts -mindepth 2 -maxdepth 2 -type f ! -path 'artifacts/bundled-assets/*' ! -path 'artifacts/*apple-darwin*/*' -exec cp {} release/ \;
           find artifacts -mindepth 2 -maxdepth 2 -type f -path 'artifacts/notarized-*/*' -exec cp {} release/ \;
-          test "$(find release -type f | wc -l)" -eq 10
+          # Two Linux and two notarized macOS archives, each with a .sha256 file.
+          test "$(find release -type f | wc -l)" -eq 8
 
       - name: Upload release assets
         env:
