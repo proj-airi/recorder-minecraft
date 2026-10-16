@@ -3,9 +3,13 @@
   "package": "dev.mcdata.renderer.mixin",
   "compatibilityLevel": "JAVA_21",
   "client": [
+    "ChunkBatchRateMixin",
+    "FlashbackExportFrameReadinessMixin",
     "FlashbackHiddenHandMixin",
     "FlashbackPresentationPlayerMixin",
-    "ReplayServerPacketCompatibilityMixin"
+    "LevelRendererAccessor",
+    "ReplayServerPacketCompatibilityMixin",
+    "SectionOcclusionGraphAccessor"
   ],
   "injectors": {
     "defaultRequire": 1

@@ -26,6 +26,10 @@ public final class ReplayPacketCompatibility {
         automatedRenderActive = true;
     }
 
+    public static synchronized boolean isAutomatedRenderActive() {
+        return automatedRenderActive;
+    }
+
     public static synchronized Suppression suppressIfAutomated(String packetType) {
         if (!automatedRenderActive) {
             return null;

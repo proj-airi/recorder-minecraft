@@ -102,18 +102,6 @@ final class TimelineRangeResolverTest {
     }
 
     @Test
-    void distinguishesAnIntermediateTailSeekMarkerFromAnAlignedMarker() {
-        TimelineRangeResolver.Marker first = new TimelineRangeResolver.Marker(6898, 3, 2419);
-
-        assertFalse(TimelineRangeResolver.hasSameOffset(
-            first, new TimelineRangeResolver.Marker(6924, 682, 2600)
-        ));
-        assertTrue(TimelineRangeResolver.hasSameOffset(
-            first, new TimelineRangeResolver.Marker(7577, 682, 9002)
-        ));
-    }
-
-    @Test
     void rejectsAnAdvancingMarkerWithOffsetDriftDuringForwardScan() {
         assertThrows(IllegalArgumentException.class, () -> TimelineRangeResolver.extendForwardCoverage(
             new TimelineRangeResolver.Marker(1200, 3, 2419),
@@ -134,6 +122,68 @@ final class TimelineRangeResolverTest {
         assertEquals(-1, resolution.replayStartTick());
         assertEquals(200, resolution.globalStartTick());
         assertEquals(170, resolution.globalEndTick());
+    }
+
+    @Test
+    void boundsCoverageByTheReplayTailAtTheFirstMarkerOffset() {
+        TimelineRangeResolver.Marker first = new TimelineRangeResolver.Marker(17, 3, 40);
+
+        TimelineRangeResolver.Marker bound = TimelineRangeResolver.tailBound(first, 1300);
+
+        assertEquals(1314, bound.serverTick());
+        assertEquals(1300, bound.replayTick());
+        TimelineRangeResolver.Resolution resolution = TimelineRangeResolver.resolve(17, 1315, 1300, first, bound);
+        assertEquals(3, resolution.replayStartTick());
+        assertEquals(1300, resolution.replayEndTick());
+        assertEquals(1314, resolution.globalEndTick());
+    }
+
+    @Test
+    void keepsTheRenderedRangeWhenMarkersCoverIt() {
+        TimelineRangeResolver.Resolution rendered = TimelineRangeResolver.resolve(
+            200, 240, 1300,
+            new TimelineRangeResolver.Marker(17, 3),
+            new TimelineRangeResolver.Marker(1314, 1300)
+        );
+
+        TimelineRangeResolver.Resolution trimmed = TimelineRangeResolver.trimToCoverageEnd(rendered, 1314);
+
+        assertEquals(TimelineRangeResolver.Status.READY, trimmed.status());
+        assertEquals(240, trimmed.globalEndTick());
+        assertEquals(226, trimmed.replayEndTick());
+        assertEquals(1314, trimmed.coverageEndTick());
+    }
+
+    @Test
+    void trimsFramesPastTheLastAppliedMarker() {
+        TimelineRangeResolver.Resolution rendered = TimelineRangeResolver.resolve(
+            17, 1315, 1300,
+            new TimelineRangeResolver.Marker(17, 3),
+            new TimelineRangeResolver.Marker(1314, 1300)
+        );
+
+        TimelineRangeResolver.Resolution trimmed = TimelineRangeResolver.trimToCoverageEnd(rendered, 1290);
+
+        assertEquals(TimelineRangeResolver.Status.READY, trimmed.status());
+        assertEquals(17, trimmed.globalStartTick());
+        assertEquals(1290, trimmed.globalEndTick());
+        assertEquals(3, trimmed.replayStartTick());
+        assertEquals(1276, trimmed.replayEndTick());
+        assertEquals(1290, trimmed.coverageEndTick());
+    }
+
+    @Test
+    void reportsNoCoverageWhenMarkersEndBeforeTheRenderedStart() {
+        TimelineRangeResolver.Resolution rendered = TimelineRangeResolver.resolve(
+            200, 240, 1300,
+            new TimelineRangeResolver.Marker(17, 3),
+            new TimelineRangeResolver.Marker(1314, 1300)
+        );
+
+        TimelineRangeResolver.Resolution trimmed = TimelineRangeResolver.trimToCoverageEnd(rendered, 150);
+
+        assertEquals(TimelineRangeResolver.Status.NO_COVERAGE, trimmed.status());
+        assertEquals(-1, trimmed.replayEndTick());
     }
 
     @Test
