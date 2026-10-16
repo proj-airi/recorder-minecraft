@@ -331,6 +331,12 @@ When requested ticks and replay coverage differ, the renderer reports and uses
 their explicit intersection. It does not interpolate absent ticks or compress
 gaps invisibly.
 
+The renderer confirms coverage from the markers it applies while it exports, so
+a render of part of a replay reports coverage up to its last rendered tick.
+Each frame waits until the sections the camera can see are compiled. A tick at
+which the recorded client had not yet received the chunks around it, such as
+the first ticks after joining, shows no terrain there.
+
 ## Coverage and modality gaps
 
 `client_visible_best_effort` describes replay world coverage. It is not a claim

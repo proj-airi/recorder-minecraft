@@ -44,6 +44,44 @@ final class TimelineRangeResolver {
         return ready(effectiveStart, effectiveEnd, offset, totalReplayTicks, coverageStart, coverageEnd);
     }
 
+    // The latest marker this replay can hold at the first marker's offset. Rendering uses it as
+    // the provisional coverage end, so the export never follows a seek to the replay tail.
+    static Marker tailBound(Marker first, int totalReplayTicks) {
+        if (first == null) {
+            throw new IllegalArgumentException("A first matching timeline marker is required");
+        }
+        validateMarker(first, totalReplayTicks, "first");
+        return new Marker(first.serverTick() + (totalReplayTicks - first.replayTick()), totalReplayTicks);
+    }
+
+    // Shrinks a rendered range to the last marker the export applied.
+    static Resolution trimToCoverageEnd(Resolution rendered, long coverageEnd) {
+        if (rendered.status() != Status.READY) {
+            throw new IllegalArgumentException("Only a ready range can be trimmed");
+        }
+        if (coverageEnd >= rendered.globalEndTick()) {
+            return new Resolution(
+                Status.READY, rendered.globalTickOffset(),
+                rendered.replayStartTick(), rendered.replayEndTick(),
+                rendered.globalStartTick(), rendered.globalEndTick(),
+                rendered.coverageStartTick(), coverageEnd
+            );
+        }
+        if (coverageEnd < rendered.globalStartTick()) {
+            return new Resolution(
+                Status.NO_COVERAGE, rendered.globalTickOffset(), -1, -1,
+                rendered.globalStartTick(), coverageEnd,
+                rendered.coverageStartTick(), coverageEnd
+            );
+        }
+        return new Resolution(
+            Status.READY, rendered.globalTickOffset(),
+            rendered.replayStartTick(), (int) (coverageEnd - rendered.globalTickOffset()),
+            rendered.globalStartTick(), coverageEnd,
+            rendered.coverageStartTick(), coverageEnd
+        );
+    }
+
     static Marker extendForwardCoverage(Marker first, Marker last, Marker candidate) {
         if (first == null || last == null || candidate == null) {
             throw new IllegalArgumentException("Timeline markers are required while extending coverage");
@@ -72,14 +110,6 @@ final class TimelineRangeResolver {
             );
         }
         return candidate;
-    }
-
-    static boolean hasSameOffset(Marker first, Marker candidate) {
-        if (first == null || candidate == null) {
-            return false;
-        }
-        return first.serverTick() - first.replayTick()
-            == candidate.serverTick() - candidate.replayTick();
     }
 
     static boolean matchesResolvedStart(

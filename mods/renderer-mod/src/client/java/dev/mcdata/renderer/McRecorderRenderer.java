@@ -60,7 +60,7 @@ public final class McRecorderRenderer implements ClientModInitializer {
     private static final int MAX_ANCHOR_SCAN_TICKS = 200;
     // NOTICE: ReplayServer applies goToReplayTick on its server thread. Three client ticks
     // intermittently inspected the old timeline state and rejected healthy captures before
-    // the tail marker arrived, so allow roughly one second for the cross-thread seek to settle.
+    // the marker arrived, so allow roughly one second for the cross-thread seek to settle.
     private static final int ANCHOR_SETTLE_CLIENT_TICKS = 20;
     private static final long EXPORT_SETTLE_NANOS = 1_000_000_000L;
     private static volatile AbstractClientPlayer presentationPlayerOverride;
@@ -81,7 +81,8 @@ public final class McRecorderRenderer implements ClientModInitializer {
     private int anchorSettleTicks;
     private volatile TimelineObservation timelineObservation;
     private TimelineObservation firstTimelineObservation;
-    private TimelineObservation lastTimelineObservation;
+    private TimelineRangeResolver.Resolution renderedRange;
+    private TimelineRangeResolver.Marker exportCoverage;
     private int progressTicks;
     private boolean clientPresentationActive;
     private AbstractClientPlayer clientPresentationTarget;
@@ -106,6 +107,12 @@ public final class McRecorderRenderer implements ClientModInitializer {
                         && payload.serverTick() >= this.resolvedGlobalStartTick
                         && payload.serverTick() <= this.resolvedGlobalEndTick;
                     if (countsTowardRender) {
+                        // The export plays the replay one tick at a time, so each marker carries
+                        // its own replay tick here; a seek delivers markers in a burst instead.
+                        this.exportCoverage = TimelineRangeResolver.extendForwardCoverage(
+                            marker(this.firstTimelineObservation), this.exportCoverage,
+                            marker(this.timelineObservation)
+                        );
                         this.maintainClientPresentation(context.client(), true);
                     }
                 } catch (Throwable throwable) {
@@ -146,7 +153,6 @@ public final class McRecorderRenderer implements ClientModInitializer {
                 case OPEN_REPLAY -> this.scheduleOpenReplay(minecraft);
                 case WAIT_REPLAY -> this.waitForReplay(minecraft);
                 case FIND_FIRST_ANCHOR -> this.findFirstTimelineAnchor(minecraft);
-                case FIND_LAST_ANCHOR -> this.findLastTimelineAnchor(minecraft);
                 case WAIT_TARGET -> this.waitForTargetAndExport(minecraft);
                 case EXPORTING -> this.finishWhenExportCompletes(minecraft);
                 default -> {
@@ -212,7 +218,6 @@ public final class McRecorderRenderer implements ClientModInitializer {
         this.anchorSettleTicks = 0;
         this.timelineObservation = null;
         this.firstTimelineObservation = null;
-        this.lastTimelineObservation = null;
         this.phase = Phase.FIND_FIRST_ANCHOR;
         this.waitTicks = 0;
         this.writeProgress(RenderProgressStatus.RENDER_PROGRESS_STATUS_FINDING_COVERAGE, 0, 0);
@@ -228,18 +233,20 @@ public final class McRecorderRenderer implements ClientModInitializer {
         TimelineObservation observation = this.timelineObservation;
         if (observation != null && this.matchesJob(observation.payload())) {
             this.firstTimelineObservation = observation;
-            this.lastTimelineObservation = observation;
-            if (observation.payload().serverTick() >= this.job.globalEndTick()) {
-                this.resolveTimelineRange(replayServer, observation, observation);
-                if (this.phase == Phase.NO_COVERAGE) {
-                    this.completeNoCoverage(minecraft);
-                }
-                return;
+            TimelineRangeResolver.Marker first = marker(observation);
+            // NOTICE: Seeking to the replay tail and back before the export left the tail's
+            // chunks and blocks in the client, so early frames showed the final world and a
+            // replay that unloaded chunks rendered without terrain. A tail seek also delivers its
+            // markers in a burst stamped with the seek target, so the marker it settled on fell
+            // short of the real tail. Render up to the latest tick the replay can cover and
+            // confirm coverage from the markers the export applies.
+            TimelineRangeResolver.Marker last = observation.payload().serverTick() >= this.job.globalEndTick()
+                ? first
+                : TimelineRangeResolver.tailBound(first, replayServer.getTotalReplayTicks());
+            this.resolveTimelineRange(replayServer, first, last);
+            if (this.phase == Phase.NO_COVERAGE) {
+                this.completeNoCoverage(minecraft);
             }
-            this.anchorScanRequested = false;
-            this.anchorSettleTicks = 0;
-            this.timelineObservation = null;
-            this.phase = Phase.FIND_LAST_ANCHOR;
             return;
         }
 
@@ -249,61 +256,6 @@ public final class McRecorderRenderer implements ClientModInitializer {
                 "No matching recorder-minecraft:timeline marker found in the first " + scanLimit + " replay ticks"
             );
         }
-    }
-
-    private void findLastTimelineAnchor(Minecraft minecraft) throws IOException {
-        ReplayServer replayServer = Flashback.getReplayServer();
-        if (replayServer == null) {
-            this.checkTimeout("replay server while finding final timeline marker");
-            return;
-        }
-
-        if (!this.seekAndSettleAtReplayTick(replayServer, replayServer.getTotalReplayTicks())) {
-            return;
-        }
-
-        TimelineObservation observation = this.timelineObservation;
-        if (observation != null && this.matchesJob(observation.payload())) {
-            TimelineRangeResolver.Marker first = marker(this.firstTimelineObservation);
-            TimelineRangeResolver.Marker candidate = marker(observation);
-            if (!TimelineRangeResolver.hasSameOffset(first, candidate)) {
-                this.checkTimeout("aligned final timeline marker after replay tail seek");
-                return;
-            }
-            TimelineRangeResolver.Marker previous = marker(this.lastTimelineObservation);
-            TimelineRangeResolver.Marker accepted = TimelineRangeResolver.extendForwardCoverage(
-                first, previous, candidate
-            );
-            if (!accepted.equals(previous)) {
-                this.lastTimelineObservation = observation;
-            }
-            this.resolveTimelineRange(
-                replayServer, this.firstTimelineObservation, this.lastTimelineObservation
-            );
-            if (this.phase == Phase.NO_COVERAGE) {
-                this.completeNoCoverage(minecraft);
-            }
-            return;
-        }
-
-        throw new IllegalStateException(
-            "No matching recorder-minecraft:timeline marker was applied at the replay tail"
-        );
-    }
-
-    private boolean seekAndSettleAtReplayTick(ReplayServer replayServer, int replayTick) {
-        if (!this.anchorScanRequested) {
-            this.timelineObservation = null;
-            replayServer.goToReplayTick(replayTick);
-            replayServer.replayPaused = true;
-            this.anchorScanRequested = true;
-            this.anchorSettleTicks = 0;
-            LOGGER.info("Seeking directly to replay tail tick {} to establish timeline coverage", replayTick);
-            return false;
-        }
-
-        replayServer.replayPaused = true;
-        return ++this.anchorSettleTicks >= ANCHOR_SETTLE_CLIENT_TICKS;
     }
 
     private boolean advanceAnchorScan(ReplayServer replayServer, int step, int inclusiveLimit) {
@@ -331,13 +283,14 @@ public final class McRecorderRenderer implements ClientModInitializer {
 
     private void resolveTimelineRange(
         ReplayServer replayServer,
-        TimelineObservation first,
-        TimelineObservation last
+        TimelineRangeResolver.Marker first,
+        TimelineRangeResolver.Marker last
     ) {
         TimelineRangeResolver.Resolution resolution = TimelineRangeResolver.resolve(
             this.job.globalStartTick(), this.job.globalEndTick(), replayServer.getTotalReplayTicks(),
-            marker(first), last == null ? null : marker(last)
+            first, last
         );
+        this.renderedRange = resolution;
         this.globalTickOffset = resolution.globalTickOffset();
         this.resolvedGlobalStartTick = resolution.globalStartTick();
         this.resolvedGlobalEndTick = resolution.globalEndTick();
@@ -440,6 +393,7 @@ public final class McRecorderRenderer implements ClientModInitializer {
         );
 
         this.writeProgress(RenderProgressStatus.RENDER_PROGRESS_STATUS_RENDERING, 0, this.resolvedEndTick - this.resolvedStartTick + 1);
+        this.exportCoverage = marker(observation);
         Flashback.EXPORT_JOB = new ExportJob(settings);
         this.phase = Phase.EXPORTING;
         LOGGER.info(
@@ -586,8 +540,27 @@ public final class McRecorderRenderer implements ClientModInitializer {
             return;
         }
 
-        int expectedFrames = this.resolvedEndTick - this.resolvedStartTick + 1;
         this.restoreClientPresentation(minecraft);
+        TimelineRangeResolver.Resolution covered = TimelineRangeResolver.trimToCoverageEnd(
+            this.renderedRange, this.exportCoverage.serverTick()
+        );
+        this.segmentCoverageEndTick = covered.coverageEndTick();
+        if (covered.status() == TimelineRangeResolver.Status.NO_COVERAGE) {
+            this.deleteFramesAfter(0);
+            this.completeNoCoverage(minecraft);
+            return;
+        }
+        if (covered.replayEndTick() < this.resolvedEndTick) {
+            LOGGER.info(
+                "Timeline markers end at global tick {}; dropping frames after replay tick {}",
+                covered.globalEndTick(), covered.replayEndTick()
+            );
+            this.deleteFramesAfter(covered.replayEndTick() - this.resolvedStartTick + 1);
+            this.resolvedEndTick = covered.replayEndTick();
+            this.resolvedGlobalEndTick = covered.globalEndTick();
+        }
+
+        int expectedFrames = this.resolvedEndTick - this.resolvedStartTick + 1;
         int actualFrames = this.writeFrameIndex();
         if (actualFrames != expectedFrames) {
             throw new IOException("Expected " + expectedFrames + " frames, found " + actualFrames);
@@ -602,6 +575,14 @@ public final class McRecorderRenderer implements ClientModInitializer {
         LOGGER.info("Completed render job with {} frames in {}", actualFrames, this.job.output());
         if (this.job.stopWhenDone()) {
             minecraft.stop();
+        }
+    }
+
+    private void deleteFramesAfter(int keptFrames) throws IOException {
+        for (int number = keptFrames + 1; ; number++) {
+            if (!Files.deleteIfExists(this.job.output().resolve(String.format("frame_%06d.png", number)))) {
+                return;
+            }
         }
     }
 
@@ -828,7 +809,6 @@ public final class McRecorderRenderer implements ClientModInitializer {
         OPEN_REPLAY,
         WAIT_REPLAY,
         FIND_FIRST_ANCHOR,
-        FIND_LAST_ANCHOR,
         NO_COVERAGE,
         WAIT_TARGET,
         EXPORTING,
