@@ -31,6 +31,7 @@ type Metadata struct {
 	// PlayerName and TerminalReason are descriptive; UUIDs remain the identity.
 	PlayerName     string
 	TerminalReason string
+	CaptureFailure string
 }
 
 type Event struct {
@@ -81,7 +82,8 @@ func (*Service) LoadMetadata(path string) (Metadata, error) {
 	if value.GetCapture().GetEvents() != "capture/events.jsonl" || value.GetCapture().GetReplay() != "capture/replay.zip" || value.GetCapture().GetReplayFormat() != "flashback" {
 		return Metadata{}, errors.New("capture metadata does not declare the canonical primitive inputs")
 	}
-	if value.GetConnection().EndServerTick == nil {
+	connectionInfo := value.GetConnection()
+	if connectionInfo == nil || connectionInfo.EndServerTick == nil {
 		return Metadata{}, errors.New("capture is incomplete; metadata end tick must be written before processing")
 	}
 	if value.GetSessionId() == "" || len(value.GetSessionId()) > 160 {
@@ -102,6 +104,7 @@ func (*Service) LoadMetadata(path string) (Metadata, error) {
 		Path: resolved, SessionID: value.GetSessionId(), PlayerUUID: player, ConnectionID: connection,
 		StartTick: value.GetConnection().GetStartServerTick(), EndTick: value.GetConnection().GetEndServerTick(),
 		PlayerName: value.GetPlayer().GetName(), TerminalReason: value.GetConnection().GetTerminalReason(),
+		CaptureFailure: connectionInfo.GetCaptureFailure(),
 	}, nil
 }
 

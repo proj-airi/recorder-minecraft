@@ -7,6 +7,7 @@ directly from the repository root during development:
 go run ./cmd/recorder-minecraft --help
 go run ./cmd/recorder-minecraft plays list
 go run ./cmd/recorder-minecraft plays list --output json
+go run ./cmd/recorder-minecraft plays locate --play PLAY --unix-ms 1794479466128
 go run ./cmd/recorder-minecraft actions extract --help
 go run ./cmd/recorder-minecraft scene extract --help
 go run ./cmd/recorder-minecraft perception extract --help
@@ -52,3 +53,15 @@ server or Dashboard. It calculates read-only summaries for completed Plays and
 keeps incomplete Plays visible without opening their live Event streams. Use
 `--server-instance`, `--player`, `--started-at-or-after`, and `--started-before`
 to limit the selected Plays before summary calculation.
+
+`plays locate` helps locate an operation from an external log recorded on the
+same host as Recorder. It reads a completed Play's metadata and Event stream and
+prints JSON with the Server ticks and wall-clock times of the surrounding Player
+state samples. An exact millisecond match includes the first and last samples
+at that timestamp. A timestamp outside the sampled range returns
+`"status":"outside_capture"` without sample bounds.
+
+Use the bounds to find a range to inspect in a replay. Wall-clock timestamps
+are diagnostic, so the bounds describe when the log entry was observed. The
+Event sequence and Server tick still give the authoritative order of game
+events.
